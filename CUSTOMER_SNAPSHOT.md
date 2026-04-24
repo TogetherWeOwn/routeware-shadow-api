@@ -22,6 +22,9 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 | `CONTAINER_REPORT_QUERY_ID` | Same (e.g. `25`) |
 | `REPORT_QUERY_START_DATE` / `REPORT_QUERY_END_DATE` | Passed to `QueryExecuteDownload` as `startDate` / `endDate` (`yyyy-MM-dd`). Use `1900-01-01` when the modal has **no** date pickers (the WebRW script defaults to that). For reports with Kendo date pickers, set these to the same range you would choose in the UI. |
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Bearer for `.../import`, `.../sync`, and `data-snapshot/sync` |
+| `SHADOW_API_PUBLIC_BASE` | Optional. Your Worker’s public origin (e.g. `https://name.workers.dev`, no path). **Required** for the **daily cron** to use chained per-table syncs and avoid D1’s per-invocation limit. `POST /data-snapshot/sync` from a client does **not** use this (it uses the request URL host). |
+| `SNAPSHOTS_R2_ENABLED` | Set to `"false"` to disable uploading snapshot CSVs to R2. Default is on when the R2 binding is configured. |
+| R2 `SNAPSHOTS` | Binding to an R2 bucket. After a successful D1 stream from a Routeware report, the **same** CSV bytes are written to <code>snapshots/<i>UTC-date</i>/{customer\|address\|container}.csv</code> (re-run the same day overwrites). Create the bucket: <code>npx wrangler r2 bucket create routeware-csv-snapshots</code> (see <code>wrangler.toml</code> <code>bucket_name</code>). |
 | `LOGIN_USERNAME` / `LOGIN_PASSWORD` | **Required in production** for any flow that fetches from Routeware with a **browser** session: report `QueryExecuteDownload` / `*_REPORT_EXPORT_PATH` sync, etc. In **deployed** Workers, use `wrangler secret put LOGIN_USERNAME` and `wrangler secret put LOGIN_PASSWORD` (`.dev.vars` is not uploaded with deploy). The Worker’s Browser Rendering login must set cookies `.WebRW`, `RCCApi`, and `RCCApiRefresh` on the Routeware host. If sync fails with *Authentication failed: RouteWare session cookies missing…*, the login did not complete — verify credentials, MFA, or whether the WebRW login page markup still matches the selectors in `src/lib/browserAuth.ts`. |
 
 ### Query-id mode (Killeen WebRW — client `requestID`)
@@ -105,9 +108,13 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 ### D1: “Too many API requests by single Worker invocation”
 
-Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). Each **statement** counts — including each `INSERT` in a `batch()`. This project packs multiple CSV rows into **one multi-row `INSERT` per statement** (up to the 100 bound-parameter cap), which greatly reduces how fast you hit that limit.
+Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). This project uses **multi-row `INSERT` statements** (up to the 100 bound-parameter cap) to pack many CSV rows per statement.
 
-If you still exceed it (very large tables), run **`POST /api/v1/customer-snapshot/sync`**, then address, then container as **separate requests** so each run gets its own 1000-op budget, or ask Cloudflare for a limit increase.
+`POST /api/v1/data-snapshot/sync` **chains** three internal `POST` calls to `/api/v1/customer-snapshot/sync`, `.../address-.../sync`, and `.../container-.../sync`, so each table runs in a **separate** Worker invocation and gets its own ~1000-op budget. (A single in-process run would still pool all three tables into one budget.)
+
+**Cron / scheduled sync:** set **`SHADOW_API_PUBLIC_BASE`** in `wrangler.toml` to this Worker’s public origin (e.g. `https://routeware-shadow-api.5150.workers.dev`, no path). The job then uses the same chained mode. If it is empty, the cron falls back to one invocation and may hit the limit on large exports.
+
+If a **single** table still exceeds ~1000 operations, run that table’s sync in multiple passes or ask Cloudflare for a limit increase.
 
 ### 503 / `exceededMemory` (rare)
 

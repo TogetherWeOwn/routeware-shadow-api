@@ -10,3 +10,6 @@ LOGIN_PASSWORD=
 
 # Optional: disable automatic __RequestVerificationToken injection on POST save-long-form (default on in wrangler.toml)
 # CUSTOMER_SAVE_AUTO_TOKEN=false
+
+# Optional: skip writing report CSVs to R2 (wrangler.toml / dashboard R2 binding)
+# SNAPSHOTS_R2_ENABLED=false

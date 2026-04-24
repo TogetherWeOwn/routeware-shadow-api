@@ -1,4 +1,7 @@
-import { runDataSnapshotSync } from "./lib/d1SnapshotSync";
+import {
+  runDataSnapshotSync,
+  runDataSnapshotSyncChainedHttp
+} from "./lib/d1SnapshotSync";
 
 export async function scheduled(
   _controller: ScheduledController,
@@ -9,7 +12,16 @@ export async function scheduled(
   ctx.waitUntil(
     (async () => {
       try {
-        const r = await runDataSnapshotSync(env);
+        const publicBase = (env as Env & { SHADOW_API_PUBLIC_BASE?: string })
+          .SHADOW_API_PUBLIC_BASE?.trim();
+        const r = publicBase
+          ? await runDataSnapshotSyncChainedHttp(publicBase, env)
+          : await runDataSnapshotSync(env);
+        if (!publicBase) {
+          console.warn(
+            "data snapshot: SHADOW_API_PUBLIC_BASE is unset; cron uses a single invocation and may hit D1 per-invocation limits. Set it to this Worker URL (e.g. https://name.workers.dev)."
+          );
+        }
         const c = r.customer
           ? `customer: ${r.customer.upserted} upserted, ${r.customer.rowCount} rows; `
           : "";

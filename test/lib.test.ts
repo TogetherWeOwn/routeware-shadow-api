@@ -15,6 +15,7 @@ import { parseAddressSnapshotRow } from "../src/lib/csvAddressSnapshot";
 import { mapCsvHeaders } from "../src/lib/csvParse";
 import { parseContainerSnapshotRow } from "../src/lib/csvContainerSnapshot";
 import { streamCsvLines, stringToUint8Stream } from "../src/lib/csvStream";
+import { snapshotR2ObjectKey } from "../src/lib/r2SnapshotArchive";
 
 describe("customerSaveAutoToken helpers", () => {
   it("lastUrlEncodedValue returns last duplicate", () => {
@@ -85,6 +86,13 @@ describe("routewareWebRwUrlWithIncomingSearch", () => {
     );
     expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
     expect(url.search).toBe("?job=1&flag=yes");
+  });
+});
+
+describe("snapshotR2ObjectKey", () => {
+  it("uses UTC date and table", () => {
+    const k = snapshotR2ObjectKey("container", new Date("2026-01-15T12:00:00.000Z"));
+    expect(k).toBe("snapshots/2026-01-15/container.csv");
   });
 });
 

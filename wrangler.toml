@@ -2,7 +2,8 @@ name = "routeware-shadow-api"
 main = "src/worker.ts"
 compatibility_date = "2025-01-01"
 
-compatibility_flags = ["nodejs_compat"]
+# Chained /data-snapshot/sync uses fetch() to this Worker’s public URL; without this, subrequests hit origin (404 + error 1042).
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 # Logs in dashboard; tune via https://developers.cloudflare.com/workers/observability/
 [observability]
@@ -49,12 +50,21 @@ REPORT_QUERY_START_DATE = "1900-01-01"
 REPORT_QUERY_END_DATE = "1900-01-01"
 # Bearer secret for snapshot sync/import and POST /api/v1/data-snapshot/sync (use wrangler secret in prod).
 CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+# Public base URL of this Worker (e.g. https://routeware-shadow-api.5150.workers.dev) — used by the daily cron to chain per-table snapshot syncs in separate invocations (D1 limits). The HTTP /data-snapshot/sync route does not need this; it uses the request host.
+SHADOW_API_PUBLIC_BASE = ""
+# "false" to skip writing snapshot CSVs to R2. Requires `[[r2_buckets]]` and `wrangler r2 bucket create <name>`.
+SNAPSHOTS_R2_ENABLED = "true"
 
 [[d1_databases]]
 binding = "CUSTOMER_DB"
 database_name = "routeware-customer-snapshot"
 database_id = "2f6b26b2-6810-4d15-a2a0-fcbe273c56d2"
 migrations_dir = "migrations/d1"
+
+# Raw CSV from Routeware (same stream as D1), `snapshots/UTC-date/{customer|address|container}.csv`
+[[r2_buckets]]
+binding = "SNAPSHOTS"
+bucket_name = "routeware-csv-snapshots"
 
 [triggers]
 crons = ["0 7 * * *"]
@@ -76,6 +86,8 @@ CONTAINER_REPORT_QUERY_ID = "25"
 REPORT_QUERY_START_DATE = "1900-01-01"
 REPORT_QUERY_END_DATE = "1900-01-01"
 CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+SHADOW_API_PUBLIC_BASE = ""
+SNAPSHOTS_R2_ENABLED = "true"
 LOGIN_USERNAME = "***REMOVED***"
 LOGIN_PASSWORD = "***REMOVED***"
 
@@ -91,3 +103,7 @@ class_name = "AuthSession"
 
 [env.test.browser]
 binding = "BROWSER"
+
+[[env.test.r2_buckets]]
+binding = "SNAPSHOTS"
+bucket_name = "routeware-csv-snapshots-test"
