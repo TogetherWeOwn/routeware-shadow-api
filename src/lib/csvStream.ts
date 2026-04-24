@@ -73,7 +73,19 @@ export async function* streamCsvLines(
       i += 1;
     }
 
-    const { done, value } = await reader.read();
+    let done: boolean;
+    let value: Uint8Array | undefined;
+    try {
+      const r = await reader.read();
+      done = r.done;
+      value = r.value;
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `CSV stream read failed (upstream closed, timeout, or client disconnect): ${m}`,
+        { cause: e }
+      );
+    }
     if (value && value.byteLength) {
       buffer += decoder.decode(value, { stream: !done });
     } else if (!value && !done) {

@@ -1424,11 +1424,12 @@ app.notFound((c) => notFoundProblem(new URL(c.req.url).pathname));
 
 app.onError((err, _c) => {
   console.error("APP ERROR", err);
+  const msg = err instanceof Error ? err.message : String(err);
   return problemJsonResponse({
     type: "https://example.com/probs/internal",
     title: "Internal Error",
     status: 502,
-    detail: "Upstream authentication or request error. See logs."
+    detail: msg.slice(0, 4000)
   });
 });
 

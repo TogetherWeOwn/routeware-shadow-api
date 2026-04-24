@@ -206,7 +206,15 @@ export async function upsertCustomerSnapshotRows(
     const stmts = chunk.map((r) =>
       db.prepare(CUST_UPSERT).bind(...customerBindings(r, syncedAt))
     );
-    await db.batch(stmts);
+    try {
+      await db.batch(stmts);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `D1 customer_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        { cause: e }
+      );
+    }
     upserted += chunk.length;
   }
   return { upserted };
@@ -224,7 +232,15 @@ export async function upsertAddressSnapshotRows(
     const stmts = chunk.map((r) =>
       db.prepare(ADDR_UPSERT).bind(...addressBindings(r, syncedAt))
     );
-    await db.batch(stmts);
+    try {
+      await db.batch(stmts);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `D1 address_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        { cause: e }
+      );
+    }
     upserted += chunk.length;
   }
   return { upserted };
@@ -242,7 +258,15 @@ export async function upsertContainerSnapshotRows(
     const stmts = chunk.map((r) =>
       db.prepare(CONT_UPSERT).bind(...containerBindings(r, syncedAt))
     );
-    await db.batch(stmts);
+    try {
+      await db.batch(stmts);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `D1 container_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        { cause: e }
+      );
+    }
     upserted += chunk.length;
   }
   return { upserted };
@@ -523,6 +547,11 @@ export async function runContainerSnapshotSync(
   return syncContainerSnapshotFromStream(env.CUSTOMER_DB, resp.body);
 }
 
+function rethrowWithSnapshotContext(step: string, err: unknown): never {
+  const m = err instanceof Error ? err.message : String(err);
+  throw new Error(`[${step}] ${m}`, { cause: err });
+}
+
 /**
  * Runs each configured export in dependency order. Address sync requires
  * `CUSTOMER_REPORT_EXPORT_PATH` (or `CUSTOMER_REPORT_QUERY_ID`) so `customer_id` foreign keys
@@ -542,7 +571,11 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     container: null
   };
   if (cPath || cQ) {
-    out.customer = await runCustomerSnapshotSync(env);
+    try {
+      out.customer = await runCustomerSnapshotSync(env);
+    } catch (e) {
+      rethrowWithSnapshotContext("customer snapshot", e);
+    }
   } else {
     console.log("No customer path or query ID; not syncing customers");
   }
@@ -552,7 +585,11 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         "Address is configured but customer is not — skip address (FK to customer). Set customer first."
       );
     } else {
-      out.address = await runAddressSnapshotSync(env);
+      try {
+        out.address = await runAddressSnapshotSync(env);
+      } catch (e) {
+        rethrowWithSnapshotContext("address snapshot", e);
+      }
     }
   } else {
     console.log("No address path or query ID; not syncing addresses");
@@ -563,7 +600,11 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         "Container is configured but customer and/or address is not — skip container (FKs). Set all three."
       );
     } else {
-      out.container = await runContainerSnapshotSync(env);
+      try {
+        out.container = await runContainerSnapshotSync(env);
+      } catch (e) {
+        rethrowWithSnapshotContext("container snapshot", e);
+      }
     }
   } else {
     console.log("No container path or query ID; not syncing containers");
