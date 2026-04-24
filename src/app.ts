@@ -10,9 +10,9 @@ import {
   runContainerSnapshotSync,
   runCustomerSnapshotSync,
   runDataSnapshotSync,
-  syncAddressSnapshotFromCsvText,
-  syncContainerSnapshotFromCsvText,
-  syncCustomerSnapshotFromCsvText
+  syncAddressSnapshotFromStream,
+  syncContainerSnapshotFromStream,
+  syncCustomerSnapshotFromStream
 } from "./lib/d1SnapshotSync";
 import {
   handleGetDataAddress,
@@ -83,8 +83,13 @@ function snapshotSyncAuthorized(c: {
 
 app.use("/api/v1/*", async (c, next) => {
   const raw = c.req.raw;
+  const path = new URL(raw.url).pathname;
+  const snapshotImportStream =
+    path.endsWith("/customer-snapshot/import") ||
+    path.endsWith("/address-snapshot/import") ||
+    path.endsWith("/container-snapshot/import");
   const bodyBuffer =
-    raw.method === "GET" || raw.method === "HEAD"
+    raw.method === "GET" || raw.method === "HEAD" || snapshotImportStream
       ? null
       : await raw.arrayBuffer();
   c.set("bodyBuffer", bodyBuffer);
@@ -662,8 +667,8 @@ app.openapi(customerSnapshotImportRoute, async (c) => {
       detail: "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset."
     });
   }
-  const buf = c.var.bodyBuffer;
-  if (!buf || buf.byteLength === 0) {
+  const body = c.req.raw.body;
+  if (!body) {
     return problemJsonResponse({
       type: "https://example.com/probs/bad-request",
       title: "Empty body",
@@ -671,8 +676,10 @@ app.openapi(customerSnapshotImportRoute, async (c) => {
       detail: "POST the CSV file as the raw request body."
     });
   }
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  const r = await syncCustomerSnapshotFromCsvText(c.env.CUSTOMER_DB, text);
+  const r = await syncCustomerSnapshotFromStream(
+    c.env.CUSTOMER_DB,
+    body
+  );
   return c.json(r, 200);
 });
 
@@ -696,7 +703,7 @@ const dataSnapshotSyncRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
   description:
-    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Same bearer as other snapshot sync routes. The daily cron uses this. **Very large exports:** this path holds all three CSVs in one isolate; if you see 503 with `exceededMemory` in Worker logs, use three separate `POST` calls to `/api/v1/customer-snapshot/sync`, then `.../address-snapshot/sync`, then `.../container-snapshot/sync` (see `CUSTOMER_SNAPSHOT.md`).",
+    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Same bearer as other snapshot sync routes. The daily cron uses this. Each table is streamed (not fully buffered as a single string), so large container CSVs should stay within Worker memory limits; if you still hit `exceededMemory`, run the three `...-snapshot/sync` routes as separate requests.",
   responses: {
     200: {
       description: "Per-table Result (null if that export path is empty or was skipped for FKs)",
@@ -1075,8 +1082,8 @@ app.openapi(addressSnapshotImportRoute, async (c) => {
       status: 401
     });
   }
-  const buf = c.var.bodyBuffer;
-  if (!buf || buf.byteLength === 0) {
+  const body = c.req.raw.body;
+  if (!body) {
     return problemJsonResponse({
       type: "https://example.com/probs/bad-request",
       title: "Empty body",
@@ -1084,8 +1091,7 @@ app.openapi(addressSnapshotImportRoute, async (c) => {
       detail: "POST the CSV as raw body."
     });
   }
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  const r = await syncAddressSnapshotFromCsvText(c.env.CUSTOMER_DB, text);
+  const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body);
   return c.json(r, 200);
 });
 
@@ -1171,16 +1177,15 @@ app.openapi(containerSnapshotImportRoute, async (c) => {
       status: 401
     });
   }
-  const buf = c.var.bodyBuffer;
-  if (!buf || buf.byteLength === 0) {
+  const body = c.req.raw.body;
+  if (!body) {
     return problemJsonResponse({
       type: "https://example.com/probs/bad-request",
       title: "Empty body",
       status: 400
     });
   }
-  const text = new TextDecoder("utf-8", { fatal: false }).decode(buf);
-  const r = await syncContainerSnapshotFromCsvText(c.env.CUSTOMER_DB, text);
+  const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body);
   return c.json(r, 200);
 });
 

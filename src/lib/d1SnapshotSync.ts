@@ -248,31 +248,203 @@ export async function upsertContainerSnapshotRows(
   return { upserted };
 }
 
+const STREAM_BATCH_CUST = 80;
+const STREAM_BATCH_ADDR = 80;
+const STREAM_BATCH_CONT = 40;
+
+/**
+ * Stream CSV from a download / upload body. Peak memory: decode buffer + one D1 batch.
+ */
+export async function syncCustomerSnapshotFromStream(
+  db: D1Database,
+  body: ReadableStream<Uint8Array>,
+  batchSize = STREAM_BATCH_CUST
+): Promise<{ upserted: number; rowCount: number }> {
+  const syncedAt = new Date().toISOString();
+  let lineNo = 0;
+  let cols: Record<string, number> | null = null;
+  const batch: CustomerSnapshotRow[] = [];
+  let dataRows = 0;
+  let upserted = 0;
+
+  for await (const line of streamCsvLines(body)) {
+    if (lineNo++ === 0) {
+      const head = line.trimStart().toLowerCase();
+      if (!head.startsWith("customerid")) {
+        throw new Error(
+          "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline."
+        );
+      }
+      cols = mapCsvHeaders(line);
+      continue;
+    }
+    if (!cols) {
+      continue;
+    }
+    const r = parseCustomerSnapshotRow(cols, line);
+    if (r) {
+      dataRows += 1;
+      batch.push(r);
+      if (batch.length >= batchSize) {
+        const { upserted: n } = await upsertCustomerSnapshotRows(
+          db,
+          batch,
+          batchSize,
+          syncedAt
+        );
+        upserted += n;
+        batch.length = 0;
+      }
+    }
+  }
+  if (batch.length) {
+    const { upserted: n } = await upsertCustomerSnapshotRows(
+      db,
+      batch,
+      batchSize,
+      syncedAt
+    );
+    upserted += n;
+  }
+  if (lineNo === 0) {
+    return { upserted: 0, rowCount: 0 };
+  }
+  return { upserted, rowCount: dataRows };
+}
+
+export async function syncAddressSnapshotFromStream(
+  db: D1Database,
+  body: ReadableStream<Uint8Array>,
+  batchSize = STREAM_BATCH_ADDR
+): Promise<{ upserted: number; rowCount: number }> {
+  const syncedAt = new Date().toISOString();
+  let lineNo = 0;
+  let cols: Record<string, number> | null = null;
+  const batch: AddressSnapshotRow[] = [];
+  let dataRows = 0;
+  let upserted = 0;
+
+  for await (const line of streamCsvLines(body)) {
+    if (lineNo++ === 0) {
+      const head = line.trimStart().toLowerCase();
+      if (!head.startsWith("pickupaddressid")) {
+        throw new Error(
+          "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config."
+        );
+      }
+      cols = mapCsvHeaders(line);
+      continue;
+    }
+    if (!cols) {
+      continue;
+    }
+    const r = parseAddressSnapshotRow(cols, line);
+    if (r) {
+      dataRows += 1;
+      batch.push(r);
+      if (batch.length >= batchSize) {
+        const { upserted: n } = await upsertAddressSnapshotRows(
+          db,
+          batch,
+          batchSize,
+          syncedAt
+        );
+        upserted += n;
+        batch.length = 0;
+      }
+    }
+  }
+  if (batch.length) {
+    const { upserted: n } = await upsertAddressSnapshotRows(
+      db,
+      batch,
+      batchSize,
+      syncedAt
+    );
+    upserted += n;
+  }
+  if (lineNo === 0) {
+    return { upserted: 0, rowCount: 0 };
+  }
+  return { upserted, rowCount: dataRows };
+}
+
+export async function syncContainerSnapshotFromStream(
+  db: D1Database,
+  body: ReadableStream<Uint8Array>,
+  batchSize = STREAM_BATCH_CONT
+): Promise<{ upserted: number; rowCount: number }> {
+  const syncedAt = new Date().toISOString();
+  let lineNo = 0;
+  let cols: Record<string, number> | null = null;
+  const batch: ContainerSnapshotRow[] = [];
+  let dataRows = 0;
+  let upserted = 0;
+
+  for await (const line of streamCsvLines(body)) {
+    if (lineNo++ === 0) {
+      const head = line.trimStart().toLowerCase();
+      if (!head.startsWith("containerid")) {
+        throw new Error(
+          "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config."
+        );
+      }
+      cols = mapCsvHeaders(line);
+      continue;
+    }
+    if (!cols) {
+      continue;
+    }
+    const r = parseContainerSnapshotRow(cols, line);
+    if (r) {
+      dataRows += 1;
+      batch.push(r);
+      if (batch.length >= batchSize) {
+        const { upserted: n } = await upsertContainerSnapshotRows(
+          db,
+          batch,
+          batchSize,
+          syncedAt
+        );
+        upserted += n;
+        batch.length = 0;
+      }
+    }
+  }
+  if (batch.length) {
+    const { upserted: n } = await upsertContainerSnapshotRows(
+      db,
+      batch,
+      batchSize,
+      syncedAt
+    );
+    upserted += n;
+  }
+  if (lineNo === 0) {
+    return { upserted: 0, rowCount: 0 };
+  }
+  return { upserted, rowCount: dataRows };
+}
+
 export async function syncCustomerSnapshotFromCsvText(
   db: D1Database,
   csvText: string
 ): Promise<{ upserted: number; rowCount: number }> {
-  const { rows } = parseCustomerSnapshotCsv(csvText);
-  const { upserted } = await upsertCustomerSnapshotRows(db, rows);
-  return { upserted, rowCount: rows.length };
+  return syncCustomerSnapshotFromStream(db, stringToUint8Stream(csvText));
 }
 
 export async function syncAddressSnapshotFromCsvText(
   db: D1Database,
   csvText: string
 ): Promise<{ upserted: number; rowCount: number }> {
-  const { rows } = parseAddressSnapshotCsv(csvText);
-  const { upserted } = await upsertAddressSnapshotRows(db, rows);
-  return { upserted, rowCount: rows.length };
+  return syncAddressSnapshotFromStream(db, stringToUint8Stream(csvText));
 }
 
 export async function syncContainerSnapshotFromCsvText(
   db: D1Database,
   csvText: string
 ): Promise<{ upserted: number; rowCount: number }> {
-  const { rows } = parseContainerSnapshotCsv(csvText);
-  const { upserted } = await upsertContainerSnapshotRows(db, rows);
-  return { upserted, rowCount: rows.length };
+  return syncContainerSnapshotFromStream(db, stringToUint8Stream(csvText));
 }
 
 export type SnapshotTableResult = {
@@ -301,14 +473,10 @@ export async function runCustomerSnapshotSync(
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
-  const csv = await resp.text();
-  const head = csv.slice(0, 80).trimStart();
-  if (!head.toLowerCase().startsWith("customerid")) {
-    throw new Error(
-      "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline."
-    );
+  if (!resp.body) {
+    throw new Error("Report response has no body");
   }
-  return syncCustomerSnapshotFromCsvText(env.CUSTOMER_DB, csv);
+  return syncCustomerSnapshotFromStream(env.CUSTOMER_DB, resp.body);
 }
 
 export async function runAddressSnapshotSync(
@@ -326,14 +494,10 @@ export async function runAddressSnapshotSync(
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
-  const csv = await resp.text();
-  const head = csv.slice(0, 120).trimStart().toLowerCase();
-  if (!head.startsWith("pickupaddressid")) {
-    throw new Error(
-      "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config."
-    );
+  if (!resp.body) {
+    throw new Error("Report response has no body");
   }
-  return syncAddressSnapshotFromCsvText(env.CUSTOMER_DB, csv);
+  return syncAddressSnapshotFromStream(env.CUSTOMER_DB, resp.body);
 }
 
 export async function runContainerSnapshotSync(
@@ -353,14 +517,10 @@ export async function runContainerSnapshotSync(
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
-  const csv = await resp.text();
-  const head = csv.slice(0, 80).trimStart().toLowerCase();
-  if (!head.startsWith("containerid")) {
-    throw new Error(
-      "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config."
-    );
+  if (!resp.body) {
+    throw new Error("Report response has no body");
   }
-  return syncContainerSnapshotFromCsvText(env.CUSTOMER_DB, csv);
+  return syncContainerSnapshotFromStream(env.CUSTOMER_DB, resp.body);
 }
 
 /**

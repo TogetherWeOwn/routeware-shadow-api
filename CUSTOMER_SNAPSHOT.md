@@ -102,9 +102,9 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 
-### 503 / `exceededMemory` (combined sync)
+### 503 / `exceededMemory` (rare)
 
-Cloudflare Workers cap **memory** per request (~128 MB). The combined job loads all three report CSVs as full strings in one isolate; a large tenant can hit that cap and return **503** with `exceededMemory` in logs. **Workaround:** call the single-table syncs in order as **separate** requests: `POST /api/v1/customer-snapshot/sync`, then `.../address-snapshot/sync`, then `.../container-snapshot/sync` (same bearer). This keeps peak memory to one table per request.
+Workers cap **memory** per isolate (~128 MB). Sync and import now **stream** the CSV and upsert in batches (no full-file `string` for report downloads), which is what you need for very large container exports. If you still see `exceededMemory`, run the three `POST` sync routes as **separate** requests in order, or lower batch pressure by splitting work across times.
 
 **Aggregate reads and Routeware writes (OpenAPI tag `data-entity`):** same bearer. **GET** `/api/v1/data/customer?id=…` (or `customerId=…`), `/api/v1/data/address?id=…` (pickup address id), `/api/v1/data/container?id=…` — D1 cache with `ETag` / `If-None-Match` and Workers `Cache` API, invalidated on successful **POST** to the same path. **POST** forwards to Routeware `SaveCustomerLongForm`, `SaveAddressForm`, or `SaveContainerForm` and returns `upstream` + your `posted` form fields, then refreshes D1 from `GetCustomerDetailFull` for the affected customer. Create: customer with `CustomerID=0` (or omit); address with `PickupAddressID=0` + `CustomerID`; container with `ContainerID=0` + `PickupAddressID` (and `CustomerID` if you want local sync when D1 is empty).
 

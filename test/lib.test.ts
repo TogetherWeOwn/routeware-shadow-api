@@ -14,6 +14,7 @@ import { problemJsonResponse } from "../src/lib/problem";
 import { parseAddressSnapshotRow } from "../src/lib/csvAddressSnapshot";
 import { mapCsvHeaders } from "../src/lib/csvParse";
 import { parseContainerSnapshotRow } from "../src/lib/csvContainerSnapshot";
+import { streamCsvLines, stringToUint8Stream } from "../src/lib/csvStream";
 
 describe("customerSaveAutoToken helpers", () => {
   it("lastUrlEncodedValue returns last duplicate", () => {
@@ -84,6 +85,24 @@ describe("routewareWebRwUrlWithIncomingSearch", () => {
     );
     expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
     expect(url.search).toBe("?job=1&flag=yes");
+  });
+});
+
+describe("streamCsvLines", () => {
+  async function collect(s: string): Promise<string[]> {
+    const out: string[] = [];
+    for await (const line of streamCsvLines(stringToUint8Stream(s))) {
+      out.push(line);
+    }
+    return out;
+  }
+
+  it("splits on unix newlines", async () => {
+    expect(await collect("a,b\nc,d\n")).toEqual(["a,b", "c,d"]);
+  });
+
+  it("treats newline inside quotes as part of one line", async () => {
+    expect(await collect(`"x\ny",z\n`)).toEqual([`"x\ny",z`]);
   });
 });
 

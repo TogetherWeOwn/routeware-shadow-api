@@ -113,16 +113,11 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
     const t = await downResp.text();
     throw new Error(`QueryExecuteDownload failed: ${downResp.status} — ${t.slice(0, 400)}`);
   }
-  const csv = await downResp.text();
-  const head = csv.trimStart().slice(0, 24).toLowerCase();
-  if (head.startsWith("<!doctype") || head.startsWith("<html")) {
-    throw new Error(
-      "QueryExecuteDownload returned HTML, not CSV. " +
-        "Set REPORT_QUERY_START_DATE/END_DATE to match a valid range for this report in the UI if it uses date pickers. " +
-        `Preview: ${csv.slice(0, 500)}`
-    );
+  if (!downResp.body) {
+    throw new Error("QueryExecuteDownload returned an empty body");
   }
-  return new Response(csv, {
+  /** Pass through the raw stream; snapshot sync uses `streamCsvLines` and never buffers the full CSV. */
+  return new Response(downResp.body, {
     status: 200,
     headers: {
       "content-type": downResp.headers.get("content-type")?.includes("csv")

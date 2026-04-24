@@ -8,6 +8,10 @@ compatibility_flags = ["nodejs_compat"]
 [observability]
 enabled = true
 
+# Paid Workers: long snapshot runs (streamed CSV + D1). Does not increase memory; see CUSTOMER_SNAPSHOT.md.
+[limits]
+cpu_ms = 300_000
+
 [[durable_objects.bindings]]
 name = "AUTH_SESSION"
 class_name = "AuthSession"
