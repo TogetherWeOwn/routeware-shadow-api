@@ -12,11 +12,14 @@ import { readSessionState } from "./sessionState";
 import { fetchReportCsvByQueryId } from "./routewareQueryReportCsv";
 import { forwardToUpstream } from "./upstreamForward";
 
-const CUST_UPSERT = `INSERT INTO customer_snapshot (
-  customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
-  name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(customer_id) DO UPDATE SET
+/** D1 allows at most 100 bound parameters per query (see D1 platform limits). */
+const D1_MAX_BINDS = 100;
+
+const CUST_NCOLS = 14;
+const CUST_R_PER_STMT = Math.min(7, Math.floor(D1_MAX_BINDS / CUST_NCOLS));
+const CUST_HEADER = `customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+  name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at`;
+const CUST_ON = `ON CONFLICT(customer_id) DO UPDATE SET
   customer_type_id = excluded.customer_type_id,
   company_name = excluded.company_name,
   first_name = excluded.first_name,
@@ -31,11 +34,11 @@ ON CONFLICT(customer_id) DO UPDATE SET
   enabled = excluded.enabled,
   synced_at = excluded.synced_at`;
 
-const ADDR_UPSERT = `INSERT INTO address_snapshot (
-  pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
-  extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(pickup_address_id) DO UPDATE SET
+const ADDR_NCOLS = 16;
+const ADDR_R_PER_STMT = Math.min(6, Math.floor(D1_MAX_BINDS / ADDR_NCOLS));
+const ADDR_HEADER = `pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+  extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at`;
+const ADDR_ON = `ON CONFLICT(pickup_address_id) DO UPDATE SET
   customer_id = excluded.customer_id,
   route_id = excluded.route_id,
   address = excluded.address,
@@ -52,14 +55,14 @@ ON CONFLICT(pickup_address_id) DO UPDATE SET
   last_audit_date = excluded.last_audit_date,
   synced_at = excluded.synced_at`;
 
-const CONT_UPSERT = `INSERT INTO container_snapshot (
-  container_id, pickup_address_id, container_type_id, serial_number, rfid, oncall, event_code,
+const CONT_NCOLS = 29;
+const CONT_R_PER_STMT = Math.min(3, Math.floor(D1_MAX_BINDS / CONT_NCOLS));
+const CONT_HEADER = `container_id, pickup_address_id, container_type_id, serial_number, rfid, oncall, event_code,
   gps_locked, latitude, longitude, enabled, location_address, city, state, zip, container_note,
   ud_cost_share_ud, ud_enclosure_doors_ud, ud_last_compactor_inspection_ud, ud_last_enclosure_inspection_ud,
   ud_material_stream_ud, color, service_code_type, service_code_input, service_code, service_date,
-  route_ids, frequency_ids, synced_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(container_id) DO UPDATE SET
+  route_ids, frequency_ids, synced_at`;
+const CONT_ON = `ON CONFLICT(container_id) DO UPDATE SET
   pickup_address_id = excluded.pickup_address_id,
   container_type_id = excluded.container_type_id,
   serial_number = excluded.serial_number,
@@ -88,6 +91,11 @@ ON CONFLICT(container_id) DO UPDATE SET
   route_ids = excluded.route_ids,
   frequency_ids = excluded.frequency_ids,
   synced_at = excluded.synced_at`;
+
+function multiValueTuples(rowCount: number, nCols: number): string {
+  const row = `(${Array(nCols).fill("?").join(", ")})`;
+  return Array.from({ length: rowCount }, () => row).join(", ");
+}
 
 function customerBindings(r: CustomerSnapshotRow, syncedAt: string): unknown[] {
   return [
@@ -163,6 +171,27 @@ function containerBindings(r: ContainerSnapshotRow, syncedAt: string): unknown[]
   ];
 }
 
+function customerMultiInsertSql(nRows: number): string {
+  return `INSERT INTO customer_snapshot (${CUST_HEADER}) VALUES ${multiValueTuples(
+    nRows,
+    CUST_NCOLS
+  )} ${CUST_ON}`;
+}
+
+function addressMultiInsertSql(nRows: number): string {
+  return `INSERT INTO address_snapshot (${ADDR_HEADER}) VALUES ${multiValueTuples(
+    nRows,
+    ADDR_NCOLS
+  )} ${ADDR_ON}`;
+}
+
+function containerMultiInsertSql(nRows: number): string {
+  return `INSERT INTO container_snapshot (${CONT_HEADER}) VALUES ${multiValueTuples(
+    nRows,
+    CONT_NCOLS
+  )} ${CONT_ON}`;
+}
+
 /** Fetch CSV from Routeware using the DO session (same as shadow API). */
 export function createReportRequest(env: Env): Request {
   return new Request("http://internal/report", {
@@ -203,15 +232,19 @@ export async function upsertCustomerSnapshotRows(
   let upserted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
     const chunk = rows.slice(i, i + batchSize);
-    const stmts = chunk.map((r) =>
-      db.prepare(CUST_UPSERT).bind(...customerBindings(r, syncedAt))
-    );
+    const stmts: D1PreparedStatement[] = [];
+    for (let j = 0; j < chunk.length; j += CUST_R_PER_STMT) {
+      const n = Math.min(CUST_R_PER_STMT, chunk.length - j);
+      const slice = chunk.slice(j, j + n);
+      const flat = slice.flatMap((r) => customerBindings(r, syncedAt));
+      stmts.push(db.prepare(customerMultiInsertSql(n)).bind(...flat));
+    }
     try {
       await db.batch(stmts);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `D1 customer_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        `D1 customer_snapshot batch at row offset ${i} (${chunk.length} rows, ${stmts.length} SQL ops): ${m}`,
         { cause: e }
       );
     }
@@ -229,15 +262,19 @@ export async function upsertAddressSnapshotRows(
   let upserted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
     const chunk = rows.slice(i, i + batchSize);
-    const stmts = chunk.map((r) =>
-      db.prepare(ADDR_UPSERT).bind(...addressBindings(r, syncedAt))
-    );
+    const stmts: D1PreparedStatement[] = [];
+    for (let j = 0; j < chunk.length; j += ADDR_R_PER_STMT) {
+      const n = Math.min(ADDR_R_PER_STMT, chunk.length - j);
+      const slice = chunk.slice(j, j + n);
+      const flat = slice.flatMap((r) => addressBindings(r, syncedAt));
+      stmts.push(db.prepare(addressMultiInsertSql(n)).bind(...flat));
+    }
     try {
       await db.batch(stmts);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `D1 address_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        `D1 address_snapshot batch at row offset ${i} (${chunk.length} rows, ${stmts.length} SQL ops): ${m}`,
         { cause: e }
       );
     }
@@ -255,15 +292,19 @@ export async function upsertContainerSnapshotRows(
   let upserted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
     const chunk = rows.slice(i, i + batchSize);
-    const stmts = chunk.map((r) =>
-      db.prepare(CONT_UPSERT).bind(...containerBindings(r, syncedAt))
-    );
+    const stmts: D1PreparedStatement[] = [];
+    for (let j = 0; j < chunk.length; j += CONT_R_PER_STMT) {
+      const n = Math.min(CONT_R_PER_STMT, chunk.length - j);
+      const slice = chunk.slice(j, j + n);
+      const flat = slice.flatMap((r) => containerBindings(r, syncedAt));
+      stmts.push(db.prepare(containerMultiInsertSql(n)).bind(...flat));
+    }
     try {
       await db.batch(stmts);
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       throw new Error(
-        `D1 container_snapshot batch at row offset ${i} (${chunk.length} rows): ${m}`,
+        `D1 container_snapshot batch at row offset ${i} (${chunk.length} rows, ${stmts.length} SQL ops): ${m}`,
         { cause: e }
       );
     }

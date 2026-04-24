@@ -103,6 +103,12 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 
+### D1: “Too many API requests by single Worker invocation”
+
+Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). Each **statement** counts — including each `INSERT` in a `batch()`. This project packs multiple CSV rows into **one multi-row `INSERT` per statement** (up to the 100 bound-parameter cap), which greatly reduces how fast you hit that limit.
+
+If you still exceed it (very large tables), run **`POST /api/v1/customer-snapshot/sync`**, then address, then container as **separate requests** so each run gets its own 1000-op budget, or ask Cloudflare for a limit increase.
+
 ### 503 / `exceededMemory` (rare)
 
 Workers cap **memory** per isolate (~128 MB). Sync and import now **stream** the CSV and upsert in batches (no full-file `string` for report downloads), which is what you need for very large container exports. If you still see `exceededMemory`, run the three `POST` sync routes as **separate** requests in order, or lower batch pressure by splitting work across times.
