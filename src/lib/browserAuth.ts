@@ -64,7 +64,15 @@ export async function establishSessionWithBrowser(
       cookieNames.includes("RCCApiRefresh");
 
     if (!hasRouteWareAuth) {
-      throw new Error("Authentication failed: RouteWare auth cookies not set");
+      throw new Error(
+        "Authentication failed: RouteWare session cookies missing after headless login " +
+          "(expected .WebRW, RCCApi, RCCApiRefresh in devtools Application → Cookies). " +
+          "In production, set `LOGIN_USERNAME` and `LOGIN_PASSWORD` with `wrangler secret put` " +
+          "(not only `.dev.vars`). " +
+          "If secrets are set, the login may have failed: wrong password, " +
+          "MFA/lockout, or a changed login form (selectors in browserAuth.ts). " +
+          "Check Worker logs for BROWSER AUTH ERROR and try logging in manually to Routeware to verify the account."
+      );
     }
 
     const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");

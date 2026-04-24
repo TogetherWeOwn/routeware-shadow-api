@@ -22,6 +22,7 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 | `CONTAINER_REPORT_QUERY_ID` | Same (e.g. `25`) |
 | `REPORT_QUERY_START_DATE` / `REPORT_QUERY_END_DATE` | Passed to `QueryExecuteDownload` as `startDate` / `endDate` (`yyyy-MM-dd`). Use `1900-01-01` when the modal has **no** date pickers (the WebRW script defaults to that). For reports with Kendo date pickers, set these to the same range you would choose in the UI. |
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Bearer for `.../import`, `.../sync`, and `data-snapshot/sync` |
+| `LOGIN_USERNAME` / `LOGIN_PASSWORD` | **Required in production** for any flow that fetches from Routeware with a **browser** session: report `QueryExecuteDownload` / `*_REPORT_EXPORT_PATH` sync, etc. In **deployed** Workers, use `wrangler secret put LOGIN_USERNAME` and `wrangler secret put LOGIN_PASSWORD` (`.dev.vars` is not uploaded with deploy). The Worker’s Browser Rendering login must set cookies `.WebRW`, `RCCApi`, and `RCCApiRefresh` on the Routeware host. If sync fails with *Authentication failed: RouteWare session cookies missing…*, the login did not complete — verify credentials, MFA, or whether the WebRW login page markup still matches the selectors in `src/lib/browserAuth.ts`. |
 
 ### Query-id mode (Killeen WebRW — client `requestID`)
 
