@@ -1,0 +1,51 @@
+[
+  {
+    "method": "POST",
+    "upstreamPath": "/WebRW/Customer/CustomersRead",
+    "shadowPath": "/api/v1/routeware/customer/customers-read",
+    "exampleFile": "examples/customers-read.post.example.json"
+  },
+  {
+    "method": "POST",
+    "upstreamPath": "/WebRW/Customer/GetCustomerDetailFull",
+    "shadowPath": "/api/v1/routeware/customer/detail-full",
+    "exampleFile": "examples/get-customer-detail-full.post.example.json"
+  },
+  {
+    "method": "POST",
+    "upstreamPath": "/WebRW/Customer/CustomerTypesRead",
+    "shadowPath": "/api/v1/routeware/customer/customer-types-read",
+    "exampleFile": "examples/customer-types-read.post.example.urlencoded",
+    "exampleContentType": "application/x-www-form-urlencoded; charset=UTF-8"
+  },
+  {
+    "method": "POST",
+    "upstreamPath": "/WebRW/Customer/SaveCustomerLongForm",
+    "shadowPath": "/api/v1/routeware/customer/save-long-form",
+    "exampleFile": "examples/save-customer-long-form.post.example.urlencoded",
+    "exampleContentType": "application/x-www-form-urlencoded; charset=UTF-8"
+  },
+  {
+    "method": "GET",
+    "upstreamPath": "/WebRW/Customer/AddNewLong",
+    "shadowPath": "/api/v1/routeware/customer/add-new-long"
+  },
+  {
+    "method": "GET",
+    "upstreamPath": "/WebRW/Customer/LoadLongCustomerModal",
+    "shadowPath": "/api/v1/routeware/customer/load-long-modal",
+    "exampleQuery": "customerID=345734"
+  },
+  {
+    "method": "POST",
+    "upstreamPath": "/WebRW/Data/appSettingsGet",
+    "shadowPath": "/api/v1/routeware/data/app-settings-get",
+    "exampleFile": "examples/app-settings-get.post.example.json"
+  },
+  {
+    "method": "GET",
+    "upstreamPath": "/WebRW/Reports/QueryRequestIsComplete",
+    "shadowPath": "/api/v1/routeware/reports/query-request-is-complete",
+    "exampleQuery": "requestID=REPLACE_WITH_UUID&_=1776969836738"
+  }
+]

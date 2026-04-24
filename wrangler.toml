@@ -1,0 +1,89 @@
+name = "routeware-shadow-api"
+main = "src/worker.ts"
+compatibility_date = "2025-01-01"
+
+compatibility_flags = ["nodejs_compat"]
+
+# Logs in dashboard; tune via https://developers.cloudflare.com/workers/observability/
+[observability]
+enabled = true
+
+[[durable_objects.bindings]]
+name = "AUTH_SESSION"
+class_name = "AuthSession"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["AuthSession"]
+
+[browser]
+binding = "BROWSER"
+
+# Non-sensitive defaults. For local browser auth, create `.dev.vars` in this same
+# directory (next to wrangler.toml) with LOGIN_USERNAME and LOGIN_PASSWORD.
+# `wrangler secret put` only affects deployed Workers, not `wrangler dev`.
+[vars]
+TARGET_ORIGIN = "https://killeen.routeware.com"
+TARGET_BASE_PATH = "/WebRW"
+LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login"
+SESSION_TTL_SECONDS = 1800
+OPENAPI_DOCS_ENABLED = "true"
+# When true (default), POST save-long-form injects __RequestVerificationToken via Routeware modal GET.
+CUSTOMER_SAVE_AUTO_TOKEN = "true"
+# Path on TARGET_ORIGIN for the CSV report (set after recording), e.g. /WebRW/Reports/YourExport?format=csv
+CUSTOMER_REPORT_EXPORT_PATH = ""
+# Optional: Routeware custom report query id (client UUID + QueryExecuteDownload; see CUSTOMER_SNAPSHOT.md). If set, overrides EXPORT_PATH for that table.
+CUSTOMER_REPORT_QUERY_ID = "23"
+# Address Details custom report (PickupAddressID → customer_id in D1)
+ADDRESS_REPORT_EXPORT_PATH = ""
+ADDRESS_REPORT_QUERY_ID = "24"
+# Container Details custom report (ContainerID → pickup_address_id in D1)
+CONTAINER_REPORT_EXPORT_PATH = ""
+CONTAINER_REPORT_QUERY_ID = "25"
+# Date range for *_REPORT_QUERY_ID (match the modal: 1900-01-01 when the form has no date pickers; otherwise yyyy-MM-dd)
+REPORT_QUERY_START_DATE = "1900-01-01"
+REPORT_QUERY_END_DATE = "1900-01-01"
+# Bearer secret for snapshot sync/import and POST /api/v1/data-snapshot/sync (use wrangler secret in prod).
+CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+
+[[d1_databases]]
+binding = "CUSTOMER_DB"
+database_name = "routeware-customer-snapshot"
+database_id = "2f6b26b2-6810-4d15-a2a0-fcbe273c56d2"
+migrations_dir = "migrations/d1"
+
+[triggers]
+crons = ["0 7 * * *"]
+
+# Vitest uses `environment: "test"` — Wrangler does not inherit vars/bindings into environments.
+[env.test.vars]
+TARGET_ORIGIN = "https://killeen.routeware.com"
+TARGET_BASE_PATH = "/WebRW"
+LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login"
+SESSION_TTL_SECONDS = 1800
+OPENAPI_DOCS_ENABLED = "true"
+CUSTOMER_SAVE_AUTO_TOKEN = "true"
+CUSTOMER_REPORT_EXPORT_PATH = ""
+CUSTOMER_REPORT_QUERY_ID = "23"
+ADDRESS_REPORT_EXPORT_PATH = ""
+ADDRESS_REPORT_QUERY_ID = "24"
+CONTAINER_REPORT_EXPORT_PATH = ""
+CONTAINER_REPORT_QUERY_ID = "25"
+REPORT_QUERY_START_DATE = "1900-01-01"
+REPORT_QUERY_END_DATE = "1900-01-01"
+CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+LOGIN_USERNAME = "***REMOVED***"
+LOGIN_PASSWORD = "***REMOVED***"
+
+[[env.test.d1_databases]]
+binding = "CUSTOMER_DB"
+database_name = "routeware-customer-snapshot-test"
+database_id = "739233bb-575a-4ac0-98e1-ecd5ea0f313e"
+migrations_dir = "migrations/d1"
+
+[[env.test.durable_objects.bindings]]
+name = "AUTH_SESSION"
+class_name = "AuthSession"
+
+[env.test.browser]
+binding = "BROWSER"

@@ -1,0 +1,11 @@
+---
+description: Vitest + Workers pool testing for this repo
+globs: test/**/*.ts,vitest.config.ts
+alwaysApply: false
+---
+
+# Testing
+
+- Use `@cloudflare/vitest-pool-workers` with `cloudflareTest` in `vitest.config.ts` and `wrangler.toml` as `wrangler.configPath`.
+- Prefer `exports.default.fetch()` from `cloudflare:workers` for integration tests; mock outbound Routeware with `fetchMock` from `cloudflare:test` (`activate` in `beforeAll`, `assertNoPendingInterceptors` in `afterEach`).
+- Unit-test pure helpers in `src/lib/` without network. Do not require real Browser Rendering in CI.

@@ -1,0 +1,12 @@
+---
+description: Wrangler, Workers runtime, and this repo’s Worker layout
+globs: src/**/*.ts,wrangler.toml
+alwaysApply: false
+---
+
+# Cloudflare Worker conventions
+
+- Entry: `src/worker.ts` default export; app wiring lives in `src/app.ts`. Pure helpers live under `src/lib/`.
+- Bindings and `[vars]` are defined in `wrangler.toml`; run `npm run types` after changing bindings. Secrets are not in `[vars]`.
+- Browser Rendering uses `@cloudflare/puppeteer` and the `BROWSER` binding; if local `wrangler dev` misbehaves, try `npm run dev:remote`.
+- Durable Object class `AuthSession` is in `src/authSession.do.ts`; migrations stay append-only.

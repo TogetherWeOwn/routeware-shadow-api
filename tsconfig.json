@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "WebWorker"],
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "types": []
+  },
+  "include": [
+    "src/**/*.ts",
+    "worker-configuration.d.ts",
+    "vitest.config.ts",
+    "test/**/*.ts",
+    "tools/api-discovery/lib/**/*.ts"
+  ],
+  "exclude": ["node_modules", "tools/api-discovery/record.ts"]
+}

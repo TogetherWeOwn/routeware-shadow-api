@@ -1,0 +1,12 @@
+# Copy to .dev.vars (gitignored). Never commit real values.
+LOGIN_USERNAME=
+LOGIN_PASSWORD=
+
+# Optional: override for staging
+# TARGET_ORIGIN=https://example.routeware.com
+
+# Optional: disable interactive API docs (OpenAPI JSON still served at /openapi.json)
+# OPENAPI_DOCS_ENABLED=false
+
+# Optional: disable automatic __RequestVerificationToken injection on POST save-long-form (default on in wrangler.toml)
+# CUSTOMER_SAVE_AUTO_TOKEN=false

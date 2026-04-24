@@ -1,0 +1,11 @@
+---
+description: Routeware shadow API — security and session invariants
+alwaysApply: true
+---
+
+# Project invariants
+
+- Never commit secrets. Use `wrangler secret put` or `.dev.vars` (gitignored) for `LOGIN_USERNAME` and `LOGIN_PASSWORD`.
+- Do not log cookie headers, passwords, or full upstream request/response bodies in production code paths.
+- Upstream Routeware session cookies live only in the `AuthSession` Durable Object; public API clients are unauthenticated.
+- Prefer explicit `/api/v1/...` routes with fixed upstream URL templates over echoing arbitrary client path segments toward `/WebRW`.

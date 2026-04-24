@@ -1,0 +1,34 @@
+{
+  "name": "routeware-shadow-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "check:devvars": "node scripts/check-devvars.mjs",
+    "dev:remote": "wrangler dev --remote",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "discovery:process": "npm run process --prefix tools/api-discovery",
+    "discovery:record": "npm run record --prefix tools/api-discovery",
+    "discovery:verify": "npm run discovery:process && npm test",
+    "secret:login-username": "wrangler secret put LOGIN_USERNAME",
+    "secret:login-password": "wrangler secret put LOGIN_PASSWORD"
+  },
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.0.4",
+    "@hono/zod-openapi": "^1.3.0",
+    "@scalar/hono-api-reference": "^0.9.48",
+    "hono": "^4.12.14",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.14.9",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.5",
+    "wrangler": "^4.54.0"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "routeware-api-discovery",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "record": "tsx record.ts",
+    "aggregate": "node aggregate.mjs",
+    "export:curls": "node export-curl-examples.mjs",
+    "validate:harvest": "node validate-harvest.mjs",
+    "docs:harvest": "node generate-harvest-docs.mjs",
+    "gap:routes": "node route-gap.mjs",
+    "suggest:routes": "node suggest-routes.mjs",
+    "process": "node validate-harvest.mjs && node aggregate.mjs && node generate-harvest-docs.mjs && node route-gap.mjs && node export-curl-examples.mjs && node suggest-routes.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.1",
+    "tsx": "^4.19.2"
+  }
+}

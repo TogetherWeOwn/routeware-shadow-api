@@ -1,0 +1,10 @@
+{
+  "filter": [
+    { "property": "CustomerID", "operator": ">", "value": 0 }
+  ],
+  "page": 1,
+  "start": 0,
+  "limit": 50,
+  "group": "[]",
+  "sort": "[{\"property\":\"CustomerID\",\"direction\":\"ASC\"}]"
+}

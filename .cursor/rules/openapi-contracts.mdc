@@ -1,0 +1,11 @@
+---
+description: OpenAPI and public HTTP surface for the shadow API
+globs: src/app.ts
+alwaysApply: false
+---
+
+# API surface
+
+- Routes are versioned under `/api/v1`. Each route has a documented OpenAPI operation via `@hono/zod-openapi`.
+- Machine-readable spec: `GET /openapi.json`. Interactive docs: `GET /docs` when `OPENAPI_DOCS_ENABLED` is `true`.
+- Use RFC 7807 `application/problem+json` for errors produced by this Worker (see `src/lib/problem.ts`).

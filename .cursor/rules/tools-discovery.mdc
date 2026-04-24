@@ -1,0 +1,13 @@
+---
+description: Local Playwright traffic harvester under tools/api-discovery
+globs: tools/api-discovery/**/*
+alwaysApply: false
+---
+
+# API discovery tool
+
+- Run from `tools/api-discovery/`; output is gitignored under `tools/api-discovery/out/`.
+- Repo root: `npm run discovery:record` → `npm run discovery:process` (or `npm run discovery:verify` to add `npm test`).
+- Recorder writes rich NDJSON (method, `resourceType`, query, bodies, response headers/bodies, caps via `HARVEST_MAX_*`); see `tools/api-discovery/README.md`.
+- By default sensitive headers are omitted; set `HARVEST_FULL_HEADERS=1` (or `HARVEST_REDACT_HEADERS=0`) for full capture—then NDJSON is highly sensitive; never commit it.
+- `POST /api/v1/routeware/customer/save-long-form` can inject `__RequestVerificationToken` server-side (`CUSTOMER_SAVE_AUTO_TOKEN` in `wrangler.toml`); see `src/lib/customerSaveAutoToken.ts`.
