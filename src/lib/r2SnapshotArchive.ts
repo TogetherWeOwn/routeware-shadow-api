@@ -47,7 +47,9 @@ export async function archiveReportCsvToR2AfterD1<T>(
   }
   const key = snapshotR2ObjectKey(table);
   try {
-    await env.SNAPSHOTS.put(key, forR2, {
+    // R2 put() requires a known-length body: not a plain tee() branch. Buffer after D1 succeeds.
+    const bodyBytes = await new Response(forR2).arrayBuffer();
+    await env.SNAPSHOTS.put(key, bodyBytes, {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
     console.log(`R2 snapshot stored: ${key}`);
