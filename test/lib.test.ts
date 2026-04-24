@@ -104,6 +104,10 @@ describe("streamCsvLines", () => {
   it("treats newline inside quotes as part of one line", async () => {
     expect(await collect(`"x\ny",z\n`)).toEqual([`"x\ny",z`]);
   });
+
+  it("yields the last line when a quoted field is not closed at EOF (lenient)", async () => {
+    expect(await collect('a,"b')).toEqual(['a,"b']);
+  });
 });
 
 describe("address / container snapshot CSV", () => {

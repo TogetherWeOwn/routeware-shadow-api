@@ -12,6 +12,10 @@ export function stringToUint8Stream(s: string): ReadableStream<Uint8Array> {
  * Read CSV from a body stream, yielding one **logical** line at a time
  * (RFC 4180–style: newlines inside quoted fields do not end a line).
  * Avoids `await response.text()` for whole-file memory use.
+ *
+ * **EOF:** If the file ends without a closing `"` (stray quote / inch mark in a cell),
+ * we still yield the final buffer as one line instead of failing — many Routeware
+ * exports are not strictly well-formed.
  */
 export async function* streamCsvLines(
   body: ReadableStream<Uint8Array>
@@ -77,9 +81,6 @@ export async function* streamCsvLines(
     }
     if (done) {
       buffer += decoder.decode();
-      if (inQuotes) {
-        throw new Error("CSV stream ended inside a quoted field");
-      }
       if (buffer.length) {
         yield buffer;
       }
