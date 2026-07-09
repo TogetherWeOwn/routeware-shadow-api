@@ -6,3 +6,8 @@ dist/
 coverage/
 tools/api-discovery/out/
 tools/api-discovery/.harvest.ndjson
+
+# Routeware report exports may contain real customer/address/container data (PII).
+# Never commit them. Keep small sample fixtures under tools/api-discovery/examples/.
+*.csv
+*:Zone.Identifier

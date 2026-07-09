@@ -69,7 +69,7 @@ describe("route-map → shadow Worker", () => {
             headers: { "content-type": "application/json" }
           });
         }
-        return originalFetch(input, init);
+        throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
     ) as typeof fetch;
   });
@@ -110,6 +110,10 @@ describe("route-map → shadow Worker", () => {
           };
         }
       }
+
+      const headers = new Headers(init.headers);
+      headers.set("authorization", "Bearer test-api-token");
+      init.headers = headers;
 
       const response = await exports.default.fetch(reqUrl, init);
       expect(response.status).toBe(200);

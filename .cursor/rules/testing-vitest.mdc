@@ -7,5 +7,7 @@ alwaysApply: false
 # Testing
 
 - Use `@cloudflare/vitest-pool-workers` with `cloudflareTest` in `vitest.config.ts` and `wrangler.toml` as `wrangler.configPath`.
-- Prefer `exports.default.fetch()` from `cloudflare:workers` for integration tests; mock outbound Routeware with `fetchMock` from `cloudflare:test` (`activate` in `beforeAll`, `assertNoPendingInterceptors` in `afterEach`).
-- Unit-test pure helpers in `src/lib/` without network. Do not require real Browser Rendering in CI.
+- Drive integration tests via `exports.default.fetch()` from `cloudflare:workers`.
+- Mock outbound Routeware by overriding `globalThis.fetch` in `beforeEach` (restored in `afterEach`). The mock matches known WebRW URLs and **throws on any unexpected upstream URL** so tests fail loudly instead of hitting the network. (`fetchMock` from `cloudflare:test` with `assertNoPendingInterceptors` is an acceptable alternative.)
+- `/api/v1/*` requires `Authorization: Bearer <SHADOW_API_TOKEN>` (the `test` env value is `test-api-token`); send it on every request except `GET /api/v1/health`.
+- Unit-test pure helpers in `src/lib/` (and `tools/api-discovery/lib/`) without network. Do not require real Browser Rendering in CI.

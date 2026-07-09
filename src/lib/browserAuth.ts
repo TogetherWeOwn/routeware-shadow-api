@@ -1,4 +1,29 @@
 import puppeteer from "@cloudflare/puppeteer";
+import { readSessionState } from "./sessionState";
+
+/**
+ * Wait for a concurrent refresh (holding the lock) to publish a fresh session,
+ * instead of proceeding with a stale/empty one. Returns once a non-refreshing
+ * session with a cookie is visible, or after the timeout (caller then reacts to
+ * any upstream login redirect).
+ */
+async function waitForConcurrentRefresh(
+  stub: DurableObjectStub,
+  timeoutMs = 20_000,
+  intervalMs = 500
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const s = await readSessionState(stub);
+    if (!s.refreshing && s.cookieHeader) {
+      return;
+    }
+    if (Date.now() >= deadline) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
 
 function credential(value: string | undefined): string | undefined {
   if (value === undefined || value === null) {
@@ -27,6 +52,9 @@ export async function establishSessionWithBrowser(
 
   const lock = await stub.fetch("https://auth/lock");
   if (lock.status !== 200) {
+    // Another request is already refreshing. Wait for it rather than forwarding
+    // with a stale/empty session (the lock auto-expires if that refresh dies).
+    await waitForConcurrentRefresh(stub);
     return;
   }
 

@@ -31,7 +31,21 @@ npm run secret:login-password
 
 **WSL note:** If `wrangler` resolves to `C:\\Users\\...\\AppData\\Roaming\\npm\\`, uninstall or ignore that global install in Linux shells; rely on `npx wrangler` / `npm run` from the project after `npm install` here.
 
-Non-sensitive defaults live in [`wrangler.toml`](./wrangler.toml) under `[vars]`.
+Non-sensitive defaults live in [`wrangler.toml`](./wrangler.toml) under `[vars]`. The
+`SHADOW_API_TOKEN` / `CUSTOMER_SNAPSHOT_SYNC_SECRET` values in `[vars]` are **local-dev
+placeholders only** — set real values with `wrangler secret put` for deployed Workers.
+
+## Client authentication
+
+Every `/api/v1/*` endpoint requires `Authorization: Bearer <token>` **except**
+`GET /api/v1/health`. The token is `SHADOW_API_TOKEN` (falling back to
+`CUSTOMER_SNAPSHOT_SYNC_SECRET` when unset). Privileged snapshot/data routes
+(`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`) additionally
+require `CUSTOMER_SNAPSHOT_SYNC_SECRET`. See [`docs/PROBLEMS.md`](./docs/PROBLEMS.md#unauthorized).
+
+```bash
+npx wrangler secret put SHADOW_API_TOKEN
+```
 
 Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)), which includes dummy `LOGIN_*` vars so the suite never needs real credentials. Deployed/default environments should use **secrets** for those keys instead.
 

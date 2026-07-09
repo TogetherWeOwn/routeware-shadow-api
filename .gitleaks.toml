@@ -1,0 +1,21 @@
+# gitleaks config for the informational CI secret scan (working tree only).
+# Extends the default ruleset and allowlists intentional dev/test placeholders and
+# fixtures so only NEW, real secrets are flagged.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Intentional non-secret placeholders and test fixtures"
+paths = [
+  '''tools/api-discovery/examples/.*''',
+  '''test/.*''',
+  '''\.dev\.vars\.example$''',
+  '''docs/PROBLEMS\.md$''',
+]
+regexes = [
+  '''dev-local-shadow-api-token-change-me''',
+  '''dev-local-sync-secret-change-me''',
+  '''test-api-token''',
+  '''test-sync-secret''',
+  '''test-password-not-real''',
+]

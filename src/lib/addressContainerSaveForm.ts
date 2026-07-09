@@ -56,12 +56,13 @@ export async function prepareSaveAddressFormBody(
     headers: {
       accept: "text/html, */*; q=0.01",
       "x-requested-with": "XMLHttpRequest",
-      "X-Routeware-Shadow-Internal": "anti-forgery-modal",
       referer:
         incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null);
+  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
+    internalMarker: "anti-forgery-modal"
+  });
   if (!modalResp.ok) {
     throw new Error(`Load address modal (${modalPath}): HTTP ${modalResp.status}`);
   }
@@ -117,12 +118,13 @@ export async function prepareSaveContainerFormBody(
     headers: {
       accept: "*/*",
       "x-requested-with": "XMLHttpRequest",
-      "X-Routeware-Shadow-Internal": "anti-forgery-modal",
       referer:
         incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null);
+  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
+    internalMarker: "anti-forgery-modal"
+  });
   if (!modalResp.ok) {
     throw new Error(`Load container modal (${modalPath}): HTTP ${modalResp.status}`);
   }

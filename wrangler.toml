@@ -48,8 +48,12 @@ CONTAINER_REPORT_QUERY_ID = "25"
 # Date range for *_REPORT_QUERY_ID (match the modal: 1900-01-01 when the form has no date pickers; otherwise yyyy-MM-dd)
 REPORT_QUERY_START_DATE = "1900-01-01"
 REPORT_QUERY_END_DATE = "1900-01-01"
-# Bearer secret for snapshot sync/import and POST /api/v1/data-snapshot/sync (use wrangler secret in prod).
-CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+# Bearer secrets — these are LOCAL-DEV PLACEHOLDERS ONLY. Set real values with
+# `wrangler secret put` for deployed Workers; never commit real secrets here.
+# SHADOW_API_TOKEN gates all /api/v1/* routes (except GET /api/v1/health). When
+# unset it falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET.
+SHADOW_API_TOKEN = "dev-local-shadow-api-token-change-me"
+CUSTOMER_SNAPSHOT_SYNC_SECRET = "dev-local-sync-secret-change-me"
 # Public base URL of this Worker (e.g. https://routeware-shadow-api.5150.workers.dev) — used by the daily cron to chain per-table snapshot syncs in separate invocations (D1 limits). The HTTP /data-snapshot/sync route does not need this; it uses the request host.
 SHADOW_API_PUBLIC_BASE = ""
 # "false" to skip writing snapshot CSVs to R2. Requires `[[r2_buckets]]` and `wrangler r2 bucket create <name>`.
@@ -85,11 +89,14 @@ CONTAINER_REPORT_EXPORT_PATH = ""
 CONTAINER_REPORT_QUERY_ID = "25"
 REPORT_QUERY_START_DATE = "1900-01-01"
 REPORT_QUERY_END_DATE = "1900-01-01"
-CUSTOMER_SNAPSHOT_SYNC_SECRET = "***REMOVED***"
+CUSTOMER_SNAPSHOT_SYNC_SECRET = "test-sync-secret"
+SHADOW_API_TOKEN = "test-api-token"
 SHADOW_API_PUBLIC_BASE = ""
 SNAPSHOTS_R2_ENABLED = "true"
-LOGIN_USERNAME = "***REMOVED***"
-LOGIN_PASSWORD = "***REMOVED***"
+# Dummy credentials for the Vitest `test` environment only (browser auth is never
+# exercised in CI). Real credentials belong in `.dev.vars` / `wrangler secret`.
+LOGIN_USERNAME = "test-user"
+LOGIN_PASSWORD = "test-password-not-real"
 
 [[env.test.d1_databases]]
 binding = "CUSTOMER_DB"

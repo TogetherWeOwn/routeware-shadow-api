@@ -4,7 +4,8 @@ import { establishSessionWithBrowser } from "./lib/browserAuth";
 import { prepareSaveCustomerLongFormBody } from "./lib/customerSaveAutoToken";
 import { forwardWithSessionRetry } from "./lib/forwardWithSessionRetry";
 import { forwardToUpstream } from "./lib/upstreamForward";
-import { notFoundProblem, problemJsonResponse } from "./lib/problem";
+import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import { bearerMatches, isApiAuthorized } from "./lib/auth";
 import {
   runAddressSnapshotSync,
   runContainerSnapshotSync,
@@ -59,10 +60,18 @@ const openApiDocumentConfig = {
       description:
         "D1 aggregate reads (customer + address + container) and writes through Routeware with local snapshot sync"
     }
-  ]
+  ],
+  security: [{ bearerAuth: [] }]
 };
 
 const app = new OpenAPIHono<{ Bindings: Env; Variables: Variables }>();
+
+app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
+  type: "http",
+  scheme: "bearer",
+  description:
+    "SHADOW_API_TOKEN (falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET) as a bearer token. Required on all /api/v1/* routes except GET /api/v1/health."
+});
 
 function openapiDocsEnabled(env: Env): boolean {
   return env.OPENAPI_DOCS_ENABLED === "true";
@@ -72,14 +81,30 @@ function snapshotSyncAuthorized(c: {
   env: Env;
   req: { header: (name: string) => string | undefined };
 }): boolean {
-  const want = c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim();
-  if (!want) {
-    return false;
-  }
-  const auth = c.req.header("authorization") ?? "";
-  const m = /^Bearer\s+(\S+)/i.exec(auth);
-  return Boolean(m && m[1] === want);
+  return bearerMatches(c.req, c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET);
 }
+
+// Client auth gate: every /api/v1/* route requires a bearer token except the
+// public allowlist (health). Runs before body buffering so unauthorized
+// requests are rejected without reading the body.
+app.use("/api/v1/*", async (c, next) => {
+  const { method } = c.req.raw;
+  const path = new URL(c.req.raw.url).pathname;
+  const isPublic = method === "GET" && path === "/api/v1/health";
+  if (isPublic) {
+    return next();
+  }
+  if (!isApiAuthorized(c.env, c.req)) {
+    return problemJsonResponse({
+      type: problemType("unauthorized"),
+      title: "Unauthorized",
+      status: 401,
+      detail:
+        "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
+    });
+  }
+  return next();
+});
 
 app.use("/api/v1/*", async (c, next) => {
   const raw = c.req.raw;
@@ -103,6 +128,7 @@ app.use("/api/v1/*", async (c, next) => {
 const healthRoute = createRoute({
   method: "get",
   path: "/api/v1/health",
+  security: [],
   responses: {
     200: {
       description: "Worker is running",
@@ -185,16 +211,6 @@ const upstreamPassthrough200 = {
     }
   }
 } as const;
-
-const problemJsonSchema = z
-  .object({
-    type: z.string(),
-    title: z.string(),
-    status: z.number().int(),
-    detail: z.string().optional(),
-    instance: z.string().optional()
-  })
-  .openapi("ProblemJson");
 
 const customersReadRoute = createRoute({
   method: "post",
@@ -294,7 +310,7 @@ app.openapi(customerSaveLongFormRoute, async (c) => {
   } catch (err) {
     console.error("prepareSaveCustomerLongFormBody", err);
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-gateway",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
       title: "Anti-forgery token preparation failed",
       status: 502,
       detail: err instanceof Error ? err.message : String(err)
@@ -378,28 +394,20 @@ const customerDeleteNotSupportedRoute = createRoute({
   responses: {
     405: {
       description:
-        "Method not allowed — use save-long-form to disable (RFC 7807-style JSON body; also served as `application/problem+json` by some gateways).",
-      content: {
-        "application/json": {
-          schema: problemJsonSchema
-        }
-      }
+        "Method not allowed (application/problem+json). Use save-long-form with Enabled=false to disable."
     }
   }
 });
 
 app.openapi(customerDeleteNotSupportedRoute, (c) =>
-  c.json(
-    {
-      type: "https://example.com/probs/method-not-allowed",
-      title: "Customer delete not supported",
-      status: 405,
-      detail:
-        "Routeware does not support deleting customers via HTTP DELETE. Load the customer with GET /api/v1/routeware/customer/load-long-modal?customerID={id}, then POST /api/v1/routeware/customer/save-long-form with the same field set and Enabled=false (or your tenant’s equivalent) to disable the record.",
-      instance: new URL(c.req.url).pathname
-    },
-    405
-  )
+  problemJsonResponse({
+    type: problemType("method-not-allowed"),
+    title: "Customer delete not supported",
+    status: 405,
+    detail:
+      "Routeware does not support deleting customers via HTTP DELETE. Load the customer with GET /api/v1/routeware/customer/load-long-modal?customerID={id}, then POST /api/v1/routeware/customer/save-long-form with the same field set and Enabled=false (or your tenant’s equivalent) to disable the record.",
+    instance: new URL(c.req.url).pathname
+  })
 );
 
 const appSettingsGetRoute = createRoute({
@@ -536,12 +544,10 @@ const customerSnapshotByIdRoute = createRoute({
       }
     },
     400: {
-      description: "Invalid customer id",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Invalid customer id (application/problem+json)"
     },
     404: {
-      description: "Not found",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Not found (application/problem+json)"
     }
   }
 });
@@ -549,15 +555,12 @@ const customerSnapshotByIdRoute = createRoute({
 app.openapi(customerSnapshotByIdRoute, async (c) => {
   const customerId = Number(c.req.param("customerId"));
   if (!Number.isFinite(customerId)) {
-    return c.json(
-      {
-        type: "https://example.com/probs/bad-request",
-        title: "Bad Request",
-        status: 400,
-        detail: "customerId must be an integer"
-      },
-      400
-    );
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail: "customerId must be an integer"
+    });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
     `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
@@ -567,15 +570,12 @@ app.openapi(customerSnapshotByIdRoute, async (c) => {
     .bind(customerId)
     .first<Record<string, unknown>>();
   if (!row) {
-    return c.json(
-      {
-        type: "https://example.com/probs/not-found",
-        title: "Not Found",
-        status: 404,
-        detail: `No snapshot row for customer_id=${customerId}`
-      },
-      404
-    );
+    return problemJsonResponse({
+      type: problemType("not-found"),
+      title: "Not Found",
+      status: 404,
+      detail: `No snapshot row for customer_id=${customerId}`
+    });
   }
   return c.json(row, 200);
 });
@@ -595,6 +595,7 @@ const customerSnapshotSyncRoute = createRoute({
           schema: z.object({
             upserted: z.number().int(),
             rowCount: z.number().int(),
+            deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
           })
         }
@@ -608,7 +609,7 @@ const customerSnapshotSyncRoute = createRoute({
 app.openapi(customerSnapshotSyncRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
@@ -616,7 +617,7 @@ app.openapi(customerSnapshotSyncRoute, async (c) => {
   }
   if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
@@ -624,7 +625,7 @@ app.openapi(customerSnapshotSyncRoute, async (c) => {
   }
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail:
@@ -650,7 +651,7 @@ const customerSnapshotImportRoute = createRoute({
       description: "Import result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
         }
       }
     },
@@ -661,7 +662,7 @@ const customerSnapshotImportRoute = createRoute({
 app.openapi(customerSnapshotImportRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset."
@@ -670,7 +671,7 @@ app.openapi(customerSnapshotImportRoute, async (c) => {
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400,
       detail: "POST the CSV file as the raw request body."
@@ -716,7 +717,7 @@ const dataSnapshotSyncRoute = createRoute({
 app.openapi(dataSnapshotSyncRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
@@ -724,7 +725,7 @@ app.openapi(dataSnapshotSyncRoute, async (c) => {
   }
   if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
@@ -814,12 +815,10 @@ const addressSnapshotByIdRoute = createRoute({
       content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
     },
     400: {
-      description: "Invalid id",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Invalid id (application/problem+json)"
     },
     404: {
-      description: "Not found",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Not found (application/problem+json)"
     }
   }
 });
@@ -827,15 +826,12 @@ const addressSnapshotByIdRoute = createRoute({
 app.openapi(addressSnapshotByIdRoute, async (c) => {
   const id = Number(c.req.param("pickupAddressId"));
   if (!Number.isFinite(id)) {
-    return c.json(
-      {
-        type: "https://example.com/probs/bad-request",
-        title: "Bad Request",
-        status: 400,
-        detail: "pickupAddressId must be an integer"
-      },
-      400
-    );
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail: "pickupAddressId must be an integer"
+    });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
     `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
@@ -845,15 +841,12 @@ app.openapi(addressSnapshotByIdRoute, async (c) => {
     .bind(id)
     .first<Record<string, unknown>>();
   if (!row) {
-    return c.json(
-      {
-        type: "https://example.com/probs/not-found",
-        title: "Not Found",
-        status: 404,
-        detail: `No address row for pickup_address_id=${id}`
-      },
-      404
-    );
+    return problemJsonResponse({
+      type: problemType("not-found"),
+      title: "Not Found",
+      status: 404,
+      detail: `No address row for pickup_address_id=${id}`
+    });
   }
   return c.json(row, 200);
 });
@@ -953,12 +946,10 @@ const containerSnapshotByIdRoute = createRoute({
       content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
     },
     400: {
-      description: "Invalid id",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Invalid id (application/problem+json)"
     },
     404: {
-      description: "Not found",
-      content: { "application/json": { schema: problemJsonSchema } }
+      description: "Not found (application/problem+json)"
     }
   }
 });
@@ -966,15 +957,12 @@ const containerSnapshotByIdRoute = createRoute({
 app.openapi(containerSnapshotByIdRoute, async (c) => {
   const id = Number(c.req.param("containerId"));
   if (!Number.isFinite(id)) {
-    return c.json(
-      {
-        type: "https://example.com/probs/bad-request",
-        title: "Bad Request",
-        status: 400,
-        detail: "containerId must be an integer"
-      },
-      400
-    );
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail: "containerId must be an integer"
+    });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
     `SELECT container_id, pickup_address_id, container_type_id, serial_number, rfid, oncall, event_code, gps_locked,
@@ -986,15 +974,12 @@ app.openapi(containerSnapshotByIdRoute, async (c) => {
     .bind(id)
     .first<Record<string, unknown>>();
   if (!row) {
-    return c.json(
-      {
-        type: "https://example.com/probs/not-found",
-        title: "Not Found",
-        status: 404,
-        detail: `No container row for container_id=${id}`
-      },
-      404
-    );
+    return problemJsonResponse({
+      type: problemType("not-found"),
+      title: "Not Found",
+      status: 404,
+      detail: `No container row for container_id=${id}`
+    });
   }
   return c.json(row, 200);
 });
@@ -1014,6 +999,7 @@ const addressSnapshotSyncRoute = createRoute({
           schema: z.object({
             upserted: z.number().int(),
             rowCount: z.number().int(),
+            deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
           })
         }
@@ -1027,7 +1013,7 @@ const addressSnapshotSyncRoute = createRoute({
 app.openapi(addressSnapshotSyncRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Bearer token required."
@@ -1035,7 +1021,7 @@ app.openapi(addressSnapshotSyncRoute, async (c) => {
   }
   if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
@@ -1043,7 +1029,7 @@ app.openapi(addressSnapshotSyncRoute, async (c) => {
   }
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail: "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
@@ -1067,7 +1053,7 @@ const addressSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
         }
       }
     },
@@ -1078,7 +1064,7 @@ const addressSnapshotImportRoute = createRoute({
 app.openapi(addressSnapshotImportRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401
     });
@@ -1086,7 +1072,7 @@ app.openapi(addressSnapshotImportRoute, async (c) => {
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400,
       detail: "POST the CSV as raw body."
@@ -1111,6 +1097,7 @@ const containerSnapshotSyncRoute = createRoute({
           schema: z.object({
             upserted: z.number().int(),
             rowCount: z.number().int(),
+            deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
           })
         }
@@ -1124,21 +1111,21 @@ const containerSnapshotSyncRoute = createRoute({
 app.openapi(containerSnapshotSyncRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401
     });
   }
   if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503
     });
   }
   if (!c.env.CONTAINER_REPORT_EXPORT_PATH?.trim() && !c.env.CONTAINER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: "https://example.com/probs/misconfigured",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Not configured",
       status: 503,
       detail: "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
@@ -1162,7 +1149,7 @@ const containerSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
         }
       }
     },
@@ -1173,7 +1160,7 @@ const containerSnapshotImportRoute = createRoute({
 app.openapi(containerSnapshotImportRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401
     });
@@ -1181,7 +1168,7 @@ app.openapi(containerSnapshotImportRoute, async (c) => {
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });
@@ -1218,7 +1205,7 @@ const dataCustomerGetRoute = createRoute({
 app.openapi(dataCustomerGetRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
@@ -1228,7 +1215,7 @@ app.openapi(dataCustomerGetRoute, async (c) => {
   const id = q.id ?? q.customerId;
   if (id === undefined) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Bad request",
       status: 400,
       detail: "Query `id` or `customerId` (customer_id) is required."
@@ -1257,7 +1244,7 @@ const dataAddressGetRoute = createRoute({
 app.openapi(dataAddressGetRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Bearer required (same as snapshot sync secret)."
@@ -1266,7 +1253,7 @@ app.openapi(dataAddressGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Bad request",
       status: 400,
       detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
@@ -1295,7 +1282,7 @@ const dataContainerGetRoute = createRoute({
 app.openapi(dataContainerGetRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Bearer required (same as snapshot sync secret)."
@@ -1304,7 +1291,7 @@ app.openapi(dataContainerGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Bad request",
       status: 400,
       detail: "Query `id` (container_id) is required and must be a positive integer."
@@ -1336,7 +1323,7 @@ const dataCustomerPostRoute = createRoute({
 app.openapi(dataCustomerPostRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401,
       detail: "Bearer required."
@@ -1358,7 +1345,7 @@ const dataAddressPostRoute = createRoute({
 app.openapi(dataAddressPostRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401
     });
@@ -1379,7 +1366,7 @@ const dataContainerPostRoute = createRoute({
 app.openapi(dataContainerPostRoute, async (c) => {
   if (!snapshotSyncAuthorized(c)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/unauthorized",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
       title: "Unauthorized",
       status: 401
     });
@@ -1390,7 +1377,7 @@ app.openapi(dataContainerPostRoute, async (c) => {
 app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/forbidden",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#forbidden",
       title: "Not available",
       status: 404,
       detail:
@@ -1403,7 +1390,7 @@ app.get("/openapi.json", (c) => {
 app.use("/docs", async (c, next) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
-      type: "https://example.com/probs/forbidden",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#forbidden",
       title: "Not available",
       status: 404,
       detail:
@@ -1424,13 +1411,14 @@ app.use(
 app.notFound((c) => notFoundProblem(new URL(c.req.url).pathname));
 
 app.onError((err, _c) => {
+  // Log the full error for observability, but do not echo internal details
+  // (messages, stack, upstream text) back to the client.
   console.error("APP ERROR", err);
-  const msg = err instanceof Error ? err.message : String(err);
   return problemJsonResponse({
-    type: "https://example.com/probs/internal",
-    title: "Internal Error",
-    status: 502,
-    detail: msg.slice(0, 4000)
+    type: problemType("internal"),
+    title: "Internal Server Error",
+    status: 500,
+    detail: "An unexpected error occurred. See Worker logs for details."
   });
 });
 

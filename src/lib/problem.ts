@@ -1,5 +1,17 @@
 const PROBLEM_JSON = "application/problem+json";
 
+/**
+ * Base for problem `type` URIs. Slugs resolve to anchors in docs/PROBLEMS.md,
+ * e.g. `problemType("not-found")` → `.../PROBLEMS.md#not-found`.
+ */
+export const PROBLEM_TYPE_BASE =
+  "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#";
+
+/** Build a dereferenceable problem `type` URI from a kebab-case slug. */
+export function problemType(slug: string): string {
+  return `${PROBLEM_TYPE_BASE}${slug}`;
+}
+
 export type ProblemBody = {
   type: string;
   title: string;
@@ -19,7 +31,7 @@ export function problemJsonResponse(body: ProblemBody): Response {
 
 export function notFoundProblem(path: string): Response {
   return problemJsonResponse({
-    type: "https://example.com/probs/not-found",
+    type: problemType("not-found"),
     title: "Not Found",
     status: 404,
     detail: `No operation registered for ${path}`,
