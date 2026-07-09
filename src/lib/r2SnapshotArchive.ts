@@ -99,8 +99,12 @@ export async function putReadableStreamToR2(
 }
 
 /**
- * Run `sync` on a tee of `body` for D1, then after success upload the other branch to R2.
- * D1 failure cancels the R2 leg. R2 failure is logged and does not fail the request (D1 is primary).
+ * Tee `body`, streaming one branch into D1 (`sync`) and the other into R2
+ * **concurrently**. Consuming both branches at once keeps `tee()`'s internal
+ * buffer bounded (peak ≈ one 5 MiB R2 part + one D1 batch) instead of buffering
+ * the whole CSV. D1 is primary — its error propagates; R2 is best-effort and its
+ * failures are logged, not thrown. The R2 leg is always awaited so it never
+ * dangles past the request.
  */
 export async function archiveReportCsvToR2AfterD1<T>(
   env: Env,
@@ -112,28 +116,27 @@ export async function archiveReportCsvToR2AfterD1<T>(
     return sync(body);
   }
   const [forD1, forR2] = body.tee();
-  let result: T;
-  try {
-    result = await sync(forD1);
-  } catch (e) {
-    try {
-      await forR2.cancel();
-    } catch {
-      // ignore
+  const key = snapshotR2ObjectKey(table);
+
+  // Start the R2 upload before awaiting D1 so both branches drain together.
+  const r2Task = putReadableStreamToR2(env.SNAPSHOTS, key, forR2, {
+    httpMetadata: { contentType: "text/csv; charset=utf-8" }
+  }).then(
+    () => {
+      console.log(`R2 snapshot stored: ${key}`);
+    },
+    (e) => {
+      console.error(`R2 snapshot put failed for ${key}`, e);
     }
+  );
+
+  try {
+    const result = await sync(forD1);
+    await r2Task;
+    return result;
+  } catch (e) {
+    // D1 (primary) failed; still settle the R2 leg so it does not dangle.
+    await r2Task;
     throw e;
   }
-  const key = snapshotR2ObjectKey(table);
-  try {
-    await putReadableStreamToR2(env.SNAPSHOTS, key, forR2, {
-      httpMetadata: { contentType: "text/csv; charset=utf-8" }
-    });
-    console.log(`R2 snapshot stored: ${key}`);
-  } catch (e) {
-    console.error(
-      `R2 snapshot put failed for ${key} (D1 sync already completed)`,
-      e
-    );
-  }
-  return result;
 }

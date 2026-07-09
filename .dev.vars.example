@@ -2,6 +2,11 @@
 LOGIN_USERNAME=
 LOGIN_PASSWORD=
 
+# Client auth for /api/v1/* (all routes except GET /api/v1/health).
+# SHADOW_API_TOKEN falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET when unset.
+SHADOW_API_TOKEN=
+CUSTOMER_SNAPSHOT_SYNC_SECRET=
+
 # Optional: override for staging
 # TARGET_ORIGIN=https://example.routeware.com
 

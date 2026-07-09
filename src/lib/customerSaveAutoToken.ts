@@ -114,12 +114,13 @@ export async function prepareSaveCustomerLongFormBody(
     headers: {
       accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "x-requested-with": "XMLHttpRequest",
-      "X-Routeware-Shadow-Internal": "anti-forgery-modal",
       referer: incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
 
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null);
+  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
+    internalMarker: "anti-forgery-modal"
+  });
   if (!modalResp.ok) {
     throw new Error(
       `Could not load anti-forgery modal (${modalPath}): HTTP ${modalResp.status}`

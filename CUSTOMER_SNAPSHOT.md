@@ -10,6 +10,8 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 
 **Import / sync order:** load customers, then addresses, then containers. The combined job (`POST /api/v1/data-snapshot/sync` or the daily cron) only runs the address step when the customer *export is configured* (static path or query id), and the container step only when both customer and address are configured.
 
+**Foreign keys and reconciliation:** the FK columns are declared but D1 does **not** enforce them (no `PRAGMA foreign_keys`), and a streamed sync spans many batches rather than one transaction — integrity relies on the import order above plus reconciliation, not the database. A report **`sync`** (not `import`) deletes rows not present in the current run (`deleted` count in the response) so upstream deletions propagate; reconciliation is skipped when a run yields zero data rows, so a bad/empty export never wipes a table. **`import`** is treated as possibly-partial and never deletes.
+
 ## Environment
 
 | Variable | Role |

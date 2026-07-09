@@ -9,20 +9,11 @@ import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { jsonTopLevelKeys, truncate } from "./lib/harvestLib.mjs";
+import { normalizePath } from "./lib/normalizePath.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PREVIEW_IN_AGGREGATE = 12_000;
-
-function normalizePath(pathname) {
-  let path = pathname;
-  path = path.replace(
-    /\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?=\/|$)/gi,
-    "/{uuid}"
-  );
-  path = path.replace(/\/\d+(?=\/|$)/g, "/{id}");
-  return path;
-}
 
 function sampleSignature(row) {
   return JSON.stringify({

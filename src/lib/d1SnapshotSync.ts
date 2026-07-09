@@ -13,8 +13,43 @@ import { fetchReportCsvByQueryId } from "./routewareQueryReportCsv";
 import { archiveReportCsvToR2AfterD1 } from "./r2SnapshotArchive";
 import { forwardToUpstream } from "./upstreamForward";
 
+/**
+ * Foreign keys (`address.customer_id`, `container.pickup_address_id`) are
+ * declared in the schema but D1 does not enforce them (no `PRAGMA foreign_keys`),
+ * and a streamed sync spans many `db.batch` calls rather than one transaction —
+ * so integrity relies on import order (customer → address → container) plus the
+ * reconcile step below, not on the database. A report `sync` (not `import`)
+ * deletes rows not seen in the current run so upstream deletions are reflected;
+ * it is skipped when a run yields zero data rows to avoid wiping a table on a
+ * bad/empty export.
+ */
+
 /** D1 allows at most 100 bound parameters per query (see D1 platform limits). */
 const D1_MAX_BINDS = 100;
+
+/** Delete rows whose `synced_at` predates this run (i.e. not present upstream anymore). */
+async function reconcileDeleteStale(
+  db: D1Database,
+  table: "customer_snapshot" | "address_snapshot" | "container_snapshot",
+  syncedAt: string
+): Promise<number> {
+  const res = await db
+    .prepare(`DELETE FROM ${table} WHERE synced_at < ?`)
+    .bind(syncedAt)
+    .run();
+  return res.meta.changes ?? 0;
+}
+
+export type SnapshotSyncCounts = {
+  upserted: number;
+  rowCount: number;
+  deleted: number;
+};
+
+export type StreamSyncOptions = {
+  /** Delete rows not seen in this run (report sync). Off for partial imports. */
+  reconcile?: boolean;
+};
 
 const CUST_NCOLS = 14;
 const CUST_R_PER_STMT = Math.min(7, Math.floor(D1_MAX_BINDS / CUST_NCOLS));
@@ -324,8 +359,9 @@ const STREAM_BATCH_CONT = 40;
 export async function syncCustomerSnapshotFromStream(
   db: D1Database,
   body: ReadableStream<Uint8Array>,
-  batchSize = STREAM_BATCH_CUST
-): Promise<{ upserted: number; rowCount: number }> {
+  batchSize = STREAM_BATCH_CUST,
+  options: StreamSyncOptions = {}
+): Promise<SnapshotSyncCounts> {
   const syncedAt = new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
@@ -373,16 +409,21 @@ export async function syncCustomerSnapshotFromStream(
     upserted += n;
   }
   if (lineNo === 0) {
-    return { upserted: 0, rowCount: 0 };
+    return { upserted: 0, rowCount: 0, deleted: 0 };
   }
-  return { upserted, rowCount: dataRows };
+  const deleted =
+    options.reconcile && cols && dataRows > 0
+      ? await reconcileDeleteStale(db, "customer_snapshot", syncedAt)
+      : 0;
+  return { upserted, rowCount: dataRows, deleted };
 }
 
 export async function syncAddressSnapshotFromStream(
   db: D1Database,
   body: ReadableStream<Uint8Array>,
-  batchSize = STREAM_BATCH_ADDR
-): Promise<{ upserted: number; rowCount: number }> {
+  batchSize = STREAM_BATCH_ADDR,
+  options: StreamSyncOptions = {}
+): Promise<SnapshotSyncCounts> {
   const syncedAt = new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
@@ -430,16 +471,21 @@ export async function syncAddressSnapshotFromStream(
     upserted += n;
   }
   if (lineNo === 0) {
-    return { upserted: 0, rowCount: 0 };
+    return { upserted: 0, rowCount: 0, deleted: 0 };
   }
-  return { upserted, rowCount: dataRows };
+  const deleted =
+    options.reconcile && cols && dataRows > 0
+      ? await reconcileDeleteStale(db, "address_snapshot", syncedAt)
+      : 0;
+  return { upserted, rowCount: dataRows, deleted };
 }
 
 export async function syncContainerSnapshotFromStream(
   db: D1Database,
   body: ReadableStream<Uint8Array>,
-  batchSize = STREAM_BATCH_CONT
-): Promise<{ upserted: number; rowCount: number }> {
+  batchSize = STREAM_BATCH_CONT,
+  options: StreamSyncOptions = {}
+): Promise<SnapshotSyncCounts> {
   const syncedAt = new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
@@ -487,9 +533,13 @@ export async function syncContainerSnapshotFromStream(
     upserted += n;
   }
   if (lineNo === 0) {
-    return { upserted: 0, rowCount: 0 };
+    return { upserted: 0, rowCount: 0, deleted: 0 };
   }
-  return { upserted, rowCount: dataRows };
+  const deleted =
+    options.reconcile && cols && dataRows > 0
+      ? await reconcileDeleteStale(db, "container_snapshot", syncedAt)
+      : 0;
+  return { upserted, rowCount: dataRows, deleted };
 }
 
 export async function syncCustomerSnapshotFromCsvText(
@@ -526,10 +576,7 @@ export type DataSnapshotResult = {
 
 export async function runCustomerSnapshotSync(
   env: Env
-): Promise<{
-  upserted: number;
-  rowCount: number;
-} | null> {
+): Promise<SnapshotSyncCounts | null> {
   const path = env.CUSTOMER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CUSTOMER_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
@@ -543,16 +590,15 @@ export async function runCustomerSnapshotSync(
     throw new Error("Report response has no body");
   }
   return archiveReportCsvToR2AfterD1(env, "customer", resp.body, (s) =>
-    syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s)
+    syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CUST, {
+      reconcile: true
+    })
   );
 }
 
 export async function runAddressSnapshotSync(
   env: Env
-): Promise<{
-  upserted: number;
-  rowCount: number;
-} | null> {
+): Promise<SnapshotSyncCounts | null> {
   const path = env.ADDRESS_REPORT_EXPORT_PATH?.trim();
   const queryId = env.ADDRESS_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
@@ -566,16 +612,15 @@ export async function runAddressSnapshotSync(
     throw new Error("Report response has no body");
   }
   return archiveReportCsvToR2AfterD1(env, "address", resp.body, (s) =>
-    syncAddressSnapshotFromStream(env.CUSTOMER_DB, s)
+    syncAddressSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_ADDR, {
+      reconcile: true
+    })
   );
 }
 
 export async function runContainerSnapshotSync(
   env: Env
-): Promise<{
-  upserted: number;
-  rowCount: number;
-} | null> {
+): Promise<SnapshotSyncCounts | null> {
   const path = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CONTAINER_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
@@ -591,7 +636,9 @@ export async function runContainerSnapshotSync(
     throw new Error("Report response has no body");
   }
   return archiveReportCsvToR2AfterD1(env, "container", resp.body, (s) =>
-    syncContainerSnapshotFromStream(env.CUSTOMER_DB, s)
+    syncContainerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CONT, {
+      reconcile: true
+    })
   );
 }
 

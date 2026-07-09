@@ -4,7 +4,14 @@ import { dirname, join } from "node:path";
 import * as readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { chromium, type Request, type Response } from "playwright";
-import { fullHeaders, redactHeaders } from "./lib/redact.ts";
+import {
+  fullHeaders,
+  redactBodyPreview,
+  redactHeaders,
+  redactQueryObject,
+  redactUrlEncoded,
+  redactUrlSearch
+} from "./lib/redact.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(__dirname, "out");
@@ -58,7 +65,8 @@ async function logRequestResponse(
   request: Request,
   response: Response | null,
   append: Append,
-  headerCapture: (h: Headers | Record<string, string>) => Record<string, string>
+  headerCapture: (h: Headers | Record<string, string>) => Record<string, string>,
+  redactSensitive: boolean
 ): Promise<void> {
   try {
     const url = new URL(request.url());
@@ -76,6 +84,7 @@ async function logRequestResponse(
     }
 
     const requestContentType = request.headers()["content-type"] ?? null;
+    const responseContentType = response?.headers()["content-type"] ?? null;
 
     let responseBodyPreview: string | undefined;
     let responseBodyTruncated = false;
@@ -91,18 +100,30 @@ async function logRequestResponse(
       }
     }
 
+    // Mask credentials/PII in bodies and query strings unless full capture is on
+    // (header redaction alone leaves login/save bodies and query tokens exposed).
+    if (redactSensitive) {
+      requestBodyPreview = redactBodyPreview(requestContentType, requestBodyPreview);
+      responseBodyPreview = redactBodyPreview(responseContentType, responseBodyPreview);
+    }
+
+    const rawQuery = Object.fromEntries(url.searchParams);
+    const rawQueryString = url.search ? url.search.slice(1) : "";
     const frame = request.frame();
+    const rawFrameUrl = frame?.url() ?? null;
     append({
       ts: new Date().toISOString(),
       method: request.method(),
       resourceType: request.resourceType(),
       origin: url.origin,
       pathname: url.pathname,
-      pathWithQuery: `${url.pathname}${url.search}`,
-      fullUrl: url.href,
-      query: Object.fromEntries(url.searchParams),
-      queryString: url.search ? url.search.slice(1) : "",
-      frameUrl: frame?.url() ?? null,
+      pathWithQuery: redactSensitive
+        ? `${url.pathname}${url.search ? `?${redactUrlEncoded(rawQueryString)}` : ""}`
+        : `${url.pathname}${url.search}`,
+      fullUrl: redactSensitive ? redactUrlSearch(url.href) : url.href,
+      query: redactSensitive ? redactQueryObject(rawQuery) : rawQuery,
+      queryString: redactSensitive ? redactUrlEncoded(rawQueryString) : rawQueryString,
+      frameUrl: redactSensitive ? redactUrlSearch(rawFrameUrl) : rawFrameUrl,
       requestHeaders: headerCapture(request.headers()),
       requestContentType,
       requestBodySize: request.postDataBuffer()?.byteLength ?? 0,
@@ -110,7 +131,7 @@ async function logRequestResponse(
       requestBodyTruncated,
       responseStatus: response?.status() ?? null,
       responseHeaders,
-      responseContentType: response?.headers()["content-type"] ?? null,
+      responseContentType,
       responseBodyPreview,
       responseBodyTruncated
     });
@@ -134,6 +155,9 @@ async function main(): Promise<void> {
     );
   }
   const headerCapture = fullHdr ? fullHeaders : redactHeaders;
+  // Full-header mode also disables body/query redaction (the operator has opted
+  // into a sensitive harvest and the warning above says to keep it private).
+  const redactSensitive = !fullHdr;
 
   const append: Append = (obj) => {
     stream.write(`${JSON.stringify(obj)}\n`);
@@ -150,7 +174,7 @@ async function main(): Promise<void> {
   page.on("requestfinished", (request) => {
     void (async () => {
       const response = await request.response();
-      await logRequestResponse(request, response, append, headerCapture);
+      await logRequestResponse(request, response, append, headerCapture, redactSensitive);
     })();
   });
 

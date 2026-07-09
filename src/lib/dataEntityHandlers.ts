@@ -35,11 +35,28 @@ function etagHeader(etag: string): string {
   return `"${etag}"`;
 }
 
+/** Strip an optional weak-validator prefix and surrounding quotes from an ETag token. */
+function normalizeEtagToken(token: string): string {
+  return token
+    .trim()
+    .replace(/^W\//i, "")
+    .replace(/^"(.*)"$/, "$1");
+}
+
+/**
+ * RFC 7232 If-None-Match: a comma-separated list of ETag tokens, or `*`.
+ * Compares parsed tokens exactly rather than substring-matching, which could
+ * otherwise produce false 304s.
+ */
 function matchesIfNoneMatch(h: string | undefined, etag: string): boolean {
   if (!h) {
     return false;
   }
-  return h === etagHeader(etag) || h === etag || h === `"W/${etag}"` || h.includes(etag);
+  const want = normalizeEtagToken(etag);
+  return h
+    .split(",")
+    .map(normalizeEtagToken)
+    .some((token) => token === "*" || token === want);
 }
 
 export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number): Promise<Response> {
@@ -60,7 +77,7 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
   const bundle = await getCustomerBundleFromD1(c.env.CUSTOMER_DB, customerId);
   if (!bundle) {
     return problemJsonResponse({
-      type: "https://example.com/probs/not-found",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#not-found",
       title: "Not found",
       status: 404,
       detail: `No snapshot data for customer_id=${customerId} (import/sync first).`
@@ -108,7 +125,7 @@ export async function handleGetDataAddress(
   const bundle = await getAddressBundleFromD1(c.env.CUSTOMER_DB, pickupAddressId);
   if (!bundle || !bundle.address) {
     return problemJsonResponse({
-      type: "https://example.com/probs/not-found",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#not-found",
       title: "Not found",
       status: 404,
       detail: `No snapshot for pickup_address_id=${pickupAddressId}.`
@@ -156,7 +173,7 @@ export async function handleGetDataContainer(
   const bundle = await getContainerBundleFromD1(c.env.CUSTOMER_DB, containerId);
   if (!bundle || !bundle.container) {
     return problemJsonResponse({
-      type: "https://example.com/probs/not-found",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#not-found",
       title: "Not found",
       status: 404,
       detail: `No snapshot for container_id=${containerId}.`
@@ -187,7 +204,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400,
       detail: "POST application/x-www-form-urlencoded (SaveCustomerLongForm fields)."
@@ -205,7 +222,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
     );
   } catch (e) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-gateway",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
       title: "Anti-forgery preparation failed",
       status: 502,
       detail: e instanceof Error ? e.message : String(e)
@@ -213,7 +230,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });
@@ -288,7 +305,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });
@@ -305,7 +322,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     );
   } catch (e) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-gateway",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
       title: "Anti-forgery preparation failed",
       status: 502,
       detail: e instanceof Error ? e.message : String(e)
@@ -313,7 +330,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });
@@ -369,7 +386,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });
@@ -386,7 +403,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     );
   } catch (e) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-gateway",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
       title: "Anti-forgery preparation failed",
       status: 502,
       detail: e instanceof Error ? e.message : String(e)
@@ -394,7 +411,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: "https://example.com/probs/bad-request",
+      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
       title: "Empty body",
       status: 400
     });

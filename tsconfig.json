@@ -5,6 +5,7 @@
     "module": "ES2022",
     "moduleResolution": "Bundler",
     "strict": true,
+    "allowJs": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,

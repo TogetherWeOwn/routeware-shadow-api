@@ -26,6 +26,7 @@ declare namespace Cloudflare {
 		REPORT_QUERY_END_DATE: "1900-01-01";
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
+		SHADOW_API_TOKEN: string;
 		LOGIN_USERNAME: string;
 		LOGIN_PASSWORD: string;
 		CUSTOMER_SNAPSHOT_SYNC_SECRET: string;
@@ -51,6 +52,7 @@ declare namespace Cloudflare {
 		REPORT_QUERY_END_DATE: "1900-01-01";
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
+		SHADOW_API_TOKEN: string;
 		LOGIN_USERNAME: string;
 		LOGIN_PASSWORD: string;
 		CUSTOMER_SNAPSHOT_SYNC_SECRET: string;

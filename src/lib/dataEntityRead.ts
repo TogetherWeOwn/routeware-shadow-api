@@ -50,12 +50,15 @@ export async function getCustomerBundleFromD1(
     .bind(customerId)
     .all<Record<string, unknown>>();
   const rows = addrRes.results ?? [];
-  const out: CustomerBundle = {
-    customer: rowToObj(customer),
-    addresses: []
-  };
-  for (const a of rows) {
-    const paid = a.pickup_address_id as number;
+  const addressIds = rows.map((a) => a.pickup_address_id as number);
+
+  // Fetch all containers for this customer's addresses in batched IN(...) queries
+  // (chunked to stay under D1's 100-bind cap) instead of one query per address.
+  const containersByAddress = new Map<number, Record<string, unknown>[]>();
+  const BIND_CHUNK = 100;
+  for (let i = 0; i < addressIds.length; i += BIND_CHUNK) {
+    const chunk = addressIds.slice(i, i + BIND_CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
     const cr = await db
       .prepare(
         `SELECT container_id, pickup_address_id, container_type_id, serial_number, rfid, oncall, event_code, gps_locked,
@@ -63,16 +66,28 @@ export async function getCustomerBundleFromD1(
                 ud_enclosure_doors_ud, ud_last_compactor_inspection_ud, ud_last_enclosure_inspection_ud,
                 ud_material_stream_ud, color, service_code_type, service_code_input, service_code, service_date,
                 route_ids, frequency_ids, synced_at
-         FROM container_snapshot WHERE pickup_address_id = ? ORDER BY container_id`
+         FROM container_snapshot WHERE pickup_address_id IN (${placeholders}) ORDER BY pickup_address_id, container_id`
       )
-      .bind(paid)
+      .bind(...chunk)
       .all<Record<string, unknown>>();
-    const cons = (cr.results ?? []) as Record<string, unknown>[];
-    out.addresses.push({
-      ...a,
-      containers: cons
-    });
+    for (const con of cr.results ?? []) {
+      const paid = con.pickup_address_id as number;
+      const list = containersByAddress.get(paid);
+      if (list) {
+        list.push(con);
+      } else {
+        containersByAddress.set(paid, [con]);
+      }
+    }
   }
+
+  const out: CustomerBundle = {
+    customer: rowToObj(customer),
+    addresses: rows.map((a) => ({
+      ...a,
+      containers: containersByAddress.get(a.pickup_address_id as number) ?? []
+    }))
+  };
   return out;
 }
 
