@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Validate Worker build (no deploy)
+        # Bundles the Worker and validates wrangler.toml bindings. --dry-run does
+        # not call the Cloudflare API, so no account or token is needed.
+        run: npx wrangler deploy --dry-run
+
+  hygiene:
+    name: Repo hygiene & secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No committed Routeware report exports (PII)
+        run: |
+          matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
+          if [ -n "$matches" ]; then
+            echo "::error::Tracked CSV / Zone.Identifier files found — Routeware exports contain PII and must not be committed:"
+            echo "$matches"
+            exit 1
+          fi
+      - name: No committed .dev.vars
+        run: |
+          matches="$(git ls-files | grep -E '(^|/)\.dev\.vars$' || true)"
+          if [ -n "$matches" ]; then
+            echo "::error::A .dev.vars file is tracked — local secrets must stay untracked (only .dev.vars.example is allowed):"
+            echo "$matches"
+            exit 1
+          fi
+      - name: Secret scan (informational)
+        # Non-blocking: scans the working tree only (--no-git), so it won't trip on
+        # secrets still present in git history. Promote to blocking once it's green.
+        continue-on-error: true
+        run: |
+          version=8.18.4
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz gitleaks
+          ./gitleaks detect --source . --no-git --redact --config .gitleaks.toml
