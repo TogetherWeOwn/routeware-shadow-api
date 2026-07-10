@@ -142,13 +142,19 @@ async function logRequestResponse(
 
 async function main(): Promise<void> {
   await mkdir(OUT_DIR, { recursive: true });
-  const fresh = process.env.HARVEST_FRESH === "1" || process.env.HARVEST_FRESH === "true";
+  // CLI flags so the modes work cross-platform (inline `FOO=1 npm run …` does not
+  // work in PowerShell / cmd). Flags OR with the equivalent env vars.
+  const argv = new Set(process.argv.slice(2));
+  const flagFull = argv.has("--full");
+  const flagFresh = argv.has("--fresh");
+  const fresh =
+    flagFresh || process.env.HARVEST_FRESH === "1" || process.env.HARVEST_FRESH === "true";
   const stream = createWriteStream(OUT_FILE, { flags: fresh ? "w" : "a" });
   if (fresh) {
     console.log("HARVEST_FRESH: truncating", OUT_FILE);
   }
 
-  const fullHdr = harvestFullHeaders();
+  const fullHdr = flagFull || harvestFullHeaders();
   if (fullHdr) {
     console.warn(
       "HARVEST_FULL_HEADERS / HARVEST_REDACT_HEADERS=0: logging all headers (cookies, auth). Keep harvest.ndjson private."

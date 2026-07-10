@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "playwright install chromium",
     "record": "tsx record.ts",
+    "record:full": "tsx record.ts --full",
+    "codegen": "node codegen.mjs",
     "aggregate": "node aggregate.mjs",
     "export:curls": "node export-curl-examples.mjs",
     "validate:harvest": "node validate-harvest.mjs",

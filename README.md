@@ -4,8 +4,21 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 ## Prerequisites
 
-- Node 20+
+- Node 20+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
 - Cloudflare account (for `wrangler deploy`)
+
+## Quick start (local)
+
+```bash
+npm install
+cp .dev.vars.example .dev.vars   # then fill in LOGIN_* and a client token
+npm run db:migrate:local          # create the local D1 tables
+npm run dev                       # http://localhost:8787
+```
+
+`npm run dev` runs `check:devvars` first and fails fast if `.dev.vars` is missing a
+required key. Local dev uses the browser-free HTTP login, so **no `--remote` is needed**;
+use `npm run dev:remote` only to exercise the Browser Rendering fallback.
 
 ## Configure secrets
 
@@ -31,9 +44,10 @@ npm run secret:login-password
 
 **WSL note:** If `wrangler` resolves to `C:\\Users\\...\\AppData\\Roaming\\npm\\`, uninstall or ignore that global install in Linux shells; rely on `npx wrangler` / `npm run` from the project after `npm install` here.
 
-Non-sensitive defaults live in [`wrangler.toml`](./wrangler.toml) under `[vars]`. The
-`SHADOW_API_TOKEN` / `CUSTOMER_SNAPSHOT_SYNC_SECRET` values in `[vars]` are **local-dev
-placeholders only** — set real values with `wrangler secret put` for deployed Workers.
+Non-sensitive defaults live in [`wrangler.toml`](./wrangler.toml) under `[vars]`. Bearer
+secrets (`SHADOW_API_TOKEN`, `CUSTOMER_SNAPSHOT_SYNC_SECRET`) are **not** defined in
+`[vars]` — set them in `.dev.vars` for local dev and via `wrangler secret put` for deployed
+Workers. A deployed Worker with no token set **fails closed** (see [Deploy](#deploy)).
 
 ## Client authentication
 
@@ -53,12 +67,44 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 
 | Command | Purpose |
 |--------|---------|
-| `npm run dev` | `wrangler dev` — local Worker + Miniflare |
-| `npm run dev:remote` | `wrangler dev --remote` — use if Browser Rendering / Puppeteer differs locally |
+| `npm run dev` | `wrangler dev` — local Worker + Miniflare (runs `check:devvars` first). With `AUTH_MODE=auto`/`http`, HTTP login needs no Browser Rendering, so this works **without** `--remote` |
+| `npm run dev:remote` | `wrangler dev --remote` — use to exercise the Browser Rendering / Puppeteer login fallback |
+| `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
+| `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
 | `npm run types` | Regenerate [`worker-configuration.d.ts`](./worker-configuration.d.ts) from Wrangler |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
-| `npm run deploy` | Deploy default environment |
+| `npm run deploy` | Manual deploy (CI/CD deploys automatically on merge to `main` — see [Deploy](#deploy)) |
+
+## Deploy
+
+Merges to `main` deploy automatically via [`.github/workflows/ci.yml`](./.github/workflows/ci.yml):
+the `build` job (typecheck + test + `wrangler deploy --dry-run`) and `hygiene` job must
+pass, then the `deploy` job applies remote D1 migrations and runs `wrangler deploy`.
+`account_id` lives in [`wrangler.toml`](./wrangler.toml), so CI needs only an API token.
+
+**One-time setup:**
+
+1. **Scoped API token** — Cloudflare dashboard → My Profile → API Tokens → *Edit
+   Cloudflare Workers* template; confirm **D1 : Edit** is included (for migrations).
+   Do **not** use the Global API Key.
+2. **GitHub secret** — add the token as `CLOUDFLARE_API_TOKEN` (repo → Settings → Secrets
+   and variables → Actions), ideally under a `production` Environment.
+3. **Worker secrets** — set real values once; they persist across deploys and are never in
+   git or `[vars]`:
+
+   ```bash
+   npx wrangler secret put SHADOW_API_TOKEN
+   npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET
+   npx wrangler secret put LOGIN_USERNAME
+   npx wrangler secret put LOGIN_PASSWORD
+   ```
+
+   The bearer tokens are **not** defined in `[vars]`, so a Worker with no secret set
+   **fails closed** (every `/api/v1/*` route except `GET /api/v1/health` returns 401)
+   rather than trusting a committed placeholder.
+
+To deploy by hand instead, run `npm run db:migrate:remote && npm run deploy` locally.
 
 ## OpenAPI and docs
 
@@ -67,15 +113,24 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 
 ## API discovery (traffic harvest)
 
-See [`tools/api-discovery/README.md`](./tools/api-discovery/README.md). Output stays under `tools/api-discovery/out/` (gitignored).
+Record what you do on the Routeware site — every request, its args/params, and the
+response — then turn the gaps into new shadow API routes. See
+[`tools/api-discovery/README.md`](./tools/api-discovery/README.md). Output stays under
+`tools/api-discovery/out/` (gitignored). Sensitive values (credentials, tokens, PII) are
+masked by default; field names, body structure, and query params are preserved.
 
 | Command | Purpose |
 |--------|--------|
-| `npm run discovery:record` | Playwright recorder → `tools/api-discovery/out/harvest.ndjson` |
+| `npm run discovery:setup` | One-time: install Playwright + the Chromium browser |
+| `npm run discovery:record` | Headed recorder → `tools/api-discovery/out/harvest.ndjson` (redacted). Log in, do your workflow, press Enter to stop |
+| `npm run discovery:record:full` | Same, but captures **all** headers/values (cookies, tokens) for full replay — keep the harvest private |
+| `npm run discovery:codegen` | Record your **UI actions** (clicks/typing) into a replayable Playwright script |
 | `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs |
 | `npm run discovery:verify` | Runs **`discovery:process`** then **`npm test`** (route-map + Worker contract tests) |
 
-After a recording, use **`out/route-gaps.txt`** and **`out/suggested-routes.stub.ts`** to add **`route-map.json`** entries and matching routes in [`src/app.ts`](./src/app.ts).
+Typical loop: `discovery:setup` (once) → `discovery:record` while you use the site →
+`discovery:process` → open **`out/route-gaps.txt`** and **`out/suggested-routes.stub.ts`**
+to add **`route-map.json`** entries and matching routes in [`src/app.ts`](./src/app.ts).
 
 Example mappings from a typical harvest (SPA + ExtJS):
 

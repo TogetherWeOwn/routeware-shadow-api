@@ -15,7 +15,7 @@ import {
   sha256Etag
 } from "./entityDataCache";
 import { forwardWithSessionRetry } from "./forwardWithSessionRetry";
-import { establishSessionWithBrowser } from "./browserAuth";
+import { establishSession } from "./establishSession";
 import { problemJsonResponse } from "./problem";
 import { readSessionState } from "./sessionState";
 import {
@@ -246,7 +246,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
     c.req.raw,
     url,
     bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
   const upText = await up.text();
   const posted = urlEncodedToObject(buf);
@@ -346,7 +346,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     c.req.raw,
     url,
     bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
   const upText = await up.text();
   const posted = urlEncodedToObject(buf);
@@ -427,7 +427,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     c.req.raw,
     url,
     bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
   const upText = await up.text();
   const posted = urlEncodedToObject(buf);

@@ -1,4 +1,4 @@
-import { establishSessionWithBrowser } from "./browserAuth";
+import { establishSession } from "./establishSession";
 import { parseAddressSnapshotRow } from "./csvAddressSnapshot";
 import type { AddressSnapshotRow } from "./csvAddressSnapshot";
 import { parseContainerSnapshotRow } from "./csvContainerSnapshot";
@@ -249,7 +249,7 @@ export async function fetchReportCsvForPath(
   const req = createReportRequest(env);
   let resp = await forwardToUpstream(req, url, session, null);
   if (resp.status !== 200 || isLoginRedirect(resp)) {
-    await establishSessionWithBrowser(env, stub, env.LOGIN_URL);
+    await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
     resp = await forwardToUpstream(req, url, session, null);
   }

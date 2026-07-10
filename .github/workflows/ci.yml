@@ -63,3 +63,35 @@ jobs:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks detect --source . --no-git --redact --config .gitleaks.toml
+
+  deploy:
+    name: Deploy to Cloudflare Workers
+    # Only after the blocking checks pass, and only on a push to main (never on PRs).
+    needs: [build, hygiene]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
+    environment: production
+    # Serialize deploys so overlapping merges can't race; don't cancel an in-flight one.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - name: Apply D1 migrations (remote)
+        # Runs before deploy so the schema is present before the new code goes live.
+        run: npm run db:migrate:remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - name: Deploy Worker
+        # Uses the repo's pinned Wrangler. Worker secrets (SHADOW_API_TOKEN, etc.) are
+        # set once via `wrangler secret put` and are not touched by deploy. account_id
+        # lives in wrangler.toml, so only the API token is needed here.
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

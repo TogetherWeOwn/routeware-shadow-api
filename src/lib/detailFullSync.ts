@@ -1,4 +1,4 @@
-import { establishSessionWithBrowser } from "./browserAuth";
+import { establishSession } from "./establishSession";
 import type { AddressSnapshotRow } from "./csvAddressSnapshot";
 import type { ContainerSnapshotRow } from "./csvContainerSnapshot";
 import type { CustomerSnapshotRow } from "./csvCustomerSnapshot";
@@ -212,7 +212,7 @@ export async function fetchGetCustomerDetailFull(
   let session = await readSessionState(sessionStub);
   let resp = await forwardToUpstream(makeReq(), url, session, buf);
   if (resp.status !== 200 || isLoginRedirect(resp)) {
-    await establishSessionWithBrowser(env, sessionStub, env.LOGIN_URL);
+    await establishSession(env, sessionStub, env.LOGIN_URL);
     session = await readSessionState(sessionStub);
     resp = await forwardToUpstream(makeReq(), url, session, buf);
   }

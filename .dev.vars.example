@@ -4,8 +4,14 @@ LOGIN_PASSWORD=
 
 # Client auth for /api/v1/* (all routes except GET /api/v1/health).
 # SHADOW_API_TOKEN falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET when unset.
+# At least one of these must be set (non-empty) or every /api/v1/* call returns 401.
 SHADOW_API_TOKEN=
 CUSTOMER_SNAPSHOT_SYNC_SECRET=
+
+# Optional: session auth method. Default "auto" (HTTP form login, browser fallback).
+# HTTP login needs no Browser Rendering, so `npm run dev` (local) works without --remote.
+# Set "browser" to force the Puppeteer path, or "http" to disable the fallback.
+# AUTH_MODE=auto
 
 # Optional: override for staging
 # TARGET_ORIGIN=https://example.routeware.com

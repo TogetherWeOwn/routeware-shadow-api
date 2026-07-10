@@ -4,6 +4,14 @@ Headed Playwright session that logs **every `/WebRW` request and response** to N
 
 ## Setup
 
+One-liner from the **repo root** (installs deps + the Chromium browser):
+
+```bash
+npm run discovery:setup
+```
+
+Or manually:
+
 ```bash
 cd tools/api-discovery
 npm install
@@ -40,10 +48,12 @@ npm run record
 
 ### Fresh recording file
 
-To **truncate** the harvest before recording (new session only):
+To **truncate** the harvest before recording (new session only). Use the flag
+(works in PowerShell / cmd / bash) or the env var:
 
 ```bash
-HARVEST_FRESH=1 npm run record
+npm run record -- --fresh      # cross-platform flag
+HARVEST_FRESH=1 npm run record # env var (bash)
 ```
 
 ### Body / response size caps
@@ -84,14 +94,31 @@ npm run record
 
 By default, **`Cookie`**, **`Authorization`**, **`Set-Cookie`**, **`X-Api-Key`**, and **`Proxy-Authorization`** are omitted from `requestHeaders` / `responseHeaders`.
 
-To log **every header** (needed for full replay / session debugging):
+To log **every header** and **every value** (cookies, auth, anti-forgery tokens —
+needed for full replay / session debugging), use the flag or env var:
 
 ```bash
-export HARVEST_FULL_HEADERS=1
-# or: HARVEST_REDACT_HEADERS=0
+npm run record:full                 # = record -- --full (cross-platform)
+npm run record -- --full --fresh    # full capture into a fresh file
+export HARVEST_FULL_HEADERS=1       # env var equivalent (bash)
 ```
 
-Treat `harvest.ndjson` as **secret** when full headers are on.
+`--full` also disables the credential/PII value masking, so treat `harvest.ndjson`
+as **secret** when it is on. `out/` is gitignored.
+
+## Record UI actions (codegen)
+
+`record.ts` captures the **requests** your actions fire. To also capture **the actions
+themselves** (clicks, typing, navigation) as a replayable script, run Playwright codegen:
+
+```bash
+npm run codegen                 # opens Routeware; script appears in the Inspector
+npm run codegen -- -o flow.ts   # also save the generated script to flow.ts
+```
+
+Run `npm run record` (or `record:full`) in a second terminal at the same time to get
+both the action script **and** the underlying request/arg harvest for one workflow —
+everything needed to replicate it as a shadow API route.
 
 ## After recording — one command
 
@@ -130,6 +157,10 @@ Runs **`discovery:process`** then **`npm test`** (includes **route-map contract 
 
 | Script | Output |
 |--------|--------|
+| `npm run setup` | Installs the Chromium browser (`playwright install chromium`) |
+| `npm run record` | Headed recording → `out/harvest.ndjson` (redacted) |
+| `npm run record:full` | Recording with all headers/values (`--full`) |
+| `npm run codegen` | Playwright codegen — records UI actions to a script |
 | `npm run validate:harvest` | Validates `harvest.ndjson` |
 | `npm run aggregate` | `discovered-operations.json` only |
 | `npm run docs:harvest` | `HARVEST_API.md` only |

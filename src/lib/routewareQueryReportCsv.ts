@@ -1,5 +1,5 @@
 import { forwardToUpstream } from "./upstreamForward";
-import { establishSessionWithBrowser } from "./browserAuth";
+import { establishSession } from "./establishSession";
 import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
 
@@ -64,7 +64,7 @@ async function forwardSessionAware(
   const run = () => forwardToUpstream(makeReq(), url, session, body);
   let resp = await run();
   if (resp.status !== 200 || isLoginRedirect(resp)) {
-    await establishSessionWithBrowser(env, stub, env.LOGIN_URL);
+    await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
     resp = await forwardToUpstream(makeReq(), url, session, body);
   }

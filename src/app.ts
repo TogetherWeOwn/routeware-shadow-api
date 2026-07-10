@@ -1,6 +1,6 @@
 import { OpenAPIHono, createRoute, z } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
-import { establishSessionWithBrowser } from "./lib/browserAuth";
+import { establishSession } from "./lib/establishSession";
 import { prepareSaveCustomerLongFormBody } from "./lib/customerSaveAutoToken";
 import { forwardWithSessionRetry } from "./lib/forwardWithSessionRetry";
 import { forwardToUpstream } from "./lib/upstreamForward";
@@ -196,7 +196,7 @@ app.openapi(homeIndexRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -232,7 +232,7 @@ app.openapi(customersReadRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -256,7 +256,7 @@ app.openapi(customerDetailFullRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -282,7 +282,7 @@ app.openapi(customerTypesReadRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -327,7 +327,7 @@ app.openapi(customerSaveLongFormRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -353,7 +353,7 @@ app.openapi(customerAddNewLongRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -380,7 +380,7 @@ app.openapi(customerLoadLongModalRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -430,7 +430,7 @@ app.openapi(appSettingsGetRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
@@ -455,7 +455,7 @@ app.openapi(queryRequestIsCompleteRoute, async (c) => {
     c.req.raw,
     upstreamUrl,
     c.var.bodyBuffer,
-    establishSessionWithBrowser
+    establishSession
   );
 });
 
