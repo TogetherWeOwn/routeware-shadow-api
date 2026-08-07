@@ -8,7 +8,10 @@ import {
   handlePostDataCustomer
 } from "../lib/dataEntityHandlers";
 import { problemJsonResponse } from "../lib/problem";
-import { createRouteModule, snapshotSyncAuthorized } from "./shared";
+import {
+  createRouteModule,
+  requireSnapshotAuth
+} from "./shared";
 
 /**
  * `/api/v1/data/*` (tag `data-entity`): D1 aggregate reads, and writes that go
@@ -42,14 +45,8 @@ const dataCustomerGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  if (denied) return denied;
   const q = c.req.valid("query");
   const id = q.id ?? q.customerId;
   if (id === undefined) {
@@ -81,14 +78,8 @@ const dataAddressGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Bearer required (same as snapshot sync secret)."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  if (denied) return denied;
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
@@ -119,14 +110,8 @@ const dataContainerGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Bearer required (same as snapshot sync secret)."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  if (denied) return denied;
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
@@ -160,14 +145,8 @@ const dataCustomerPostRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Bearer required."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Bearer required.");
+  if (denied) return denied;
   return handlePostDataCustomer({ env: c.env, var: c.var, req: c.req });
 });
 
@@ -182,13 +161,8 @@ const dataAddressPostRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401
-    });
-  }
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
   return handlePostDataAddress({ env: c.env, var: c.var, req: c.req });
 });
 
@@ -203,12 +177,7 @@ const dataContainerPostRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataContainerPostRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401
-    });
-  }
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
   return handlePostDataContainer({ env: c.env, var: c.var, req: c.req });
 });

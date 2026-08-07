@@ -1,7 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { runDataSnapshotSyncChainedHttp } from "../lib/d1SnapshotSync";
-import { problemJsonResponse } from "../lib/problem";
-import { createRouteModule, snapshotSyncAuthorized } from "./shared";
+import {
+  createRouteModule,
+  requireSnapshotAuth,
+  requireSnapshotSecret
+} from "./shared";
 
 /** Combined customer -> address -> container snapshot sync. */
 export const dataSnapshotRoutes = createRouteModule();
@@ -37,22 +40,10 @@ const dataSnapshotSyncRoute = createRoute({
 });
 
 dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-    });
-  }
-  if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
-      title: "Not configured",
-      status: 503,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  if (denied) return denied;
+  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
   const r = await runDataSnapshotSyncChainedHttp(origin, c.env);
   return c.json(r, 200);

@@ -6,8 +6,9 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
-  snapshotListResponse,
-  snapshotSyncAuthorized
+  requireSnapshotAuth,
+  requireSnapshotSecret,
+  snapshotListResponse
 } from "./shared";
 
 /** D1 container snapshot: reads plus the CSV sync/import writers. */
@@ -173,20 +174,10 @@ const containerSnapshotSyncRoute = createRoute({
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotSyncRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401
-    });
-  }
-  if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
-      title: "Not configured",
-      status: 503
-    });
-  }
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  const misconfigured = requireSnapshotSecret(c.env);
+  if (misconfigured) return misconfigured;
   if (!c.env.CONTAINER_REPORT_EXPORT_PATH?.trim() && !c.env.CONTAINER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
@@ -222,13 +213,8 @@ const containerSnapshotImportRoute = createRoute({
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401
-    });
-  }
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({

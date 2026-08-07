@@ -6,8 +6,9 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
-  snapshotListResponse,
-  snapshotSyncAuthorized
+  requireSnapshotAuth,
+  requireSnapshotSecret,
+  snapshotListResponse
 } from "./shared";
 
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
@@ -154,22 +155,10 @@ const customerSnapshotSyncRoute = createRoute({
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-    });
-  }
-  if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
-      title: "Not configured",
-      status: 503,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  if (denied) return denied;
+  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  if (misconfigured) return misconfigured;
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
@@ -207,14 +196,8 @@ const customerSnapshotImportRoute = createRoute({
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset.");
+  if (denied) return denied;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({

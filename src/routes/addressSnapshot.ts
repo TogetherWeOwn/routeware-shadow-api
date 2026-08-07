@@ -6,8 +6,9 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
-  snapshotListResponse,
-  snapshotSyncAuthorized
+  requireSnapshotAuth,
+  requireSnapshotSecret,
+  snapshotListResponse
 } from "./shared";
 
 /** D1 address snapshot: reads plus the CSV sync/import writers. */
@@ -155,22 +156,10 @@ const addressSnapshotSyncRoute = createRoute({
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401,
-      detail: "Bearer token required."
-    });
-  }
-  if (!c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
-      title: "Not configured",
-      status: 503,
-      detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets."
-    });
-  }
+  const denied = requireSnapshotAuth(c, "Bearer token required.");
+  if (denied) return denied;
+  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  if (misconfigured) return misconfigured;
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
@@ -206,13 +195,8 @@ const addressSnapshotImportRoute = createRoute({
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
-  if (!snapshotSyncAuthorized(c)) {
-    return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
-      title: "Unauthorized",
-      status: 401
-    });
-  }
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
