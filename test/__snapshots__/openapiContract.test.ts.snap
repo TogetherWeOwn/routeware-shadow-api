@@ -1,0 +1,1358 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`published OpenAPI document > matches the recorded document byte for byte 1`] = `
+{
+  "components": {
+    "parameters": {},
+    "schemas": {
+      "CustomerSnapshotList": {
+        "properties": {
+          "rows": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": "integer",
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+        ],
+        "type": "object",
+      },
+      "DataSnapshotSyncResult": {
+        "properties": {
+          "address": {
+            "properties": {
+              "rowCount": {
+                "type": "integer",
+              },
+              "upserted": {
+                "type": "integer",
+              },
+            },
+            "required": [
+              "upserted",
+              "rowCount",
+            ],
+            "type": [
+              "object",
+              "null",
+            ],
+          },
+          "container": {
+            "properties": {
+              "rowCount": {
+                "type": "integer",
+              },
+              "upserted": {
+                "type": "integer",
+              },
+            },
+            "required": [
+              "upserted",
+              "rowCount",
+            ],
+            "type": [
+              "object",
+              "null",
+            ],
+          },
+          "customer": {
+            "properties": {
+              "rowCount": {
+                "type": "integer",
+              },
+              "upserted": {
+                "type": "integer",
+              },
+            },
+            "required": [
+              "upserted",
+              "rowCount",
+            ],
+            "type": [
+              "object",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "customer",
+          "address",
+          "container",
+        ],
+        "type": "object",
+      },
+      "HealthResponse": {
+        "properties": {
+          "service": {
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "ok",
+            ],
+            "type": "string",
+          },
+        },
+        "required": [
+          "status",
+          "service",
+        ],
+        "type": "object",
+      },
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "description": "SHADOW_API_TOKEN (falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET) as a bearer token. Required on all /api/v1/* routes except GET /api/v1/health.",
+        "scheme": "bearer",
+        "type": "http",
+      },
+    },
+  },
+  "info": {
+    "description": "Explicit proxy to Routeware WebRW. Session cookies are stored in a Worker Durable Object; clients do not send Routeware credentials.
+
+**Customer:** \`customers-read\` lists rows; \`detail-full\` loads one record; \`customer-types-read\` feeds dropdowns; \`add-new-long\` and \`load-long-modal\` return the same HTML/JS shells the SPA uses before save; \`save-long-form\` creates or updates (URL-encoded form body). **Anti-forgery** for \`save-long-form\` is filled server-side from Routeware modal HTML when the client omits \`__RequestVerificationToken\` (see \`CUSTOMER_SAVE_AUTO_TOKEN\`). Routeware does not support HTTP DELETE for customers — use \`save-long-form\` with \`Enabled=false\` to disable. \`DELETE /api/v1/routeware/customer\` documents that limitation (returns 405 + problem+json).
+
+**D1 snapshots (Routeware custom CSV reports):** \`customer_snapshot\` (CustomerID) → \`address_snapshot\` (PickupAddressID, CustomerID) → \`container_snapshot\` (ContainerID, PickupAddressID). **Export source:** set \`*_REPORT_EXPORT_PATH\` (static URL) **or** \`*_REPORT_QUERY_ID\` (WebRW: client \`requestID\` + \`GET\` \`QueryExecuteDownload\`), then \`POST /api/v1/data-snapshot/sync\` (bearer) or the daily cron. \`POST /api/v1/...-snapshot/import\` accepts a raw CSV body. See \`CUSTOMER_SNAPSHOT.md\` for setup and migration commands.
+
+**Data entity (\`/api/v1/data/*\`, tag \`data-entity\`):** bearer = \`CUSTOMER_SNAPSHOT_SYNC_SECRET\`. \`GET\` reads nested D1 snapshots (customer + address + container graph) with ETag/cache. \`POST\` applies changes to Routeware, returns \`upstream\` + \`posted\` fields, then refreshes D1 from \`GetCustomerDetailFull\` and invalidates that cache for affected ids.",
+    "title": "Routeware Shadow API",
+    "version": "1.0.0",
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/address-snapshot": {
+      "get": {
+        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "pickupAddressId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Address line substring (case-insensitive)",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Address line substring (case-insensitive)",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "enabled",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "true",
+                "false",
+                "any",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                },
+              },
+            },
+            "description": "Rows and total",
+          },
+        },
+        "summary": "List address snapshot rows (D1)",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
+    "/api/v1/address-snapshot/import": {
+      "post": {
+        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import address CSV body into D1",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
+    "/api/v1/address-snapshot/sync": {
+      "post": {
+        "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "skipped": {
+                      "type": "boolean",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "503": {
+            "description": "Not configured",
+          },
+        },
+        "summary": "Fetch address report CSV and upsert D1",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
+    "/api/v1/address-snapshot/{pickupAddressId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pickupAddressId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Row",
+          },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
+          },
+          "404": {
+            "description": "Not found (application/problem+json)",
+          },
+        },
+        "summary": "Get one address snapshot row",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
+    "/api/v1/container-snapshot": {
+      "get": {
+        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "pickupAddressId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "containerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Substring on location or serial (case-insensitive)",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Substring on location or serial (case-insensitive)",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "enabled",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "true",
+                "false",
+                "any",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                },
+              },
+            },
+            "description": "Rows and total",
+          },
+        },
+        "summary": "List container snapshot rows (D1)",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
+    "/api/v1/container-snapshot/import": {
+      "post": {
+        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import container CSV into D1",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
+    "/api/v1/container-snapshot/sync": {
+      "post": {
+        "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "skipped": {
+                      "type": "boolean",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "503": {
+            "description": "Not configured",
+          },
+        },
+        "summary": "Fetch container report CSV and upsert D1",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
+    "/api/v1/container-snapshot/{containerId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "containerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Row",
+          },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
+          },
+          "404": {
+            "description": "Not found (application/problem+json)",
+          },
+        },
+        "summary": "Get one container snapshot row",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot": {
+      "get": {
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Company name substring (case-insensitive)",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "description": "Company name substring (case-insensitive)",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "enabled",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "true",
+                "false",
+                "any",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                },
+              },
+            },
+            "description": "Rows and total count for pagination",
+          },
+        },
+        "summary": "List customer snapshot rows (D1)",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/import": {
+      "post": {
+        "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires bearer secret.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Import result",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import CSV body into D1",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/sync": {
+      "post": {
+        "description": "Same logic as the daily cron. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\` and either \`CUSTOMER_REPORT_EXPORT_PATH\` (static path) or \`CUSTOMER_REPORT_QUERY_ID\` (Routeware query id for the async report pipeline).",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "skipped": {
+                      "type": "boolean",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Sync result",
+          },
+          "401": {
+            "description": "Missing or invalid bearer token",
+          },
+          "503": {
+            "description": "Secret or report path not configured",
+          },
+        },
+        "summary": "Fetch Routeware report CSV and upsert D1",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/{customerId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Row",
+          },
+          "400": {
+            "description": "Invalid customer id (application/problem+json)",
+          },
+          "404": {
+            "description": "Not found (application/problem+json)",
+          },
+        },
+        "summary": "Get one customer snapshot row",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/data-snapshot/sync": {
+      "post": {
+        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron should set \`SHADOW_API_PUBLIC_BASE\` to this Worker’s public URL. Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataSnapshotSyncResult",
+                },
+              },
+            },
+            "description": "Per-table Result (null if that export path is empty or was skipped for FKs)",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
+        "tags": [
+          "data-snapshot",
+        ],
+      },
+    },
+    "/api/v1/data/address": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "address, customer, containers",
+          },
+          "304": {
+            "description": "Not modified",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "Not in D1",
+          },
+        },
+        "summary": "Get address (D1) with customer and containers",
+        "tags": [
+          "data-entity",
+        ],
+      },
+      "post": {
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+          },
+          "400": {
+            "description": "Bad request",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "502": {
+            "description": "Token preparation failed",
+          },
+        },
+        "summary": "Create/update address in Routeware + sync D1",
+        "tags": [
+          "data-entity",
+        ],
+      },
+    },
+    "/api/v1/data/container": {
+      "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "container, address, customer",
+          },
+          "304": {
+            "description": "Not modified",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "Not in D1",
+          },
+        },
+        "summary": "Get container (D1) with address and customer",
+        "tags": [
+          "data-entity",
+        ],
+      },
+      "post": {
+        "description": "Proxies to \`Container/SaveContainerForm\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row).",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+          },
+          "400": {
+            "description": "Bad request",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "502": {
+            "description": "Token preparation failed",
+          },
+        },
+        "summary": "Create/update container in Routeware + sync D1",
+        "tags": [
+          "data-entity",
+        ],
+      },
+    },
+    "/api/v1/data/customer": {
+      "get": {
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`).",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "customer + nested addresses with containers",
+          },
+          "304": {
+            "description": "Not modified",
+          },
+          "400": {
+            "description": "Missing id",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "Not in D1",
+          },
+        },
+        "summary": "Get customer (D1) with addresses and containers",
+        "tags": [
+          "data-entity",
+        ],
+      },
+      "post": {
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`). \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`upstream\` (Routeware body), \`posted\` (form fields you sent), \`ok\`, \`localSync\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+            },
+            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+          },
+          "400": {
+            "description": "Bad request",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "502": {
+            "description": "Token preparation failed",
+          },
+        },
+        "summary": "Create/update customer in Routeware + sync D1",
+        "tags": [
+          "data-entity",
+        ],
+      },
+    },
+    "/api/v1/health": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse",
+                },
+              },
+            },
+            "description": "Worker is running",
+          },
+        },
+        "security": [],
+      },
+    },
+    "/api/v1/routeware/account/login-page": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream HTML for the Routeware login page (unauthenticated fetch)",
+          },
+        },
+      },
+    },
+    "/api/v1/routeware/customer": {
+      "delete": {
+        "description": "Routeware WebRW does not expose a hard delete. Disable or retire a customer by submitting \`save-long-form\` with \`Enabled=false\` (and other required fields from the loaded record).",
+        "responses": {
+          "405": {
+            "description": "Method not allowed (application/problem+json). Use save-long-form with Enabled=false to disable.",
+          },
+        },
+        "summary": "Delete customer (not supported upstream)",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/add-new-long": {
+      "get": {
+        "description": "Returns the same HTML/JS fragment Routeware uses for the long add-customer modal. Optional for API clients: \`save-long-form\` can fetch this page server-side to obtain \`__RequestVerificationToken\` when you omit the token.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "AddNewLong (new customer form shell)",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/customer-types-read": {
+      "post": {
+        "description": "Customer type / category list for pickers (same store pattern as other Ext.NET \`*Read\` actions). Send **application/x-www-form-urlencoded** (e.g. \`EnabledOnly=true\`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "CustomerTypesRead",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/customers-read": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "CustomersRead (harvested SPA traffic)",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/detail-full": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "GetCustomerDetailFull",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/load-long-modal": {
+      "get": {
+        "description": "Loads the edit-customer long form HTML/JS for the given \`customerID\` query parameter (forwarded to upstream unchanged).",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "LoadLongCustomerModal",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/customer/save-long-form": {
+      "post": {
+        "description": "Proxies to WebRW \`SaveCustomerLongForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`AddNewLong\` (create, \`CustomerID\` 0 / absent) or \`LoadLongCustomerModal?customerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`CustomerID=0\` for create; set \`CustomerID\` for updates. Disable customers with \`Enabled=false\` (no upstream delete).",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "SaveCustomerLongForm (create or update)",
+        "tags": [
+          "customer",
+        ],
+      },
+    },
+    "/api/v1/routeware/data/app-settings-get": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "appSettingsGet",
+        "tags": [
+          "data",
+        ],
+      },
+    },
+    "/api/v1/routeware/home/index": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types)",
+          },
+        },
+      },
+    },
+    "/api/v1/routeware/reports/query-request-is-complete": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "QueryRequestIsComplete (query string forwarded to upstream)",
+        "tags": [
+          "reports",
+        ],
+      },
+    },
+  },
+  "security": [
+    {
+      "bearerAuth": [],
+    },
+  ],
+  "tags": [
+    {
+      "name": "meta",
+    },
+    {
+      "name": "routeware",
+    },
+    {
+      "name": "customer",
+    },
+    {
+      "name": "data",
+    },
+    {
+      "name": "reports",
+    },
+    {
+      "description": "D1: customer custom report",
+      "name": "customer-snapshot",
+    },
+    {
+      "description": "D1: address custom report",
+      "name": "address-snapshot",
+    },
+    {
+      "description": "D1: container custom report",
+      "name": "container-snapshot",
+    },
+    {
+      "description": "D1: combined report sync",
+      "name": "data-snapshot",
+    },
+    {
+      "description": "D1 aggregate reads (customer + address + container) and writes through Routeware with local snapshot sync",
+      "name": "data-entity",
+    },
+  ],
+  "webhooks": {},
+}
+`;

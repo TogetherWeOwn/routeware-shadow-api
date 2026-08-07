@@ -12,7 +12,7 @@ export default defineConfig({
     /**
      * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
      * and the first test in a file absorbs module init for the whole graph
-     * (app.ts alone is ~1400 lines). That combination timed out the first
+     * (the route modules total ~1,500 lines). That combination timed out the first
      * integration test on CI's slower runner while passing locally. The tests
      * themselves do millisecond-scale work; this covers warm-up, not slow logic.
      */
@@ -26,17 +26,17 @@ export default defineConfig({
       reporter: ["text", "html", "json-summary"],
       /**
        * Ratchet, not the target. The ECC standard is 80% (see
-       * .claude/rules/ecc/common/testing.md); measured coverage today is ~34%.
+       * .claude/rules/ecc/common/testing.md); measured coverage today is ~36%.
        * These floors are pinned just under current numbers so coverage can never
        * regress, and are meant to be raised toward 80% as the untested modules
        * (dataEntityHandlers, d1SnapshotSync, detailFullSync, httpAuth login,
        * browserAuth) gain tests. Raise them whenever a PR moves the number up.
        */
       thresholds: {
-        statements: 35,
-        branches: 26,
-        functions: 38,
-        lines: 35
+        statements: 36,
+        branches: 27,
+        functions: 39,
+        lines: 36
       }
     }
   }

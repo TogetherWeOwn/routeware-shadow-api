@@ -25,9 +25,16 @@ Only `common/` and `typescript/` are tracked. The rest of `.claude/` is a vendor
 
 `npm run typecheck` → `npm test`. Use `npm run test:coverage` before pushing — CI runs it, and `vitest.config.ts` pins coverage thresholds just under current levels so coverage **cannot regress**.
 
-Those thresholds are a ratchet, not the goal. Measured coverage is ~35.7%; the ECC standard is 80%. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: `dataEntityHandlers.ts`, `d1SnapshotSync.ts`, `detailFullSync.ts`, `httpAuth.ts` (the login sequence), `browserAuth.ts`, `scheduled.ts`.
+Those thresholds are a ratchet, not the goal. Measured coverage is ~36.3%; the ECC standard is 80%. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: `dataEntityHandlers.ts`, `d1SnapshotSync.ts`, `detailFullSync.ts`, `httpAuth.ts` (the login sequence), `browserAuth.ts`, `scheduled.ts`.
 
-Known ECC breaches still open (deliberately deferred as their own change, to keep this diff reviewable): `src/app.ts` is 1425 lines and `src/lib/d1SnapshotSync.ts` is 817 — both over the 800-line ceiling. `app.ts` splits cleanly along its existing OpenAPI tag boundaries into per-domain route modules (customer, snapshots, data-entity, meta). Several handlers in `dataEntityHandlers.ts` also exceed the 50-line guideline.
+Known ECC breaches still open: `src/lib/d1SnapshotSync.ts` is 817 lines, over the 800-line ceiling — it splits into upsert / read / orchestration modules. Several handlers in `dataEntityHandlers.ts` also exceed the 50-line guideline.
+
+`src/app.ts` was the other breach and is now **163 lines**: the routes live in `src/routes/*.ts`, one module per domain, each an `OpenAPIHono` mounted at `"/"` so its `createRoute` paths stay absolute. Two rules govern that directory:
+
+- A route module **must** be an `OpenAPIHono` (build it with `createRouteModule()`), never a plain `Hono`. `OpenAPIHono.route()` merges a sub-app's `openAPIRegistry` into the parent only for `OpenAPIHono` instances; mounting a plain `Hono` still serves traffic while silently dropping every route from `/openapi.json`.
+- The two `app.use("/api/v1/*", …)` middlewares must stay registered **before** every `app.route(…)` mount, or a route becomes reachable without the client auth gate.
+
+`test/openapiContract.test.ts` enforces both, plus the full generated document, and is verified to fail when a route is dropped.
 
 CI (`.github/workflows/ci.yml`) additionally runs `npx wrangler deploy --dry-run` and hygiene checks for committed `*.csv` exports, `.dev.vars`, and bulk `.claude/` content. There is no lint or format step — none is configured.
 
