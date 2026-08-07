@@ -90,11 +90,21 @@ export async function putReadableStreamToR2(
     if (mpu !== null) {
       try {
         await mpu.abort();
-      } catch {
-        // ignore
+      } catch (abortErr) {
+        // Don't mask the primary failure, but don't hide this either: an
+        // abandoned multipart upload is retained (and billed) until lifecycle
+        // cleanup, so it needs to be visible in logs.
+        console.warn(
+          `R2 multipart abort failed for ${key}; upload may be left dangling:`,
+          abortErr instanceof Error ? abortErr.message : String(abortErr)
+        );
       }
     }
+    // Tear the source down promptly rather than leaving it half-read.
+    await reader.cancel(e).catch(() => undefined);
     throw e;
+  } finally {
+    reader.releaseLock();
   }
 }
 

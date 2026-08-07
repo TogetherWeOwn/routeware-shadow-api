@@ -16,15 +16,30 @@ export async function getCachedDataEntity(
   return workersCache.match(new Request(cacheKeyUrl(entity, id), { method: "GET" }));
 }
 
+/**
+ * Populate the cache. Best-effort by design: the response is already computed and
+ * valid, so a cache write that fails (oversized body, transient platform error)
+ * must not turn a good 200 into a 500. Failures are logged, never rethrown.
+ *
+ * Note the asymmetry with `invalidateDataEntity`, which deliberately does NOT
+ * swallow errors — a failed invalidation means stale data would be served.
+ */
 export async function putCachedDataEntity(
   entity: "customer" | "address" | "container",
   id: number,
   response: Response
 ): Promise<void> {
-  await workersCache.put(
-    new Request(cacheKeyUrl(entity, id), { method: "GET" }),
-    response.clone()
-  );
+  try {
+    await workersCache.put(
+      new Request(cacheKeyUrl(entity, id), { method: "GET" }),
+      response.clone()
+    );
+  } catch (err) {
+    console.warn(
+      `Cache put failed for ${entity}/${id}; serving the response uncached:`,
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 }
 
 export async function invalidateDataEntity(
