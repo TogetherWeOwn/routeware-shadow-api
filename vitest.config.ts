@@ -9,6 +9,15 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    /**
+     * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
+     * and the first test in a file absorbs module init for the whole graph
+     * (app.ts alone is ~1400 lines). That combination timed out the first
+     * integration test on CI's slower runner while passing locally. The tests
+     * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+     */
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
