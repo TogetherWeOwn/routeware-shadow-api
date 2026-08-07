@@ -25,7 +25,7 @@ Only `common/` and `typescript/` are tracked. The rest of `.claude/` is a vendor
 
 `npm run typecheck` → `npm test`. Use `npm run test:coverage` before pushing — CI runs it, and `vitest.config.ts` pins coverage thresholds just under current levels so coverage **cannot regress**.
 
-Those thresholds are a ratchet, not the goal. Measured coverage is ~90.6% statements, ~82.0% branches, ~93.4% functions and ~91.1% lines — **all four metrics are now past the ECC 80% standard**. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: `r2SnapshotArchive.ts` (62.3% statements / 28.6% functions) and `routewareQueryReportCsv.ts` (69.8% / 51.1%).
+Those thresholds are a ratchet, not the goal. Measured coverage is ~90.6% statements, ~82.0% branches, ~93.4% functions and ~91.1% lines — **all four metrics are now past the ECC 80% standard**. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: the three `csv*Snapshot.ts` parsers (33–39% statements, 33% functions — the per-row `parse*SnapshotRow` half is well covered via `streamSync`, but the bulk `parse*SnapshotCsv` half is not), `r2SnapshotArchive.ts` (62.3% / 28.6% functions), and `routewareQueryReportCsv.ts` (69.8% / 51.1%).
 
 Read per-file numbers from `coverage/coverage-summary.json`, not the istanbul terminal table: the table drops files once they reach 100% and truncates long names.
 
