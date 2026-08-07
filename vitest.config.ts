@@ -26,17 +26,17 @@ export default defineConfig({
       reporter: ["text", "html", "json-summary"],
       /**
        * Ratchet, not the target. The ECC standard is 80% (see
-       * .claude/rules/ecc/common/testing.md); measured coverage today is ~62.9%.
+       * .claude/rules/ecc/common/testing.md); measured coverage today is ~67.9%.
        * These floors are pinned just under current numbers so coverage can never
        * regress, and are meant to be raised toward 80% as the untested modules
-       * (snapshot/orchestration, detailFullSync, addressContainerSaveForm,
-       * scheduled) gain tests. Raise them whenever a PR moves the number up.
+       * (snapshot/orchestration, addressContainerSaveForm, scheduled,
+       * entityDataCache) gain tests. Raise them whenever a PR moves the number up.
        */
       thresholds: {
-        statements: 62,
-        branches: 45,
-        functions: 70,
-        lines: 62
+        statements: 67,
+        branches: 54,
+        functions: 77,
+        lines: 67
       }
     }
   }
