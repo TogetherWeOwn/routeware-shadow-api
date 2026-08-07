@@ -26,18 +26,18 @@ export default defineConfig({
       reporter: ["text", "html", "json-summary"],
       /**
        * Ratchet, not the target. The ECC standard is 80% (see
-       * .claude/rules/ecc/common/testing.md). Functions are past it at ~89.6%;
-       * statements/lines are at ~79.4% and branches at ~68.3%. These floors are
-       * pinned just under current numbers so coverage can never regress, and are
-       * meant to be raised as the remaining modules (snapshot/streamSync,
-       * r2SnapshotArchive, routes/*Snapshot) gain tests. Raise them whenever a
-       * PR moves the number up.
+       * .claude/rules/ecc/common/testing.md). Statements (~86.8%), functions
+       * (~92.4%) and lines (~87.2%) are all past it; branches (~76.6%) is the
+       * last one short. These floors are pinned just under current numbers so
+       * coverage can never regress, and are meant to be raised as the remaining
+       * modules (snapshot/streamSync, r2SnapshotArchive, routes/dataSnapshot and
+       * routes/dataEntity) gain tests. Raise them whenever a PR moves the number up.
        */
       thresholds: {
-        statements: 79,
-        branches: 68,
-        functions: 89,
-        lines: 79
+        statements: 86,
+        branches: 76,
+        functions: 92,
+        lines: 87
       }
     }
   }
