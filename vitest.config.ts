@@ -27,17 +27,17 @@ export default defineConfig({
       /**
        * Ratchet, not the target. The ECC standard is 80% (see
        * .claude/rules/ecc/common/testing.md), and **all four metrics are now
-       * past it**: ~89.3% statements, ~80.1% branches, ~93.4% functions, ~89.8%
+       * past it**: ~90.6% statements, ~82.0% branches, ~93.4% functions, ~91.1%
        * lines. These floors are pinned just under current numbers so coverage
        * can never regress, and are still meant to be raised as the remaining
-       * modules (r2SnapshotArchive, routes/dataSnapshot, routes/dataEntity)
-       * gain tests. Raise them whenever a PR moves the number up.
+       * modules (r2SnapshotArchive, routewareQueryReportCsv) gain tests. Raise
+       * them whenever a PR moves the number up.
        */
       thresholds: {
-        statements: 89,
-        branches: 80,
+        statements: 90,
+        branches: 81,
         functions: 93,
-        lines: 89
+        lines: 91
       }
     }
   }
