@@ -11,3 +11,19 @@ tools/api-discovery/.harvest.ndjson
 # Never commit them. Keep small sample fixtures under tools/api-discovery/examples/.
 *.csv
 *:Zone.Identifier
+
+# ECC agent-harness install (.claude/) is vendored third-party content, not project
+# source: ~7 MB of agents/skills/commands/scripts already provided by the user-level
+# `ecc@ecc` plugin. Track only what is project-specific:
+#   - settings.json — the deny list enforcing "deploys are not yours to run"
+#   - rules/ecc/{common,typescript} — the rulesets ECC prescribes for this stack
+.claude/*
+!.claude/settings.json
+!.claude/rules/
+.claude/rules/*
+!.claude/rules/ecc/
+.claude/rules/ecc/*
+!.claude/rules/ecc/common/
+!.claude/rules/ecc/typescript/
+# Per-developer overrides must never be committed.
+.claude/settings.local.json

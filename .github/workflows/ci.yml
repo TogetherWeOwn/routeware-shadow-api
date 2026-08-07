@@ -26,8 +26,10 @@ jobs:
       - run: npm ci
       - name: Typecheck
         run: npm run typecheck
-      - name: Test
-        run: npm test
+      - name: Test (with coverage ratchet)
+        # Thresholds in vitest.config.ts are pinned just under current coverage so
+        # it can never regress. Raise them as coverage climbs toward the ECC 80%.
+        run: npm run test:coverage
       - name: Validate Worker build (no deploy)
         # Bundles the Worker and validates wrangler.toml bindings. --dry-run does
         # not call the Cloudflare API, so no account or token is needed.
@@ -54,6 +56,20 @@ jobs:
             echo "$matches"
             exit 1
           fi
+      - name: No bulk-committed ECC harness content
+        # .gitignore tracks only .claude/settings.json and the common/typescript
+        # rulesets (~16 files). A jump means a `git add -A` vendored the whole
+        # ~7 MB ECC install — third-party executable code in a production repo.
+        run: |
+          count="$(git ls-files .claude | wc -l)"
+          if [ "$count" -gt 40 ]; then
+            echo "::error::$count files tracked under .claude/ (expected <=40)."
+            echo "A bulk ECC install was committed. Keep only settings.json and rules/ecc/{common,typescript}:"
+            git ls-files .claude | head -50
+            exit 1
+          fi
+          echo "OK: $count files tracked under .claude/"
+
       - name: Secret scan (informational)
         # Non-blocking: scans the working tree only (--no-git), so it won't trip on
         # secrets still present in git history. Promote to blocking once it's green.

@@ -8,6 +8,27 @@ export default defineConfig({
     })
   ],
   test: {
-    include: ["test/**/*.test.ts"]
+    include: ["test/**/*.test.ts"],
+    coverage: {
+      // istanbul, not the v8 default: workerd does not expose the V8 coverage
+      // APIs the v8 provider relies on.
+      provider: "istanbul",
+      include: ["src/**/*.ts"],
+      reporter: ["text", "html", "json-summary"],
+      /**
+       * Ratchet, not the target. The ECC standard is 80% (see
+       * .claude/rules/ecc/common/testing.md); measured coverage today is ~34%.
+       * These floors are pinned just under current numbers so coverage can never
+       * regress, and are meant to be raised toward 80% as the untested modules
+       * (dataEntityHandlers, d1SnapshotSync, detailFullSync, httpAuth login,
+       * browserAuth) gain tests. Raise them whenever a PR moves the number up.
+       */
+      thresholds: {
+        statements: 35,
+        branches: 26,
+        functions: 38,
+        lines: 35
+      }
+    }
   }
 });

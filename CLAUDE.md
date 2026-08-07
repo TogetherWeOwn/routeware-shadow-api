@@ -1,0 +1,45 @@
+# CLAUDE.md
+
+Project context lives in two files that are already maintained — read them, don't duplicate them here.
+
+- **[AGENTS.md](AGENTS.md)** — repo layout, every npm script, secrets handling, OpenAPI endpoints.
+- **[.cursor/rules/project-invariants.mdc](.cursor/rules/project-invariants.mdc)** — security and session invariants (auth on `/api/v1/*`, cookie containment in the `AuthSession` DO, PII in report exports). These are binding regardless of which editor is in use. The sibling rules cover Workers (`cloudflare-worker.mdc`), tests (`testing-vitest.mdc`), OpenAPI (`openapi-contracts.mdc`), and the discovery tool (`tools-discovery.mdc`).
+
+## ECC rules are binding here
+
+This repo follows **ECC (Everything Claude Code)** conventions. The rulesets below are checked into the repo and apply to every change — read them before writing code, not after:
+
+- **[.claude/rules/ecc/common/](.claude/rules/ecc/common/)** — the language-agnostic standard:
+  - [`coding-style.md`](.claude/rules/ecc/common/coding-style.md) — immutability, KISS/DRY/YAGNI, files <800 lines, functions <50 lines, nesting ≤4, no magic numbers, explicit error handling.
+  - [`testing.md`](.claude/rules/ecc/common/testing.md) — **80% coverage target**, TDD (RED → GREEN → REFACTOR), AAA structure, behavior-describing test names.
+  - [`security.md`](.claude/rules/ecc/common/security.md) — no hardcoded secrets, validate all input, no sensitive data in errors.
+  - [`code-review.md`](.claude/rules/ecc/common/code-review.md) — review after every change; CRITICAL blocks merge, HIGH warns.
+  - [`agents.md`](.claude/rules/ecc/common/agents.md) — delegate to `code-reviewer` / `security-reviewer` / `typescript-reviewer` / `tdd-guide`; run independent reviews in parallel; **if you delegate, you own collecting the results** — never end a turn with work still in flight.
+  - [`development-workflow.md`](.claude/rules/ecc/common/development-workflow.md) — research & reuse → plan → TDD → review → commit.
+  - Also: [`git-workflow.md`](.claude/rules/ecc/common/git-workflow.md) (conventional commits), [`patterns.md`](.claude/rules/ecc/common/patterns.md), [`performance.md`](.claude/rules/ecc/common/performance.md), [`hooks.md`](.claude/rules/ecc/common/hooks.md).
+- **[.claude/rules/ecc/typescript/](.claude/rules/ecc/typescript/)** — TypeScript specifics: explicit types on exported APIs, `unknown` (never `any`) for untrusted input, Zod at boundaries, immutable updates. Language-specific rules win where they conflict with `common/`.
+
+Only `common/` and `typescript/` are tracked. The rest of `.claude/` is a vendored ECC install (agents, skills, commands, scripts) that is **gitignored on purpose** — it duplicates the user-level `ecc@ecc` plugin and must not enter this repo's history. `.gitignore` and a CI hygiene check both enforce this.
+
+## Verification loop
+
+`npm run typecheck` → `npm test`. Use `npm run test:coverage` before pushing — CI runs it, and `vitest.config.ts` pins coverage thresholds just under current levels so coverage **cannot regress**.
+
+Those thresholds are a ratchet, not the goal. Measured coverage is ~35.7%; the ECC standard is 80%. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: `dataEntityHandlers.ts`, `d1SnapshotSync.ts`, `detailFullSync.ts`, `httpAuth.ts` (the login sequence), `browserAuth.ts`, `scheduled.ts`.
+
+Known ECC breaches still open (deliberately deferred as their own change, to keep this diff reviewable): `src/app.ts` is 1425 lines and `src/lib/d1SnapshotSync.ts` is 817 — both over the 800-line ceiling. `app.ts` splits cleanly along its existing OpenAPI tag boundaries into per-domain route modules (customer, snapshots, data-entity, meta). Several handlers in `dataEntityHandlers.ts` also exceed the 50-line guideline.
+
+CI (`.github/workflows/ci.yml`) additionally runs `npx wrangler deploy --dry-run` and hygiene checks for committed `*.csv` exports, `.dev.vars`, and bulk `.claude/` content. There is no lint or format step — none is configured.
+
+## Known security debt — do not let this drop
+
+Commit `4e219dd` (the first commit, an ancestor of `main`) still contains, retrievable via `git show`:
+
+- real Routeware `LOGIN_USERNAME` / `LOGIN_PASSWORD` and a real `CUSTOMER_SNAPSHOT_SYNC_SECRET` in `wrangler.toml`;
+- ~609,000 rows of customer/address/container PII in three `*.csv` exports.
+
+Commit `405fad7` removed them from the working tree but **did not rewrite history**. Rotating those credentials and purging the blobs is still outstanding — see **[docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md)** for the ordered runbook (rotate first, then purge with `git-filter-repo --replace-text`; a `sed`-based filter was tested and silently fails on the password). Treat any repo-visibility change as blocked on it.
+
+## Deploys are not yours to run
+
+Merging to `main` auto-deploys via CI. Never run `npm run deploy`, `wrangler deploy`, `wrangler secret put`, or `npm run db:migrate:remote` — these hit production Cloudflare resources and are denied in `.claude/settings.json`.
