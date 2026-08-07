@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import app from "../src/app";
 
 /**
  * The snapshot and data-entity routes carry a second, narrower auth check on
@@ -85,7 +86,20 @@ const GUARDED_ROUTES: Array<{ method: string; path: string; detail?: string }> =
 ];
 
 describe("snapshot-secret auth gate", () => {
-  it("guards exactly 13 routes", () => {
+  it("lists only routes that are actually registered on the app", () => {
+    // Arrange — cross-check against the live router rather than against this
+    // file's own array, so the list cannot drift from reality unnoticed.
+    const registered = new Set(
+      app.routes
+        .filter((r) => r.method !== "ALL")
+        .map((r) => `${r.method} ${r.path}`)
+    );
+
+    // Assert
+    for (const route of GUARDED_ROUTES) {
+      const path = route.path.split("?")[0];
+      expect(registered).toContain(`${route.method} ${path}`);
+    }
     expect(GUARDED_ROUTES).toHaveLength(13);
   });
 
