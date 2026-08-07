@@ -12,8 +12,7 @@ export async function scheduled(
   ctx.waitUntil(
     (async () => {
       try {
-        const publicBase = (env as Env & { SHADOW_API_PUBLIC_BASE?: string })
-          .SHADOW_API_PUBLIC_BASE?.trim();
+        const publicBase = env.SHADOW_API_PUBLIC_BASE?.trim();
         const r = publicBase
           ? await runDataSnapshotSyncChainedHttp(publicBase, env)
           : await runDataSnapshotSync(env);

@@ -1,29 +1,6 @@
 import puppeteer from "@cloudflare/puppeteer";
-import { readSessionState } from "./sessionState";
-
-/**
- * Wait for a concurrent refresh (holding the lock) to publish a fresh session,
- * instead of proceeding with a stale/empty one. Returns once a non-refreshing
- * session with a cookie is visible, or after the timeout (caller then reacts to
- * any upstream login redirect).
- */
-async function waitForConcurrentRefresh(
-  stub: DurableObjectStub,
-  timeoutMs = 20_000,
-  intervalMs = 500
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const s = await readSessionState(stub);
-    if (!s.refreshing && s.cookieHeader) {
-      return;
-    }
-    if (Date.now() >= deadline) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-}
+import { storeSession } from "./sessionRefreshLock";
+import { sessionExpiryMs } from "./sessionState";
 
 function credential(value: string | undefined): string | undefined {
   if (value === undefined || value === null) {
@@ -48,14 +25,6 @@ export async function establishSessionWithBrowser(
         "Run: node scripts/check-devvars.mjs. " +
         "If you edited .dev.vars on Windows, save with LF line endings (dos2unix .dev.vars)."
     );
-  }
-
-  const lock = await stub.fetch("https://auth/lock");
-  if (lock.status !== 200) {
-    // Another request is already refreshing. Wait for it rather than forwarding
-    // with a stale/empty session (the lock auto-expires if that refresh dies).
-    await waitForConcurrentRefresh(stub);
-    return;
   }
 
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
@@ -104,15 +73,12 @@ export async function establishSessionWithBrowser(
     }
 
     const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
-    const expiresAtMs = Date.now() + Number(env.SESSION_TTL_SECONDS) * 1000;
+    const expiresAtMs = sessionExpiryMs(env);
 
-    await stub.fetch("https://auth/set", {
-      method: "POST",
-      body: JSON.stringify({ cookieHeader, expiresAtMs })
-    });
+    await storeSession(stub, cookieHeader, expiresAtMs);
   } catch (err) {
+    // The refresh lock is released by `establishSession`, which owns it.
     console.error("BROWSER AUTH ERROR", err);
-    await stub.fetch("https://auth/unlock");
     throw err;
   } finally {
     if (browser) {

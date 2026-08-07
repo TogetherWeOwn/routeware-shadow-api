@@ -11,6 +11,28 @@ type SessionState = {
  */
 const LOCK_TTL_MS = 120_000;
 
+type StoredSession = { cookieHeader: string; expiresAtMs: number };
+
+/**
+ * Validate a `/set` payload before it reaches storage. `req.json()` is `unknown`,
+ * and an unchecked cast would let a caller bug (a missing field, or a `NaN`
+ * expiry from an unparseable `SESSION_TTL_SECONDS`) be written straight into the
+ * Durable Object, where it silently breaks every later refresh decision.
+ */
+function parseSetBody(body: unknown): StoredSession | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const { cookieHeader, expiresAtMs } = body as Record<string, unknown>;
+  if (typeof cookieHeader !== "string" || cookieHeader.length === 0) {
+    return null;
+  }
+  if (typeof expiresAtMs !== "number" || !Number.isFinite(expiresAtMs)) {
+    return null;
+  }
+  return { cookieHeader, expiresAtMs };
+}
+
 export class AuthSession {
   constructor(
     private readonly state: DurableObjectState,
@@ -30,13 +52,15 @@ export class AuthSession {
     }
 
     if (url.pathname === "/set") {
-      const body = await req.json() as {
-        cookieHeader: string;
-        expiresAtMs: number;
-      };
+      const session = parseSetBody(await req.json().catch(() => null));
+      if (!session) {
+        // Storing a malformed session would silently corrupt every later expiry
+        // check (a NaN expiry makes proactive refresh never fire again).
+        return new Response("Bad Request", { status: 400 });
+      }
 
-      await this.state.storage.put("cookieHeader", body.cookieHeader);
-      await this.state.storage.put("expiresAtMs", body.expiresAtMs);
+      await this.state.storage.put("cookieHeader", session.cookieHeader);
+      await this.state.storage.put("expiresAtMs", session.expiresAtMs);
       await this.state.storage.put("refreshing", false);
       await this.state.storage.delete("lockedAt");
       return new Response("OK");

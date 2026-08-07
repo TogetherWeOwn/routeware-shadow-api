@@ -54,3 +54,41 @@ describe("apiAccessToken / isApiAuthorized", () => {
     expect(isApiAuthorized(env, reqWith(undefined))).toBe(false);
   });
 });
+
+/**
+ * Invariant (`.cursor/rules/project-invariants.mdc`, `wrangler.toml`): a Worker
+ * with no token configured must fail CLOSED — 401 on every `/api/v1/*` route —
+ * rather than trusting an absent or blank secret. Guards against a regression
+ * that reads "no expected token" as "no check required".
+ */
+describe("fail-closed when no secret is configured", () => {
+  const unconfigured = [
+    { label: "both unset", env: {} },
+    {
+      label: "both empty strings",
+      env: { SHADOW_API_TOKEN: "", CUSTOMER_SNAPSHOT_SYNC_SECRET: "" }
+    },
+    {
+      label: "both whitespace only",
+      env: { SHADOW_API_TOKEN: "   ", CUSTOMER_SNAPSHOT_SYNC_SECRET: "\t" }
+    }
+  ];
+
+  it.each(unconfigured)("apiAccessToken is undefined when $label", ({ env }) => {
+    expect(apiAccessToken(env as unknown as Env)).toBeUndefined();
+  });
+
+  it.each(unconfigured)("rejects every request when $label", ({ env }) => {
+    const e = env as unknown as Env;
+    expect(isApiAuthorized(e, reqWith(undefined))).toBe(false);
+    expect(isApiAuthorized(e, reqWith("Bearer anything"))).toBe(false);
+    expect(isApiAuthorized(e, reqWith("Bearer "))).toBe(false);
+    expect(isApiAuthorized(e, reqWith("Bearer undefined"))).toBe(false);
+  });
+
+  it("does not treat an empty bearer token as matching an unset secret", () => {
+    expect(bearerMatches(reqWith("Bearer "), "")).toBe(false);
+    expect(bearerMatches(reqWith(""), "")).toBe(false);
+    expect(bearerMatches(reqWith("Bearer "), undefined)).toBe(false);
+  });
+});

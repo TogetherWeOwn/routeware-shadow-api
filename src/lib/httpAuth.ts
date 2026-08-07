@@ -1,3 +1,5 @@
+import { storeSession } from "./sessionRefreshLock";
+import { sessionExpiryMs } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 
 /**
@@ -120,9 +122,6 @@ export async function establishSessionViaHttp(
     );
   }
   const cookieHeader = cookieHeaderFrom(result.jar);
-  const expiresAtMs = Date.now() + Number(env.SESSION_TTL_SECONDS) * 1000;
-  await stub.fetch("https://auth/set", {
-    method: "POST",
-    body: JSON.stringify({ cookieHeader, expiresAtMs })
-  });
+  const expiresAtMs = sessionExpiryMs(env);
+  await storeSession(stub, cookieHeader, expiresAtMs);
 }
