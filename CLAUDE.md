@@ -1,83 +1,89 @@
-# CLAUDE.md
+# Routeware shadow API
 
-Project context lives in two files that are already maintained — read them, don't duplicate them here.
+**Purpose.** A Cloudflare Worker fronting the Routeware admin site. It serves an OpenAPI-described
+`/api/v1/*` surface behind a client auth gate, forwards authenticated traffic upstream, contains the
+upstream session cookies in an `AuthSession` Durable Object, and mirrors customer/address/container
+exports into D1 snapshots on a cron (archived to R2).
 
-- **[AGENTS.md](AGENTS.md)** — repo layout, every npm script, secrets handling, OpenAPI endpoints.
-- **[.cursor/rules/project-invariants.mdc](.cursor/rules/project-invariants.mdc)** — security and session invariants (auth on `/api/v1/*`, cookie containment in the `AuthSession` DO, PII in report exports). These are binding regardless of which editor is in use. The sibling rules cover Workers (`cloudflare-worker.mdc`), tests (`testing-vitest.mdc`), OpenAPI (`openapi-contracts.mdc`), and the discovery tool (`tools-discovery.mdc`).
+**The two facts that shape every change here:** the upstream signals failure *silently* — an expired
+admin session or a stale anti-forgery token comes back as an HTML page with a 200, never a 401 or a
+4xx — and the data in flight is **customer PII**.
 
-## ECC rules are binding here
+## Read triggers — binding, not "see also"
 
-This repo follows **ECC (Everything Claude Code)** conventions. The rulesets below are checked into the repo and apply to every change — read them before writing code, not after:
+| Read | When |
+|---|---|
+| [AGENTS.md](AGENTS.md) | Before any change. Repo layout, every npm script, secrets handling, OpenAPI endpoints. |
+| [.cursor/rules/project-invariants.mdc](.cursor/rules/project-invariants.mdc) | Before touching auth, sessions, or report exports — auth on `/api/v1/*`, cookie containment in the `AuthSession` DO, PII in exports. **Binding regardless of which editor is in use.** Siblings cover Workers (`cloudflare-worker.mdc`), tests (`testing-vitest.mdc`), OpenAPI (`openapi-contracts.mdc`) and the discovery tool (`tools-discovery.mdc`). |
+| [docs/TEST-INVARIANTS.md](docs/TEST-INVARIANTS.md) | Before editing anything under `src/lib/snapshot/` or `src/routes/`, or `csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` — **and before deleting any test that looks redundant.** It records what is pinned and why; most of it guards silent production failures. |
+| [docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md) | Before any repo-visibility change (blocked on it), and before rotating credentials. |
+| [docs/PROBLEMS.md](docs/PROBLEMS.md) | When adding or changing an error response — every problem+json `type` is a URL anchoring into it. |
 
-- **[.claude/rules/ecc/common/](.claude/rules/ecc/common/)** — the language-agnostic standard:
-  - [`coding-style.md`](.claude/rules/ecc/common/coding-style.md) — immutability, KISS/DRY/YAGNI, files <800 lines, functions <50 lines, nesting ≤4, no magic numbers, explicit error handling.
-  - [`testing.md`](.claude/rules/ecc/common/testing.md) — **80% coverage target**, TDD (RED → GREEN → REFACTOR), AAA structure, behavior-describing test names.
-  - [`security.md`](.claude/rules/ecc/common/security.md) — no hardcoded secrets, validate all input, no sensitive data in errors.
-  - [`code-review.md`](.claude/rules/ecc/common/code-review.md) — review after every change; CRITICAL blocks merge, HIGH warns.
-  - [`agents.md`](.claude/rules/ecc/common/agents.md) — delegate to `code-reviewer` / `security-reviewer` / `typescript-reviewer` / `tdd-guide`; run independent reviews in parallel; **if you delegate, you own collecting the results** — never end a turn with work still in flight.
-  - [`development-workflow.md`](.claude/rules/ecc/common/development-workflow.md) — research & reuse → plan → TDD → review → commit.
-  - Also: [`git-workflow.md`](.claude/rules/ecc/common/git-workflow.md) (conventional commits), [`patterns.md`](.claude/rules/ecc/common/patterns.md), [`performance.md`](.claude/rules/ecc/common/performance.md), [`hooks.md`](.claude/rules/ecc/common/hooks.md).
-- **[.claude/rules/ecc/typescript/](.claude/rules/ecc/typescript/)** — TypeScript specifics: explicit types on exported APIs, `unknown` (never `any`) for untrusted input, Zod at boundaries, immutable updates. Language-specific rules win where they conflict with `common/`.
+## Locked invariants
 
-Only `common/` and `typescript/` are tracked. The rest of `.claude/` is a vendored ECC install (agents, skills, commands, scripts) that is **gitignored on purpose** — it duplicates the user-level `ecc@ecc` plugin and must not enter this repo's history. `.gitignore` and a CI hygiene check both enforce this.
+- **A route module must be an `OpenAPIHono`** (build it with `createRouteModule()`), never a plain
+  `Hono`. `OpenAPIHono.route()` merges a sub-app's `openAPIRegistry` into the parent only for
+  `OpenAPIHono` instances; mounting a plain `Hono` still serves traffic while silently dropping every
+  route from `/openapi.json`.
+- **The two `app.use("/api/v1/*", …)` middlewares must stay registered before every `app.route(…)`
+  mount**, or a route becomes reachable without the client auth gate.
+  `test/openapiContract.test.ts` enforces both of these, and is verified to fail when a route is dropped.
+- **Coverage is a ratchet.** `vitest.config.ts` pins thresholds just under current levels so coverage
+  cannot regress — **raise them whenever a change moves the number up.** That is the whole mechanism.
+- **No hand-written source file exceeds 800 lines.** (`worker-configuration.d.ts` is generated by
+  `wrangler types` and is exempt.)
 
 ## Verification loop
 
-`npm run typecheck` → `npm test`. Use `npm run test:coverage` before pushing — CI runs it, and `vitest.config.ts` pins coverage thresholds just under current levels so coverage **cannot regress**.
+`npm run typecheck` → `npm test`. Run `npm run test:coverage` before pushing — CI runs it too.
 
-Those thresholds are a ratchet, not the goal. Measured coverage is ~90.6% statements, ~82.0% branches, ~93.4% functions and ~91.1% lines — **all four metrics are now past the ECC 80% standard**. **Raise the thresholds whenever a change moves the number up** — that is the whole mechanism. The biggest untested modules, highest-risk first: the three `csv*Snapshot.ts` parsers (33–39% statements, 33% functions — the per-row `parse*SnapshotRow` half is well covered via `streamSync`, but the bulk `parse*SnapshotCsv` half is not), `r2SnapshotArchive.ts` (62.3% / 28.6% functions), and `routewareQueryReportCsv.ts` (69.8% / 51.1%).
+CI (`.github/workflows/ci.yml`) additionally runs `npx wrangler deploy --dry-run` and hygiene checks
+for committed `*.csv` exports, `.dev.vars`, and bulk `.claude/` content. **There is no lint or format
+step — none is configured.**
 
-Read per-file numbers from `coverage/coverage-summary.json`, not the istanbul terminal table: the table drops files once they reach 100% and truncates long names.
+## What is tracked under `.claude/`
 
-`dataEntityHandlers.ts` is now at 93.4% statements / 100% functions: `test/dataEntityHandlers.test.ts` covers the GET/ETag paths and `test/dataEntityPostHandlers.test.ts` covers the three POST write paths — including the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` so stale PII is not served from cache.
+Only [`.claude/rules/ecc/typescript/`](.claude/rules/ecc/typescript/), and every file in it carries
+`paths:` frontmatter, so it costs nothing until a matching file is touched. The generic ECC standard
+is **not** vendored here — it comes from user scope. A local copy would be always-on *and* would
+fork from the live rules, which is why `2713fed` deleted it.
 
-`addressContainerSaveForm.ts` is at 100% statements/branches/functions via `test/addressContainerSaveForm.test.ts`, which mocks only `upstreamForward` and lets the real `customerSaveAutoToken` helpers run (that also lifted `customerSaveAutoToken.ts` to 84.5%). Everything it pins fails silently in production: Routeware answers a POST carrying a wrong or stale `__RequestVerificationToken` with an HTML error page, not an error status, so the save quietly does nothing. The two invariants worth knowing before touching that file are (a) `CUSTOMER_SAVE_AUTO_TOKEN` is **opt-out** — only the literals `"false"` and `"0"` disable injection, so an unset binding must still inject; and (b) the modal query parameter names are **not** consistent and must not be "tidied": the address create path uses lowercase `customerID` and the container create path lowercase `pickupAddressID`, while both edit paths use the PascalCase `PickupAddressID` / `ContainerID`. Mutation-verified six ways, including both casing swaps.
-
-`detailFullSync.ts` is covered by two files, split by what they need: `test/detailFullSyncMapping.test.ts` (pure, no mocks) pins the field mapping — the Routeware→snapshot renames (`NameFirst`→`firstName` and friends) and the absent-key defaults, where `extrasAllowed`/`enabled`/`gpsLocked` use an explicit `!== undefined` guard because coercing `undefined` yields `false` and would silently disable every address. `test/detailFullSyncFetch.test.ts` pins the re-auth retry, including that the session is **re-read** after `establishSession` rather than the stale one reused. Both were mutation-verified.
-
-`snapshot/reportFetch.ts` is at 100% on all four metrics via `test/snapshotReportFetch.test.ts` (19 tests, mutation-verified six ways). It is the single door every scheduled snapshot pulls its CSV through, and its guards are asymmetric on purpose: the **retry** trigger is `resp.status !== 200`, while the **throw** guard is `!resp.ok`, so a 204 retries once and is then accepted. The retry re-reads the session after `establishSession` rather than reusing the stale one — reusing it would make the retry fail identically to the first attempt, since Routeware signals an expired admin session with a login redirect or an HTML error page, never a 401. The `accept: text/csv` header is load-bearing: without it Routeware content-negotiates to the HTML report viewer, which parses to zero rows. Note a pre-existing dead clause, **not** a bug: line 26's `|| isLoginRedirect(resp)` can never contribute, because `isLoginRedirect` requires status 302 and the `status !== 200` clause has already short-circuited. `fetchGetCustomerDetailFull` has the same shape. Removing either is behavior-neutral but is not a test-only change.
-
-The `entityDataCache` error asymmetry is deliberate and pinned by `test/entityDataCache.test.ts`: `putCachedDataEntity` swallows and logs its failures (the response is already valid — a failed cache write must not turn a 200 into a 500), while `invalidateDataEntity` lets them propagate (a silently failed invalidation serves superseded PII). Do not "harmonise" the two. `test/scheduled.test.ts` pins the matching property one level up — the cron handler must never reject, since it runs inside `ctx.waitUntil` where an escaping error becomes an unattributed platform failure instead of a log line.
-
-`getDataSnapshotPlan` is the referential-integrity guard and `test/snapshotOrchestration.test.ts` pins it: D1 does not enforce `address.customer_id` or `container.pickup_address_id`, and a streamed sync spans many `db.batch` calls rather than one transaction, so import order (customer → address → container) is the only thing preventing orphan rows. Address only runs if customer is configured; container only if both are. That file also pins the `[step]` error tagging, which is what tells you which table a scheduled-run failure came from.
-
-`test/snapshotStreamSync.test.ts` is now a `describe.each` over all three tables rather than customer-only, which took `streamSync.ts` from 57.3% to 96.9% statements and 44.4% to 95.2% branches (mutation-verified six ways). The point of parameterising it: every guard in that module has to hold on all three paths, and a reconcile guard present only on the customer function still lets a bad address export wipe `address_snapshot`. Three uncovered lines remain — `streamSync.ts:49`, `:111`, `:173`, the `if (!cols) continue;` guards. They are **unreachable**: line 0 either sets `cols` via `mapCsvHeaders` or throws, so no later line can see a null `cols`. Like the `Number.isFinite` guards in the route modules, that is defence in depth, not a live branch.
-
-Two snapshot invariants are now pinned by tests and must not be weakened. `test/snapshotUpsert.test.ts` asserts that each table's column list, placeholder count and binding count agree, and that rows-per-statement × bindings-per-row stays within D1's 100 bound-parameter ceiling — adding a column without updating the matching `*Bindings` and `*_NCOLS` otherwise fails only at runtime, mid-cron. `test/snapshotStreamSync.test.ts` pins the reconcile guard (`options.reconcile && cols && dataRows > 0`): an export that yields zero parseable rows must **not** delete anything, or a bad upstream export wipes the table. Both were mutation-verified. The shared recording `D1Database` double lives in `test/snapshotDbFake.ts`.
-
-**No hand-written source file now exceeds the 800-line ceiling.** (`worker-configuration.d.ts` is generated by `wrangler types` and is exempt.) `src/lib/d1SnapshotSync.ts` was the last breach at 817 lines; its implementation now lives in `src/lib/snapshot/` — `tableSql` (SQL + row bindings), `upsert` (batched upserts + stale-row reconcile), `reportFetch`, `streamSync`, `orchestration` — and `d1SnapshotSync.ts` is a re-export facade so importers keep one stable entry point.
-
-Still open, smaller: several handlers in `dataEntityHandlers.ts` exceed the 50-line guideline.
-
-The three `routes/*Snapshot.ts` modules are now at ~96% statements / ~94% branches via `test/snapshotRoutes.test.ts`, a `describe.each` over one spec per module (mutation-verified nine ways). What it pins is the **WHERE-clause / bind-array correspondence**: each filter pushes a SQL fragment and a bind value in two separate statements, and `limit`/`offset` are appended *after* the caller's binds — swap that order and D1 binds a customer id as a LIMIT, returning another customer's rows with a 200. The container module diverges on two points that must not be "unified" with the other two: its `INNER JOIN address_snapshot` is **conditional** on `customerId` (joining unconditionally silently drops every container whose address row is missing), and its free-text `q` binds the same value **twice**, once per column in the `location_address OR serial_number` clause — one bind for two placeholders shifts every later bind by one.
-
-Two dead branches were found there and left in place, deliberately:
-
-- **The `!Number.isFinite(id)` 400 guard in all three by-id handlers is unreachable.** `z.coerce.number().int()` on the path param rejects `abc` and `4.5` at the schema first, so the handler never sees a non-integer. It is defence in depth, not a live branch — the three uncovered lines (`addressSnapshot.ts:107`, `customerSnapshot.ts:123`, `containerSnapshot.ts:106`) are exactly these.
-- **`requireSnapshotSecret()` can never fire on a sync route.** It runs *after* `requireSnapshotAuth()`, which calls `bearerMatches(req, env.CUSTOMER_SNAPSHOT_SYNC_SECRET)` — with the secret unset that returns false and 401s first, so the 503 is unreachable from these three routes. `shared.ts:67` is that line.
-
-`test/dataRoutes.test.ts` covers the wiring in `routes/dataEntity.ts` (now **100% on all four metrics**) and `routes/dataSnapshot.ts` (92.3% / 75%) — the layer between `snapshotAuth.test.ts` (their 401 bodies) and `dataEntity*.test.ts` (the handlers). Two things it pins: `/api/v1/data-snapshot/sync` derives its chain origin from `new URL(c.req.url).origin`, because that route chains three internal HTTP calls back to this same Worker and a hardcoded origin would let a preview deployment drive production D1; and the `id` guards are **deliberately asymmetric** — the customer route takes `id` *or* the `customerId` alias (`q.id ?? q.customerId`, and `id` must win), while address and container require `id` and additionally reject `0` and negatives, which `z.coerce.number().int()` accepts on its own. An `id=0` reaching D1 is a silent empty aggregate returned as a 200, not an error. Mutation-verified four ways.
-
-The snapshot 401/503 auth-check duplication is fixed: `requireSnapshotAuth()` / `requireSnapshotSecret()` in `src/routes/shared.ts` now guard all 13 routes, and `test/snapshotAuth.test.ts` pins each route's exact problem+json body. The `detail` wording is deliberately a per-call-site argument rather than fixed in the helper — it is inconsistent between routes today, and unifying it would change what clients see, so that belongs in its own change.
-
-`src/app.ts` was the other breach and is now **163 lines**: the routes live in `src/routes/*.ts`, one module per domain, each an `OpenAPIHono` mounted at `"/"` so its `createRoute` paths stay absolute. Two rules govern that directory:
-
-- A route module **must** be an `OpenAPIHono` (build it with `createRouteModule()`), never a plain `Hono`. `OpenAPIHono.route()` merges a sub-app's `openAPIRegistry` into the parent only for `OpenAPIHono` instances; mounting a plain `Hono` still serves traffic while silently dropping every route from `/openapi.json`.
-- The two `app.use("/api/v1/*", …)` middlewares must stay registered **before** every `app.route(…)` mount, or a route becomes reachable without the client auth gate.
-
-`test/openapiContract.test.ts` enforces both, plus the full generated document, and is verified to fail when a route is dropped.
-
-CI (`.github/workflows/ci.yml`) additionally runs `npx wrangler deploy --dry-run` and hygiene checks for committed `*.csv` exports, `.dev.vars`, and bulk `.claude/` content. There is no lint or format step — none is configured.
+The rest of `.claude/` is a vendored ECC install (agents, skills, commands, scripts) that is
+**gitignored on purpose** — it duplicates the user-level `ecc@ecc` plugin and must not enter this
+repo's history. `.gitignore` and a CI hygiene check both enforce that.
 
 ## Known security debt — do not let this drop
 
 Commit `4e219dd` (the first commit, an ancestor of `main`) still contains, retrievable via `git show`:
 
-- real Routeware `LOGIN_USERNAME` / `LOGIN_PASSWORD` and a real `CUSTOMER_SNAPSHOT_SYNC_SECRET` in `wrangler.toml`;
+- real Routeware `LOGIN_USERNAME` / `LOGIN_PASSWORD` and a real `CUSTOMER_SNAPSHOT_SYNC_SECRET` in
+  `wrangler.toml`;
 - ~609,000 rows of customer/address/container PII in three `*.csv` exports.
 
-Commit `405fad7` removed them from the working tree but **did not rewrite history**. Rotating those credentials and purging the blobs is still outstanding — see **[docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md)** for the ordered runbook (rotate first, then purge with `git-filter-repo --replace-text`; a `sed`-based filter was tested and silently fails on the password). Treat any repo-visibility change as blocked on it.
+Commit `405fad7` removed them from the working tree but **did not rewrite history**. Rotating those
+credentials and purging the blobs is still outstanding — `docs/SECURITY-REMEDIATION.md` has the
+ordered runbook (rotate first, then purge with `git-filter-repo --replace-text`; a `sed`-based filter
+was tested and silently fails on the password).
 
 ## Deploys are not yours to run
 
-Merging to `main` auto-deploys via CI. Never run `npm run deploy`, `wrangler deploy`, `wrangler secret put`, or `npm run db:migrate:remote` — these hit production Cloudflare resources and are denied in `.claude/settings.json`.
+Merging to `main` auto-deploys via CI. Never run `npm run deploy`, `wrangler deploy`,
+`wrangler secret …`, or `npm run db:migrate:remote` — these hit production Cloudflare resources and
+are on the `deny` list in `.claude/settings.json`.
+
+## Project hook block
+
+```
+Question policy:   Phase B — decide, don't ask.
+Opus also covers:  the auth/session path, PII in report exports, and the D1 snapshot
+                   reconcile (a bad export can wipe a table).
+Security review
+  also triggers on: snapshot auth, report exports, the AuthSession DO.
+Language reviewer: ecc:typescript-reviewer.
+```
+
+Everything else — the research → plan → TDD → review → commit sequence, the code-quality bar and
+coverage standard, model routing, standing authorizations, delegation, context bands, and this
+machine's `grep`/GateGuard constraints — lives once in `~/.claude/CLAUDE.md` and
+`~/.claude/rules/ecc/common/engineering.md`. It is **not** restated here, and a copy of either in
+this repo would be drift, not emphasis.

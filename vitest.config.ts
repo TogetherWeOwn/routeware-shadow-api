@@ -25,8 +25,9 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       reporter: ["text", "html", "json-summary"],
       /**
-       * Ratchet, not the target. The ECC standard is 80% (see
-       * .claude/rules/ecc/common/testing.md), and **all four metrics are now
+       * Ratchet, not the target. The ECC standard is 80% (user-scope
+       * ~/.claude/rules/ecc/common/engineering.md §1; per-file detail in
+       * docs/TEST-INVARIANTS.md), and **all four metrics are now
        * past it**: ~90.6% statements, ~82.0% branches, ~93.4% functions, ~91.1%
        * lines. These floors are pinned just under current numbers so coverage
        * can never regress, and are still meant to be raised as the remaining
