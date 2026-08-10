@@ -15,7 +15,7 @@ admin session or a stale anti-forgery token comes back as an HTML page with a 20
 |---|---|
 | [AGENTS.md](AGENTS.md) | Before any change. Repo layout, every npm script, secrets handling, OpenAPI endpoints. |
 | [.cursor/rules/project-invariants.mdc](.cursor/rules/project-invariants.mdc) | Before touching auth, sessions, or report exports — auth on `/api/v1/*`, cookie containment in the `AuthSession` DO, PII in exports. **Binding regardless of which editor is in use.** Siblings cover Workers (`cloudflare-worker.mdc`), tests (`testing-vitest.mdc`), OpenAPI (`openapi-contracts.mdc`) and the discovery tool (`tools-discovery.mdc`). |
-| [docs/TEST-INVARIANTS.md](docs/TEST-INVARIANTS.md) | Before editing anything under `src/lib/snapshot/` or `src/routes/`, or `csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` — **and before deleting any test that looks redundant.** It records what is pinned and why; most of it guards silent production failures. |
+| [docs/TEST-INVARIANTS.md](docs/TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntityHandlers.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — the doc's "coverage ratchet" section says to read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. It records what is pinned and why; most of it guards silent production failures. |
 | [docs/SECURITY-REMEDIATION.md](docs/SECURITY-REMEDIATION.md) | Before any repo-visibility change (blocked on it), and before rotating credentials. |
 | [docs/PROBLEMS.md](docs/PROBLEMS.md) | When adding or changing an error response — every problem+json `type` is a URL anchoring into it. |
 
@@ -44,7 +44,9 @@ step — none is configured.**
 ## What is tracked under `.claude/`
 
 Only [`.claude/rules/ecc/typescript/`](.claude/rules/ecc/typescript/), and every file in it carries
-`paths:` frontmatter, so it costs nothing until a matching file is touched. The generic ECC standard
+`paths:` frontmatter, so it costs nothing until a matching file is touched. **Language-specific
+rules win where they conflict with `common/`** — an override of `~/.claude/CLAUDE.md` §0, which ranks
+stack packs lower; stated here because §0 requires it. The generic ECC standard
 is **not** vendored here — it comes from user scope. A local copy would be always-on *and* would
 fork from the live rules, which is why `2713fed` deleted it.
 
