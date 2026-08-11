@@ -45,8 +45,9 @@ step — none is configured.**
 
 Only [`.claude/rules/ecc/typescript/`](.claude/rules/ecc/typescript/), and every file in it carries
 `paths:` frontmatter, so it costs nothing until a matching file is touched. **Language-specific
-rules win where they conflict with `common/`** — an override of `~/.claude/CLAUDE.md` §0, which ranks
-stack packs lower; stated here because §0 requires it. The generic ECC standard
+rules win where they conflict with `common/`** — an override of `~/.claude/CLAUDE.md`
+§ "Instruction precedence", which ranks stack packs lower; stated here because that section
+requires it. The generic ECC standard
 is **not** vendored here — it comes from user scope. A local copy would be always-on *and* would
 fork from the live rules, which is why `2713fed` deleted it.
 
