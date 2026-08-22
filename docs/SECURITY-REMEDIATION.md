@@ -1,8 +1,8 @@
 # Security remediation — leaked credentials & PII in git history
 
-**Status: OUTSTANDING.** Nothing in this document has been executed. It exists so the work
-is not lost, and so it is done in the right order. Step 1 was **declined** on 2026-08-07 (see
-below); step 2 is open and untouched.
+**Status: step 2 EXECUTED 2026-08-22 — and it did NOT fully close the exposure.** Step 1
+(rotation) was **declined** on 2026-08-07 and remains declined. Read § "What the purge actually
+achieved" before assuming this repo is clean.
 
 ## What is exposed
 
@@ -26,6 +26,63 @@ treated as compromised.
 > every org member — and any org-wide access policy — read access to the whole history, including
 > `4e219dd`. The purge is also markedly easier **before** a transfer, while one person still owns the
 > repo and every clone of it. See [HANDOVER.md](HANDOVER.md) § 5.
+
+## What the purge actually achieved (2026-08-22)
+
+`git-filter-repo` was run on a fresh mirror and force-pushed. Verified from a **fresh clone of
+GitHub** afterwards, not from the local copy:
+
+| Surface | Result |
+|---|---|
+| All five branch heads (`main` and the four others) | **Clean** — 0 CSV blobs, 0 secret hits |
+| Working tree content at `main` | **Byte-identical** before and after (tree `53a6bb5c…`) |
+| Commit count | 82 before, 82 after — nothing dropped |
+| **GitHub's `refs/pull/1..7/head`** | **STILL EXPOSED — all six CSV blobs and all three secrets** |
+
+**This is the part the runbook did not anticipate, and it is the part that matters.** GitHub creates
+a read-only `refs/pull/N/head` for every pull request. Those refs are server-side, they are *not*
+branches, and **a force-push cannot rewrite or delete them**. `git clone --mirror` fetches them by
+default, so:
+
+```
+git clone --mirror https://github.com/<owner>/routeware-shadow-api
+```
+
+still yields the ~609,000 PII rows and all three credentials today. `git cat-file -t 4e219dd` on that
+clone still returns `commit`.
+
+### Closing the remaining gap — two options, both requiring a decision
+
+1. **GitHub Support request.** Ask them to garbage-collect unreachable objects **and** state
+   explicitly that `refs/pull/*` still reference the removed blobs — a plain "please GC" request
+   does not necessarily cover PR refs. This keeps issue and PR history intact.
+2. **Push the cleaned history into a brand-new empty repository and abandon the old one.** PR refs
+   live with the repo, so a new repo simply has none. **Given this project is being transferred
+   anyway, this is the option that actually works without depending on a support queue** — transfer
+   the clean repo, then delete the old one. The cost is losing the PR and issue history (7 PRs of
+   review narrative), which is a real loss and should be a deliberate trade.
+
+**Until one of those is done, treat the credentials and the PII as still disclosed** to anyone who
+can read this repository — which, after a transfer to an organization, is every member of it.
+
+### Also worth knowing, if this is ever re-run
+
+The runbook below says to sanity-check that the replacement list has **3 lines**. It does — but the
+extraction finds **4** matching assignments, because `CUSTOMER_SNAPSHOT_SYNC_SECRET` appears twice
+with the same value. Deduplicate; do not assume the counts match.
+
+**And do not put `LOGIN_USERNAME` through `--replace-text` as a literal.** Its real value is a
+3-character string that occurs **2,108 times** across the repo's blobs as an ordinary substring —
+inside `OpenAPI`, `api-discovery`, and most documentation. A literal replacement corrupts every one
+of them. Anchor it to its assignment with a `regex:` entry instead:
+
+```
+regex:(LOGIN_USERNAME\s*=\s*")<value>(")==>\1***REMOVED***\2
+```
+
+The long password and the 64-character sync secret are safe as literals.
+
+---
 
 ## Order matters
 

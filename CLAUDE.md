@@ -64,17 +64,16 @@ Commit `4e219dd` (the first commit, an ancestor of `main`) still contains, retri
   `wrangler.toml`;
 - ~609,000 rows of customer/address/container PII in three `*.csv` exports.
 
-Commit `405fad7` removed them from the working tree but **did not rewrite history**, so every blob is
-still reachable from `main`. `docs/SECURITY-REMEDIATION.md` has the ordered runbook (rotate first,
-then purge with `git-filter-repo --replace-text`; a `sed`-based filter was tested and silently fails
-on the password).
+**Purged from all branches on 2026-08-22** with `git-filter-repo`, force-pushed and verified from a
+fresh clone: branches are clean and the tree at `main` is byte-identical. **It is not fully closed** —
+GitHub's read-only `refs/pull/1..7/head` still carry every CSV blob and all three secrets, and a
+force-push cannot rewrite them. `docs/SECURITY-REMEDIATION.md` § "What the purge actually achieved"
+has the evidence and the two remaining options.
 
 **Rotation was declined on 2026-08-07** — a decision, not a deferral. Do not re-raise it each session
 and do not treat a merge to `main` as blocked on it. State the residual exposure once when it is
-directly relevant, then proceed. **The history purge was never part of that decision and is still
-open.** Both are reopened by a change of ownership: the runbook's "exposure is limited" reasoning
-rests on the repo being private with one collaborator, which a transfer to an organization
-invalidates — see [docs/HANDOVER.md](docs/HANDOVER.md) § 5.
+directly relevant, then proceed. That decision rests on the repo being private with one collaborator,
+which a transfer to an organization invalidates — see [docs/HANDOVER.md](docs/HANDOVER.md) § 5.
 
 ## Deploys are not yours to run
 
