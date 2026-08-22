@@ -1,7 +1,8 @@
 # Security remediation — leaked credentials & PII in git history
 
 **Status: OUTSTANDING.** Nothing in this document has been executed. It exists so the work
-is not lost, and so it is done in the right order.
+is not lost, and so it is done in the right order. Step 1 was **declined** on 2026-08-07 (see
+below); step 2 is open and untouched.
 
 ## What is exposed
 
@@ -21,6 +22,11 @@ Current exposure is limited — the repo is **private**, has **0 forks**, **no o
 **one collaborator** (`Rick7C2`) — but the values have left the trust boundary and must be
 treated as compromised.
 
+> **That containment reasoning expires on transfer.** Moving this repository to an organization gives
+> every org member — and any org-wide access policy — read access to the whole history, including
+> `4e219dd`. The purge is also markedly easier **before** a transfer, while one person still owns the
+> repo and every clone of it. See [HANDOVER.md](HANDOVER.md) § 5.
+
 ## Order matters
 
 **Rotate first, purge second.** Purging history without rotating is cosmetic: anyone who
@@ -30,6 +36,14 @@ access; the purge only stops *future* readers.
 ---
 
 ## Step 1 — Rotate (first, and independently of everything else)
+
+> **Status: DECLINED 2026-08-07**, by the maintainer, as a decision rather than a deferral — work
+> continued without it and merges to `main` were explicitly not blocked on it. Recorded here because
+> this document previously read as though rotation were merely pending, which it was not.
+>
+> **It is worth re-taking under new ownership.** The decision was made when the repo was private with
+> a single collaborator; a transfer changes exactly that premise. Step 2 (the purge) was never part
+> of the decision and has always remained open.
 
 Only the repo owner can do this; it is deliberately outside what the agent tooling may run
 (`wrangler secret put` is denied in `.claude/settings.json`).

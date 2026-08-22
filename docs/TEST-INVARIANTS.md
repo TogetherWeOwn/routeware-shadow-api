@@ -16,13 +16,53 @@ measured at commit `ad7acde`; re-measure rather than trusting them.
 regress**. Those thresholds are a ratchet, not the goal — **raise them whenever a change moves the
 number up.** That is the whole mechanism.
 
-Measured at `ad7acde`: ~90.6% statements, ~82.0% branches, ~93.4% functions, ~91.1% lines — all four
-past the ECC 80% standard.
-
 Read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table: the
 table drops files once they reach 100% and truncates long names.
 
+### Current floors, and why they were lowered once
+
+| Measured 2026-08-22 (hermetic) | Floor in `vitest.config.ts` |
+|---|---|
+| Statements 85.74% (1407/1641) | 85 |
+| Branches **79.48%** (833/1048) | 79 |
+| Functions 89.09% (188/211) | 89 |
+| Lines 86.36% (1374/1591) | 86 |
+
+The earlier figures — ~90.6% / ~82.0% / ~93.4% / ~91.1%, measured at `ad7acde` — were **not
+reproducible**, and the floors derived from them (90/81/93/91) were not either. One test,
+`test/snapshotAuth.test.ts` › *"lets the sync secret past the inner check"*, sent the correct sync
+secret and so ran the **real** `POST /api/v1/container-snapshot/sync` body. That file stubbed nothing,
+so the request performed a live login against `killeen.routeware.com` and downloaded a live report.
+Every line it touched counted as covered while the test asserted nothing about any of it.
+
+By 2026-08-22 upstream no longer completed that flow: the request hung to the 30s `testTimeout`, the
+suite failed, and — decisively — `npm run test:coverage` on a clean `main` produced **no coverage
+report at all**. There was no 90.6% baseline left to hold.
+
+Stubbing `fetch` in that file (house pattern: throw on any unanticipated upstream URL) dropped the
+incidental execution and gave the numbers above. **No source line lost a real test; the code did not
+change.** This is a measurement correction, and it is the one time these floors move down.
+
 ### Remaining gaps, highest risk first
+
+### Two known weaknesses in the ratchet itself
+
+- **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
+  with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
+  it matters more after a downward re-baseline, because a global floor that has just been lowered is
+  exactly where a localized regression hides.
+- **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
+  re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
+  configured floors — a comment cannot do it. Note also that the floors are uneven in practice:
+  `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
+  under (slack).
+
+- **Branches, 79.48% — just under the ECC 80% standard.** The single highest-value fix is to apply
+  the D1 migrations in the test environment (`vitest.config.ts` has no `applyD1Migrations`, so
+  `CUSTOMER_DB` has no tables and no route test can drive a snapshot sync to a 200). With that in
+  place, an end-to-end sync test — mock `../src/lib/httpAuth` the way `test/establishSession.test.ts`
+  does, stub only the `QueryExecuteDownload` CSV — would cover the login → download → parse → upsert
+  path **with assertions**, which is what the removed incidental execution never did.
 
 - The three `csv*Snapshot.ts` parsers — 33–39% statements, 33% functions. The per-row
   `parse*SnapshotRow` half is well covered via `streamSync`; the bulk `parse*SnapshotCsv` half is not.
@@ -190,6 +230,27 @@ but is **not** a test-only change.
 - **`snapshot/reportFetch.ts:26`** — the `|| isLoginRedirect(resp)` clause can never contribute,
   because `isLoginRedirect` requires status 302 and the `status !== 200` clause has already
   short-circuited. Pre-existing, **not** a bug.
+
+---
+
+## No test may reach the network
+
+Every test runs against stubs. `test/integration.test.ts` sets the house pattern: replace
+`globalThis.fetch` in `beforeEach`, restore it in `afterEach`, and **throw** on any upstream URL the
+test did not anticipate, so a leak fails loudly instead of silently calling
+`killeen.routeware.com`.
+
+**`test/snapshotAuth.test.ts` must keep its stub.** Fifteen of its sixteen tests are rejected at the
+auth gate and never reach a handler body, which is why the file had no stub for a long time. The
+sixteenth — *"lets the sync secret past the inner check"* — sends the **correct** secret, so by
+design it runs the real sync body, and `[env.test.vars]` sets `CONTAINER_REPORT_QUERY_ID = "25"`, so
+the 503 "not configured" short-circuit does not save it either. Unstubbed, that one request logged in
+against the live tenant. It passed for months, then upstream changed and it hung to the 30s timeout,
+failing the suite and suppressing the coverage report entirely (see § "The coverage ratchet").
+
+The assertion `expect(upstreamFetch).toHaveBeenCalled()` is load-bearing: reaching the sync body at
+all is what proves the inner check was cleared. Mutation-verified 2026-08-22 — forcing
+`requireSnapshotAuth` to always deny turns that test red in 5ms.
 
 ---
 

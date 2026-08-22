@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MockedFunction } from "vitest";
 import app from "../src/app";
 
 /**
@@ -86,6 +87,29 @@ const GUARDED_ROUTES: Array<{ method: string; path: string; detail?: string }> =
 ];
 
 describe("snapshot-secret auth gate", () => {
+  // No test in this file should reach the network. The one request that is meant
+  // to *clear* the inner gate goes on to run the real sync body, which logs in
+  // upstream; unstubbed, that hit killeen.routeware.com and hung to the 30s
+  // timeout, so the result depended on the runner's network. Throwing keeps the
+  // suite hermetic and turns any future upstream leak into a loud failure.
+  const originalFetch = globalThis.fetch;
+  // Typed as the real `fetch` rather than a bare `vi.fn`, so `toHaveBeenCalledWith`
+  // and `mock.calls[0]` below are signature-checked instead of `any`.
+  let upstreamFetch: MockedFunction<typeof fetch>;
+
+  beforeEach(() => {
+    upstreamFetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      throw new Error(`Unexpected upstream fetch in test: ${url}`);
+    }) as MockedFunction<typeof fetch>;
+    globalThis.fetch = upstreamFetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
   it("lists only routes that are actually registered on the app", () => {
     // Arrange — cross-check against the live router rather than against this
     // file's own array, so the list cannot drift from reality unnoticed.
@@ -134,7 +158,27 @@ describe("snapshot-secret auth gate", () => {
     // Arrange / Act — the correct secret must NOT produce the inner 401.
     const response = await call("POST", "/api/v1/container-snapshot/sync", SYNC_SECRET);
 
-    // Assert — 503 (report path not configured in the test env), not 401.
-    expect(response.status).not.toBe(401);
+    // Assert — the request reached the sync body instead of being turned away at
+    // the gate. `[env.test.vars]` sets CONTAINER_REPORT_QUERY_ID, so the 503
+    // "not configured" short-circuit does not fire; the attempted upstream call
+    // is what proves the inner check was cleared.
+    //
+    // The status is pinned to 500, not merely `not.toBe(401)`: the stub above makes
+    // the one upstream call throw, so the handler fails inside the global error
+    // handler. `not.toBe(401)` would also accept the **404** you get by deleting the
+    // route outright, which must not read as a passing auth test.
+    expect(response.status).toBe(500);
+    // Exactly one upstream call, and it is the report download — not "some fetch
+    // happened", which any future middleware would satisfy.
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+    const [requested] = upstreamFetch.mock.calls[0];
+    const requestedUrl =
+      typeof requested === "string"
+        ? requested
+        : requested instanceof URL
+          ? requested.href
+          : requested.url;
+    expect(requestedUrl).toContain("/Reports/QueryExecuteDownload");
+    expect(requestedUrl).toContain("queryID=25");
   });
 });
