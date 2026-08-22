@@ -190,15 +190,17 @@ reachable by SHA until GitHub runs GC.
   test was reaching the live Routeware host and counting unasserted lines as covered; when upstream
   changed, it hung and the suite stopped producing a coverage report at all. No source line lost a
   real test. **Treat this as a one-time correction — the ratchet only goes up from here.**
-- Stale remote branches, safe to delete once you are satisfied: `fix/ecc-audit-hardening` and
-  `chore/drop-vendored-ecc-common` (both merged). Do **not** delete
-  `claude/codebase-review-jbhgs9` casually — per `SECURITY-REMEDIATION.md` it carries the old PII
-  blobs and must be removed *as part of* the history purge, not before it.
+- Stale remote branches, all now carrying **rewritten** (clean) history and safe to delete once you
+  are satisfied: `fix/ecc-audit-hardening`, `chore/drop-vendored-ecc-common`, and
+  `claude/codebase-review-jbhgs9`. The old warning about the last one carrying PII blobs no longer
+  applies to the branch itself — that content now survives only in `refs/pull/*` (§5).
 
 ### Open tasks, highest value first
 
 1. **§4 — de-hardcode the problem `type` URIs.** Required by the transfer.
-2. **§5 — decide on rotation and the history purge**, under the new access conditions.
+2. **§5 — close the remaining exposure.** The branch-level purge is done; GitHub's `refs/pull/*`
+   still hold the credentials and the PII. Pick the support request or the new-repo route, and
+   re-take the rotation decision under the new access conditions.
 3. **Recover branch coverage above the ECC 80% standard** (79.48% today). The blocking gap is that
    `vitest.config.ts` never applies the D1 migrations, so `CUSTOMER_DB` has no tables in tests and no
    route test can drive a snapshot sync to a 200. Fix that first; the end-to-end sync test then
