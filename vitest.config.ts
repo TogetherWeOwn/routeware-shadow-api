@@ -25,21 +25,32 @@ export default defineConfig({
       include: ["src/**/*.ts"],
       reporter: ["text", "html", "json-summary"],
       /**
-       * Ratchet, not the target. The ECC standard is 80% (user-scope
-       * ~/.claude/rules/ecc/common/engineering.md § "The non-negotiable
-       * sequence" step 2; per-file detail in
-       * docs/TEST-INVARIANTS.md), and **all four metrics are now
-       * past it**: ~90.6% statements, ~82.0% branches, ~93.4% functions, ~91.1%
-       * lines. These floors are pinned just under current numbers so coverage
-       * can never regress, and are still meant to be raised as the remaining
-       * modules (r2SnapshotArchive, routewareQueryReportCsv) gain tests. Raise
-       * them whenever a PR moves the number up.
+       * Ratchet, not the target. Floors sit just under the current measurement so
+       * coverage can never regress; raise them whenever a PR moves the number up.
+       *
+       * **Re-baselined 2026-08-22, downward, once — read this before assuming a
+       * regression.** The previous floors (90/81/93/91) were pinned against a run
+       * in which `test/snapshotAuth.test.ts` "lets the sync secret past the inner
+       * check" left `fetch` unstubbed, so that one request ran the real login and
+       * report-download path against the **live** Routeware host. It counted the
+       * lines it touched as covered while asserting nothing about them, and by
+       * 2026-08-22 it no longer completed at all: the request hung to the 30s
+       * timeout, the suite failed, and `--coverage` produced no report. Stubbing
+       * it (the fix that accompanies this change) removed that incidental,
+       * unasserted execution. **No source line lost a real test** — the numbers
+       * below are the first hermetic measurement of coverage that was always
+       * this high in truth.
+       *
+       * Branches at 79.48% now sits just under the ECC 80% standard (user-scope
+       * ~/.claude/rules/ecc/common/engineering.md § "The non-negotiable sequence"
+       * step 2). Recovering it is the top open task — see
+       * docs/TEST-INVARIANTS.md § "The coverage ratchet".
        */
       thresholds: {
-        statements: 90,
-        branches: 81,
-        functions: 93,
-        lines: 91
+        statements: 85,
+        branches: 79,
+        functions: 89,
+        lines: 86
       }
     }
   }

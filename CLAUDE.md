@@ -13,6 +13,7 @@ admin session or a stale anti-forgery token comes back as an HTML page with a 20
 
 | Read | When |
 |---|---|
+| [docs/HANDOVER.md](docs/HANDOVER.md) | Before anything touching deploys, Cloudflare resources, the Routeware tenant, or the repo's location/ownership. The inventory of what lives **outside** this repo (accounts, ids, secrets by name, the report query ids) and the transfer runbook. |
 | [AGENTS.md](AGENTS.md) | Before any change. Repo layout, every npm script, secrets handling, OpenAPI endpoints. |
 | [.cursor/rules/project-invariants.mdc](.cursor/rules/project-invariants.mdc) | Before touching auth, sessions, or report exports — auth on `/api/v1/*`, cookie containment in the `AuthSession` DO, PII in exports. **Binding regardless of which editor is in use.** Siblings cover Workers (`cloudflare-worker.mdc`), tests (`testing-vitest.mdc`), OpenAPI (`openapi-contracts.mdc`) and the discovery tool (`tools-discovery.mdc`). |
 | [docs/TEST-INVARIANTS.md](docs/TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntityHandlers.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — the doc's "coverage ratchet" section says to read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. It records what is pinned and why; most of it guards silent production failures. |
@@ -63,10 +64,17 @@ Commit `4e219dd` (the first commit, an ancestor of `main`) still contains, retri
   `wrangler.toml`;
 - ~609,000 rows of customer/address/container PII in three `*.csv` exports.
 
-Commit `405fad7` removed them from the working tree but **did not rewrite history**. Rotating those
-credentials and purging the blobs is still outstanding — `docs/SECURITY-REMEDIATION.md` has the
-ordered runbook (rotate first, then purge with `git-filter-repo --replace-text`; a `sed`-based filter
-was tested and silently fails on the password).
+Commit `405fad7` removed them from the working tree but **did not rewrite history**, so every blob is
+still reachable from `main`. `docs/SECURITY-REMEDIATION.md` has the ordered runbook (rotate first,
+then purge with `git-filter-repo --replace-text`; a `sed`-based filter was tested and silently fails
+on the password).
+
+**Rotation was declined on 2026-08-07** — a decision, not a deferral. Do not re-raise it each session
+and do not treat a merge to `main` as blocked on it. State the residual exposure once when it is
+directly relevant, then proceed. **The history purge was never part of that decision and is still
+open.** Both are reopened by a change of ownership: the runbook's "exposure is limited" reasoning
+rests on the repo being private with one collaborator, which a transfer to an organization
+invalidates — see [docs/HANDOVER.md](docs/HANDOVER.md) § 5.
 
 ## Deploys are not yours to run
 
