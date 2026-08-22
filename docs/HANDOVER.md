@@ -15,6 +15,66 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 ---
 
+## 0. Do this first — CI is switched off in this repository
+
+**Symptom if you skip this:** you push, you open a PR, and **nothing happens**. No checks run, no
+status appears, and a merge to `main` does **not** deploy. That is not a broken workflow file — it is
+this setting.
+
+GitHub Actions is **administratively disabled** on this repository. That is deliberate, not an
+accident of the transfer. This repo was created on 2026-08-22 as the clean replacement for the
+original (see § 5), and a brand-new repo carries **no secrets and no environments**. The `deploy` job
+in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to `main` and calls
+`npm run db:migrate:remote` followed by `npx wrangler deploy`. With `CLOUDFLARE_API_TOKEN` absent
+those run with an empty credential — a failing deploy against production tooling on the very first
+push. Actions was switched off so that could not happen before the new owner was ready.
+
+**Turn it back on only after the credentials exist.** In this order:
+
+1. **Create the Cloudflare API token** (skip if you are keeping the existing one — but note its value
+   cannot be read back out of the old repo, so if you do not have it saved, you need a new one).
+   Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template. **Confirm
+   `D1 : Edit` is included** — the deploy job applies D1 migrations and fails without it. Do **not**
+   use the Global API Key.
+
+2. **Create the `production` environment.** Repo → Settings → Environments → New environment →
+   name it exactly `production`. The workflow pins `environment: production` on the deploy job; if
+   the environment does not exist the job cannot resolve the secret. This is also the right place to
+   add required reviewers, which is worth doing — see step 5.
+
+3. **Add the secret to that environment**, named exactly `CLOUDFLARE_API_TOKEN`:
+   ```bash
+   gh secret set CLOUDFLARE_API_TOKEN --env production --repo <owner>/<repo>
+   ```
+   or Settings → Environments → `production` → Add secret.
+
+4. **Re-enable Actions:**
+   ```bash
+   gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true
+   ```
+   or Settings → Actions → General → *Allow all actions and reusable workflows*. Confirm with:
+   ```bash
+   gh api repos/<owner>/<repo>/actions/permissions --jq .enabled     # expect: true
+   ```
+   If the new owner is an organization, an **org-level** policy can still block Actions even when the
+   repo says enabled — check Organization Settings → Actions → General as well.
+
+5. **Add branch protection on `main` before the first merge.** A merge to `main` deploys straight to
+   production and there is no staging environment. See § 3 Scenario A step 4 — protection was
+   unavailable on the original account's plan, so none was ever configured. On a paid org plan it is
+   available; use it.
+
+6. **Verify, without shipping anything.** Open a throwaway PR touching only a comment. Confirm
+   `Typecheck, test, build` and `Repo hygiene & secret scan` both run and pass, and that
+   `Deploy to Cloudflare Workers` shows as **skipped** — it is gated to `push` on `main`, never PRs.
+   Only then merge something real, and confirm `GET /api/v1/health` responds afterwards.
+
+**The four Worker secrets are a separate matter** and are *not* set through GitHub. They live in
+Cloudflare via `npx wrangler secret put …`, are untouched by deploys, and are listed by name in § 1.
+`CLOUDFLARE_API_TOKEN` is the only secret GitHub needs.
+
+---
+
 ## 1. What lives outside this repository
 
 The code is complete and self-contained. These are not, and none of them travel with a `git push`.
@@ -69,12 +129,14 @@ the origin and returns a 404 with Cloudflare error 1042.
 ### Scenario A — GitHub org changes, Cloudflare account stays
 
 1. Transfer the repository. Update every local clone's remote (`git remote set-url origin …`).
-2. **Verify the Actions secret and environment survived.** Both exist today (verified 2026-08-22:
-   repository secret `CLOUDFLARE_API_TOKEN`, environment `production`). In the new org confirm
-   Settings → Environments → `production` exists and that `CLOUDFLARE_API_TOKEN` resolves for it;
-   re-create either if absent. Secret **values** are never readable back, so if the token has to be
-   re-created you need a fresh one from Cloudflare — see § 1 for the required scopes.
-3. Confirm Actions is enabled for the new org and that `.github/workflows/ci.yml` is allowed to run.
+2. **Create the Actions secret and the `production` environment — they do not exist here.** This
+   repository is a fresh one (§ 5), so it has **zero** secrets and **zero** environments; nothing
+   "survived" to verify. The original repo did have both, but a secret's **value** can never be read
+   back out, so unless you saved the token you need a new one from Cloudflare. Full procedure in
+   **§ 0**.
+3. **Re-enable Actions — it is disabled on this repository.** See **§ 0**, which explains why and
+   gives the exact commands. Doing this *before* step 2 means the first push to `main` attempts a
+   deploy with no credentials.
 4. **Add branch protection on `main`.** There is none today, and none is possible: the original
    account is on a plan where protection is unavailable for private repos (`gh api
    .../branches/main/protection` returns 403 *"Upgrade to GitHub Pro or make this repository public"*,
@@ -191,10 +253,9 @@ immediately after** the transfer — every day both exist is a day the old one i
 
 - `main` is at `5ec4516`. No unpushed commits, no stashes, no local-only branches. Note that SHAs
   differ from any pre-2026-08-22 reference: the history rewrite renumbered every commit.
-- **Actions are disabled on this repo** until `CLOUDFLARE_API_TOKEN` and the `production` environment
-  exist here — otherwise the first push to `main` would fire the deploy job with no credentials.
-  Re-enable with:
-  `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true`
+- **Actions are disabled on this repo, and there are no secrets or environments.** Deliberate — the
+  first push to `main` would otherwise fire the deploy job with no credentials. **§ 0 has the full
+  re-enable procedure**; do not just flip the toggle, the order matters.
 - **Suite:** 30 files, 549 tests, green. **Coverage:** 85.74% statements / 79.48% branches / 89.09%
   functions / 86.36% lines. (`npm test` runs in a few seconds; `npm run test:coverage` takes ~38s
   here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the

@@ -2,6 +2,21 @@
 
 Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) in front of Routeware **WebRW**, with OpenAPI 3.1 at [`/openapi.json`](./src/app.ts) and optional Scalar UI at [`/docs`](./src/app.ts). Upstream session cookies are stored in a **Durable Object** (`AuthSession`); clients do not send Routeware cookies.
 
+> ### ⚠️ New owner? CI is switched off — read this before you push
+>
+> GitHub **Actions is administratively disabled** on this repository, and it has **no secrets and no
+> environments**. Push a branch or open a PR and *nothing will run*; merge to `main` and it will
+> **not** deploy. That is deliberate, not a broken workflow — this repo was created as a clean
+> replacement and a new repo starts with no `CLOUDFLARE_API_TOKEN`, so the deploy job would otherwise
+> run against production tooling with an empty credential.
+>
+> **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--ci-is-switched-off-in-this-repository)
+> has the ordered fix** — create the token, create the `production` environment, add the secret,
+> re-enable Actions, then verify with a throwaway PR. The order matters.
+>
+> That file is also the handover document generally: what lives outside this repo (Cloudflare
+> account, resource ids, the Routeware tenant), the transfer runbook, and the open tasks.
+
 ## Prerequisites
 
 - Node 20+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
