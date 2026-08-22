@@ -1,8 +1,13 @@
 # Security remediation — leaked credentials & PII in git history
 
-**Status: step 2 EXECUTED 2026-08-22 — and it did NOT fully close the exposure.** Step 1
-(rotation) was **declined** on 2026-08-07 and remains declined. Read § "What the purge actually
-achieved" before assuming this repo is clean.
+**Status: step 2 COMPLETE as of 2026-08-22 — in THIS repository.** The credentials and the PII are
+gone from every ref here, verified by `git clone --mirror` (see below). Step 1 (rotation) was
+**declined** on 2026-08-07 and remains declined; that decision predates the change of ownership and
+is worth re-taking.
+
+> **One action is still outstanding and it is not ours to take:** the *original* repository,
+> `Rick7C2/routeware-shadow-api`, still exposes everything through its `refs/pull/*` and **must be
+> deleted**. This repo is its clean replacement.
 
 ## What is exposed
 
@@ -27,7 +32,7 @@ treated as compromised.
 > `4e219dd`. The purge is also markedly easier **before** a transfer, while one person still owns the
 > repo and every clone of it. See [HANDOVER.md](HANDOVER.md) § 5.
 
-## What the purge actually achieved (2026-08-22)
+## What the purge achieved, and how this repo came to exist (2026-08-22)
 
 `git-filter-repo` was run on a fresh mirror and force-pushed. Verified from a **fresh clone of
 GitHub** afterwards, not from the local copy:
@@ -37,7 +42,7 @@ GitHub** afterwards, not from the local copy:
 | All five branch heads (`main` and the four others) | **Clean** — 0 CSV blobs, 0 secret hits |
 | Working tree content at `main` | **Byte-identical** before and after (tree `53a6bb5c…`) |
 | Commit count | 82 before, 82 after — nothing dropped |
-| **GitHub's `refs/pull/1..7/head`** | **STILL EXPOSED — all six CSV blobs and all three secrets** |
+| **GitHub's `refs/pull/1..7/head`** (old repo) | **STILL EXPOSED — all six CSV blobs and all three secrets** |
 
 **This is the part the runbook did not anticipate, and it is the part that matters.** GitHub creates
 a read-only `refs/pull/N/head` for every pull request. Those refs are server-side, they are *not*
@@ -62,8 +67,25 @@ clone still returns `commit`.
    the clean repo, then delete the old one. The cost is losing the PR and issue history (7 PRs of
    review narrative), which is a real loss and should be a deliberate trade.
 
-**Until one of those is done, treat the credentials and the PII as still disclosed** to anyone who
-can read this repository — which, after a transfer to an organization, is every member of it.
+**Option 2 was taken on 2026-08-22.** This repository *is* the new one. It was created by pushing a
+`git clone --bare` of the cleaned history — `--bare`, not `--mirror`, because `--mirror` would have
+copied `refs/pull/*` straight back in.
+
+Verified here by `git clone --mirror` of this repo, which is the exact operation that still leaks on
+the old one:
+
+- refs present: five branches, **no `refs/pull/*`**
+- CSV / `:Zone.Identifier` blobs: **0**
+- literal secret hits: **0** for all three values
+- `git cat-file -t 4e219dd` → **`Not a valid object name`** — the poisoned root commit does not exist
+
+**What is still owed:** deleting `Rick7C2/routeware-shadow-api`. Until that happens both repos exist
+and the old one still discloses everything to anyone who can read it. Deleting a repository is
+irreversible and is the owner's call, not the agent's — a backup mirror of the original, PR refs and
+all, is archived off-repo as `rsa-backup-2026-08-22.tar.gz` (11 MB).
+
+**Known cost of this route:** the 9 pull requests of review narrative do not travel. Issue and PR
+history lived with the old repository.
 
 ### Also worth knowing, if this is ever re-run
 

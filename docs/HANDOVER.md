@@ -160,27 +160,41 @@ anyone with read access via `git show`:
 - real Routeware `LOGIN_USERNAME`, `LOGIN_PASSWORD` and `CUSTOMER_SNAPSHOT_SYNC_SECRET`;
 - ~609,000 rows of real customer / address / container PII in three `*.csv` exports.
 
-Commit `405fad7` removed them from the working tree. **History was never rewritten**, so every blob
-is still reachable from `main` and will travel with the repository.
+**Remediated 2026-08-22 — and this repository is the clean one.** `git-filter-repo` cleared every
+branch of the original repo, but GitHub's read-only `refs/pull/*` kept every blob and a force-push
+cannot rewrite those. So the cleaned history was pushed into **this** repository
+(`routeware-shadow-api-clean`), created fresh so it has no PR refs at all.
 
-`SECURITY-REMEDIATION.md` justifies leaving this open on the grounds that "the repo is private, has
-0 forks, no open PRs, and one collaborator". **A transfer to an organization invalidates that
-reasoning** — org members, and any org-wide access policy, inherit read access to the whole history.
+Verified here by `git clone --mirror` — the exact operation that still leaks on the original: no
+`refs/pull/*`, **0** CSV blobs, **0** hits for any of the three secrets, and `git cat-file -t
+4e219dd` reports the poisoned root commit does not exist. The working tree is byte-identical to the
+original and all 82 commits are intact.
+
+> ⚠️ **Outstanding, and owner-only: delete `Rick7C2/routeware-shadow-api`.** The original repo still
+> discloses all three credentials and the ~609,000 PII rows through `refs/pull/1..7/head` to anyone
+> who can read it. This repo replaces it. A full backup of the original — PR refs and all — is
+> archived off-repo as `rsa-backup-2026-08-22.tar.gz`.
+
+**Cost of this route, stated plainly:** the 9 pull requests of review narrative did not travel. Issue
+and PR history lives with the repository it was created in.
 
 On 2026-08-07 the outgoing maintainer decided **not to rotate** these credentials, as a decision
 rather than a deferral. That decision was made under the single-collaborator conditions above. It is
 worth re-taking under the new ones, by whoever owns the risk now.
 
-**Sequencing matters:** purging history is easiest **before** the transfer, while one person owns
-both the repo and every clone. Afterwards it needs a force-push in the new org, coordination with
-everyone who has cloned, and a support request to garbage-collect unreachable objects — which stay
-reachable by SHA until GitHub runs GC.
+**Sequencing:** the clean repo exists and is the one to transfer. Delete the original **before or
+immediately after** the transfer — every day both exist is a day the old one is still readable.
 
 ---
 
 ## 6. State of the work at handover
 
-- `main` is at `d47f625` (PR #6 merged). No unpushed commits, no stashes, no local-only branches.
+- `main` is at `5ec4516`. No unpushed commits, no stashes, no local-only branches. Note that SHAs
+  differ from any pre-2026-08-22 reference: the history rewrite renumbered every commit.
+- **Actions are disabled on this repo** until `CLOUDFLARE_API_TOKEN` and the `production` environment
+  exist here — otherwise the first push to `main` would fire the deploy job with no credentials.
+  Re-enable with:
+  `gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true`
 - **Suite:** 30 files, 549 tests, green. **Coverage:** 85.74% statements / 79.48% branches / 89.09%
   functions / 86.36% lines. (`npm test` runs in a few seconds; `npm run test:coverage` takes ~38s
   here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
@@ -198,9 +212,9 @@ reachable by SHA until GitHub runs GC.
 ### Open tasks, highest value first
 
 1. **§4 — de-hardcode the problem `type` URIs.** Required by the transfer.
-2. **§5 — close the remaining exposure.** The branch-level purge is done; GitHub's `refs/pull/*`
-   still hold the credentials and the PII. Pick the support request or the new-repo route, and
-   re-take the rotation decision under the new access conditions.
+2. **§5 — delete the old repository** (`Rick7C2/routeware-shadow-api`), which is the last surface
+   still exposing the credentials and the PII. Then re-take the rotation decision under the new
+   access conditions.
 3. **Recover branch coverage above the ECC 80% standard** (79.48% today). The blocking gap is that
    `vitest.config.ts` never applies the D1 migrations, so `CUSTOMER_DB` has no tables in tests and no
    route test can drive a snapshot sync to a 200. Fix that first; the end-to-end sync test then
