@@ -59,6 +59,11 @@ push. Actions was switched off so that could not happen before the new owner was
    If the new owner is an organization, an **org-level** policy can still block Actions even when the
    repo says enabled — check Organization Settings → Actions → General as well.
 
+   **Re-enabling does not retroactively build anything.** Verified 2026-08-22 by toggling it on this
+   repo: no runs were created for the pushes made while it was off. Nothing will run until the *next*
+   push or PR, so do not read the continued silence as a second failure — make a trivial commit to
+   trigger it.
+
 5. **Add branch protection on `main` before the first merge.** A merge to `main` deploys straight to
    production and there is no staging environment. See § 3 Scenario A step 4 — protection was
    unavailable on the original account's plan, so none was ever configured. On a paid org plan it is
