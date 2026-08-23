@@ -56,7 +56,7 @@ describe("apiAccessToken / isApiAuthorized", () => {
 });
 
 /**
- * Invariant (`.cursor/rules/project-invariants.mdc`, `wrangler.toml`): a Worker
+ * Invariant (`docs/CONVENTIONS.md` § 4, `wrangler.toml`): a Worker
  * with no token configured must fail CLOSED — 401 on every `/api/v1/*` route —
  * rather than trusting an absent or blank secret. Guards against a regression
  * that reads "no expected token" as "no check required".

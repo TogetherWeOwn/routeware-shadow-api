@@ -208,7 +208,7 @@ routes today, and unifying it would change what clients see, so that belongs in 
 
 `src/app.ts` is **163 lines**; the routes live in `src/routes/*.ts`, one module per domain, each an
 `OpenAPIHono` mounted at `"/"` so its `createRoute` paths stay absolute. The two rules governing that
-directory are load-bearing enough to also be stated in `CLAUDE.md`, and
+directory are load-bearing enough to also be stated in [`CONVENTIONS.md`](CONVENTIONS.md), and
 `test/openapiContract.test.ts` enforces both plus the full generated document (verified to fail when
 a route is dropped).
 

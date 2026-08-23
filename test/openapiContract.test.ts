@@ -185,7 +185,7 @@ describe("router surface", () => {
 
     // Assert — the client auth gate and the body-buffer/session middleware must
     // both precede every route, or an unauthenticated request could reach a
-    // handler. See .cursor/rules/project-invariants.mdc.
+    // handler. See docs/CONVENTIONS.md § 3.
     expect(gateIndexes).toEqual([0, 1]);
     expect(firstRouteIndex).toBeGreaterThan(1);
   });
