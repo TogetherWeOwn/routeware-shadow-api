@@ -3,7 +3,7 @@
 Written 2026-08-22, when the project left its original machine and GitHub account. Everything the
 outgoing maintainer knew that was **not** already in the repository is written down here. If you are
 picking this project up, read this file, then [`README.md`](../README.md) and
-[`AGENTS.md`](../AGENTS.md).
+[`CONVENTIONS.md`](CONVENTIONS.md).
 
 Two facts govern every change in this codebase, and neither is obvious from the code:
 
@@ -211,7 +211,7 @@ Two things to know before you start:
   the moment anyone creates a new repo at the old `rick7c2/routeware-shadow-api` path — at which
   point these URIs silently point at a stranger's repository. Fix them at transfer time.
 
-Old clone URLs also appear in prose in `README.md`, `AGENTS.md` and
+Old clone URLs also appear in prose in `README.md` and
 [`SECURITY-REMEDIATION.md`](SECURITY-REMEDIATION.md); those are documentation, not contract.
 
 ---
@@ -309,6 +309,6 @@ immediately after** the transfer — every day both exist is a day the old one i
   about.
 - **PRs were merged with merge commits, not squashed**, to preserve the per-commit record of what
   each test pins and how it was mutation-verified.
-- **`CLAUDE.md` carries binding read-triggers**, not suggestions. If you use a different assistant,
-  `AGENTS.md` and `.cursor/rules/` cover the same ground; the invariants in
-  `.cursor/rules/project-invariants.mdc` are binding regardless of editor.
+- **[`CONVENTIONS.md`](CONVENTIONS.md) carries binding read-triggers**, not suggestions, and its
+  security/session invariants bind regardless of which editor or assistant is in use. It replaced
+  `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/`, which carried the same rules before 2026-08-23.

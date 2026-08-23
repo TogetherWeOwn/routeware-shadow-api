@@ -4,7 +4,7 @@ import { sessionExpiryMs } from "../src/lib/sessionState";
 
 /**
  * Unit tests for the `AuthSession` Durable Object — the sole holder of the
- * upstream Routeware session cookie (`.cursor/rules/project-invariants.mdc`).
+ * upstream Routeware session cookie (`docs/CONVENTIONS.md` § 4).
  *
  * Driven through a Map-backed `DurableObjectState` fake so the stale-lock TTL
  * branch can be exercised deterministically with fake timers, rather than

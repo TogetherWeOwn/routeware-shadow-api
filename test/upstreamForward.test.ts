@@ -4,7 +4,7 @@ import type { SessionState } from "../src/lib/sessionState";
 
 /**
  * Regression tests for the security invariants in
- * `.cursor/rules/project-invariants.mdc` that `forwardToUpstream` enforces:
+ * `docs/CONVENTIONS.md` § 4 that `forwardToUpstream` enforces:
  * upstream `Set-Cookie` containment, session-cookie containment, and the
  * non-spoofable `X-Routeware-Shadow-Internal` marker.
  */

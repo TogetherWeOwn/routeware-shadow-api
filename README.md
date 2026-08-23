@@ -156,11 +156,10 @@ Example mappings from a typical harvest (SPA + ExtJS):
 | `POST /api/v1/routeware/data/app-settings-get` | `POST /Data/appSettingsGet` |
 | `GET /api/v1/routeware/reports/query-request-is-complete` | `GET /Reports/QueryRequestIsComplete` (client query string forwarded) |
 
-## Cursor rules and MCP
+## Project rules
 
-- Project rules: [`.cursor/rules/`](./.cursor/rules/).
+- Conventions, invariants and the verification loop: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) — read before any change.
 - Optional Cloudflare remote MCP entries: [`.cursor/mcp.json`](./.cursor/mcp.json) (OAuth per developer; no tokens in git).
-- Agent-oriented summary: [`AGENTS.md`](./AGENTS.md).
 
 ## Layout
 
