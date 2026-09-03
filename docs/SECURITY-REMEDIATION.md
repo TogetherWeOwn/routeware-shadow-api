@@ -124,8 +124,7 @@ access; the purge only stops *future* readers.
 > a single collaborator; a transfer changes exactly that premise. Step 2 (the purge) was never part
 > of the decision and has always remained open.
 
-Only the repo owner can do this; it is deliberately outside what the agent tooling may run
-(`wrangler secret put` is denied in `.claude/settings.json`).
+Only the repo owner can do this; it is deliberately outside what the agent tooling may run.
 
 1. Change the Routeware tenant password for the `API` login in the Routeware UI.
 2. Push the new values as Worker secrets — never into `wrangler.toml`:

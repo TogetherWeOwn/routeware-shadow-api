@@ -12,20 +12,7 @@ tools/api-discovery/.harvest.ndjson
 *.csv
 *:Zone.Identifier
 
-# ECC agent-harness install (.claude/) is vendored third-party content, not project
-# source: ~7 MB of agents/skills/commands/scripts already provided by the user-level
-# `ecc@ecc` plugin. Track only what is project-specific:
-#   - settings.json — the deny list enforcing "deploys are not yours to run"
-#   - rules/ecc/typescript — the path-scoped stack pack, the only ruleset tracked
-# The language-agnostic `rules/ecc/common/` pack is deliberately NOT tracked: it is
-# always-on context that forks from the live user-scope copy. Dropped in 2713fed —
-# do not add a negation for it back.
-.claude/*
-!.claude/settings.json
-!.claude/rules/
-.claude/rules/*
-!.claude/rules/ecc/
-.claude/rules/ecc/*
-!.claude/rules/ecc/typescript/
-# Per-developer overrides must never be committed.
-.claude/settings.local.json
+# Assistant-harness install directories are local tooling, not project source.
+# Project conventions live in docs/CONVENTIONS.md instead.
+.claude/
+.cursor/
