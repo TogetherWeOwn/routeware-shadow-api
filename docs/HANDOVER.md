@@ -69,7 +69,20 @@ push. Actions was switched off so that could not happen before the new owner was
    unavailable on the original account's plan, so none was ever configured. On a paid org plan it is
    available; use it.
 
-6. **Verify, without shipping anything.** Open a throwaway PR touching only a comment. Confirm
+6. **Check all five preconditions in one command**, before you push anything:
+   ```bash
+   GH_TOKEN=<token with administration:read + actions:read> npm run check:ci-enabled
+   ```
+   It verifies Actions is on, the `production` environment exists, `CLOUDFLARE_API_TOKEN` is set in
+   it, `main` is protected, and that a run has actually executed. It reports `UNKNOWN` — never a
+   pass — for anything the token cannot read, so a scope-limited token can't produce a false green.
+   Exit 0 only when all five are confirmed.
+
+   > The agents' GitHub App token is `contents`/`pull_requests`/`issues`/`metadata` only. Under it
+   > every Actions and environment check returns `UNKNOWN` (verified 2026-09-03: all four admin
+   > endpoints return HTTP 403). This step needs a human token.
+
+7. **Verify, without shipping anything.** Open a throwaway PR touching only a comment. Confirm
    `Typecheck, test, build` and `Repo hygiene & secret scan` both run and pass, and that
    `Deploy to Cloudflare Workers` shows as **skipped** — it is gated to `push` on `main`, never PRs.
    Only then merge something real, and confirm `GET /api/v1/health` responds afterwards.

@@ -10,6 +10,7 @@
     "predev": "npm run check:devvars",
     "dev": "wrangler dev",
     "check:devvars": "node scripts/check-devvars.mjs",
+    "check:ci-enabled": "node scripts/check-ci-enabled.mjs",
     "dev:remote": "wrangler dev --remote",
     "db:migrate:local": "wrangler d1 migrations apply routeware-customer-snapshot --local",
     "db:migrate:remote": "wrangler d1 migrations apply routeware-customer-snapshot --remote",
