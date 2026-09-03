@@ -159,7 +159,6 @@ Example mappings from a typical harvest (SPA + ExtJS):
 ## Project rules
 
 - Conventions, invariants and the verification loop: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) — read before any change.
-- Optional Cloudflare remote MCP entries: [`.cursor/mcp.json`](./.cursor/mcp.json) (OAuth per developer; no tokens in git).
 
 ## Layout
 
