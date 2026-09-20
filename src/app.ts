@@ -10,6 +10,7 @@ import { dataEntityRoutes } from "./routes/dataEntity";
 import { dataSnapshotRoutes } from "./routes/dataSnapshot";
 import { metaRoutes } from "./routes/meta";
 import { routewareRoutes } from "./routes/routeware";
+import { shadowRoutes } from "./routes/shadow";
 import type { AppEnv } from "./routes/types";
 
 const openApiDocumentConfig = {
@@ -25,6 +26,7 @@ const openApiDocumentConfig = {
   },
   tags: [
     { name: "meta" },
+    { name: "shadow", description: "Versioned Shadow API staging slice" },
     { name: "routeware" },
     { name: "customer" },
     { name: "data" },
@@ -104,6 +106,7 @@ app.use("/api/v1/*", async (c, next) => {
 // `openAPIRegistry` into this app's and `/openapi.json` still sees every route.
 // Mounted at "/" because each module's `createRoute` paths are already absolute.
 app.route("/", metaRoutes);
+app.route("/", shadowRoutes);
 app.route("/", routewareRoutes);
 app.route("/", customerRoutes);
 app.route("/", customerSnapshotRoutes);
