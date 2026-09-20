@@ -19,7 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:contracts": "vitest run test/shadowContract.test.ts",
+    "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",
     "discovery:setup": "npm --prefix tools/api-discovery install && npm run setup --prefix tools/api-discovery",
     "discovery:process": "npm run process --prefix tools/api-discovery",
     "discovery:record": "npm run record --prefix tools/api-discovery",
