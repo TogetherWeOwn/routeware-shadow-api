@@ -35,6 +35,30 @@ jobs:
         # not call the Cloudflare API, so no account or token is needed.
         run: npx wrangler deploy --dry-run
 
+  shadow-api-v1:
+    name: shadow-api-v1
+    runs-on: ubuntu-latest
+    # Skipped-check allowlist: the staging probe stays visible while operator
+    # credentials are gated. The gate emits the reason and links TODO TOG-135.
+    steps:
+      - uses: actions/checkout@v4
+      - name: Evaluate operator credential gate
+        id: credential-gate
+        env:
+          CF_TOKEN: ${{ secrets.CF_TOKEN }}
+        run: npm run check:shadow-api-v1
+      - name: Run versioned API contract probe
+        if: steps.credential-gate.outputs.status == 'ready'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Execute versioned API contract tests
+        if: steps.credential-gate.outputs.status == 'ready'
+        run: |
+          npm ci
+          npm run test:contracts
+
   hygiene:
     name: Repo hygiene & secret scan
     runs-on: ubuntu-latest
