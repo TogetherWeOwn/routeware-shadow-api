@@ -106,6 +106,31 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "type": "object",
       },
+      "ShadowHealthResponse": {
+        "properties": {
+          "service": {
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "ok",
+            ],
+            "type": "string",
+          },
+          "version": {
+            "enum": [
+              "v1",
+            ],
+            "type": "string",
+          },
+        },
+        "required": [
+          "status",
+          "service",
+          "version",
+        ],
+        "type": "object",
+      },
     },
     "securitySchemes": {
       "bearerAuth": {
@@ -1310,6 +1335,29 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/shadow/health": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShadowHealthResponse",
+                },
+              },
+            },
+            "description": "Shadow API is running",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Shadow API liveness probe (versioned, staging slice)",
+        "tags": [
+          "shadow",
+        ],
+      },
+    },
   },
   "security": [
     {
@@ -1319,6 +1367,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "tags": [
     {
       "name": "meta",
+    },
+    {
+      "description": "Versioned Shadow API staging slice",
+      "name": "shadow",
     },
     {
       "name": "routeware",

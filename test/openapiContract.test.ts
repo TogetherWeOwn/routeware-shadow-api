@@ -57,6 +57,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/routeware/customer/load-long-modal",
   "GET /api/v1/routeware/home/index",
   "GET /api/v1/routeware/reports/query-request-is-complete",
+  "GET /api/v1/shadow/health",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",
@@ -77,6 +78,7 @@ const EXPECTED_OPERATIONS = [
 /** Declared tag order in the document, which drives Scalar's sidebar order. */
 const EXPECTED_TAGS = [
   "meta",
+  "shadow",
   "routeware",
   "customer",
   "data",
@@ -139,7 +141,8 @@ describe("published OpenAPI document", () => {
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
-      "HealthResponse"
+      "HealthResponse",
+      "ShadowHealthResponse"
     ]);
     expect(Object.keys(doc.components?.securitySchemes ?? {})).toEqual(["bearerAuth"]);
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
