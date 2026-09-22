@@ -16,7 +16,7 @@ concurrency:
 jobs:
   build:
     name: Typecheck, test, build
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,22 +37,20 @@ jobs:
 
   shadow-api-v1:
     name: shadow-api-v1
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, two-selfhosted]
     # Skipped-check allowlist: the staging probe stays visible while operator
     # credentials are gated. The gate emits the reason and links TODO TOG-135.
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
       - name: Evaluate operator credential gate
         id: credential-gate
         env:
           CF_TOKEN: ${{ secrets.CF_TOKEN }}
         run: npm run check:shadow-api-v1
-      - name: Run versioned API contract probe
-        if: steps.credential-gate.outputs.status == 'ready'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
       - name: Execute versioned API contract tests
         if: steps.credential-gate.outputs.status == 'ready'
         run: |
@@ -61,7 +59,7 @@ jobs:
 
   hygiene:
     name: Repo hygiene & secret scan
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
       - name: No committed Routeware report exports (PII)
@@ -109,7 +107,7 @@ jobs:
     # Only after the blocking checks pass, and only on a push to main (never on PRs).
     needs: [build, hygiene]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, two-selfhosted]
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
     # Serialize deploys so overlapping merges can't race; don't cancel an in-flight one.
