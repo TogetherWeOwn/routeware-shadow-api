@@ -15,40 +15,22 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 ---
 
-## 0. Do this first — CI is switched off in this repository
+## 0. Do this first — enable PR CI before enabling production deploys
 
-**Symptom if you skip this:** you push, you open a PR, and **nothing happens**. No checks run, no
-status appears, and a merge to `main` does **not** deploy. That is not a broken workflow file — it is
-this setting.
+**Verification and production authorization are separate.** CI uses self-hosted runners labeled
+`two-selfhosted`. The credential-free `build` and `hygiene` jobs run on PRs; `shadow-api-v1`
+evaluates an optional `CF_TOKEN` gate and skips its contract step without that token. The `deploy`
+job fails closed unless the repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`.
 
-GitHub Actions is **administratively disabled** on this repository. That is deliberate, not an
-accident of the transfer. This repo was created on 2026-08-22 as the clean replacement for the
-original (see § 5), and a brand-new repo carries **no secrets and no environments**. The `deploy` job
-in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every push to `main` and calls
-`npm run db:migrate:remote` followed by `npx wrangler deploy`. With `CLOUDFLARE_API_TOKEN` absent
-those run with an empty credential — a failing deploy against production tooling on the very first
-push. Actions was switched off so that could not happen before the new owner was ready.
+The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5). Actions
+runs have since executed, including main run [36231264777](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777)
+on 2026-09-26. Do not infer current settings, secrets, or environments from the historical snapshot;
+verify them with authorized access. Keep production deploys disabled until setup is explicitly approved.
 
-**Turn it back on only after the credentials exist.** In this order:
+### Phase 1 — turn on credential-free PR verification
 
-1. **Create the Cloudflare API token** (skip if you are keeping the existing one — but note its value
-   cannot be read back out of the old repo, so if you do not have it saved, you need a new one).
-   Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template. **Confirm
-   `D1 : Edit` is included** — the deploy job applies D1 migrations and fails without it. Do **not**
-   use the Global API Key.
-
-2. **Create the `production` environment.** Repo → Settings → Environments → New environment →
-   name it exactly `production`. The workflow pins `environment: production` on the deploy job; if
-   the environment does not exist the job cannot resolve the secret. This is also the right place to
-   add required reviewers, which is worth doing — see step 5.
-
-3. **Add the secret to that environment**, named exactly `CLOUDFLARE_API_TOKEN`:
-   ```bash
-   gh secret set CLOUDFLARE_API_TOKEN --env production --repo <owner>/<repo>
-   ```
-   or Settings → Environments → `production` → Add secret.
-
-4. **Re-enable Actions:**
+1. **Leave `PRODUCTION_DEPLOY_ENABLED` unset.** Its absence is the production safety gate.
+2. **Re-enable Actions:**
    ```bash
    gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true
    ```
@@ -60,23 +42,45 @@ push. Actions was switched off so that could not happen before the new owner was
    repo says enabled — check Organization Settings → Actions → General as well.
 
    **Re-enabling does not retroactively build anything.** Verified 2026-08-22 by toggling it on this
-   repo: no runs were created for the pushes made while it was off. Nothing will run until the *next*
-   push or PR, so do not read the continued silence as a second failure — make a trivial commit to
-   trigger it.
+   repo: no runs were created for the pushes made while it was off. Nothing will run until the next
+   push or PR.
+3. **Verify without shipping anything.** Open a throwaway PR touching only a comment. Confirm
+   `Typecheck, test, build` and `Repo hygiene & secret scan` both run and pass on the self-hosted
+   runners. Without `CF_TOKEN`, `shadow-api-v1` must report its gate reason and skip contract execution.
+   The production deploy job must be skipped on the PR and remains skipped on pushes to `main` while
+   the enable variable is absent.
+4. **Add branch protection on `main`** and require both PR jobs before merging real changes.
 
-5. **Add branch protection on `main` before the first merge.** A merge to `main` deploys straight to
-   production and there is no staging environment. See § 3 Scenario A step 4 — protection was
-   unavailable on the original account's plan, so none was ever configured. On a paid org plan it is
-   available; use it.
+### Phase 2 — intentionally enable production deploys
 
-6. **Verify, without shipping anything.** Open a throwaway PR touching only a comment. Confirm
-   `Typecheck, test, build` and `Repo hygiene & secret scan` both run and pass, and that
-   `Deploy to Cloudflare Workers` shows as **skipped** — it is gated to `push` on `main`, never PRs.
-   Only then merge something real, and confirm `GET /api/v1/health` responds afterwards.
+Only after the production Cloudflare account, resources and Worker secrets are ready:
 
-**The four Worker secrets are a separate matter** and are *not* set through GitHub. They live in
+1. **Create the Cloudflare API token** (skip if you are keeping the existing one — but note its value
+   cannot be read back out of the old repo, so if you do not have it saved, you need a new one).
+   Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template. **Confirm
+   `D1 : Edit` is included** — the deploy job applies D1 migrations and fails without it. Do **not**
+   use the Global API Key.
+2. **Create the `production` environment.** Repo → Settings → Environments → New environment →
+   name it exactly `production`. Add required reviewers here if the plan supports them.
+3. **Add the environment secret** named exactly `CLOUDFLARE_API_TOKEN`:
+   ```bash
+   gh secret set CLOUDFLARE_API_TOKEN --env production --repo <owner>/<repo>
+   ```
+4. **Set the repository variable last**, after production setup is complete:
+   ```bash
+   gh variable set PRODUCTION_DEPLOY_ENABLED --body true --repo <owner>/<repo>
+   ```
+5. Push a reviewed commit to `main`; confirm both blocking jobs pass, the deploy job runs, and
+   `GET /api/v1/health` responds afterwards.
+
+**Emergency stop / rollback:** delete `PRODUCTION_DEPLOY_ENABLED` or set it to anything other than
+`true`; the next workflow run skips deploy without disabling PR checks. Keep the code-level variable
+gate in place. If production setup is later abandoned entirely, remove the deploy job rather than
+removing its fail-closed condition.
+
+**The four Worker secrets are a separate matter** and are not set through GitHub. They live in
 Cloudflare via `npx wrangler secret put …`, are untouched by deploys, and are listed by name in § 1.
-`CLOUDFLARE_API_TOKEN` is the only secret GitHub needs.
+`CLOUDFLARE_API_TOKEN` is the only secret GitHub Actions needs.
 
 ---
 
@@ -134,22 +138,20 @@ the origin and returns a 404 with Cloudflare error 1042.
 ### Scenario A — GitHub org changes, Cloudflare account stays
 
 1. Transfer the repository. Update every local clone's remote (`git remote set-url origin …`).
-2. **Create the Actions secret and the `production` environment — they do not exist here.** This
-   repository is a fresh one (§ 5), so it has **zero** secrets and **zero** environments; nothing
-   "survived" to verify. The original repo did have both, but a secret's **value** can never be read
-   back out, so unless you saved the token you need a new one from Cloudflare. Full procedure in
-   **§ 0**.
-3. **Re-enable Actions — it is disabled on this repository.** See **§ 0**, which explains why and
-   gives the exact commands. Doing this *before* step 2 means the first push to `main` attempts a
-   deploy with no credentials.
-4. **Add branch protection on `main`.** There is none today, and none is possible: the original
+2. **Re-enable Actions for PR verification while leaving `PRODUCTION_DEPLOY_ENABLED` unset.** See
+   **§ 0** for the exact commands. The build and hygiene jobs need no credentials; the production
+   deploy remains skipped.
+3. **Add branch protection on `main`.** There is none today, and none is possible: the original
    account is on a plan where protection is unavailable for private repos (`gh api
    .../branches/main/protection` returns 403 *"Upgrade to GitHub Pro or make this repository public"*,
-   verified 2026-08-22). Since **a merge to `main` deploys straight to production**, nothing currently
-   gates a deploy but review discipline. An org plan makes protection available — use it.
-5. Do the code change in §4 before the first deploy.
-6. Verify: open a throwaway PR and confirm `build` and `hygiene` run; merge it and confirm `deploy`
-   runs and the Worker responds on `GET /api/v1/health`.
+   verified 2026-08-22). An org plan makes protection available — use it before production deploys
+   are enabled.
+4. Do the code change in §4 before the first deploy.
+5. Create the `production` environment and token, then set `PRODUCTION_DEPLOY_ENABLED=true` last as
+   described in § 0.
+6. Verify: open a throwaway PR and confirm `build` and `hygiene` run while deploy is skipped; after
+   production is intentionally enabled, merge a reviewed change and confirm `deploy` runs and the
+   Worker responds on `GET /api/v1/health`.
 
 ### Scenario B — the Cloudflare account also changes
 
@@ -258,9 +260,9 @@ immediately after** the transfer — every day both exist is a day the old one i
 
 - `main` is at `5ec4516`. No unpushed commits, no stashes, no local-only branches. Note that SHAs
   differ from any pre-2026-08-22 reference: the history rewrite renumbered every commit.
-- **Actions are disabled on this repo, and there are no secrets or environments.** Deliberate — the
-  first push to `main` would otherwise fire the deploy job with no credentials. **§ 0 has the full
-  re-enable procedure**; do not just flip the toggle, the order matters.
+- **Historical snapshot (2026-08-22):** Actions were disabled with no secrets or environments.
+  Do not use this snapshot as current administrative state. The reconciled workflow separates
+  credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
 - **Suite:** 30 files, 549 tests, green. **Coverage:** 85.74% statements / 79.48% branches / 89.09%
   functions / 86.36% lines. (`npm test` runs in a few seconds; `npm run test:coverage` takes ~38s
   here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
@@ -298,7 +300,9 @@ immediately after** the transfer — every day both exist is a day the old one i
 
 ## 7. Conventions worth keeping
 
-- **Merging to `main` deploys to production.** There is no staging environment.
+- **A push to `main` deploys to production only when `PRODUCTION_DEPLOY_ENABLED` is exactly `true`.**
+  There is no staging environment; leave or restore the variable as unset to stop deploys without
+  disabling PR checks.
 - **Coverage is a ratchet.** Floors sit just under current numbers; raise them whenever a change
   moves the number up. That is the whole mechanism.
 - **A route module must be an `OpenAPIHono`** built with `createRouteModule()`, never a plain `Hono`.

@@ -145,7 +145,8 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm test` / `npm run test:watch` | Vitest. |
-| `npm run test:coverage` | Vitest + coverage; CI runs it too. |
+| `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
+| `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
 | `npm run types` | `wrangler types` → `src/worker-configuration.d.ts`. Run after changing bindings. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
@@ -154,26 +155,28 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 
 ### Deploys are not yours to run
 
-`.github/workflows/ci.yml` deploys to production on every push to `main`. There is no staging
-environment. Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
+`.github/workflows/ci.yml` can deploy to production on a push to `main`, but only when the
+repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. That job targets production only.
+Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-**Today that workflow does not fire at all: GitHub Actions is administratively disabled on this
-repository**, deliberately, because the credentials the deploy job needs do not exist yet. So no
-checks run on a PR and a merge to `main` deploys nothing. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0
-before turning it back on — and note that **while it is off, CI verifies nothing, so the local
-verification loop below is the only verification there is.**
+CI uses self-hosted runners labeled `two-selfhosted`. The build and hygiene jobs are credential-free;
+`shadow-api-v1` evaluates an optional `CF_TOKEN` gate and skips contract execution without it.
+Deploy remains skipped while `PRODUCTION_DEPLOY_ENABLED` is absent. Read
+[`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased enable procedure and rollback. If Actions is
+disabled or runners are unavailable, local verification is not a substitute for exact-head CI.
 
 ### Verification loop
 
-`npm run typecheck` → `npm test`. Run `npm run test:coverage` before pushing.
+`npm run check:ci-workflow` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
+pushing.
 
 `npm ci` alone may install no devDependencies (npm's `omit=dev` is set in some environments, which
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
 
 When enabled, CI additionally runs `npx wrangler deploy --dry-run`, a hygiene job that fails on
-committed `*.csv` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
+committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
 format step — none is configured.**
 
 ---

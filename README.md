@@ -2,17 +2,16 @@
 
 Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) in front of Routeware **WebRW**, with OpenAPI 3.1 at [`/openapi.json`](./src/app.ts) and optional Scalar UI at [`/docs`](./src/app.ts). Upstream session cookies are stored in a **Durable Object** (`AuthSession`); clients do not send Routeware cookies.
 
-> ### ⚠️ New owner? CI is switched off — read this before you push
+> ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
-> GitHub **Actions is administratively disabled** on this repository, and it has **no secrets and no
-> environments**. Push a branch or open a PR and *nothing will run*; merge to `main` and it will
-> **not** deploy. That is deliberate, not a broken workflow — this repo was created as a clean
-> replacement and a new repo starts with no `CLOUDFLARE_API_TOKEN`, so the deploy job would otherwise
-> run against production tooling with an empty credential.
+> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. PR `build` and `hygiene`
+> jobs are credential-free; the optional `shadow-api-v1` probe reports a gated result when
+> `CF_TOKEN` is absent. Production deploys remain skipped unless `PRODUCTION_DEPLOY_ENABLED`
+> is exactly `true`. Repository settings and credentials must be verified separately at handover.
 >
-> **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--ci-is-switched-off-in-this-repository)
-> has the ordered fix** — create the token, create the `production` environment, add the secret,
-> re-enable Actions, then verify with a throwaway PR. The order matters.
+> **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--enable-pr-ci-before-enabling-production-deploys)
+> has the phased procedure** — enable Actions and verify a throwaway PR first; configure the
+> `production` environment and token later; set the repository variable last.
 >
 > That file is also the handover document generally: what lives outside this repo (Cloudflare
 > account, resource ids, the Routeware tenant), the transfer runbook, and the open tasks.
@@ -89,22 +88,26 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run types` | Regenerate [`worker-configuration.d.ts`](./worker-configuration.d.ts) from Wrangler |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
-| `npm run deploy` | Manual deploy (CI/CD deploys automatically on merge to `main` — see [Deploy](#deploy)) |
+| `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
+| `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
 ## Deploy
 
-Merges to `main` deploy automatically via [`.github/workflows/ci.yml`](./.github/workflows/ci.yml):
-the `build` job (typecheck + test + `wrangler deploy --dry-run`) and `hygiene` job must
-pass, then the `deploy` job applies remote D1 migrations and runs `wrangler deploy`.
-`account_id` lives in [`wrangler.toml`](./wrangler.toml), so CI needs only an API token.
+[`.github/workflows/ci.yml`](./.github/workflows/ci.yml) always keeps PR verification separate from
+production authorization: the credential-free `build` job (workflow invariant check + typecheck +
+test + `wrangler deploy --dry-run`) and `hygiene` job run on PRs, while the `deploy` job runs only on
+a push to `main` when `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. Deploy then applies remote D1
+migrations and runs `wrangler deploy` using the `production` environment. All jobs use self-hosted
+runners labeled `two-selfhosted`; the additional `shadow-api-v1` probe skips contract execution when
+its optional `CF_TOKEN` is absent.
 
-**One-time setup:**
+**Enable production only after the full setup is ready:**
 
 1. **Scoped API token** — Cloudflare dashboard → My Profile → API Tokens → *Edit
    Cloudflare Workers* template; confirm **D1 : Edit** is included (for migrations).
    Do **not** use the Global API Key.
-2. **GitHub secret** — add the token as `CLOUDFLARE_API_TOKEN` (repo → Settings → Secrets
-   and variables → Actions), ideally under a `production` Environment.
+2. **GitHub `production` environment** — add the token there as the environment secret
+   `CLOUDFLARE_API_TOKEN`.
 3. **Worker secrets** — set real values once; they persist across deploys and are never in
    git or `[vars]`:
 
@@ -118,8 +121,12 @@ pass, then the `deploy` job applies remote D1 migrations and runs `wrangler depl
    The bearer tokens are **not** defined in `[vars]`, so a Worker with no secret set
    **fails closed** (every `/api/v1/*` route except `GET /api/v1/health` returns 401)
    rather than trusting a committed placeholder.
+4. **Repository variable last** — set `PRODUCTION_DEPLOY_ENABLED` to `true` only after the
+   environment, API token, resources and Worker secrets are ready. Delete or change the variable to
+   stop deploys without disabling PR checks. See [`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--enable-pr-ci-before-enabling-production-deploys).
 
-To deploy by hand instead, run `npm run db:migrate:remote && npm run deploy` locally.
+Manual production deploy commands are intentionally outside the ordinary development loop; follow
+the handover runbook rather than running them opportunistically.
 
 ## OpenAPI and docs
 

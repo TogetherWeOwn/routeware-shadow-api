@@ -30,6 +30,8 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Validate CI workflow invariants
+        run: npm run check:ci-workflow
       - name: Validate Worker build (no deploy)
         # Bundles the Worker and validates wrangler.toml bindings. --dry-run does
         # not call the Cloudflare API, so no account or token is needed.
@@ -90,9 +92,10 @@ jobs:
 
   deploy:
     name: Deploy to Cloudflare Workers
-    # Only after the blocking checks pass, and only on a push to main (never on PRs).
+    # Fail closed unless production deploys have been explicitly enabled. Build and
+    # hygiene remain credential-free while this repository variable is absent.
     needs: [build, hygiene]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     runs-on: [self-hosted, two-selfhosted]
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
