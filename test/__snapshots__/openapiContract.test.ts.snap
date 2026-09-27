@@ -855,6 +855,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "304": {
             "description": "Not modified",
           },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
+          },
           "401": {
             "description": "Unauthorized",
           },
@@ -920,6 +923,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "304": {
             "description": "Not modified",
+          },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
           },
           "401": {
             "description": "Unauthorized",
