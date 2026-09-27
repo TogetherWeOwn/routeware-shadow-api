@@ -180,7 +180,7 @@ containerSnapshotRoutes.openapi(containerSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   if (!c.env.CONTAINER_REPORT_EXPORT_PATH?.trim() && !c.env.CONTAINER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
+      type: problemType("misconfigured"),
       title: "Not configured",
       status: 503,
       detail: "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
@@ -218,7 +218,7 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+      type: problemType("bad-request"),
       title: "Empty body",
       status: 400
     });

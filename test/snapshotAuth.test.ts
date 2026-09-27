@@ -2,6 +2,7 @@ import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MockedFunction } from "vitest";
 import app from "../src/app";
+import { problemType } from "../src/lib/problem";
 
 /**
  * The snapshot and data-entity routes carry a second, narrower auth check on
@@ -23,8 +24,7 @@ import app from "../src/app";
 const API_TOKEN = "test-api-token";
 const SYNC_SECRET = "test-sync-secret";
 
-const UNAUTHORIZED_TYPE =
-  "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized";
+const UNAUTHORIZED_TYPE = problemType("unauthorized");
 
 type ProblemBody = {
   type: string;

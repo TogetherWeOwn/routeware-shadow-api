@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { problemType } from "../src/lib/problem";
 
 /**
  * `src/routes/dataSnapshot.ts` and `src/routes/dataEntity.ts` are thin: an auth
@@ -71,8 +72,7 @@ const { dataEntityRoutes } = await import("../src/routes/dataEntity");
 type RouteModule = typeof dataEntityRoutes;
 
 const SECRET = "sync-secret";
-const BAD_REQUEST_TYPE =
-  "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request";
+const BAD_REQUEST_TYPE = problemType("bad-request");
 
 type ProblemBody = { type: string; title: string; status: number; detail?: string };
 
