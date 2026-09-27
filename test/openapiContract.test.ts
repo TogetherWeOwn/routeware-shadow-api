@@ -52,6 +52,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/data/container",
   "GET /api/v1/data/customer",
   "GET /api/v1/health",
+  "GET /api/v1/readiness",
   "GET /api/v1/routeware/account/login-page",
   "GET /api/v1/routeware/customer/add-new-long",
   "GET /api/v1/routeware/customer/load-long-modal",
@@ -146,6 +147,7 @@ describe("published OpenAPI document", () => {
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
+      "ReadinessResponse",
       "ShadowHealthResponse"
     ]);
     expect(Object.keys(doc.components?.securitySchemes ?? {})).toEqual(["bearerAuth"]);
