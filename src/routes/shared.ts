@@ -4,6 +4,39 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import type { AppEnv } from "./types";
 
 /**
+ * Default zod-validation hook for every route module (TOG-5836).
+ *
+ * Without this, `@hono/zod-openapi` answers schema rejections (bad query,
+ * path or body shapes) with its raw `{success:false, error}` 400 as
+ * `application/json` — the one error shape in the API that did not anchor
+ * into `docs/PROBLEMS.md`. Every rejection now returns an anchored 400
+ * `bad-request` problem+json, and the handler never runs.
+ *
+ * `detail` names the rejected target and fields, never values: query strings
+ * here can carry customer PII (company-name/company substrings), so the zod
+ * messages (which echo received values) are deliberately not forwarded.
+ */
+export function validationFailureHook(result: {
+  success: boolean;
+  target: string;
+  error?: { issues: Array<{ path: PropertyKey[] }> };
+}): Response | undefined {
+  if (result.success || !result.error) {
+    return undefined;
+  }
+  const fields = result.error.issues.map((issue) =>
+    issue.path.length > 0 ? issue.path.map((p) => String(p)).join(".") : result.target
+  );
+  const unique = [...new Set(fields)];
+  return problemJsonResponse({
+    type: problemType("bad-request"),
+    title: "Bad Request",
+    status: 400,
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+  });
+}
+
+/**
  * Build an empty route module.
  *
  * It must be an `OpenAPIHono`, never a plain `Hono`: `OpenAPIHono.route()`
@@ -13,9 +46,14 @@ import type { AppEnv } from "./types";
  *
  * Modules are mounted on the root app at `"/"` so the full `/api/v1/...` path
  * written in each `createRoute` is used verbatim, with no prefix merging.
+ *
+ * The `defaultHook` is what keeps schema rejections anchored: the validators
+ * are built when each module registers its routes, so the hook must live on
+ * the module itself — setting it only on the root app would leave every
+ * module returning raw `{success:false}` 400s.
  */
 export function createRouteModule(): OpenAPIHono<AppEnv> {
-  return new OpenAPIHono<AppEnv>();
+  return new OpenAPIHono<AppEnv>({ defaultHook: validationFailureHook });
 }
 
 /**

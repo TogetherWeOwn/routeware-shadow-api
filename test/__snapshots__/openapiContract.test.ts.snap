@@ -1069,6 +1069,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "304": {
             "description": "Not modified",
           },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
+          },
           "401": {
             "description": "Unauthorized",
           },
@@ -1134,6 +1137,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "304": {
             "description": "Not modified",
+          },
+          "400": {
+            "description": "Invalid id (application/problem+json)",
           },
           "401": {
             "description": "Unauthorized",
@@ -1344,6 +1350,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
+          "502": {
+            "description": "Anti-forgery token preparation failed (application/problem+json)",
+          },
         },
         "summary": "SaveAddressForm (create or update)",
         "tags": [
@@ -1372,6 +1381,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Anti-forgery token preparation failed (application/problem+json)",
           },
         },
         "summary": "SaveContainerForm (create or update)",

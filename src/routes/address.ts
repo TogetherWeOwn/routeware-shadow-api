@@ -17,7 +17,10 @@ const addressSaveAddressFormRoute = createRoute({
   summary: "SaveAddressForm (create or update)",
   description:
     "Proxies to WebRW `SaveAddressForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `CreateBlankAddress?customerID=` (create, `PickupAddressID` 0 / absent) or `LoadAddressModal?PickupAddressID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `PickupAddressID=0` with `CustomerID` for create; set `PickupAddressID` for updates.",
-  responses: upstreamPassthrough200
+  responses: {
+    ...upstreamPassthrough200,
+    502: { description: "Anti-forgery token preparation failed (application/problem+json)" }
+  }
 });
 
 addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {

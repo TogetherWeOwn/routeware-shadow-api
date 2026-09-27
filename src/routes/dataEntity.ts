@@ -72,6 +72,7 @@ const dataAddressGetRoute = createRoute({
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Invalid id (application/problem+json)" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -104,6 +105,7 @@ const dataContainerGetRoute = createRoute({
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Invalid id (application/problem+json)" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
