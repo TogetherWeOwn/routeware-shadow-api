@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import packageJson from "../package.json";
 import app from "../src/app";
 
 /**
@@ -139,7 +140,9 @@ describe("published OpenAPI document", () => {
     // Assert
     expect(doc.openapi).toBe("3.1.0");
     expect(doc.info.title).toBe("Routeware Shadow API");
-    expect(doc.info.version).toBe("1.0.0");
+    // Single-sourced from package.json (TOG-5840): bumping
+    // package.json#version must move the spec version with no other edit.
+    expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
     // Registered once each, even though `CustomerSnapshotList` is shared by the
     // customer, address and container snapshot list routes.
