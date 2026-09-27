@@ -8,7 +8,8 @@ import {
 import { isLoginRedirect } from "../src/lib/loginRedirect";
 import {
   routewareWebRwUrl,
-  routewareWebRwUrlWithIncomingSearch
+  routewareWebRwUrlWithIncomingSearch,
+  routewareWebRwUrlWithQueryAllowlist
 } from "../src/lib/upstreamUrl";
 import { problemJsonResponse } from "../src/lib/problem";
 import { parseAddressSnapshotRow } from "../src/lib/csvAddressSnapshot";
@@ -86,6 +87,46 @@ describe("routewareWebRwUrlWithIncomingSearch", () => {
     );
     expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
     expect(url.search).toBe("?job=1&flag=yes");
+  });
+});
+
+describe("routewareWebRwUrlWithQueryAllowlist", () => {
+  it("forwards allowlisted params and drops the rest", () => {
+    const incoming = new Request(
+      "https://shadow.test/api/v1/routeware/reports/query-request-is-complete?requestID=abc&_=1&evil=2"
+    );
+    const url = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      incoming,
+      ["requestID", "_"]
+    );
+    expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
+    expect(url.searchParams.get("requestID")).toBe("abc");
+    expect(url.searchParams.get("_")).toBe("1");
+    expect(url.searchParams.has("evil")).toBe(false);
+  });
+
+  it("keeps repeated allowlisted values and emits no query when none match", () => {
+    const repeated = new Request("https://shadow.test/q?requestID=a&requestID=b");
+    const url = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      repeated,
+      ["requestID", "_"]
+    );
+    expect(url.searchParams.getAll("requestID")).toEqual(["a", "b"]);
+    const empty = new Request("https://shadow.test/q?evil=1");
+    const bare = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      empty,
+      ["requestID", "_"]
+    );
+    expect(bare.search).toBe("");
   });
 });
 
