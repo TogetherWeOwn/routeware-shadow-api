@@ -62,7 +62,6 @@ const SYNC_SECRET = "test-sync-secret";
 // Top-level await, house pattern (see test/snapshotRoutes.test.ts): the route
 // modules are imported once so every describe below shares them.
 const { customerSnapshotRoutes } = await import("../src/routes/customerSnapshot");
-const { dataSnapshotRoutes } = await import("../src/routes/dataSnapshot");
 const { addressSnapshotRoutes } = await import("../src/routes/addressSnapshot");
 const { dataEntityRoutes } = await import("../src/routes/dataEntity");
 
