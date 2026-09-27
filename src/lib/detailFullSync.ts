@@ -9,6 +9,7 @@ import {
 } from "./d1SnapshotSync";
 import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
+import { reconcileCustomerChildren } from "./snapshot/upsert";
 import { forwardToUpstream } from "./upstreamForward";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
@@ -283,25 +284,45 @@ export async function fetchGetCustomerDetailFull(
 }
 
 /**
- * Fetches `GetCustomerDetailFull` and upserts customer, addresses, and containers into D1.
- * Returns all involved ids (for cache invalidation).
+ * Fetches a complete customer graph and reconciles its D1 children.
+ * Returns fresh and deleted ids so neither can remain in the entity cache.
  */
 export async function syncCustomerDetailFullToD1(
   env: Env,
   sessionStub: DurableObjectStub,
   customerId: number
 ): Promise<{ addressIds: number[]; containerIds: number[] }> {
+  const syncedAt = new Date().toISOString();
   const full = await fetchGetCustomerDetailFull(env, sessionStub, customerId, true);
   const { customer, addresses, containers } = mapDetailFullToRows(full);
-  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer]);
+  // A missing/malformed collection is not proof of deletion. The mapper is
+  // deliberately tolerant for read-only callers; reconciliation must fail closed.
+  if (!Array.isArray(full.data) || full.data.some((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+    const children = (raw as Record<string, unknown>).Containers;
+    return children != null && (!Array.isArray(children) || children.some(
+      (c) => !c || typeof c !== "object" || Array.isArray(c)
+    ));
+  })) {
+    throw new Error("GetCustomerDetailFull has an invalid child collection");
+  }
+  const addressIds = addresses.map((a) => a.pickupAddressId);
+  const addressIdSet = new Set(addressIds);
+  if (customer.customerId !== customerId ||
+      addresses.some((a) => a.customerId !== customerId) ||
+      containers.some((c) => !addressIdSet.has(c.pickupAddressId))) {
+    throw new Error("GetCustomerDetailFull has mismatched graph ids");
+  }
+  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer], 80, syncedAt);
   if (addresses.length) {
-    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses);
+    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses, 80, syncedAt);
   }
   if (containers.length) {
-    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers);
+    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, 50, syncedAt);
   }
+  const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
   return {
-    addressIds: addresses.map((a) => a.pickupAddressId),
-    containerIds: containers.map((c) => c.containerId)
+    addressIds: [...new Set([...addressIds, ...deleted.addressIds])],
+    containerIds: [...new Set([...containers.map((c) => c.containerId), ...deleted.containerIds])]
   };
 }

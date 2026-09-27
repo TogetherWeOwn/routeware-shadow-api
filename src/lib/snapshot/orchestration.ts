@@ -31,6 +31,8 @@ export async function runCustomerSnapshotSync(
     console.log("CUSTOMER_REPORT_EXPORT_PATH and CUSTOMER_REPORT_QUERY_ID unset; skip customer sync");
     return null;
   }
+  // A POST may refresh D1 while the upstream export is still being generated.
+  const syncedAt = new Date().toISOString();
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -39,7 +41,8 @@ export async function runCustomerSnapshotSync(
   }
   return archiveReportCsvToR2AfterD1(env, "customer", resp.body, (s) =>
     syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CUST, {
-      reconcile: true
+      reconcile: true,
+      syncedAt
     })
   );
 }
@@ -53,6 +56,8 @@ export async function runAddressSnapshotSync(
     console.log("ADDRESS_REPORT_EXPORT_PATH and ADDRESS_REPORT_QUERY_ID unset; skip address sync");
     return null;
   }
+  // A POST may refresh D1 while the upstream export is still being generated.
+  const syncedAt = new Date().toISOString();
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -61,7 +66,8 @@ export async function runAddressSnapshotSync(
   }
   return archiveReportCsvToR2AfterD1(env, "address", resp.body, (s) =>
     syncAddressSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_ADDR, {
-      reconcile: true
+      reconcile: true,
+      syncedAt
     })
   );
 }
@@ -77,6 +83,8 @@ export async function runContainerSnapshotSync(
     );
     return null;
   }
+  // A POST may refresh D1 while the upstream export is still being generated.
+  const syncedAt = new Date().toISOString();
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -85,7 +93,8 @@ export async function runContainerSnapshotSync(
   }
   return archiveReportCsvToR2AfterD1(env, "container", resp.body, (s) =>
     syncContainerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CONT, {
-      reconcile: true
+      reconcile: true,
+      syncedAt
     })
   );
 }

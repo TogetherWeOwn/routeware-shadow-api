@@ -37,7 +37,7 @@ export async function syncCustomerSnapshotFromStream(
   batchSize = STREAM_BATCH_CUST,
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
-  const syncedAt = new Date().toISOString();
+  const syncedAt = options.syncedAt ?? new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: CustomerSnapshotRow[] = [];
@@ -98,7 +98,7 @@ export async function syncAddressSnapshotFromStream(
   batchSize = STREAM_BATCH_ADDR,
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
-  const syncedAt = new Date().toISOString();
+  const syncedAt = options.syncedAt ?? new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: AddressSnapshotRow[] = [];
@@ -159,7 +159,7 @@ export async function syncContainerSnapshotFromStream(
   batchSize = STREAM_BATCH_CONT,
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
-  const syncedAt = new Date().toISOString();
+  const syncedAt = options.syncedAt ?? new Date().toISOString();
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: ContainerSnapshotRow[] = [];
