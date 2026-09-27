@@ -13,6 +13,18 @@ function jobBlock(name) {
 
 assert.match(workflow, /^  pull_request:\n    branches: \[main\]$/m, "CI must run for pull requests targeting main");
 
+// TOG-7666: the workers-pool suite stalls past the 30s timeout when an
+// unrestricted coverage run shares a self-hosted runner with other CI jobs
+// (red main 3657b4f). The cap lives in vitest.config.ts, gated on CI so
+// local runs keep full speed. Pin it present so a config edit can never
+// silently uncap CI.
+const vitestConfig = await readFile(new URL("../vitest.config.ts", import.meta.url), "utf8");
+assert.match(
+  vitestConfig,
+  /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*undefined/,
+  "vitest.config.ts must cap maxWorkers at 2 on CI (TOG-7666)",
+);
+
 const hygiene = jobBlock("hygiene");
 // The D1 drift check runs credential-free in hygiene (local apply into a
 // scratch persist dir + manifest compare; the read-only remote compare only
