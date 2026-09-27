@@ -4,6 +4,7 @@ import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
+import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
 import { createRouteModule, upstreamPassthrough200 } from "./shared";
@@ -65,6 +66,9 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the save-long-form route.
   const upText = await up.clone().text();
   if (routewarePostLooksSuccessful(up.status, upText)) {
+    // TOG-6463: refresh D1 + evict the data-entity cache after a successful
+    // save so shadow reads stop serving the pre-save record. Never throws.
+    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "address", bodyBuffer, upText);
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
