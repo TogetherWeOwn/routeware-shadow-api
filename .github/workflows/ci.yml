@@ -68,6 +68,11 @@ jobs:
           # Full history: the blocking secret scan below covers git history, not
           # just the working tree. A shallow checkout would silently scan one commit.
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
       - name: No committed Routeware report exports (PII)
         run: |
           matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
@@ -97,6 +102,13 @@ jobs:
             echo "$matches"
             exit 1
           fi
+      - name: D1 migration drift check (TOG-6275)
+        # Credential-free: manifest sha256 compare + fresh local apply into a
+        # scratch persist dir, journal compared to the file list. Fails the
+        # build on edited/missing/extra migrations. The read-only remote
+        # compare runs only with --remote plus an ambient token (deploy-time
+        # concern, never a hygiene secret).
+        run: npm run check:d1-drift
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
