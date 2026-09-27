@@ -29,6 +29,44 @@ Authorization: Bearer <SHADOW_API_TOKEN>
 (`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`)
 additionally require `CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
 
+### Dual-secret matrix (TOG-6298)
+
+General `/api/v1/*` routes pass the outer gate with **either** secret:
+`isApiAuthorized` (`src/lib/auth.ts`) accepts the bearer when it matches
+`apiAccessToken()` — `SHADOW_API_TOKEN` when set, else the sync secret — **or**
+`CUSTOMER_SNAPSHOT_SYNC_SECRET` directly. The second disjunct exists so the
+chained `/api/v1/data-snapshot/sync` subrequests, which authenticate with
+`Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`
+(`src/lib/snapshot/orchestration.ts`), pass the outer gate even when a
+distinct `SHADOW_API_TOKEN` is configured.
+
+Outer gate by configured secrets (✓ = route reached, ✗ = 401):
+
+| Secrets configured | `Bearer <API>` | `Bearer <SYNC>` | wrong | none |
+|---|---|---|---|---|
+| both | ✓ | ✓ | ✗ | ✗ |
+| API only | ✓ | ✗ | ✗ | ✗ |
+| sync only | ✗ | ✓ | ✗ | ✗ |
+| neither | ✗ | ✗ | ✗ | ✗ |
+
+When only one secret is set, the other string is simply unconfigured, so
+presenting it 401s. When neither is set the Worker fails closed: every
+`/api/v1/*` route except `GET /api/v1/health` 401s.
+
+Privileged routes add the inner check `requireSnapshotAuth`
+(`src/routes/shared.ts`), which requires the sync secret specifically —
+passing the outer gate with the API token is not enough:
+
+| Route class | `Bearer <API>` | `Bearer <SYNC>` | wrong / none |
+|---|---|---|---|
+| General (all `/api/v1/routeware/*`, snapshot list reads, `GET /api/v1/shadow/health`) | ✓ | ✓ | 401 outer gate |
+| Privileged (`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` — 13 routes) | 401 inner check | ✓ | 401 outer gate |
+| Public (`GET /api/v1/health`) | n/a | n/a | 200, no token |
+
+Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
+route-class matrix) and `test/snapshotAuth.test.ts` (per-route inner 401
+bodies).
+
 Set these as secrets in production — never in `wrangler.toml` `[vars]`:
 
 ```
