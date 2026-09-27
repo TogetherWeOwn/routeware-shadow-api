@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
+import { corsPreflightResponse, withCors } from "./lib/cors";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
@@ -71,20 +72,31 @@ function openapiDocsEnabled(env: Env): boolean {
 app.use("/api/v1/*", async (c, next) => {
   const { method } = c.req.raw;
   const path = new URL(c.req.raw.url).pathname;
+  // CORS preflight carries no `Authorization` header by design, so it must be
+  // answered before the bearer gate — otherwise browsers never issue the real
+  // request. A preflight reveals only the CORS policy, never data, and the
+  // early return also skips the body-buffer/session middleware below.
+  if (method === "OPTIONS") {
+    return corsPreflightResponse(c.req.raw);
+  }
   const isPublic = method === "GET" && path === "/api/v1/health";
-  if (isPublic) {
-    return next();
+  if (!isPublic && !isApiAuthorized(c.env, c.req)) {
+    return withCors(
+      problemJsonResponse({
+        type: problemType("unauthorized"),
+        title: "Unauthorized",
+        status: 401,
+        detail:
+          "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
+      }),
+      c.req.raw
+    );
   }
-  if (!isApiAuthorized(c.env, c.req)) {
-    return problemJsonResponse({
-      type: problemType("unauthorized"),
-      title: "Unauthorized",
-      status: 401,
-      detail:
-        "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
-    });
-  }
-  return next();
+  await next();
+  // Stamp CORS + hardening headers on every downstream response (including
+  // 404s) so browsers surface the real status instead of a CORS error.
+  c.res = withCors(c.res, c.req.raw);
+  return;
 });
 
 app.use("/api/v1/*", async (c, next) => {
@@ -155,18 +167,26 @@ app.use(
   })
 );
 
-app.notFound((c) => notFoundProblem(new URL(c.req.url).pathname));
+// `notFound` and `onError` run outside the `/api/v1/*` middleware chain, so
+// they stamp CORS headers directly — otherwise a browser sees a CORS error
+// instead of the real 404/500 status.
+app.notFound((c) =>
+  withCors(notFoundProblem(new URL(c.req.url).pathname), c.req.raw)
+);
 
-app.onError((err, _c) => {
+app.onError((err, c) => {
   // Log the full error for observability, but do not echo internal details
   // (messages, stack, upstream text) back to the client.
   console.error("APP ERROR", err);
-  return problemJsonResponse({
-    type: problemType("internal"),
-    title: "Internal Server Error",
-    status: 500,
-    detail: "An unexpected error occurred. See Worker logs for details."
-  });
+  return withCors(
+    problemJsonResponse({
+      type: problemType("internal"),
+      title: "Internal Server Error",
+      status: 500,
+      detail: "An unexpected error occurred. See Worker logs for details."
+    }),
+    c.req.raw
+  );
 });
 
 export default app;
