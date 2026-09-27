@@ -84,6 +84,8 @@ const addressSnapshotByIdRoute = createRoute({
   path: "/api/v1/address-snapshot/{pickupAddressId}",
   tags: ["address-snapshot"],
   summary: "Get one address snapshot row",
+  description:
+    "Reads one row from the daily snapshot DB by `pickupAddressId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ pickupAddressId: z.coerce.number().int() })
   },
@@ -181,6 +183,20 @@ const addressSnapshotImportRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
   description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys.",
+  request: {
+    body: {
+      description: "Routeware Address Details CSV (header + data rows — see example)",
+      content: {
+        "text/csv": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (the handler streams the raw body).
+          schema: { type: "string" },
+          example:
+            "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
+        }
+      }
+    }
+  },
   responses: {
     200: {
       description: "Result",

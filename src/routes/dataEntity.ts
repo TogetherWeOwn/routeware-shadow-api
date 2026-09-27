@@ -65,6 +65,8 @@ const dataAddressGetRoute = createRoute({
   path: "/api/v1/data/address",
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id`.",
   request: { query: z.object({ id: z.coerce.number().int() }) },
   responses: {
     200: {
@@ -98,6 +100,8 @@ const dataContainerGetRoute = createRoute({
   path: "/api/v1/data/container",
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id`.",
   request: { query: z.object({ id: z.coerce.number().int() }) },
   responses: {
     200: {
@@ -143,7 +147,38 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`). `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              CustomerTypeID: { type: "string" },
+              CompanyName: { type: "string" },
+              FirstName: { type: "string" },
+              LastName: { type: "string" },
+              Enabled: { type: "string" },
+              CustomerID: { type: "string" }
+            }
+          },
+          example: {
+            CustomerTypeID: "1",
+            CompanyName: "ExampleCo",
+            FirstName: "Jane",
+            LastName: "Doe",
+            Enabled: "true",
+            CustomerID: "0"
+          }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 
@@ -159,7 +194,28 @@ const dataAddressPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update address in Routeware + sync D1",
   description:
-    "Proxies to `PickupAddress/SaveAddressForm`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`.",
+    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveAddressForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              PickupAddressID: { type: "string" },
+              CustomerID: { type: "string" },
+              Address: { type: "string" }
+            }
+          },
+          example: { PickupAddressID: "0", CustomerID: "5", Address: "1 Main St" }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 
@@ -175,7 +231,28 @@ const dataContainerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update container in Routeware + sync D1",
   description:
-    "Proxies to `Container/SaveContainerForm`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row).",
+    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveContainerForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              ContainerID: { type: "string" },
+              PickupAddressID: { type: "string" },
+              CustomerID: { type: "string" }
+            }
+          },
+          example: { ContainerID: "0", PickupAddressID: "10" }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 
