@@ -12,6 +12,7 @@
     "check:devvars": "node scripts/check-devvars.mjs",
     "check:shadow-api-v1": "node scripts/check-shadow-api-v1.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
+    "check:r2-preflight": "node scripts/check-r2-preflight.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
     "dev:remote": "wrangler dev --remote",
     "db:migrate:local": "wrangler d1 migrations apply routeware-customer-snapshot --local",
