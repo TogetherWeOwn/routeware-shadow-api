@@ -26,7 +26,16 @@ const customersReadRoute = createRoute({
   path: "/api/v1/routeware/customer/customers-read",
   tags: ["customer"],
   summary: "CustomersRead (harvested SPA traffic)",
-  ...customersReadDocs
+  description:
+    "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  ...customersReadDocs,
+  responses: {
+    ...customersReadDocs.responses,
+    502: {
+      description:
+        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 customerRoutes.openapi(customersReadRoute, async (c) => {
@@ -35,7 +44,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomersRead"
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -43,6 +52,24 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
     c.var.bodyBuffer,
     establishSession
   );
+  // Routeware signals a failed read silently: an HTML error page with HTTP 200
+  // (CONVENTIONS.md §1). Passing that through as 200 tells the client the read
+  // worked when it did not. Same heuristic as the save-long-form route.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway"),
+      title: "Upstream read failed",
+      status: 502,
+      detail:
+        "Routeware answered CustomersRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });
 
 const customerDetailFullRoute = createRoute({
@@ -50,7 +77,16 @@ const customerDetailFullRoute = createRoute({
   path: "/api/v1/routeware/customer/detail-full",
   tags: ["customer"],
   summary: "GetCustomerDetailFull",
-  ...customerDetailFullDocs
+  description:
+    "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  ...customerDetailFullDocs,
+  responses: {
+    ...customerDetailFullDocs.responses,
+    502: {
+      description:
+        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 customerRoutes.openapi(customerDetailFullRoute, async (c) => {
@@ -59,7 +95,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/GetCustomerDetailFull"
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -67,6 +103,24 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
     c.var.bodyBuffer,
     establishSession
   );
+  // Same silent-failure shape as the save routes (CONVENTIONS.md §1): an HTML
+  // error page with HTTP 200. A detail payload is always JSON, so HTML here
+  // means the read failed.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway"),
+      title: "Upstream read failed",
+      status: 502,
+      detail:
+        "Routeware answered GetCustomerDetailFull with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });
 
 const customerTypesReadRoute = createRoute({
@@ -75,8 +129,15 @@ const customerTypesReadRoute = createRoute({
   tags: ["customer"],
   summary: "CustomerTypesRead",
   description:
-    "Customer type / category list for pickers (same store pattern as other Ext.NET `*Read` actions). Send **application/x-www-form-urlencoded** (e.g. `EnabledOnly=true`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once.",
-  ...customerTypesReadDocs
+    "Customer type / category list for pickers (same store pattern as other Ext.NET `*Read` actions). Send **application/x-www-form-urlencoded** (e.g. `EnabledOnly=true`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  ...customerTypesReadDocs,
+  responses: {
+    ...customerTypesReadDocs.responses,
+    502: {
+      description:
+        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 customerRoutes.openapi(customerTypesReadRoute, async (c) => {
@@ -85,7 +146,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomerTypesRead"
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -93,6 +154,23 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
     c.var.bodyBuffer,
     establishSession
   );
+  // Same silent-failure shape as the save routes (CONVENTIONS.md §1): a
+  // dropdown store read is always JSON, so HTML here means the read failed.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway"),
+      title: "Upstream read failed",
+      status: 502,
+      detail:
+        "Routeware answered CustomerTypesRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });
 
 const customerSaveLongFormRoute = createRoute({
