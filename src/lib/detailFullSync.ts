@@ -245,8 +245,10 @@ export async function fetchGetCustomerDetailFull(
     resp = await forwardToUpstream(makeReq(), url, session, buf);
   }
   if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error(`GetCustomerDetailFull HTTP ${resp.status}: ${t.slice(0, 200)}`);
+    // The body is upstream-controlled HTML/JSON and may carry customer PII —
+    // never embed it in the message: this error reaches API clients verbatim
+    // inside `localSync.reason` (POST /api/v1/data/* keeps 200 on sync failure).
+    throw new Error(`GetCustomerDetailFull failed: HTTP ${resp.status}`);
   }
   // Pre-check: refuse to buffer a graph that would threaten the isolate before
   // paying for the full body. Absent header (chunked) falls through to the

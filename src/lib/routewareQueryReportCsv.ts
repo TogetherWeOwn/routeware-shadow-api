@@ -110,8 +110,10 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
     });
   const downResp = await forwardSessionAware(env, downReq, downUrl, null);
   if (downResp.status !== 200 || isLoginRedirect(downResp)) {
-    const t = await downResp.text();
-    throw new Error(`QueryExecuteDownload failed: ${downResp.status} — ${t.slice(0, 400)}`);
+    // The body is upstream-controlled and may carry customer PII — never embed
+    // it in the message: this error reaches the cron log wrapped in `[step]`
+    // context (TOG-5821).
+    throw new Error(`QueryExecuteDownload failed: HTTP ${downResp.status}`);
   }
   if (!downResp.body) {
     throw new Error("QueryExecuteDownload returned an empty body");
