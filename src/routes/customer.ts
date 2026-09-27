@@ -9,7 +9,14 @@ import {
   routewareWebRwUrl,
   routewareWebRwUrlWithQueryAllowlist
 } from "../lib/upstreamUrl";
-import { createRouteModule, upstreamPassthrough200 } from "./shared";
+import {
+  createRouteModule,
+  customerDetailFullDocs,
+  customerSaveLongFormDocs,
+  customerTypesReadDocs,
+  customersReadDocs,
+  upstreamPassthrough200
+} from "./shared";
 
 /** Routeware customer endpoints (tag `customer`). */
 export const customerRoutes = createRouteModule();
@@ -19,7 +26,7 @@ const customersReadRoute = createRoute({
   path: "/api/v1/routeware/customer/customers-read",
   tags: ["customer"],
   summary: "CustomersRead (harvested SPA traffic)",
-  responses: upstreamPassthrough200
+  ...customersReadDocs
 });
 
 customerRoutes.openapi(customersReadRoute, async (c) => {
@@ -43,7 +50,7 @@ const customerDetailFullRoute = createRoute({
   path: "/api/v1/routeware/customer/detail-full",
   tags: ["customer"],
   summary: "GetCustomerDetailFull",
-  responses: upstreamPassthrough200
+  ...customerDetailFullDocs
 });
 
 customerRoutes.openapi(customerDetailFullRoute, async (c) => {
@@ -69,7 +76,7 @@ const customerTypesReadRoute = createRoute({
   summary: "CustomerTypesRead",
   description:
     "Customer type / category list for pickers (same store pattern as other Ext.NET `*Read` actions). Send **application/x-www-form-urlencoded** (e.g. `EnabledOnly=true`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once.",
-  responses: upstreamPassthrough200
+  ...customerTypesReadDocs
 });
 
 customerRoutes.openapi(customerTypesReadRoute, async (c) => {
@@ -95,8 +102,9 @@ const customerSaveLongFormRoute = createRoute({
   summary: "SaveCustomerLongForm (create or update)",
   description:
     "Proxies to WebRW `SaveCustomerLongForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `AddNewLong` (create, `CustomerID` 0 / absent) or `LoadLongCustomerModal?customerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `CustomerID=0` for create; set `CustomerID` for updates. Disable customers with `Enabled=false` (no upstream delete). Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  ...customerSaveLongFormDocs,
   responses: {
-    ...upstreamPassthrough200,
+    ...customerSaveLongFormDocs.responses,
     502: {
       description:
         "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."

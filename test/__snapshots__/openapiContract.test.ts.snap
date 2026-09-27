@@ -1077,11 +1077,59 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/address/save-address-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveAddressForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankAddress?customerID=\` (create, \`PickupAddressID\` 0 / absent) or \`LoadAddressModal?PickupAddressID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`PickupAddressID=0\` with \`CustomerID\` for create; set \`PickupAddressID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "Address": "1 Main St",
+                "City": "Killeen",
+                "CustomerID": "345734",
+                "PickupAddressID": "0",
+                "State": "TX",
+                "Zip": "76541",
+              },
+              "schema": {
+                "properties": {
+                  "Address": {
+                    "type": "string",
+                  },
+                  "City": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "State": {
+                    "type": "string",
+                  },
+                  "Zip": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side. \`PickupAddressID=0\` with \`CustomerID\` creates; set it to update.",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1109,11 +1157,47 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/container/save-container-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveContainerForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankContainer?pickupAddressID=\` (create, \`ContainerID\` 0 / absent) or \`LoadContainerModal?ContainerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`ContainerID=0\` with \`PickupAddressID\` for create; set \`ContainerID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "ContainerID": "0",
+                "PickupAddressID": "10",
+                "SerialNumber": "C-100-A",
+              },
+              "schema": {
+                "properties": {
+                  "ContainerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "SerialNumber": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side. \`ContainerID=0\` with \`PickupAddressID\` creates; set it to update.",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1184,11 +1268,55 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/customer/customer-types-read": {
       "post": {
         "description": "Customer type / category list for pickers (same store pattern as other Ext.NET \`*Read\` actions). Send **application/x-www-form-urlencoded** (e.g. \`EnabledOnly=true\`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "EnabledOnly": "true",
+              },
+              "schema": {
+                "properties": {
+                  "EnabledOnly": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Dropdown filter (application/x-www-form-urlencoded). Request body is not validated here so the Worker can forward the raw body.",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "data": [
+                    {
+                      "CustomerType": "Commercial",
+                      "CustomerTypeID": 1,
+                    },
+                  ],
+                  "success": true,
+                  "total": 1,
+                },
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1212,11 +1340,82 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/customers-read": {
       "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "filter": [
+                  {
+                    "operator": ">",
+                    "property": "CustomerID",
+                    "value": 0,
+                  },
+                ],
+                "limit": 50,
+                "page": 1,
+                "sort": "[{"property":"CustomerID","direction":"ASC"}]",
+                "start": 0,
+              },
+              "schema": {
+                "properties": {
+                  "filter": {
+                    "items": {
+                      "type": "object",
+                    },
+                    "type": "array",
+                  },
+                  "limit": {
+                    "type": "integer",
+                  },
+                  "page": {
+                    "type": "integer",
+                  },
+                  "sort": {
+                    "type": "string",
+                  },
+                  "start": {
+                    "type": "integer",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Ext.NET store read body (JSON). A non-empty \`filter\` avoids the upstream “You need to filter.” error.",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "data": [
+                    {
+                      "CompanyName": "ExampleCo",
+                      "CustomerID": 345734,
+                      "Enabled": true,
+                      "Phone1": "555-0100",
+                    },
+                  ],
+                  "success": true,
+                  "total": 1,
+                },
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1240,11 +1439,76 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/detail-full": {
       "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "CustomerID": 345734,
+              },
+              "schema": {
+                "properties": {
+                  "CustomerID": {
+                    "type": "integer",
+                  },
+                },
+                "required": [
+                  "CustomerID",
+                ],
+                "type": "object",
+              },
+            },
+          },
+          "description": "Customer id to load (JSON).",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "currentCustomer": {
+                    "CompanyName": "ExampleCo",
+                    "CustomerID": 345734,
+                    "CustomerNumber": "C-1001",
+                    "CustomerTypeID": 2,
+                    "Enabled": true,
+                    "NameFirst": "Jane",
+                    "NameLast": "Doe",
+                    "NameMI": "",
+                    "Phone1": "555-0100",
+                  },
+                  "data": [
+                    {
+                      "Address": "1 Main St",
+                      "City": "Killeen",
+                      "Containers": [
+                        {
+                          "ContainerID": 100,
+                          "PickupAddressID": 10,
+                          "SerialNumber": "C-100-A",
+                        },
+                      ],
+                      "CustomerID": 345734,
+                      "Enabled": true,
+                      "PickupAddressID": 10,
+                      "State": "TX",
+                      "Zip": "76541",
+                    },
+                  ],
+                },
+                "schema": {
+                  "properties": {
+                    "currentCustomer": {
+                      "type": "object",
+                    },
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1311,11 +1575,59 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/customer/save-long-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveCustomerLongForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`AddNewLong\` (create, \`CustomerID\` 0 / absent) or \`LoadLongCustomerModal?customerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`CustomerID=0\` for create; set \`CustomerID\` for updates. Disable customers with \`Enabled=false\` (no upstream delete). Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "CompanyName": "ExampleCo",
+                "CustomerID": "0",
+                "CustomerTypeID": "1",
+                "Enabled": "true",
+                "FirstName": "Jane",
+                "LastName": "Doe",
+              },
+              "schema": {
+                "properties": {
+                  "CompanyName": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "CustomerTypeID": {
+                    "type": "string",
+                  },
+                  "Enabled": {
+                    "type": "string",
+                  },
+                  "FirstName": {
+                    "type": "string",
+                  },
+                  "LastName": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side from the Routeware modal. \`CustomerID=0\` creates; set it to update; \`Enabled=false\` disables.",
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {

@@ -6,7 +6,7 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { readSessionState } from "../lib/sessionState";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
-import { createRouteModule, upstreamPassthrough200 } from "./shared";
+import { containerSaveFormDocs, createRouteModule } from "./shared";
 
 /** Routeware container endpoints (tag `container`). */
 export const containerRoutes = createRouteModule();
@@ -18,8 +18,9 @@ const containerSaveContainerFormRoute = createRoute({
   summary: "SaveContainerForm (create or update)",
   description:
     "Proxies to WebRW `SaveContainerForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `CreateBlankContainer?pickupAddressID=` (create, `ContainerID` 0 / absent) or `LoadContainerModal?ContainerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `ContainerID=0` with `PickupAddressID` for create; set `ContainerID` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  ...containerSaveFormDocs,
   responses: {
-    ...upstreamPassthrough200,
+    ...containerSaveFormDocs.responses,
     502: {
       description:
         "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
