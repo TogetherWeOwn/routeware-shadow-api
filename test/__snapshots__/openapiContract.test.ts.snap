@@ -1206,6 +1206,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/customers-read": {
       "post": {
+        "description": "Forwards the JSON body to WebRW \`CustomersRead\` with **application/json** (e.g. the harvested Ext.NET store shape: \`filter\`, \`page\`, \`start\`, \`limit\`, \`group\`, \`sort\`). OData-style \`skip\`/\`take\` keys are translated server-side onto \`start\`/\`limit\` (which upstream is proven to honor via the harvested SPA traffic); an explicit \`start\`/\`limit\` always wins and non-JSON bodies pass through untouched.",
         "responses": {
           "200": {
             "content": {
