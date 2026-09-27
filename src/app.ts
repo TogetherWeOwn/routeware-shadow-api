@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
+import { corsPreflightResponse, withCors } from "./lib/cors";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
@@ -73,50 +74,61 @@ function openapiDocsEnabled(env: Env): boolean {
 app.use("/api/v1/*", async (c, next) => {
   const { method } = c.req.raw;
   const path = new URL(c.req.raw.url).pathname;
+  // CORS preflight carries no `Authorization` header by design, so it must be
+  // answered before the bearer gate — otherwise browsers never issue the real
+  // request. A preflight reveals only the CORS policy, never data, and the
+  // early return also skips the body-buffer/session middleware below.
+  if (method === "OPTIONS") {
+    return corsPreflightResponse(c.req.raw);
+  }
   const isPublic = method === "GET" && path === "/api/v1/health";
   if (isPublic) {
-    return next();
+    await next();
+    // Public responses still need ACAO so browser clients can read them.
+    c.res = withCors(c.res, c.req.raw);
+    return;
   }
   if (!isApiAuthorized(c.env, c.req)) {
     // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
     // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
-    // a token-guessing loop slows to a crawl. (Ported to main without the
-    // sibling CORS layer TOG-5809, which is not yet merged here: responses use
-    // the plain pre-CORS envelope, and OPTIONS keeps main's current 401
-    // posture — it just never consumes throttle budget.)
-    if (method !== "OPTIONS") {
-      const verdict = await recordAuthFailure(c.env, {
-        header: (name: string) => c.req.header(name)
-      });
-      if (verdict.blocked) {
-        const throttled = problemJsonResponse({
-          type: problemType("rate-limited"),
-          title: "Too Many Requests",
-          status: 429,
-          detail:
-            "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited."
-        });
-        throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
-        return throttled;
-      }
-    }
-    return problemJsonResponse({
-      type: problemType("unauthorized"),
-      title: "Unauthorized",
-      status: 401,
-      detail:
-        "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
-    });
-  }
-  // A valid token clears the IP's failure count, so one bad burst (or a
-  // shared NAT IP) never locks out legitimate traffic. Preflight carries no
-  // credentials by design, so it never touches the throttle either way.
-  if (method !== "OPTIONS") {
-    await clearAuthFailures(c.env, {
+    // a token-guessing loop slows to a crawl. (Preflight returns above, so
+    // OPTIONS never consumes throttle budget; CORS wraps the 429/401 so
+    // browsers surface the real status instead of a CORS error.)
+    const verdict = await recordAuthFailure(c.env, {
       header: (name: string) => c.req.header(name)
     });
+    if (verdict.blocked) {
+      const throttled = problemJsonResponse({
+        type: problemType("rate-limited"),
+        title: "Too Many Requests",
+        status: 429,
+        detail:
+          "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited."
+      });
+      throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
+      return withCors(throttled, c.req.raw);
+    }
+    return withCors(
+      problemJsonResponse({
+        type: problemType("unauthorized"),
+        title: "Unauthorized",
+        status: 401,
+        detail:
+          "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
+      }),
+      c.req.raw
+    );
   }
-  return next();
+  // A valid token clears the IP's failure count, so one bad burst (or a
+  // shared NAT IP) never locks out legitimate traffic.
+  await clearAuthFailures(c.env, {
+    header: (name: string) => c.req.header(name)
+  });
+  await next();
+  // Stamp CORS + hardening headers on every downstream response (including
+  // 404s) so browsers surface the real status instead of a CORS error.
+  c.res = withCors(c.res, c.req.raw);
+  return;
 });
 
 app.use("/api/v1/*", async (c, next) => {
@@ -187,7 +199,12 @@ app.use(
   })
 );
 
-app.notFound((c) => notFoundProblem(new URL(c.req.url).pathname));
+// `notFound` and `onError` run outside the `/api/v1/*` middleware chain, so
+// they stamp CORS headers directly — otherwise a browser sees a CORS error
+// instead of the real 404/500 status.
+app.notFound((c) =>
+  withCors(notFoundProblem(new URL(c.req.url).pathname), c.req.raw)
+);
 
 app.onError((err, c) => {
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
@@ -195,19 +212,26 @@ app.onError((err, c) => {
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
   // routes map this themselves before it reaches here; this is the backstop
   // for direct forwarders (login-page, modals, detail-full sync internals).
+  // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
   if (isUpstreamTimeout(err)) {
     console.error("UPSTREAM TIMEOUT", err.message);
-    return upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
+    return withCors(
+      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
+      c.req.raw
+    );
   }
   // Log the full error for observability, but do not echo internal details
   // (messages, stack, upstream text) back to the client.
   console.error("APP ERROR", err);
-  return problemJsonResponse({
-    type: problemType("internal"),
-    title: "Internal Server Error",
-    status: 500,
-    detail: "An unexpected error occurred. See Worker logs for details."
-  });
+  return withCors(
+    problemJsonResponse({
+      type: problemType("internal"),
+      title: "Internal Server Error",
+      status: 500,
+      detail: "An unexpected error occurred. See Worker logs for details."
+    }),
+    c.req.raw
+  );
 });
 
 export default app;
