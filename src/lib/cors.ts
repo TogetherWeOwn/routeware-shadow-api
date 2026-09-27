@@ -52,8 +52,9 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   headers.set("Access-Control-Allow-Origin", clean ? clean : "*");
   appendVary(headers, "Origin");
   // The data-entity GETs version with ETag; expose it so browser clients can
-  // do conditional reads.
-  headers.set("Access-Control-Expose-Headers", "ETag");
+  // do conditional reads. Retry-After is exposed so browser clients can honor
+  // the auth-throttle 429 backoff (TOG-7380) instead of retry-spinning blind.
+  headers.set("Access-Control-Expose-Headers", "ETag, Retry-After");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "no-referrer");
