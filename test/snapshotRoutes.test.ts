@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
  * The three `src/routes/*Snapshot.ts` modules were the largest remaining block
@@ -67,8 +68,7 @@ const { containerSnapshotRoutes } = await import("../src/routes/containerSnapsho
 type RouteModule = typeof customerSnapshotRoutes;
 
 const SECRET = "sync-secret";
-const PROBLEM_BASE =
-  "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#";
+const PROBLEM_BASE = PROBLEM_TYPE_BASE;
 
 type ProblemBody = { type: string; title: string; status: number; detail?: string };
 

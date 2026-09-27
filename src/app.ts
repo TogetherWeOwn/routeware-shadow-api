@@ -118,7 +118,7 @@ app.route("/", dataEntityRoutes);
 app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#forbidden",
+      type: problemType("forbidden"),
       title: "Not available",
       status: 404,
       detail:
@@ -131,7 +131,7 @@ app.get("/openapi.json", (c) => {
 app.use("/docs", async (c, next) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#forbidden",
+      type: problemType("forbidden"),
       title: "Not available",
       status: 404,
       detail:

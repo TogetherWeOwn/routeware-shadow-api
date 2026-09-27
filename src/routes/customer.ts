@@ -111,7 +111,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   } catch (err) {
     console.error("prepareSaveCustomerLongFormBody", err);
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
+      type: problemType("bad-gateway"),
       title: "Anti-forgery token preparation failed",
       status: 502,
       detail: err instanceof Error ? err.message : String(err)

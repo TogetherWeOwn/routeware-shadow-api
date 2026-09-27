@@ -7,7 +7,7 @@ import {
   handlePostDataContainer,
   handlePostDataCustomer
 } from "../lib/dataEntityHandlers";
-import { problemJsonResponse } from "../lib/problem";
+import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
   requireSnapshotAuth
@@ -51,7 +51,7 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   const id = q.id ?? q.customerId;
   if (id === undefined) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+      type: problemType("bad-request"),
       title: "Bad request",
       status: 400,
       detail: "Query `id` or `customerId` (customer_id) is required."
@@ -83,7 +83,7 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+      type: problemType("bad-request"),
       title: "Bad request",
       status: 400,
       detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
@@ -115,7 +115,7 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+      type: problemType("bad-request"),
       title: "Bad request",
       status: 400,
       detail: "Query `id` (container_id) is required and must be a positive integer."

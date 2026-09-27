@@ -161,7 +161,7 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
+      type: problemType("misconfigured"),
       title: "Not configured",
       status: 503,
       detail:
@@ -201,7 +201,7 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+      type: problemType("bad-request"),
       title: "Empty body",
       status: 400,
       detail: "POST the CSV file as the raw request body."

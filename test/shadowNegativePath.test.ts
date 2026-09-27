@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
+import { problemType } from "../src/lib/problem";
 import { shadowHealthResponseSchema } from "../src/routes/shadow";
 
 // Matches wrangler.toml [env.test.vars].
@@ -50,9 +51,7 @@ async function expectTyped404(res: Response, path: string): Promise<ProblemBody>
   expect(res.status).not.toBe(500);
   expect(res.headers.get("content-type")).toContain("problem+json");
   const body = (await res.json()) as ProblemBody;
-  expect(body.type).toBe(
-    "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#not-found"
-  );
+  expect(body.type).toBe(problemType("not-found"));
   expect(body.title).toBe("Not Found");
   expect(body.status).toBe(404);
   expect(body.detail).toContain(path);

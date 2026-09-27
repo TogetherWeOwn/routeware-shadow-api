@@ -5,7 +5,7 @@ const PROBLEM_JSON = "application/problem+json";
  * e.g. `problemType("not-found")` → `.../PROBLEMS.md#not-found`.
  */
 export const PROBLEM_TYPE_BASE =
-  "https://github.com/rick7c2/routeware-shadow-api/blob/main/docs/PROBLEMS.md#";
+  "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#";
 
 /** Build a dereferenceable problem `type` URI from a kebab-case slug. */
 export function problemType(slug: string): string {
