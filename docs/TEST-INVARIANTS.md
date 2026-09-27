@@ -117,6 +117,18 @@ Mutation-verified six ways, including both casing swaps.
 
 Both mutation-verified.
 
+### `upstreamTimeout.ts` / bounded upstream budgets (TOG-5835)
+
+`test/upstreamTimeout.test.ts` (11 tests) pins the retry-budget split the whole
+change rests on: a hung upstream throws `UpstreamTimeoutError` within budget
+(never-settling mock + 50ms timer), and `forwardWithSessionRetry` maps it to
+502 problem+json with exactly one attempt — the single retry stays reserved for
+the login redirect, because retrying a timeout could double-execute a
+non-idempotent POST. Budgets: 15s interactive / 60s report CSV (overridable via
+`UPSTREAM_TIMEOUT_MS` / `UPSTREAM_REPORT_TIMEOUT_MS`). A caller abort with the
+timer unfired rethrows verbatim so a client disconnect is never misreported as
+a 502. `app.onError` is the backstop for direct `forwardToUpstream` callers.
+
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
 `test/snapshotReportFetch.test.ts`, 19 tests, mutation-verified six ways. This is the single door

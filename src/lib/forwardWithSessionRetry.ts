@@ -1,6 +1,11 @@
 import { isLoginRedirect } from "./loginRedirect";
 import { forwardToUpstream } from "./upstreamForward";
 import { readSessionState, type SessionState } from "./sessionState";
+import {
+  isUpstreamTimeout,
+  readUpstreamTimeoutMs,
+  upstreamTimeoutProblem
+} from "./upstreamTimeout";
 
 type EstablishSession = (
   env: Env,
@@ -38,6 +43,11 @@ export async function forwardWithSessionRetry(
   bodyBuffer: ArrayBuffer | null,
   establishSession: EstablishSession
 ): Promise<Response> {
+  // Bounded per-attempt budget (TOG-5835), honoring an optional
+  // `UPSTREAM_TIMEOUT_MS` binding. Worst case is 2x this (one retry max).
+  const timeoutMs = readUpstreamTimeoutMs(env);
+  const forwardOpts = { timeoutMs };
+
   let session: SessionState = await readSessionState(sessionStub);
 
   // Proactive refresh: if the stored session is absent or about to expire
@@ -48,12 +58,25 @@ export async function forwardWithSessionRetry(
     session = await readSessionState(sessionStub);
   }
 
-  let response = await forwardToUpstream(
-    incoming,
-    upstreamUrl,
-    session,
-    bodyBuffer
-  );
+  // A hung upstream throws `UpstreamTimeoutError` from the first forward. It
+  // is NEVER retried: the single-retry budget is reserved for the login
+  // redirect (provably safe — a timeout retry could double-execute a
+  // non-idempotent POST). Fail fast to 502 problem+json instead.
+  let response: Response;
+  try {
+    response = await forwardToUpstream(
+      incoming,
+      upstreamUrl,
+      session,
+      bodyBuffer,
+      forwardOpts
+    );
+  } catch (err) {
+    if (isUpstreamTimeout(err)) {
+      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+    }
+    throw err;
+  }
 
   if (response.status === 200 || !isLoginRedirect(response)) {
     return response;
@@ -65,5 +88,12 @@ export async function forwardWithSessionRetry(
 
   session = await readSessionState(sessionStub);
 
-  return forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer);
+  try {
+    return await forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer, forwardOpts);
+  } catch (err) {
+    if (isUpstreamTimeout(err)) {
+      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+    }
+    throw err;
+  }
 }

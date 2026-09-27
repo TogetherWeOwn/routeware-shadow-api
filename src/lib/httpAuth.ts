@@ -1,6 +1,7 @@
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
+import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeout";
 
 /**
  * Browser-free Routeware login. The WebRW login is a plain form POST (captured
@@ -63,11 +64,20 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   }
   const origin = new URL(env.TARGET_ORIGIN).origin;
   const jar: Jar = {};
+  // Bounded per-attempt budget (TOG-5835): a hung login host throws
+  // `UpstreamTimeoutError` (a fixed PII-free string) instead of burning the
+  // 300s CPU limit. No retry here — the caller (`forwardWithSessionRetry`)
+  // already budgets a single retry for the login redirect.
+  const timeoutMs = readUpstreamTimeoutMs(env);
 
   // 1) GET login page → anti-forgery cookie + reference to the init script.
   const h1 = new Headers();
   applyBrowserHeaders(h1, origin);
-  const pageRes = await fetch(env.LOGIN_URL, { headers: h1, redirect: "manual" });
+  const pageRes = await fetchWithUpstreamTimeout(
+    env.LOGIN_URL,
+    { headers: h1, redirect: "manual" },
+    timeoutMs
+  );
   mergeSetCookies(jar, pageRes);
   const html = await pageRes.text();
 
@@ -78,7 +88,11 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     const h2 = new Headers();
     applyBrowserHeaders(h2, origin);
     if (Object.keys(jar).length) h2.set("Cookie", cookieHeaderFrom(jar));
-    const axRes = await fetch(new URL(ax[0], origin).toString(), { headers: h2, redirect: "manual" });
+    const axRes = await fetchWithUpstreamTimeout(
+      new URL(ax[0], origin).toString(),
+      { headers: h2, redirect: "manual" },
+      timeoutMs
+    );
     mergeSetCookies(jar, axRes);
     token = extractAntiForgeryFromExtNet(await axRes.text());
   }
@@ -98,12 +112,16 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   h3.set("X-Requested-With", "XMLHttpRequest");
   h3.set("Referer", env.LOGIN_URL);
   if (Object.keys(jar).length) h3.set("Cookie", cookieHeaderFrom(jar));
-  const loginRes = await fetch(env.LOGIN_URL, {
-    method: "POST",
-    headers: h3,
-    body: body.toString(),
-    redirect: "manual"
-  });
+  const loginRes = await fetchWithUpstreamTimeout(
+    env.LOGIN_URL,
+    {
+      method: "POST",
+      headers: h3,
+      body: body.toString(),
+      redirect: "manual"
+    },
+    timeoutMs
+  );
   mergeSetCookies(jar, loginRes);
 
   const ok = Boolean(jar[".WebRW"] && jar["RCCApi"] && jar["RCCApiRefresh"]);
