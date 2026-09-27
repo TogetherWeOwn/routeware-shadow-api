@@ -14,9 +14,10 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  * running the exact WHERE shapes from `src/routes/*Snapshot.ts` through
  * `EXPLAIN QUERY PLAN` before and after 0003.
  *
- * Measured result (node:sqlite locally, pinned here against D1):
+ * Measured result, pinned here against pool D1:
  * - `enabled + q` SELECT and COUNT go from SCAN to SEARCH on the `enabled`
- *   prefix of the new composite indexes (COUNT is covering).
+ *   prefix of the new composite indexes (whether the planner reports the
+ *   COUNT as COVERING varies with row count — only SEARCH is asserted).
  * - `enabled`-alone goes from SCAN to SEARCH too.
  * - `q`-alone (`enabled=any`, no predicate) still SCANs. That is not a gap
  *   in the migration: no B-tree can serve a mid-string `instr()` substring
