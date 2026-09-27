@@ -1,5 +1,6 @@
 import { createRoute } from "@hono/zod-openapi";
 import { prepareSaveCustomerLongFormBody } from "../lib/customerSaveAutoToken";
+import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -19,6 +20,8 @@ const customersReadRoute = createRoute({
   path: "/api/v1/routeware/customer/customers-read",
   tags: ["customer"],
   summary: "CustomersRead (harvested SPA traffic)",
+  description:
+    "Forwards the JSON body to WebRW `CustomersRead` with **application/json** (e.g. the harvested Ext.NET store shape: `filter`, `page`, `start`, `limit`, `group`, `sort`). OData-style `skip`/`take` keys are translated server-side onto `start`/`limit` (which upstream is proven to honor via the harvested SPA traffic); an explicit `start`/`limit` always wins and non-JSON bodies pass through untouched.",
   responses: upstreamPassthrough200
 });
 
@@ -28,12 +31,24 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomersRead"
   );
+  // TOG-5936: `skip`/`take` are translated onto the Ext.NET `start`/`limit`
+  // spelling before forwarding, so a client sending them gets the window it
+  // asked for instead of a silent unpaged/default-window result. Bodies
+  // without those keys forward byte-identical.
+  let bodyBuffer = c.var.bodyBuffer;
+  if (bodyBuffer && bodyBuffer.byteLength > 0) {
+    const raw = new TextDecoder("utf-8", { fatal: false }).decode(bodyBuffer);
+    const translated = translateSkipTakeToStartLimit(raw);
+    if (translated.translated) {
+      bodyBuffer = new TextEncoder().encode(translated.text).buffer;
+    }
+  }
   return forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
     upstreamUrl,
-    c.var.bodyBuffer,
+    bodyBuffer,
     establishSession
   );
 });
