@@ -70,6 +70,9 @@ Every `/api/v1/*` endpoint requires `Authorization: Bearer <token>` **except**
 `CUSTOMER_SNAPSHOT_SYNC_SECRET` when unset). Privileged snapshot/data routes
 (`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`) additionally
 require `CUSTOMER_SNAPSHOT_SYNC_SECRET`. See [`docs/PROBLEMS.md`](./docs/PROBLEMS.md#unauthorized).
+Failed bearer checks are throttled per IP (20 failures / 60 s → `429` for 60 s);
+see [`docs/PROBLEMS.md`](./docs/PROBLEMS.md#rate-limited). A valid token always
+passes and resets the counter.
 
 ```bash
 npx wrangler secret put SHADOW_API_TOKEN

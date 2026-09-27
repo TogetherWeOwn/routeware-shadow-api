@@ -48,9 +48,9 @@ export default defineConfig({
        * docs/TEST-INVARIANTS.md § "The coverage ratchet".
        */
       thresholds: {
-        statements: 86,
-        branches: 80,
-        functions: 90,
+        statements: 87,
+        branches: 81,
+        functions: 91,
         lines: 87
       }
     }
