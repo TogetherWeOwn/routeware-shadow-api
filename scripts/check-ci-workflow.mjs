@@ -13,6 +13,16 @@ function jobBlock(name) {
 
 assert.match(workflow, /^  pull_request:\n    branches: \[main\]$/m, "CI must run for pull requests targeting main");
 
+const build = jobBlock("build");
+// Vitest thresholds fail the run on regression; the ratchet step fails it on
+// improvement without a floor raise. Pin it present so coverage can never
+// climb a full point without moving the floors with it.
+assert.match(
+  build,
+  /npm run check:coverage-ratchet/,
+  "build must run the coverage ratchet check (TOG-6289)"
+);
+
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
 // The optional staging probe already has a fail-closed CF_TOKEN gate. Allow only
