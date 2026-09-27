@@ -27,6 +27,42 @@ runs have since executed, including main run [36231264777](https://github.com/To
 on 2026-09-26. Do not infer current settings, secrets, or environments from the historical snapshot;
 verify them with authorized access. Keep production deploys disabled until setup is explicitly approved.
 
+### Observed runner/gate behavior (verified 2026-09-27, read-only — no settings changed)
+
+- **Actions execute** (administratively enabled in practice). The permissions API returned 403 for the
+  verification token, so the enabled flag was not read directly; runs executing is the evidence.
+  - Main push run [36231264777](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777)
+    (2026-09-26, head `8f9eaed`, pre-fail-closed-gate): **completed / failure** —
+    `Typecheck, test, build` success, `Repo hygiene & secret scan` success, `shadow-api-v1`
+    success, `Deploy to Cloudflare Workers` **failure** at step `Apply D1 migrations (remote)`
+    with `Deploy Worker` skipped.
+  - Main push run [36285555015](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36285555015)
+    (2026-09-27, head `db89be6`): **completed / success** — build, hygiene and `shadow-api-v1`
+    success, deploy **skipped**. The fail-closed gate works: a push to `main` no longer attempts a
+    deploy while `PRODUCTION_DEPLOY_ENABLED` is not exactly `true`. The variables API returned 403
+    for the verification token, so variable presence was not read directly; the skipped conclusion
+    is the observable evidence.
+- **Runners:** every CI job carries labels `[self-hosted, two-selfhosted]` (verified in
+  `.github/workflows/ci.yml` and on both runs above). Runner host names rotate
+  (`coolify-vps-1/2` on the 2026-09-26 run, `ci-rbx1-*/ci-w2494-*` on 2026-09-27 runs) — the labels
+  are the stable contract, not the host names.
+- **`shadow-api-v1` gate (no `CF_TOKEN`):** step `Evaluate operator credential gate` succeeds and
+  step `Execute versioned API contract tests` concludes **skipped**; the job stays green. That is the
+  expected PR behavior without operator credentials.
+- **PR behavior:** success ex
+  [36283643912](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36283643912)
+  (build/hygiene/shadow success, deploy skipped — deploy never runs on PRs); failure ex
+  [36289128920](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36289128920)
+  (build **failure** at `Test (with coverage ratchet)`, downstream validate steps skipped, deploy
+  skipped). Red build is the blocking signal — do not open a review card for a red-CI PR.
+- **Branch protection (read-only):** `GET branches/main` returns `protected: false` (verified
+  2026-09-27). `GET branches/main/protection` returned 403 for the verification token, so detailed
+  rules could not be read — treat `main` as **unprotected** and complete Phase 1 step 4 before any
+  production deploy.
+- **Environment:** the `production` environment exists (created 2026-09-21) with `protection_rules:
+  []` — no required reviewers. Secret/variable values returned 403 for the verification token and
+  were not inferred.
+
 ### Phase 1 — turn on credential-free PR verification
 
 1. **Leave `PRODUCTION_DEPLOY_ENABLED` unset.** Its absence is the production safety gate.
