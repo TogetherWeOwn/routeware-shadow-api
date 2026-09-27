@@ -4,6 +4,7 @@ import {
   redactBodyPreview,
   redactHeaders,
   redactHtmlAntiForgery,
+  redactJsonPreview,
   redactQueryObject,
   redactUrlEncoded,
   redactUrlSearch
@@ -84,5 +85,56 @@ describe("normalizePath", () => {
     expect(normalizePath("/WebRW/api/items/42/edit")).toBe(
       "/WebRW/api/items/{id}/edit"
     );
+  });
+});
+
+describe("redactJsonPreview (TOG-7088)", () => {
+  it("masks non-string scalar values (number/boolean/null)", () => {
+    const out = redactJsonPreview('{"token":12345,"secret":true,"password":null,"keep":7}');
+    expect(out).toContain(`"token":"${REDACTED}"`);
+    expect(out).toContain(`"secret":"${REDACTED}"`);
+    expect(out).toContain(`"password":"${REDACTED}"`);
+    expect(out).toContain('"keep":7');
+  });
+
+  it("masks save-form PII keys", () => {
+    const out = redactJsonPreview(
+      '{"FirstName":"Jane","LastName":"Doe","Phone1":"555-1","Phone2":"555-2","CompanyName":"ExampleCo","Comments":"hi","keep":"v"}'
+    );
+    for (const k of ["FirstName", "LastName", "Phone1", "Phone2", "CompanyName", "Comments"]) {
+      expect(out).toContain(`"${k}":"${REDACTED}"`);
+    }
+    expect(out).toContain('"keep":"v"');
+  });
+});
+
+describe("redactBodyPreview fallback content types (TOG-7088)", () => {
+  it("redacts urlencoded-shaped bodies with text/plain", () => {
+    expect(
+      redactBodyPreview("text/plain", "UserName=API&Password=secret&x=1")
+    ).toBe(`UserName=${REDACTED}&Password=${REDACTED}&x=1`);
+  });
+
+  it("redacts urlencoded-shaped bodies with missing content type", () => {
+    expect(
+      redactBodyPreview(undefined, "FirstName=Jane&CustomerID=5")
+    ).toBe(`FirstName=${REDACTED}&CustomerID=5`);
+  });
+
+  it("redacts JSON-shaped bodies with a missing content type", () => {
+    const out = redactBodyPreview(undefined, '{"password":"p","keep":"v"}');
+    expect(out).toContain(`"password":"${REDACTED}"`);
+    expect(out).toContain('"keep":"v"');
+  });
+
+  it("still strips anti-forgery tokens from HTML bodies", () => {
+    const html = '<input name="__RequestVerificationToken" type="hidden" value="tok" />';
+    const out = redactBodyPreview("text/html; charset=utf-8", html);
+    expect(out).toContain(`value="${REDACTED}"`);
+    expect(out).not.toContain("tok");
+  });
+
+  it("leaves plain prose untouched", () => {
+    expect(redactBodyPreview("text/plain", "hello world")).toBe("hello world");
   });
 });
