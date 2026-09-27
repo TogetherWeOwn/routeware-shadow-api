@@ -33,10 +33,15 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Parse the bearer token from an Authorization header, or null if absent. */
+/** Parse the bearer token from an Authorization header, or null if absent.
+ *
+ * The match is end-anchored: `Bearer <token> <junk>` must NOT parse as
+ * `<token>`, otherwise the gate (prefix) and any full-header audit/redaction
+ * would disagree about what credential was presented.
+ */
 export function bearerFromRequest(req: HeaderReader): string | null {
   const auth = req.header("authorization") ?? "";
-  const m = /^Bearer\s+(\S+)/i.exec(auth);
+  const m = /^Bearer\s+(\S+)$/i.exec(auth);
   return m ? m[1] : null;
 }
 
