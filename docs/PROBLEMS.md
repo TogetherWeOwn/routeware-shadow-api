@@ -156,3 +156,45 @@ silently dropped — never forwarded, never an error — so arbitrary client inp
 cannot reach Routeware as new query surface. Matching is case-sensitive.
 Unknown params therefore need no problem+json `type`: there is no failure to
 report.
+
+## Customer delete (`method-not-allowed`)
+
+Routeware WebRW exposes no hard delete for customers, so
+`DELETE /api/v1/routeware/customer` always answers `405` with a
+`method-not-allowed` problem+json body. This is the one canonical reference
+for that limitation: the OpenAPI descriptions in [`src/app.ts`](../src/app.ts)
+and [`src/routes/customer.ts`](../src/routes/customer.ts) document the same
+disable-via-save pattern.
+
+Retire a customer by disabling it instead — the disable-via-save pattern:
+
+1. `GET /api/v1/routeware/customer/load-long-modal?customerID={id}` loads
+   the edit form and the required field set for the customer.
+2. `POST /api/v1/routeware/customer/save-long-form` with an
+   `application/x-www-form-urlencoded` body, resubmitting the loaded fields
+   with `Enabled=false`:
+
+```bash
+curl -X POST http://localhost:8787/api/v1/routeware/customer/save-long-form \
+  -H "Authorization: Bearer <SHADOW_API_TOKEN>" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "CustomerID=42" \
+  --data-urlencode "CustomerTypeID=1" \
+  --data-urlencode "CompanyName=ExampleCo" \
+  --data-urlencode "FirstName=Jane" \
+  --data-urlencode "LastName=Doe" \
+  --data-urlencode "Enabled=false"
+```
+
+Notes:
+
+- The anti-forgery `__RequestVerificationToken` may be omitted — it is
+  filled server-side from the Routeware modal HTML (see
+  `CUSTOMER_SAVE_AUTO_TOKEN`). Send every other field the loaded record
+  requires, not just the five above.
+- A failed upstream save surfaces as 502 problem+json, never as a silent
+  200. A successful disable also refreshes the customer snapshot/D1 and
+  evicts the data-entity cache for the affected id.
+
+Pinned by `test/problemAnchors.test.ts` (the 405 shape) and
+`test/routewareSaveStaleCache.test.ts` (the disable flow).
