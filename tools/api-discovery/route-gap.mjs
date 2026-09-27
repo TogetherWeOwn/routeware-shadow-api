@@ -2,7 +2,7 @@
 /**
  * Compare harvest aggregate to route-map: missing shadow routes and stale map entries.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +11,9 @@ const discoveredPath = join(__dirname, "out", "discovered-operations.json");
 const mapPath = join(__dirname, "route-map.json");
 const outJson = join(__dirname, "out", "route-gaps.json");
 const outTxt = join(__dirname, "out", "route-gaps.txt");
+
+// Fresh checkout has no out/ dir yet — create it before any writeFile below.
+await mkdir(join(__dirname, "out"), { recursive: true });
 
 let discovered;
 try {
