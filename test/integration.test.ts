@@ -67,6 +67,46 @@ describe("HTTP API", () => {
             { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
           );
         }
+        if (
+          internalTokenFetch &&
+          url.includes("killeen.routeware.com") &&
+          url.includes("/WebRW/PickupAddress/LoadAddressModal")
+        ) {
+          return new Response(
+            '<input name="__RequestVerificationToken" type="hidden" value="INTEGRATION-ADDRESS-TOKEN" />',
+            { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+          );
+        }
+        if (
+          internalTokenFetch &&
+          url.includes("killeen.routeware.com") &&
+          url.includes("/WebRW/PickupAddress/CreateBlankAddress")
+        ) {
+          return new Response(
+            '<input name="__RequestVerificationToken" type="hidden" value="INTEGRATION-ADDRESS-NEW-TOKEN" />',
+            { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+          );
+        }
+        if (
+          internalTokenFetch &&
+          url.includes("killeen.routeware.com") &&
+          url.includes("/WebRW/Container/LoadContainerModal")
+        ) {
+          return new Response(
+            '<input name="__RequestVerificationToken" type="hidden" value="INTEGRATION-CONTAINER-TOKEN" />',
+            { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+          );
+        }
+        if (
+          internalTokenFetch &&
+          url.includes("killeen.routeware.com") &&
+          url.includes("/WebRW/Container/CreateBlankContainer")
+        ) {
+          return new Response(
+            '<input name="__RequestVerificationToken" type="hidden" value="INTEGRATION-CONTAINER-NEW-TOKEN" />',
+            { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+          );
+        }
         if (url.includes("killeen.routeware.com") && url.includes("/WebRW/")) {
           return new Response(JSON.stringify({ mocked: true, url }), {
             status: 200,
@@ -142,6 +182,8 @@ describe("HTTP API", () => {
     expect(doc.openapi).toMatch(/^3\.1/);
     expect(doc.paths["/api/v1/health"]).toBeDefined();
     expect(doc.paths["/api/v1/routeware/customer/save-long-form"]).toBeDefined();
+    expect(doc.paths["/api/v1/routeware/address/save-address-form"]).toBeDefined();
+    expect(doc.paths["/api/v1/routeware/container/save-container-form"]).toBeDefined();
     expect(doc.paths["/api/v1/routeware/customer"]).toBeDefined();
     expect(doc.paths["/api/v1/address-snapshot"]).toBeDefined();
     expect(doc.paths["/api/v1/container-snapshot"]).toBeDefined();
@@ -243,6 +285,106 @@ describe("HTTP API", () => {
     const body = (await response.json()) as { url: string };
     expect(body.url).toContain("customerID=99");
     expect(body.url).toContain("LoadLongCustomerModal");
+  });
+
+  it("POST /api/v1/routeware/address/save-address-form forwards to SaveAddressForm", async () => {
+    const response = await call("/api/v1/routeware/address/save-address-form", {
+      method: "POST",
+      body: "PickupAddressID=10&CustomerID=5&Address=1+Main+St",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { mocked: boolean; url: string };
+    expect(body.mocked).toBe(true);
+    expect(body.url).toContain("/WebRW/PickupAddress/SaveAddressForm");
+  });
+
+  it("POST save-address-form injects anti-forgery token when omitted (edit flow)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call("/api/v1/routeware/address/save-address-form", {
+      method: "POST",
+      body: "PickupAddressID=10&CustomerID=5&Address=1+Main+St",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const saveCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/PickupAddress/SaveAddressForm")
+    );
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const saveInit = saveCalls[saveCalls.length - 1][1] as RequestInit;
+    const forwarded = saveInit.body as ArrayBuffer;
+    const text = new TextDecoder().decode(forwarded);
+    expect(text).toContain("__RequestVerificationToken=INTEGRATION-ADDRESS-TOKEN");
+    expect(text).toContain("PickupAddressID=10");
+  });
+
+  it("POST save-address-form uses the blank-address modal for a create (PickupAddressID=0)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call("/api/v1/routeware/address/save-address-form", {
+      method: "POST",
+      body: "PickupAddressID=0&CustomerID=5&Address=1+Main+St",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const modalCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/PickupAddress/CreateBlankAddress")
+    );
+    expect(modalCalls.length).toBeGreaterThanOrEqual(1);
+    expect(modalCalls[0][0] as string).toContain("customerID=5");
+  });
+
+  it("POST /api/v1/routeware/container/save-container-form forwards to SaveContainerForm", async () => {
+    const response = await call("/api/v1/routeware/container/save-container-form", {
+      method: "POST",
+      body: "ContainerID=100&PickupAddressID=10&Size=96",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { mocked: boolean; url: string };
+    expect(body.mocked).toBe(true);
+    expect(body.url).toContain("/WebRW/Container/SaveContainerForm");
+  });
+
+  it("POST save-container-form injects anti-forgery token when omitted (edit flow)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call("/api/v1/routeware/container/save-container-form", {
+      method: "POST",
+      body: "ContainerID=100&PickupAddressID=10&Size=96",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const saveCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/Container/SaveContainerForm")
+    );
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const saveInit = saveCalls[saveCalls.length - 1][1] as RequestInit;
+    const forwarded = saveInit.body as ArrayBuffer;
+    const text = new TextDecoder().decode(forwarded);
+    expect(text).toContain("__RequestVerificationToken=INTEGRATION-CONTAINER-TOKEN");
+    expect(text).toContain("ContainerID=100");
+  });
+
+  it("POST save-container-form uses the blank-container modal for a create (ContainerID=0)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call("/api/v1/routeware/container/save-container-form", {
+      method: "POST",
+      body: "ContainerID=0&PickupAddressID=10&Size=96",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+    expect(response.status).toBe(200);
+    const modalCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/Container/CreateBlankContainer")
+    );
+    expect(modalCalls.length).toBeGreaterThanOrEqual(1);
+    expect(modalCalls[0][0] as string).toContain("pickupAddressID=10");
   });
 
   it("GET /api/v1/routeware/customer/add-new-long forwards to WebRW", async () => {
