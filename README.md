@@ -24,11 +24,33 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 ## Quick start (local)
 
 ```bash
-npm install
-cp .dev.vars.example .dev.vars   # then fill in LOGIN_* and a client token
-npm run db:migrate:local          # create the local D1 tables
-npm run dev                       # http://localhost:8787
+nvm use                             # Node 20+, per .nvmrc (engines: >=20)
+npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
+cp .dev.vars.example .dev.vars      # then fill in values (see below)
+npm run db:migrate:local            # create the local D1 tables (once per clone)
+npm run dev                         # http://localhost:8787 (runs check:devvars first)
 ```
+
+**Filling in `.dev.vars`** (one `KEY=value` per line, no spaces around `=`): `SHADOW_API_TOKEN`
+can be any local-only string you invent — it is *your* bearer for `/api/v1/*`, so dummy
+values work for local dev. `LOGIN_USERNAME` / `LOGIN_PASSWORD` must be real Routeware tenant
+credentials for any upstream-backed route; dummy values are fine up to and including the
+verify step below, which never touches upstream. Run `npm run check:devvars` to verify keys
+exist (values are never printed); `npm run dev` runs it automatically and fails fast.
+
+**Verify with your first calls** — public health needs no token, the shadow probe needs yours:
+
+```bash
+curl http://localhost:8787/api/v1/health
+curl -H "Authorization: Bearer <SHADOW_API_TOKEN>" http://localhost:8787/api/v1/shadow/health
+# or both at once (token is read from .dev.vars, never printed):
+npm run probe:post-deploy -- http://localhost:8787
+```
+
+Expect `{"status":"ok",...}` and HTTP 200 from each. A 401 on the second call means
+`.dev.vars` has no non-empty `SHADOW_API_TOKEN` (falling back to
+`CUSTOMER_SNAPSHOT_SYNC_SECRET`); re-check it with `npm run check:devvars` and restart
+`wrangler dev` after editing.
 
 `npm run dev` runs `check:devvars` first and fails fast if `.dev.vars` is missing a
 required key. Local dev uses the browser-free HTTP login, so **no `--remote` is needed**;
