@@ -4,7 +4,7 @@ import { parseContainerSnapshotRow } from "../csvContainerSnapshot";
 import type { ContainerSnapshotRow } from "../csvContainerSnapshot";
 import { parseCustomerSnapshotRow } from "../csvCustomerSnapshot";
 import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
-import { mapCsvHeaders } from "../csvParse";
+import { mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
@@ -17,6 +17,16 @@ import {
 export const STREAM_BATCH_CUST = 80;
 export const STREAM_BATCH_ADDR = 80;
 export const STREAM_BATCH_CONT = 40;
+
+/**
+ * TOG-6541: read the expected header off the *parsed* first cell, not the raw
+ * line. Real exports quote headers (`"CustomerID",...`) and `parseCsvLine`
+ * strips those quotes; the old raw `line.startsWith(...)` rejected a valid
+ * quoted export while the row parser below would have accepted it.
+ */
+function firstHeaderCell(line: string): string {
+  return normHeader(parseCsvLine(line)[0] ?? "");
+}
 
 /**
  * Stream CSV from a download / upload body. Peak memory: decode buffer + one D1 batch.
@@ -36,8 +46,7 @@ export async function syncCustomerSnapshotFromStream(
 
   for await (const line of streamCsvLines(body)) {
     if (lineNo++ === 0) {
-      const head = line.trimStart().toLowerCase();
-      if (!head.startsWith("customerid")) {
+      if (firstHeaderCell(line) !== "customerid") {
         throw new Error(
           "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline."
         );
@@ -98,8 +107,7 @@ export async function syncAddressSnapshotFromStream(
 
   for await (const line of streamCsvLines(body)) {
     if (lineNo++ === 0) {
-      const head = line.trimStart().toLowerCase();
-      if (!head.startsWith("pickupaddressid")) {
+      if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new Error(
           "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config."
         );
@@ -160,8 +168,7 @@ export async function syncContainerSnapshotFromStream(
 
   for await (const line of streamCsvLines(body)) {
     if (lineNo++ === 0) {
-      const head = line.trimStart().toLowerCase();
-      if (!head.startsWith("containerid")) {
+      if (firstHeaderCell(line) !== "containerid") {
         throw new Error(
           "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config."
         );

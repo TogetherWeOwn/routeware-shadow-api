@@ -201,6 +201,24 @@ describe.each(SPECS)("$name stream sync", (spec) => {
       // Assert
       expect(result.rowCount).toBe(1);
     });
+
+    it("accepts a fully quoted header", async () => {
+      // Arrange — TOG-6541: real exports quote headers (`"CustomerID",...`)
+      // and the row parser already strips those quotes, so the guard must
+      // read the parsed first cell rather than the raw line.
+      const { db } = recordingDb();
+      const quoted = spec.header
+        .split(",")
+        .map((h) => `"${h}"`)
+        .join(",");
+      const csv = [quoted, spec.row(1)].join("\n");
+
+      // Act
+      const result = await spec.sync(db, stringToUint8Stream(csv));
+
+      // Assert
+      expect(result.rowCount).toBe(1);
+    });
   });
 
   describe("reconcile guard", () => {
