@@ -2,6 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
+import { isInvalidAuthModeError } from "./lib/establishSession";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
@@ -198,6 +199,20 @@ app.onError((err, c) => {
   if (isUpstreamTimeout(err)) {
     console.error("UPSTREAM TIMEOUT", err.message);
     return upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
+  }
+  // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
+  // it as 503 problem+json, not a 500. The detail names the received value
+  // (operator config, never a credential or customer data) plus the closed
+  // set, so the fix is obvious from the response alone.
+  if (isInvalidAuthModeError(err)) {
+    console.error("INVALID AUTH_MODE", err.message);
+    return problemJsonResponse({
+      type: problemType("misconfigured"),
+      title: "Not configured",
+      status: 503,
+      detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+      instance: new URL(c.req.url).pathname
+    });
   }
   // Log the full error for observability, but do not echo internal details
   // (messages, stack, upstream text) back to the client.
