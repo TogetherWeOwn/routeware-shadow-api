@@ -8,17 +8,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * What these tests pin:
  *
- * 1. The shadow worker has NO pagination logic of its own. Both routes forward
- *    the incoming body byte-identical via `forwardWithSessionRetry`
- *    (`src/routes/customer.ts`) and stream the upstream response back with only
- *    `Set-Cookie` stripped (`src/lib/upstreamForward.ts`). So "does the worker
- *    truncate large payloads" has a fixed answer: it cannot — there is no code
- *    path that inspects, let alone caps, the row count.
- * 2. `skip`/`take` are forwarded verbatim and untranslated. The harvested SPA
- *    traffic (`tools/api-discovery/examples/customers-read.post.example.json`)
- *    uses Ext.NET store keys (`page`/`start`/`limit`); nothing in the worker
- *    maps `skip`/`take` onto them. What upstream does with either spelling is
- *    an upstream property, asserted here only against the mock.
+ * 1. The shadow worker has no row-cap logic of its own. Both routes stream the
+ *    upstream response back with only `Set-Cookie` stripped
+ *    (`src/lib/upstreamForward.ts`), so "does the worker truncate large
+ *    payloads" has a fixed answer: it cannot — there is no code path that
+ *    inspects, let alone caps, the row count. `detail-full` still forwards
+ *    its body byte-identical; `customers-read` forwards byte-identical too
+ *    except for the TOG-5936 skip/take translation below.
+ * 2. TOG-5936: `skip`/`take` are translated server-side onto the Ext.NET
+ *    `start`/`limit` spelling the harvested SPA traffic
+ *    (`tools/api-discovery/examples/customers-read.post.example.json`) uses.
+ *    Whether upstream honors `skip`/`take` was never established, so a client
+ *    sending them risked a silent unpaged/default-window result; the worker
+ *    now maps them before forwarding. Bodies without those keys still forward
+ *    byte-identical.
  *
  * House pattern (see docs/TEST-INVARIANTS.md § "No test may reach the
  * network"): `globalThis.fetch` is stubbed and throws on any upstream URL the
@@ -152,11 +155,42 @@ describe("customers-read pagination passthrough", () => {
     expect(seen[0].body).toBe(body);
   });
 
-  it("forwards skip/take verbatim with no translation onto start/limit", async () => {
-    // Arrange — the worker is pagination-agnostic: it neither maps skip/take
-    // onto the Ext.NET start/limit spelling nor strips unknown keys. What
-    // upstream does with skip/take is then upstream's decision, not ours.
-    const body = JSON.stringify({ skip: 200, take: 100 });
+  it("translates skip/take onto start/limit before forwarding (TOG-5936)", async () => {
+    // Arrange — whether upstream honors skip/take was never established, so
+    // the worker maps them onto the proven Ext.NET start/limit spelling.
+    responder = () => jsonResponse({ total: 0, data: [] });
+
+    // Act
+    await postShadow(
+      "/api/v1/routeware/customer/customers-read",
+      JSON.stringify({ skip: 200, take: 100 })
+    );
+
+    // Assert — one window, one spelling: translated keys added, source keys
+    // dropped so upstream never sees two spellings of the same window.
+    expect(seen).toHaveLength(1);
+    expect(JSON.parse(seen[0].body ?? "")).toEqual({ start: 200, limit: 100 });
+  });
+
+  it("lets an explicit start/limit win over skip/take", async () => {
+    // Arrange
+    responder = () => jsonResponse({ total: 0, data: [] });
+
+    // Act
+    await postShadow(
+      "/api/v1/routeware/customer/customers-read",
+      JSON.stringify({ skip: 200, take: 100, start: 0, limit: 50 })
+    );
+
+    // Assert — the explicit window survives; the conflicting skip/take pair
+    // is dropped, not merged.
+    expect(seen).toHaveLength(1);
+    expect(JSON.parse(seen[0].body ?? "")).toEqual({ start: 0, limit: 50 });
+  });
+
+  it("forwards an invalid skip/take body unchanged instead of half-mapping", async () => {
+    // Arrange — a present-but-invalid key translates nothing.
+    const body = JSON.stringify({ skip: -5, take: 100 });
     responder = () => jsonResponse({ total: 0, data: [] });
 
     // Act
@@ -165,8 +199,6 @@ describe("customers-read pagination passthrough", () => {
     // Assert
     expect(seen).toHaveLength(1);
     expect(seen[0].body).toBe(body);
-    expect(seen[0].body).not.toContain('"start"');
-    expect(seen[0].body).not.toContain('"limit"');
   });
 
   it("keeps consecutive pages distinct: each start/limit window is its own upstream call", async () => {
