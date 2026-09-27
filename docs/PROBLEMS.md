@@ -116,6 +116,15 @@ is 2x one attempt. Override per deploy with the optional `UPSTREAM_TIMEOUT_MS`
 / `UPSTREAM_REPORT_TIMEOUT_MS` bindings (absent/invalid falls back to the
 defaults).
 
+## Query-param allowlist (load-long-modal probe)
+
+`GET /api/v1/routeware/customer/load-long-modal` forwards only `customerID`
+upstream to `GET /WebRW/Customer/LoadLongCustomerModal` (same allowlist
+pattern as the reports probe above). Unknown params are silently dropped.
+Unlike the reports probe, `customerID` is required: a missing, empty, or
+non-positive-integer value is a 400 naming the required param, and no upstream
+fetch is made.
+
 ## Login-page fetch (sessionless probe)
 
 `GET /api/v1/routeware/account/login-page` fetches the fixed `LOGIN_URL` with
