@@ -31,6 +31,16 @@ export {
   syncCustomerSnapshotFromStream
 } from "./snapshot/streamSync";
 
+export type {
+  SnapshotOrphanReport,
+  SnapshotOrphanSample
+} from "./snapshot/reconcile";
+export {
+  ORPHAN_SAMPLE_LIMIT_DEFAULT,
+  ORPHAN_SAMPLE_LIMIT_MAX,
+  getSnapshotOrphans
+} from "./snapshot/reconcile";
+
 export type { DataSnapshotResult, SnapshotTableResult } from "./snapshot/orchestration";
 export {
   getDataSnapshotPlan,

@@ -62,6 +62,11 @@ const GUARDED_ROUTES: Array<{ method: string; path: string; detail?: string }> =
     path: "/api/v1/data-snapshot/sync",
     detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
   },
+  {
+    method: "GET",
+    path: "/api/v1/data-snapshot/orphans",
+    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
+  },
   { method: "POST", path: "/api/v1/address-snapshot/sync", detail: "Bearer token required." },
   { method: "POST", path: "/api/v1/address-snapshot/import" },
   { method: "POST", path: "/api/v1/container-snapshot/sync" },
@@ -124,7 +129,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(13);
+    expect(GUARDED_ROUTES).toHaveLength(14);
   });
 
   for (const route of GUARDED_ROUTES) {

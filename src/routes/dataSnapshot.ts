@@ -1,5 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { runDataSnapshotSyncChainedHttp } from "../lib/d1SnapshotSync";
+import {
+  ORPHAN_SAMPLE_LIMIT_DEFAULT,
+  ORPHAN_SAMPLE_LIMIT_MAX,
+  getSnapshotOrphans,
+  runDataSnapshotSyncChainedHttp
+} from "../lib/d1SnapshotSync";
 import {
   createRouteModule,
   requireSnapshotAuth,
@@ -47,4 +52,55 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   const origin = new URL(c.req.url).origin;
   const r = await runDataSnapshotSyncChainedHttp(origin, c.env);
   return c.json(r, 200);
+});
+
+const snapshotOrphanSampleSchema = z
+  .object({
+    count: z.number().int(),
+    sampleIds: z.array(z.number().int())
+  })
+  .openapi("SnapshotOrphanSample");
+
+const snapshotOrphanReportSchema = z
+  .object({
+    orphanAddresses: snapshotOrphanSampleSchema,
+    orphanContainers: snapshotOrphanSampleSchema
+  })
+  .openapi("SnapshotOrphanReport");
+
+const dataSnapshotOrphansRoute = createRoute({
+  method: "get",
+  path: "/api/v1/data-snapshot/orphans",
+  tags: ["data-snapshot"],
+  summary: "Report orphan rows on the snapshot FK chain (D1)",
+  description:
+    "D1 declares `address_snapshot.customer_id` → `customer_snapshot` and `container_snapshot.pickup_address_id` → `address_snapshot` but enforces neither, and a streamed sync spans many batches — so address rows can lack a customer and container rows can lack an address. Returns per-edge orphan counts plus deterministic id samples (ordered by primary key). Same bearer as other snapshot routes.",
+  request: {
+    query: z.object({
+      sampleLimit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(ORPHAN_SAMPLE_LIMIT_MAX)
+        .default(ORPHAN_SAMPLE_LIMIT_DEFAULT)
+        .describe(
+          "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched."
+        )
+    })
+  },
+  responses: {
+    200: {
+      description: "Orphan counts and id samples per FK edge",
+      content: { "application/json": { schema: snapshotOrphanReportSchema } }
+    },
+    401: { description: "Unauthorized" }
+  }
+});
+
+dataSnapshotRoutes.openapi(dataSnapshotOrphansRoute, async (c) => {
+  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  if (denied) return denied;
+  const q = c.req.valid("query");
+  const report = await getSnapshotOrphans(c.env.CUSTOMER_DB, q.sampleLimit);
+  return c.json(report, 200);
 });
