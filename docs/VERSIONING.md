@@ -37,7 +37,7 @@ While deprecated, every response from the affected endpoint carries:
 - `Deprecation: true`
 - `Sunset: <http-date>` — the earliest removal date (never sooner than
   announcement + 30 days).
-- `Link: <<successor-path>>; rel="successor-version"` — when a replacement
+- `Link: <successor-path>; rel="successor-version"` — when a replacement
   endpoint exists.
 
 Consumers should treat the presence of `Deprecation` as the signal to
@@ -65,6 +65,8 @@ fields, new endpoints) need no new path version and arrive as minor releases.
 As of `1.0.0` (2026-09-27): no endpoint or field is deprecated. When the
 first deprecation lands, it will appear here by name alongside its sunset
 date.
+
+## Release checklist
 
 1. Bump `version` in `package.json` (`npm version patch|minor|major
    --no-git-tag-version` keeps the edit local without tagging).
