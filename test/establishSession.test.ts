@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const httpLoginCalls = { count: 0 };
 const browserLoginCalls = { count: 0 };
+const setCalls = { count: 0 };
 let httpLoginShouldFail = false;
+
+/** Must match LOCK_TTL_MS in src/authSession.do.ts. */
+const LOCK_TTL_MS = 120_000;
 
 // The login strategies are stubbed (no network/browser), but they publish the
 // session through the REAL storeSession, so this file exercises the actual
@@ -41,7 +45,11 @@ type LockState = {
   cookieHeader: string | null;
 };
 
-/** Durable Object stub fake implementing the real /lock, /unlock, /set, /get semantics. */
+/**
+ * Durable Object stub fake implementing the real /lock, /unlock, /set, /get
+ * semantics, including the LOCK_TTL_MS stale-lock expiry: a lock older than
+ * the TTL is treated as crashed and re-granted, matching `AuthSession`.
+ */
 function fakeStub(
   state: LockState,
   options: { rejectSet?: boolean } = {}
@@ -51,11 +59,16 @@ function fakeStub(
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
 
       if (path === "/lock") {
-        if (state.refreshing) {
+        const now = Date.now();
+        const heldAndFresh =
+          state.refreshing === true &&
+          typeof state.lockedAt === "number" &&
+          now - state.lockedAt < LOCK_TTL_MS;
+        if (heldAndFresh) {
           return new Response("LOCKED", { status: 423 });
         }
         state.refreshing = true;
-        state.lockedAt = Date.now();
+        state.lockedAt = now;
         return new Response("OK");
       }
       if (path === "/unlock") {
@@ -64,6 +77,7 @@ function fakeStub(
         return new Response("OK");
       }
       if (path === "/set") {
+        setCalls.count += 1;
         if (options.rejectSet) {
           // Mirrors the DO's parseSetBody rejection: 400 and the lock stays held.
           return new Response("Bad Request", { status: 400 });
@@ -98,6 +112,7 @@ describe("establishSession refresh-lock serialization", () => {
   beforeEach(() => {
     httpLoginCalls.count = 0;
     browserLoginCalls.count = 0;
+    setCalls.count = 0;
     httpLoginShouldFail = false;
   });
 
@@ -112,9 +127,99 @@ describe("establishSession refresh-lock serialization", () => {
       Array.from({ length: 10 }, () => establishSession(env, stub, env.LOGIN_URL))
     );
 
-    // Assert — the lock collapsed them into a single upstream login
+    // Assert — the lock collapsed them into a single upstream login and a
+    // single /set; the other 9 waited via waitForConcurrentRefresh. Both
+    // counters matter: one login but N writes would still hammer the DO.
     expect(httpLoginCalls.count).toBe(1);
+    expect(setCalls.count).toBe(1);
     expect(state.cookieHeader).toBe(".WebRW=http");
+  });
+
+  it("performs exactly one login for concurrent requests on an expired session", async () => {
+    // Arrange — a stale cookie from a previous session, now expired
+    const state: LockState = {
+      refreshing: false,
+      lockedAt: null,
+      cookieHeader: ".WebRW=stale"
+    };
+    const stub = fakeStub(state);
+    const env = envWith("auto");
+
+    // Act — 10 requests race on the expired session
+    await Promise.all(
+      Array.from({ length: 10 }, () => establishSession(env, stub, env.LOGIN_URL))
+    );
+
+    // Assert — one upstream login, one /set, and the stale cookie replaced
+    expect(httpLoginCalls.count).toBe(1);
+    expect(setCalls.count).toBe(1);
+    expect(state.cookieHeader).toBe(".WebRW=http");
+  });
+
+  it("lets a waiter acquire a stale lock after the TTL expires", async () => {
+    // Arrange — a lock whose holder crashed: held, but older than LOCK_TTL_MS.
+    // Fake timers control Date.now() on both sides (fake /lock and real DO
+    // both read wall-clock), so the TTL boundary is deterministic.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const state: LockState = {
+        refreshing: true,
+        lockedAt: Date.now(),
+        cookieHeader: null
+      };
+      const stub = fakeStub(state);
+      const env = envWith("http");
+
+      // Act — advance past the TTL; the next caller must treat the lock as
+      // stale and run its own login rather than waiting on a dead holder.
+      vi.setSystemTime(new Date(Date.now() + LOCK_TTL_MS + 1));
+      await establishSession(env, stub, env.LOGIN_URL);
+
+      // Assert — the stale lock did not wedge authentication
+      expect(httpLoginCalls.count).toBe(1);
+      expect(setCalls.count).toBe(1);
+      expect(state.cookieHeader).toBe(".WebRW=http");
+      expect(state.refreshing).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not start a second login while a fresh lock is held by a stalled holder", async () => {
+    // Arrange — a holder took the lock "now" and then stalled without
+    // publishing a session (no /set, no /unlock). The lock stays fresh for
+    // the whole wait, so the waiter must time out without logging in itself —
+    // a duplicate login here is exactly the thundering-herd the lock exists
+    // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
+    // deterministically (20s default timeout).
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const state: LockState = {
+        refreshing: true,
+        lockedAt: Date.now(),
+        cookieHeader: null
+      };
+      const stub = fakeStub(state);
+
+      // Act — waiter arrives, polls past its 20s timeout while the lock stays fresh
+      const pending = establishSession(
+        envWith("http"),
+        stub,
+        "https://upstream/Account/Login"
+      );
+      await vi.advanceTimersByTimeAsync(25_000);
+      await pending;
+
+      // Assert — no second login ran; the waiter gave up waiting, it did not
+      // take over a lock that had not yet expired
+      expect(httpLoginCalls.count).toBe(0);
+      expect(setCalls.count).toBe(0);
+      expect(state.refreshing).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("serializes the browser path too", async () => {
