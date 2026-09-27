@@ -17,6 +17,22 @@ export type GetCustomerDetailFullJson = {
   currentCustomer?: Record<string, unknown>;
 };
 
+/**
+ * TOG-5937 size guards for the per-customer unbounded fetch.
+ *
+ * Upstream `GetCustomerDetailFull` takes no paging parameters, so one customer
+ * always arrives as one response. Proven lossless at 500 addresses x 8
+ * containers (`test/detailFullScaleSync.test.ts`); the limits below are 10x
+ * that proven scale. Past them `fetch`/`sync` throw BEFORE buffering the whole
+ * graph into the 128 MB isolate or fanning out tens of thousands of D1/cache
+ * ops — the POST handlers already catch sync errors and fall back to coarse
+ * cache invalidation, so an oversized graph degrades to "D1 refresh skipped"
+ * rather than a blown invocation.
+ */
+export const DETAIL_FULL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+export const DETAIL_FULL_MAX_ADDRESSES = 5_000;
+export const DETAIL_FULL_MAX_CONTAINERS = 40_000;
+
 function n(v: unknown): number | null {
   if (v === null || v === undefined) {
     return null;
@@ -172,11 +188,23 @@ export function mapDetailFullToRows(json: GetCustomerDetailFullJson): {
       s(a.DriverNote) ?? s(a["driver note"]) ?? null
     );
     addresses.push(addr);
+    if (addresses.length > DETAIL_FULL_MAX_ADDRESSES) {
+      throw new Error(
+        `GetCustomerDetailFull customer ${customer.customerId} too large ` +
+          `(>${DETAIL_FULL_MAX_ADDRESSES} addresses); skipping D1 refresh`
+      );
+    }
     const cons = a.Containers;
     if (Array.isArray(cons)) {
       for (const c of cons) {
         if (c && typeof c === "object") {
           containers.push(mapContainerItem(c as Record<string, unknown>, addr.pickupAddressId));
+          if (containers.length > DETAIL_FULL_MAX_CONTAINERS) {
+            throw new Error(
+              `GetCustomerDetailFull customer ${customer.customerId} too large ` +
+                `(>${DETAIL_FULL_MAX_CONTAINERS} containers); skipping D1 refresh`
+            );
+          }
         }
       }
     }
@@ -220,7 +248,31 @@ export async function fetchGetCustomerDetailFull(
     const t = await resp.text();
     throw new Error(`GetCustomerDetailFull HTTP ${resp.status}: ${t.slice(0, 200)}`);
   }
-  return (await resp.json()) as GetCustomerDetailFullJson;
+  // Pre-check: refuse to buffer a graph that would threaten the isolate before
+  // paying for the full body. Absent header (chunked) falls through to the
+  // exact byte check below.
+  const declared = resp.headers.get("content-length");
+  if (
+    declared !== null &&
+    Number.isFinite(Number(declared)) &&
+    Number(declared) > DETAIL_FULL_MAX_RESPONSE_BYTES
+  ) {
+    throw new Error(
+      `GetCustomerDetailFull customer ${customerId} response too large ` +
+        `(${declared} bytes declared > ${DETAIL_FULL_MAX_RESPONSE_BYTES} byte limit); ` +
+        `skipping D1 refresh`
+    );
+  }
+  const text = await resp.text();
+  const bytes = new TextEncoder().encode(text).length;
+  if (bytes > DETAIL_FULL_MAX_RESPONSE_BYTES) {
+    throw new Error(
+      `GetCustomerDetailFull customer ${customerId} response too large ` +
+        `(${bytes} bytes > ${DETAIL_FULL_MAX_RESPONSE_BYTES} byte limit); ` +
+        `skipping D1 refresh`
+    );
+  }
+  return JSON.parse(text) as GetCustomerDetailFullJson;
 }
 
 /**

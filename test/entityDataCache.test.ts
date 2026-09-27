@@ -249,6 +249,23 @@ describe("invalidateCustomerGraph", () => {
     // Assert
     expect(error).toBeInstanceOf(Error);
   });
+
+  it("invalidates a graph larger than one chunk without dropping ids", async () => {
+    // Arrange — TOG-5937: deletes run in bounded sequential chunks; a large
+    // graph must still invalidate every id exactly once.
+    const addressIds = Array.from({ length: 250 }, (_, i) => 1000 + i);
+    const containerIds = Array.from({ length: 300 }, (_, i) => 2000 + i);
+
+    // Act
+    await invalidateCustomerGraph({ customerId: 5, addressIds, containerIds });
+
+    // Assert
+    expect(cacheOps.deletes).toHaveLength(1 + 250 + 300);
+    expect(new Set(cacheOps.deletes).size).toBe(1 + 250 + 300);
+    expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/customer/5");
+    expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/address/1249");
+    expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/container/2299");
+  });
 });
 
 describe("sha256Etag", () => {

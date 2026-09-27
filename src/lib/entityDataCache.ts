@@ -56,16 +56,29 @@ export async function sha256Etag(s: string): Promise<string> {
     .join("");
 }
 
-/** Invalidate a customer, its addresses, and all containers in one graph (after writes). */
+/**
+ * Invalidate a customer, its addresses, and all containers in one graph (after writes).
+ *
+ * TOG-5937: invalidations run in bounded sequential chunks rather than one
+ * `Promise.all` over the whole graph, so a very large customer cannot fan out
+ * tens of thousands of concurrent cache deletes in a single invocation.
+ * Failure semantics are unchanged: any single failure still rejects, leaving
+ * the graph partially invalidated (the caller must not report success).
+ */
+export const INVALIDATE_GRAPH_CHUNK_SIZE = 200;
+
 export async function invalidateCustomerGraph(params: {
   customerId: number;
   addressIds: number[];
   containerIds: number[];
 }): Promise<void> {
   const { customerId, addressIds, containerIds } = params;
-  await Promise.all([
-    invalidateDataEntity("customer", customerId),
-    ...addressIds.map((id) => invalidateDataEntity("address", id)),
-    ...containerIds.map((id) => invalidateDataEntity("container", id))
-  ]);
+  const ops: Array<() => Promise<void>> = [
+    () => invalidateDataEntity("customer", customerId),
+    ...addressIds.map((id) => () => invalidateDataEntity("address", id)),
+    ...containerIds.map((id) => () => invalidateDataEntity("container", id))
+  ];
+  for (let i = 0; i < ops.length; i += INVALIDATE_GRAPH_CHUNK_SIZE) {
+    await Promise.all(ops.slice(i, i + INVALIDATE_GRAPH_CHUNK_SIZE).map((op) => op()));
+  }
 }
