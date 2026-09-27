@@ -194,9 +194,10 @@ describe("fetchGetCustomerDetailFull", () => {
     expect(calls.forwards[1].cookie).toBe("ASP.NET_SessionId=s2");
   });
 
-  it("throws with the status and a truncated body when the retry also fails", async () => {
-    // Arrange — the upstream error page can be large; the message must stay
-    // loggable.
+  it("throws with the status and no upstream body when the retry also fails", async () => {
+    // Arrange — the upstream error page is untrusted and can be large, so the
+    // message keeps the status for diagnosis but never embeds the body: it
+    // reaches API clients verbatim inside `localSync.reason` (TOG-5821).
     const long = "E".repeat(500);
     behavior.responses = [
       () => new Response(long, { status: 503 }),
@@ -210,7 +211,7 @@ describe("fetchGetCustomerDetailFull", () => {
 
     // Assert
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toBe(`GetCustomerDetailFull HTTP 503: ${"E".repeat(200)}`);
+    expect(error.message).toBe("GetCustomerDetailFull failed: HTTP 503");
     expect(calls.forwards).toHaveLength(2);
   });
 });
