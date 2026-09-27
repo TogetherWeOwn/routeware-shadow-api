@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 /**
- * Verifies `.dev.vars` exists beside wrangler.toml and defines LOGIN_* keys
- * (does not print values).
+ * Verifies `.dev.vars` exists beside wrangler.toml and defines the required
+ * keys (does not print values).
+ *
+ * Parsing and validation live in `./lib/devVarsCheck.mjs` so the regression
+ * tests in `test/devVarsCheck.test.ts` exercise the same code this CLI runs.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  checkDevVarsValues,
+  mergeEffectiveVars,
+  parseDevVarsText,
+  parseWranglerVarsSection
+} from "./lib/devVarsCheck.mjs";
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const devVarsPath = path.join(root, ".dev.vars");
@@ -25,54 +34,29 @@ if (!fs.existsSync(devVarsPath)) {
   process.exit(1);
 }
 
-const raw = fs.readFileSync(devVarsPath, "utf8").replace(/^\uFEFF/, "");
-const keys = new Set();
-const nonEmpty = new Set();
-for (const line of raw.split(/\n/)) {
-  const trimmed = line.trim();
-  if (!trimmed || trimmed.startsWith("#")) {
-    continue;
-  }
-  const eq = trimmed.indexOf("=");
-  if (eq === -1) {
-    continue;
-  }
-  const key = trimmed.slice(0, eq).replace(/\r$/, "").trim();
-  const value = trimmed.slice(eq + 1).replace(/\r$/, "").trim();
-  keys.add(key);
-  if (value) {
-    nonEmpty.add(key);
-  }
-}
+const raw = fs.readFileSync(devVarsPath, "utf8").replace(/^﻿/, "");
+const devVars = parseDevVarsText(raw);
 
-let ok = true;
-for (const k of ["LOGIN_USERNAME", "LOGIN_PASSWORD"]) {
-  if (!keys.has(k)) {
-    console.error("Missing key in .dev.vars:", k);
-    ok = false;
-  }
-}
+// `wrangler dev` overlays `.dev.vars` on the top-level `[vars]` defaults, so
+// keys like TARGET_ORIGIN / LOGIN_URL / SESSION_TTL_SECONDS / AUTH_MODE that
+// already have defaults do not need repeating in `.dev.vars`. Validate the
+// effective values, not just the file under test.
+const wranglerText = fs.readFileSync(wranglerPath, "utf8").replace(/^﻿/, "");
+const effective = mergeEffectiveVars(parseWranglerVarsSection(wranglerText), devVars);
 
-// The client-auth gate rejects every /api/v1/* call (except health) unless a token
-// is configured, so local dev needs one. SHADOW_API_TOKEN is preferred; it falls back
-// to CUSTOMER_SNAPSHOT_SYNC_SECRET when unset.
-const clientTokens = ["SHADOW_API_TOKEN", "CUSTOMER_SNAPSHOT_SYNC_SECRET"];
-if (!clientTokens.some((k) => nonEmpty.has(k))) {
-  console.error(
-    "Missing client auth token in .dev.vars: set a non-empty value for one of " +
-      clientTokens.join(" or ") +
-      " (used as the /api/v1/* bearer)."
-  );
-  ok = false;
-}
+const { ok, errors } = checkDevVarsValues(effective);
 
 if (!ok) {
-  console.error("\nFix .dev.vars (one KEY=value per line, no spaces around =).");
+  for (const error of errors) {
+    console.error(error);
+  }
+  console.error("\nFix .dev.vars (one KEY=value per line; values may be quoted, `export`-prefixed, or carry trailing # comments — the checker parses them exactly as `wrangler dev` does).");
   console.error("Run from repo root: node scripts/check-devvars.mjs");
   process.exit(1);
 }
 
 console.log(
-  "OK: .dev.vars defines LOGIN_USERNAME, LOGIN_PASSWORD, and a client auth token (values not shown)."
+  "OK: effective dev vars define LOGIN_USERNAME, LOGIN_PASSWORD, SESSION_TTL_SECONDS, " +
+    "TARGET_ORIGIN, LOGIN_URL, a valid AUTH_MODE, and a client auth token (values not shown)."
 );
 console.log("Restart `wrangler dev` after editing .dev.vars.");
