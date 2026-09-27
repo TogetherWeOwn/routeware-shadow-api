@@ -135,9 +135,13 @@ upstream body are never echoed):
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
 for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
-A Routeware-side failure surfaces as `502` problem+json (Routeware reports
-failed saves as an HTML page with HTTP 200 — the Worker converts that, never
-passes it through as success).
+On the `/api/v1/routeware/*` passthrough save routes, a Routeware-side
+failure surfaces as `502` problem+json (Routeware reports failed saves as an
+HTML page with HTTP 200 — the Worker converts that, never passes it through
+as success). On the `/api/v1/data/*` saves above, the same silent upstream
+failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
+`routewareStatus` and `upstreamBytes`) — check the `ok` field, not just the
+status code. (`502` on `/data/*` only covers the anti-forgery prep path.)
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
@@ -177,7 +181,8 @@ curl -X POST http://localhost:8787/api/v1/routeware/customer/save-long-form \
 | 429 | Too many failed auth attempts from your IP; wait 60 s, then use a valid token. |
 | 200 with `"rows":[]` | Auth works; D1 has no snapshot data yet (operator runs the sync). |
 | 404 `not-found` on `/data/*` | That id is not in D1. |
-| 502 on a save | Routeware rejected the save upstream; see the problem+json `detail`. |
+| 502 on a `/routeware/*` save | Routeware rejected the save upstream; see the problem+json `detail`. |
+| 200 with `"ok":false` on a `/data/*` save | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`, fix the form, retry. |
 | 405 on `DELETE` | By design — disable via save (step 5). |
 
 All errors are `application/problem+json` with a `type` URL pointing at the
