@@ -1,6 +1,6 @@
 import { forwardToUpstream } from "./upstreamForward";
 import { establishSession } from "./establishSession";
-import { isLoginRedirect } from "./loginRedirect";
+import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
 import { readReportTimeoutMs } from "./upstreamTimeout";
 
@@ -68,7 +68,11 @@ async function forwardSessionAware(
   let session = await readSessionState(stub);
   const run = () => forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
   let resp = await run();
-  if (resp.status !== 200 || isLoginRedirect(resp)) {
+  // TOG-6540: same 200-with-login-form expiry shape as `fetchReportCsvForPath`
+  // and `forwardWithSessionRetry` (TOG-6515) — one re-login + retry.
+  // `isLoginPageResponse` never throws/logs the body (PII) and skips
+  // JSON/CSV/octet-stream without reading.
+  if (resp.status !== 200 || isLoginRedirect(resp) || (await isLoginPageResponse(resp))) {
     await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
     resp = await forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
@@ -114,7 +118,9 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
       }
     });
   const downResp = await forwardSessionAware(env, downReq, downUrl, null);
-  if (downResp.status !== 200 || isLoginRedirect(downResp)) {
+  // A retry that still sees a login page throws instead of returning HTML as
+  // CSV. Body never embedded (TOG-5821).
+  if (downResp.status !== 200 || isLoginRedirect(downResp) || (await isLoginPageResponse(downResp))) {
     // The body is upstream-controlled and may carry customer PII — never embed
     // it in the message: this error reaches the cron log wrapped in `[step]`
     // context (TOG-5821).
