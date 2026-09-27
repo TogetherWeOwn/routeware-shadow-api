@@ -1,4 +1,4 @@
-import { isLoginRedirect } from "./loginRedirect";
+import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { forwardToUpstream } from "./upstreamForward";
 import { readSessionState, type SessionState } from "./sessionState";
 import {
@@ -78,8 +78,14 @@ export async function forwardWithSessionRetry(
     throw err;
   }
 
-  if (response.status === 200 || !isLoginRedirect(response)) {
-    return response;
+  // TOG-6515: the common ASP.NET expiry shape is HTTP 200 with a login
+  // form, not a 302. A 200 carrying a login page takes the same single
+  // re-login + retry as a login redirect; every other response (including
+  // 401/429) is returned as-is and never retried.
+  if (!isLoginRedirect(response)) {
+    if (response.status !== 200 || !(await isLoginPageResponse(response))) {
+      return response;
+    }
   }
 
   // Reactive refresh: the session was rejected upstream despite the freshness
