@@ -72,7 +72,7 @@ function parseArgs(args) {
 function readDevVars() {
   try {
     const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const raw = fs.readFileSync(path.join(root, ".dev.vars"), "utf8").replace(/^﻿/, "");
+    const raw = fs.readFileSync(path.join(root, ".dev.vars"), "utf8").replace(/^\uFEFF/, ""); // strips BOM
     const out = {};
     for (const line of raw.split(/\n/)) {
       const trimmed = line.trim();
@@ -117,13 +117,11 @@ async function fetchJson(url, { token, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const headers = token ? { authorization: "Bearer <redacted>" } : {};
+    // The token travels in the Authorization header but is never logged.
     const res = await fetch(url, {
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
       signal: controller.signal,
     });
-    // Log the redacted header set, never the token itself.
-    void headers;
     const text = await res.text();
     let body = null;
     try {
