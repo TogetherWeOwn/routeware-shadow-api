@@ -5,6 +5,7 @@ import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors } from "./lib/cors";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
+import { APP_VERSION } from "./lib/version";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
 import { containerSnapshotRoutes } from "./routes/containerSnapshot";
@@ -22,7 +23,9 @@ const openApiDocumentConfig = {
   openapi: "3.1.0" as const,
   info: {
     title: "Routeware Shadow API",
-    version: "1.0.0",
+    // Single-sourced from package.json via src/lib/version.ts (TOG-5840):
+    // bump package.json#version and the spec version moves with it.
+    version: APP_VERSION,
     description:
       "Explicit proxy to Routeware WebRW. Session cookies are stored in a Worker Durable Object; clients do not send Routeware credentials.\n\n" +
       "**Customer:** `customers-read` lists rows; `detail-full` loads one record; `customer-types-read` feeds dropdowns; `add-new-long` and `load-long-modal` return the same HTML/JS shells the SPA uses before save; `save-long-form` creates or updates (URL-encoded form body). **Anti-forgery** for `save-long-form` is filled server-side from Routeware modal HTML when the client omits `__RequestVerificationToken` (see `CUSTOMER_SAVE_AUTO_TOKEN`). Routeware does not support HTTP DELETE for customers — use `save-long-form` with `Enabled=false` to disable. `DELETE /api/v1/routeware/customer` documents that limitation (returns 405 + problem+json).\n\n" +
