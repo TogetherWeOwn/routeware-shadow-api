@@ -42,6 +42,14 @@ assert.equal(
   "deploy must require push/main and PRODUCTION_DEPLOY_ENABLED",
 );
 assert.match(deploy, /^    environment: production$/m, "deploy must use the production environment");
+// The R2 bucket preflight runs read-only in deploy before migrations go live:
+// a missing SNAPSHOTS bucket fails closed naming the fix; R2-disabled deploys
+// skip cleanly. Pin it present so the archive leg can never ship unverified.
+assert.match(
+  deploy,
+  /node scripts\/check-r2-preflight\.mjs/,
+  "deploy must run the R2 bucket-existence preflight (TOG-6290)"
+);
 assert.match(
   deploy,
   /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,
