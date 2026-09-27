@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Post-deploy probe (TOG-6274): hits GET /api/v1/health (public) and
- * GET /api/v1/shadow/health (authed) against a base URL.
+ * Post-deploy probe (TOG-6274, extended TOG-7382): hits GET /api/v1/health
+ * (public), GET /api/v1/shadow/health (authed) and GET /api/v1/readiness
+ * (authed) against a base URL.
  *
  * Usage:
  *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N]
@@ -14,7 +15,7 @@
  *   4. `.dev.vars` beside wrangler.toml (local-dev convenience: SHADOW_API_TOKEN,
  *      else CUSTOMER_SNAPSHOT_SYNC_SECRET) — values are read, not logged.
  *
- * Exit 0 only when both probes pass; otherwise exit 1.
+ * Exit 0 only when all three probes pass; otherwise exit 1.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -207,11 +208,53 @@ async function main() {
     }
   }
 
+  // Probe 3 — authenticated deep readiness (D1, R2, report config).
+  // Uses the same bearer resolved above; 200 means ready, 503 means the
+  // Worker is up but a dependency is degraded — both prove the endpoint
+  // answered, but either way the deploy must not roll forward silently.
+  if (!token) {
+    console.log("FAIL GET /api/v1/readiness -> no bearer token found (see probe 2)");
+    failures += 1;
+  } else {
+    try {
+      const { status, body, raw } = await fetchJson(`${origin}/api/v1/readiness`, {
+        token: token.value,
+        timeoutMs,
+      });
+      const ok =
+        (status === 200 || status === 503) &&
+        body !== null &&
+        (body.status === "ok" || body.status === "degraded") &&
+        typeof body.service === "string" &&
+        body.checks !== null &&
+        typeof body.checks === "object";
+      console.log(
+        `${ok ? "PASS" : "FAIL"} GET /api/v1/readiness -> HTTP ${status} (token from ${token.source}; value redacted)${ok ? "" : ` ${snippet(raw)}`}`
+      );
+      if (!ok) {
+        if (status === 401) {
+          console.error("  got 401: the token was rejected (check the value, not the script).");
+        } else {
+          console.error('  expected 200/503 with { status: "ok"|"degraded", service: <string>, checks: {...} }');
+        }
+        failures += 1;
+      } else if (status === 503 || body.status === "degraded") {
+        console.error("  readiness reports degraded dependencies (see checks above) — failing the probe.");
+        failures += 1;
+      }
+    } catch (error) {
+      console.log(
+        `FAIL GET /api/v1/readiness -> ${error.name === "AbortError" ? "timeout" : String(error)} (token from ${token.source}; value redacted)`
+      );
+      failures += 1;
+    }
+  }
+
   if (failures > 0) {
     console.error(`\npost-deploy probe: ${failures} probe(s) failed against ${origin}`);
     exit(1);
   }
-  console.log(`\npost-deploy probe: both probes passed against ${origin}`);
+  console.log(`\npost-deploy probe: all three probes passed against ${origin}`);
 }
 
 await main();
