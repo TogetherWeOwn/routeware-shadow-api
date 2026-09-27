@@ -35,7 +35,33 @@ function etagHeader(etag: string): string {
   return `"${etag}"`;
 }
 
-/** Strip an optional weak-validator prefix and surrounding quotes from an ETag token. */
+/**
+ * TOG-6533: invalidate the posted entity id(s) after a successful upstream
+ * write whose graph id is unresolvable (no sync possible, so the graph ids are
+ * unknown). Without this the write succeeds upstream while the edge cache keeps
+ * serving the pre-edit bundle — stale customer PII.
+ *
+ * Ids only (never request/response bodies); `invalidateDataEntity` propagates
+ * failures so a failed invalidation is loud, matching the sync-throw path.
+ */
+async function invalidatePostedIds(
+  entries: Array<{ entity: "customer" | "address" | "container"; id: number | null }>
+): Promise<void> {
+  for (const { entity, id } of entries) {
+    if (id !== null) {
+      await invalidateDataEntity(entity, id);
+    }
+  }
+}
+
+/** Positive-int id from a posted form field, or null when absent/unusable. */
+function postedId(v: string | undefined): number | null {
+  if (v === undefined) {
+    return null;
+  }
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 function normalizeEtagToken(token: string): string {
   return token
     .trim()
@@ -270,6 +296,14 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       }
     } else {
       localSync = { done: false, reason: "could not determine CustomerID from response" };
+      // TOG-6533: no sync is possible without the graph id, but the upstream
+      // write succeeded — invalidate the posted customer id (if any) instead
+      // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
+      // only returns null when the posted form carried no usable id, so this is
+      // usually a no-op; it guards future parse drift, not today's shape.
+      await invalidatePostedIds([
+        { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
+      ]);
     }
   }
   let upstreamJson: unknown = upText;
@@ -369,6 +403,13 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           await invalidateDataEntity("address", paid);
         }
       }
+    } else {
+      // TOG-6533: the upstream write succeeded but there is no usable
+      // CustomerID to sync on — still invalidate the posted address id so the
+      // pre-edit cached bundle is not served as current.
+      await invalidatePostedIds([
+        { entity: "address", id: postedId(posted.PickupAddressID) }
+      ]);
     }
   }
   return new Response(
@@ -466,6 +507,15 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           await invalidateDataEntity("container", cid);
         }
       }
+    } else {
+      // TOG-6533: the upstream write succeeded but no owning customer could be
+      // resolved (neither posted nor via the address-snapshot fallback) — still
+      // invalidate the posted address/container ids so pre-edit cached bundles
+      // are not served as current.
+      await invalidatePostedIds([
+        { entity: "address", id: postedId(posted.PickupAddressID) },
+        { entity: "container", id: postedId(posted.ContainerID) }
+      ]);
     }
   }
   return new Response(

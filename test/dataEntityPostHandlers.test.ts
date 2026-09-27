@@ -378,6 +378,9 @@ describe("handlePostDataCustomer", () => {
       reason: "could not determine CustomerID from response"
     });
     expect(body.upstream).toBe("Saved.");
+    // TOG-6533: the form carries no usable posted id, so there is nothing to
+    // invalidate — but the branch must run without throwing.
+    expect(calls.entity).toEqual([]);
   });
 
   it("mirrors an upstream failure status and never attempts a sync", async () => {
@@ -427,6 +430,31 @@ describe("handlePostDataAddress", () => {
     expect(calls.synced).toEqual([]);
     expect(calls.graph).toEqual([]);
   });
+
+  it("invalidates the posted address id when the write succeeds with no usable customer id", async () => {
+    // Arrange — TOG-6533: the upstream save succeeded but no graph sync is
+    // possible, so the pre-edit cached address bundle must still be dropped.
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.graph).toEqual([]);
+    expect(calls.entity).toEqual([{ kind: "address", id: 10 }]);
+  });
+
+  it("invalidates nothing when the unresolvable address write posts no usable ids", async () => {
+    // Arrange — an address save with neither CustomerID nor PickupAddressID
+    // still succeeds upstream; there is simply no cache key to drop.
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ Notes: "x" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.entity).toEqual([]);
+  });
 });
 
 describe("handlePostDataContainer", () => {
@@ -454,6 +482,40 @@ describe("handlePostDataContainer", () => {
     expect(res.status).toBe(200);
     expect(calls.synced).toEqual([]);
     expect(calls.graph).toEqual([]);
+  });
+
+  it("invalidates the posted address and container ids when the write succeeds with no resolvable customer", async () => {
+    // Arrange — TOG-6533: the upstream save succeeded but neither the form
+    // nor the address-snapshot fallback yields a customer, so the pre-edit
+    // cached bundles must still be dropped.
+    const db = fallbackDb({ pickup_address_id: 99, customer_id: 5 });
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ PickupAddressID: "10", ContainerID: "100" }), db)
+    );
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.graph).toEqual([]);
+    expect(calls.entity).toEqual([
+      { kind: "address", id: 10 },
+      { kind: "container", id: 100 }
+    ]);
+  });
+
+  it("invalidates nothing when the unresolvable container write posts no usable ids", async () => {
+    // Arrange
+    const db = fallbackDb(null);
+
+    // Act
+    const res = await handlePostDataContainer(postCtx(formBody({ Notes: "x" }), db));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.entity).toEqual([]);
   });
 
   it("prefers the posted customer id over the fallback lookup", async () => {
