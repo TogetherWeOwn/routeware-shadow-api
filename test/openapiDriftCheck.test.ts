@@ -76,6 +76,26 @@ describe("openapi drift check", () => {
     expect(lines.join("\n")).toContain("plain-Hono handlers (GET /api/v1/widget)");
   });
 
+  it("flags pure direct-handler plain-Hono traffic with zero declarations", () => {
+    // A module with no createRoute() declarations at all but direct
+    // .get()/.post() handlers still serves traffic that never reaches
+    // /openapi.json — one drop per unmatched handler (TOG-7016 review).
+    const pureHandlers = `import { Hono } from "hono";
+export const widgetRoutes = new Hono();
+widgetRoutes.get("/api/v1/widget", (c) => c.json([]));
+widgetRoutes.post("/api/v1/widget", (c) => c.json({}));
+`;
+    const outcome = run(APP_TEXT, "widgetRoutes", pureHandlers);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.drops).toHaveLength(2);
+    expect(outcome.drops.map((d) => d.op).sort()).toEqual([
+      "GET /api/v1/widget",
+      "POST /api/v1/widget",
+    ]);
+    expect(outcome.drops[0].reason).toMatch(/no createRoute\(\) declaration/);
+    expect(outcome.stats.declared).toBe(0);
+  });
+
   it("flags a declared-but-never-registered route", () => {
     const orphan = `${GOOD_MODULE}\nconst widgetDeleteRoute = createRoute({\n  method: "delete",\n  path: "/api/v1/widget",\n});\n`;
     const outcome = run(APP_TEXT, "widgetRoutes", orphan);

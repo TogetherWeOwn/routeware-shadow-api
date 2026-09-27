@@ -19,7 +19,9 @@
  * Drift (A minus B) is reported per op with its cause:
  * - module mounted in `app.ts` but its file cannot be resolved from imports,
  * - module built on plain `Hono` (`from "hono"`, `new Hono(`, or
- *   `<mod>.get(…)`/`.post(…)` plain handlers) instead of `createRouteModule()`,
+ *   `<mod>.get(…)`/`.post(…)` plain handlers) instead of `createRouteModule()`:
+ *   one drop per declared `createRoute()` op plus one drop per direct
+ *   plain-Hono handler with no matching declaration (served but undocumented),
  * - route declared with `createRoute(` but never registered via `.openapi(`,
  * - a `*Routes` export that exists in `src/routes/` but is never mounted with
  *   `app.route(…)` (unreachable and undocumented).
@@ -167,6 +169,20 @@ export function runDriftCheck({ appText, modules, allExports = [] }) {
           file: mount.file,
           reason: `${mount.module} mounts a plain-Hono module: ${why}. Rebuild it with createRouteModule() so OpenAPIHono.route() merges its registry.`,
         });
+      }
+      // Direct plain-Hono handlers with no matching createRoute() declaration
+      // are served-but-undocumented traffic Side A (declarations-only) would
+      // otherwise miss: one drop per unmatched handler (TOG-7016 review).
+      const declaredOps = new Set(parsed.ops.map((op) => `${op.method} ${op.path}`));
+      for (const handler of parsed.plainHandlers) {
+        if (!declaredOps.has(handler)) {
+          drops.push({
+            op: handler,
+            module: mount.module,
+            file: mount.file,
+            reason: `${mount.module} serves ${handler} via a direct plain-Hono handler with no createRoute() declaration — served but absent from /openapi.json. Rebuild it with createRouteModule() and register each route via ${mount.module}.openapi(…).`,
+          });
+        }
       }
       continue;
     }

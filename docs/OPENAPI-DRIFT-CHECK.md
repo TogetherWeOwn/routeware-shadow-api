@@ -17,7 +17,7 @@ schedule with no Worker runtime, no secrets, and no network access
 
 ```bash
 node scripts/check-openapi-drift.mjs
-# openapi-drift: OK — 34/34 declared op(s) published across 11 mounted module(s)
+# openapi-drift: OK — 35/35 declared op(s) published across 11 mounted module(s)
 ```
 
 Reads `src/app.ts` (mounts) and `src/routes/*.ts` (declared
@@ -38,7 +38,8 @@ Pure rule lives in `scripts/lib/openapiDriftCheck.mjs`, unit-tested by
 
 | Cause | Meaning | Fix |
 |---|---|---|
-| plain-Hono module | Module not built with `createRouteModule()` (bare `hono` import, `new Hono(`, or `.get(…)`/`.post(…)` direct handlers). Served, undocumented. | Rebuild with `createRouteModule()`; register each route via `<mod>.openapi(…)`. |
+| plain-Hono module | Module not built with `createRouteModule()` (bare `hono` import, `new Hono(`). One drop per declared op. | Rebuild with `createRouteModule()`; register each route via `<mod>.openapi(…)`. |
+| unmatched plain handler | Direct `.get(…)`/`.post(…)` handler with no `createRoute()` declaration. Served, undocumented. | Rebuild with `createRouteModule()`; declare via `createRoute()` and register via `<mod>.openapi(…)`. |
 | declared, never registered | `createRoute()` const with no matching `<mod>.openapi(<name>, …)`. Serves nothing, documents nothing. | Register it, or delete the dead declaration. |
 | exported, never mounted | `*Routes` export with no `app.route(…)` mount. Unreachable and undocumented. | Mount it in `src/app.ts` (before the doc endpoints, after the two `/api/v1/*` gates), or delete it. |
 | mounted, unreadable | `app.route()` name with no resolvable import. | Fix the import, or remove the mount. |
@@ -48,9 +49,11 @@ Pure rule lives in `scripts/lib/openapiDriftCheck.mjs`, unit-tested by
 
 ## 2. Acceptance proof: dummy plain-Hono route fails the gate
 
-The unit test mounts a synthetic plain-Hono module (new `Hono()` + a direct
-`.get("/api/v1/widget", …)`) and asserts both declared ops drop with the
-plain-Hono cause named. To replay against fixtures by hand:
+The unit tests cover both halves of the regression: a mixed module (declared
+`createRoute()` ops on plain `Hono`) drops every declared op with the
+plain-Hono cause named, and a pure direct-handler module (zero declarations,
+only `.get(…)`/`.post(…)`) drops one op per unmatched handler — served but
+undocumented. To replay the pure-handler half against fixtures by hand:
 
 ```bash
 mkdir -p /tmp/drift-proof/routes
@@ -64,15 +67,15 @@ export const dummyRoutes = new Hono();
 dummyRoutes.get("/api/v1/dummy", (c) => c.json({}));
 EOF
 node scripts/check-openapi-drift.mjs --app=/tmp/drift-proof/app.ts --routes-dir=/tmp/drift-proof/routes
-# openapi-drift: mounted via app.route() but module file src/routes/dummy.ts could not be read
+# openapi-drift: GET /api/v1/dummy (dummyRoutes, src/routes/dummy.ts): dummyRoutes serves GET /api/v1/dummy via a direct plain-Hono handler with no createRoute() declaration — served but absent from /openapi.json. Rebuild it with createRouteModule() and register each route via dummyRoutes.openapi(…).
+# exit 1
 ```
 
-(The fixture import `./routes/dummy` resolves to `src/routes/dummy.ts`
-relative to the repo root; point `--routes-dir` at a real `src/routes`
-overlay for a full mountable proof, or rely on the unit test, which wires the
-same regression directly through `runDriftCheck`.) A reviewer can also verify
-live: temporarily rebuild any one module on plain `Hono` in a scratch
-worktree and watch the check name every dropped op.
+(The CLI looks the mounted module up under `src/routes/` relative to the
+repo root, so the fixture resolves only when `--routes-dir` points at a real
+`src/routes` overlay containing `dummy.ts`. A reviewer can also verify live:
+temporarily rebuild any one module on plain `Hono` in a scratch worktree and
+watch the check name every dropped op.)
 
 ## 3. Schedule (for operator publication — not yet wired)
 
