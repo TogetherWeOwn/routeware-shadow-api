@@ -64,6 +64,10 @@ jobs:
     runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: the blocking secret scan below covers git history, not
+          # just the working tree. A shallow checkout would silently scan one commit.
+          fetch-depth: 0
       - name: No committed Routeware report exports (PII)
         run: |
           matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
@@ -80,15 +84,28 @@ jobs:
             echo "$matches"
             exit 1
           fi
-      - name: Secret scan (informational)
-        # Non-blocking: scans the working tree only (--no-git), so it won't trip on
-        # secrets still present in git history. Promote to blocking once it's green.
-        continue-on-error: true
+      - name: No real secrets baked into worker-configuration.d.ts
+        run: |
+          # `wrangler types` bakes wrangler.toml [vars] values into this tracked file
+          # as literal string types (SECURITY-REMEDIATION.md step 3 gap). Only the
+          # synthetic test literals below may appear for these keys; any other value
+          # fails the job. Gitleaks also scans this file (it is not allowlisted).
+          allow='test-sync-secret|test-api-token|test-user|test-password-not-real'
+          matches="$(grep -nE '^[[:space:]]*(CUSTOMER_SNAPSHOT_SYNC_SECRET|SHADOW_API_TOKEN|LOGIN_USERNAME|LOGIN_PASSWORD)\??:' worker-configuration.d.ts | grep -vE "\"(${allow})\"" || true)"
+          if [ -n "$matches" ]; then
+            echo "::error::worker-configuration.d.ts carries non-synthetic values — real values belong in .dev.vars / wrangler secret, never in wrangler.toml [vars]:"
+            echo "$matches"
+            exit 1
+          fi
+      - name: Secret scan (blocking)
+        # Blocking: scans the full git history (fetch-depth: 0 above). History is
+        # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
+        # so any finding fails the job.
         run: |
           version=8.18.4
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
-          ./gitleaks detect --source . --no-git --redact --config .gitleaks.toml
+          ./gitleaks detect --source . --redact --config .gitleaks.toml
 
   deploy:
     name: Deploy to Cloudflare Workers
