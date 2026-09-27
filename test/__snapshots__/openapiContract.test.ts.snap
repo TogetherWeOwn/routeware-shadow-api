@@ -1076,7 +1076,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/address/save-address-form": {
       "post": {
-        "description": "Proxies to WebRW \`SaveAddressForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankAddress?customerID=\` (create, \`PickupAddressID\` 0 / absent) or \`LoadAddressModal?PickupAddressID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`PickupAddressID=0\` with \`CustomerID\` for create; set \`PickupAddressID\` for updates.",
+        "description": "Proxies to WebRW \`SaveAddressForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankAddress?customerID=\` (create, \`PickupAddressID\` 0 / absent) or \`LoadAddressModal?PickupAddressID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`PickupAddressID=0\` with \`CustomerID\` for create; set \`PickupAddressID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1096,6 +1096,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
+          "502": {
+            "description": "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+          },
         },
         "summary": "SaveAddressForm (create or update)",
         "tags": [
@@ -1105,7 +1108,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/container/save-container-form": {
       "post": {
-        "description": "Proxies to WebRW \`SaveContainerForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankContainer?pickupAddressID=\` (create, \`ContainerID\` 0 / absent) or \`LoadContainerModal?ContainerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`ContainerID=0\` with \`PickupAddressID\` for create; set \`ContainerID\` for updates.",
+        "description": "Proxies to WebRW \`SaveContainerForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankContainer?pickupAddressID=\` (create, \`ContainerID\` 0 / absent) or \`LoadContainerModal?ContainerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`ContainerID=0\` with \`PickupAddressID\` for create; set \`ContainerID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1124,6 +1127,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "SaveContainerForm (create or update)",
