@@ -126,7 +126,8 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
 
 const dataEntityPostResponse = {
   200: {
-    description: "Routeware response + `posted` fields + optional local D1 sync summary",
+    description:
+      "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
     content: { "application/json": { schema: z.unknown() } }
   },
   400: { description: "Bad request" },
@@ -140,7 +141,7 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`). `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `upstream` (Routeware body), `posted` (form fields you sent), `ok`, `localSync`.",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`). `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
   responses: dataEntityPostResponse
 });
 

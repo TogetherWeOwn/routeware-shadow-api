@@ -5,7 +5,7 @@ import {
   isPlaceholderAntiForgeryToken,
   lastUrlEncodedValue
 } from "../src/lib/customerSaveAutoToken";
-import { isLoginRedirect } from "../src/lib/loginRedirect";
+import { isLoginPageResponse, isLoginRedirect, looksLikeLoginPageHtml } from "../src/lib/loginRedirect";
 import {
   routewareWebRwUrl,
   routewareWebRwUrlWithIncomingSearch
@@ -59,6 +59,64 @@ describe("isLoginRedirect", () => {
       headers: { location: "/foo/Login.aspx?x=1" }
     });
     expect(isLoginRedirect(response)).toBe(true);
+  });
+});
+
+describe("looksLikeLoginPageHtml (TOG-6515)", () => {
+  it("matches a password field plus the login path", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<form action="/WebRW/Account/Login"><input name="Password" type="password" /></form>'
+      )
+    ).toBe(true);
+  });
+
+  it("matches Ext.NET login markers (Password-inputEl + UserName + token)", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<div id="Password-inputEl"></div><div>UserName</div>' +
+          '<input name="__RequestVerificationToken" value="FAKE" />'
+      )
+    ).toBe(true);
+  });
+
+  it("rejects anti-forgery modal HTML (token but no password field)", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<form><input name="__RequestVerificationToken" type="hidden" value="abc+123" /></form>'
+      )
+    ).toBe(false);
+  });
+
+  it("rejects an error page with no login structure", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        "<!DOCTYPE html><html><body>Object reference not set to an instance of an object</body></html>"
+      )
+    ).toBe(false);
+  });
+});
+
+describe("isLoginPageResponse (TOG-6515)", () => {
+  it("returns false without reading JSON/CSV 200 bodies", async () => {
+    const json = new Response('{"Password":"UserName"}', {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+    expect(await isLoginPageResponse(json)).toBe(false);
+    const csv = new Response("Password,UserName", {
+      status: 200,
+      headers: { "content-type": "text/csv" }
+    });
+    expect(await isLoginPageResponse(csv)).toBe(false);
+  });
+
+  it("detects an HTML 200 login page", async () => {
+    const login = new Response(
+      '<form action="/WebRW/Account/Login"><input name="Password" type="password" /></form>',
+      { status: 200, headers: { "content-type": "text/html" } }
+    );
+    expect(await isLoginPageResponse(login)).toBe(true);
   });
 });
 

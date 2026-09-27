@@ -250,8 +250,9 @@ export async function fetchGetCustomerDetailFull(
   }
   if (!resp.ok) {
     // The body is upstream-controlled HTML/JSON and may carry customer PII —
-    // never embed it in the message: this error reaches API clients verbatim
-    // inside `localSync.reason` (POST /api/v1/data/* keeps 200 on sync failure).
+    // never embed it in the message: this error is logged server-side and
+    // POST /api/v1/data/* maps sync failures to a fixed `localSync.code`
+    // (TOG-6535) while keeping the upstream 200.
     throw new Error(`GetCustomerDetailFull failed: HTTP ${resp.status}`);
   }
   // Pre-check: refuse to buffer a graph that would threaten the isolate before

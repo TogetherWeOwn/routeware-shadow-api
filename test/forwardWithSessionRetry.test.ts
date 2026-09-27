@@ -280,6 +280,108 @@ describe("forwardWithSessionRetry", () => {
     expect(state.cookieHeader).toBe(".WebRW=fresh");
   });
 
+  it("reactively re-establishes and retries once on a 200 login page (TOG-6515)", async () => {
+    // Arrange — the common ASP.NET expiry shape: HTTP 200 with a login form,
+    // not a 302. Fixture is structural only (no credentials/PII).
+    const holder = {
+      value: { cookieHeader: "old", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState
+    };
+    const establish = vi.fn(async () => {
+      holder.value = { cookieHeader: "fresh", expiresAtMs: Date.now() + 600_000, refreshing: false };
+    });
+    const loginPage = () =>
+      new Response(
+        '<html><body><form action="/WebRW/Account/Login" method="post">' +
+          '<input name="__RequestVerificationToken" type="hidden" value="FAKE-TOKEN" />' +
+          '<input name="UserName" type="text" value="" />' +
+          '<input name="Password" type="password" value="" />' +
+          "</form></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(loginPage())
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    // Act
+    const res = await forwardWithSessionRetry(
+      env,
+      makeStub(holder),
+      new Request("http://shadow/x"),
+      UPSTREAM,
+      null,
+      establish
+    );
+
+    // Assert — one re-login, one retry, and the retried body is returned.
+    expect(establish).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ok");
+  });
+
+  it("does not retry-loop when the retry also sees a 200 login page (TOG-6515)", async () => {
+    const holder = {
+      value: { cookieHeader: "c=1", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState
+    };
+    const establish = vi.fn(async () => {
+      holder.value = { cookieHeader: "fresh", expiresAtMs: Date.now() + 600_000, refreshing: false };
+    });
+    const loginPage = () =>
+      new Response(
+        '<html><body><form action="/WebRW/Account/Login" method="post">' +
+          '<input name="UserName" type="text" value="" />' +
+          '<input name="Password" type="password" value="" />' +
+          "</form></body></html>",
+        { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+      );
+    const fetchMock = vi.fn(async () => loginPage());
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await forwardWithSessionRetry(
+      env,
+      makeStub(holder),
+      new Request("http://shadow/x"),
+      UPSTREAM,
+      null,
+      establish
+    );
+
+    // The retry's login page is returned as-is: exactly 2 forwards, 1 refresh, no loop.
+    expect(establish).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(res.status).toBe(200);
+  });
+
+  it("passes through a 200 JSON body mentioning login words without retrying (TOG-6515)", async () => {
+    // Guards against false positives: JSON payloads are never body-sniffed.
+    const holder = {
+      value: { cookieHeader: "c=1", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState
+    };
+    const establish = vi.fn(async () => {});
+    const fetchMock = vi.fn(async () =>
+      new Response('{"note":"Password reset for UserName"}', {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await forwardWithSessionRetry(
+      env,
+      makeStub(holder),
+      new Request("http://shadow/x"),
+      UPSTREAM,
+      null,
+      establish
+    );
+
+    expect(establish).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+  });
+
   it("reactively re-establishes and retries once on a login redirect", async () => {
     const holder = {
       value: { cookieHeader: "old", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState
