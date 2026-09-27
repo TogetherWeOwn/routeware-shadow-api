@@ -80,6 +80,13 @@ jobs:
             echo "$matches"
             exit 1
           fi
+      - name: D1 migration drift check (TOG-6275)
+        # Credential-free: manifest sha256 compare + fresh local apply into a
+        # scratch persist dir, journal compared to the file list. Fails the
+        # build on edited/missing/extra migrations. The read-only remote
+        # compare runs only with --remote plus an ambient token (deploy-time
+        # concern, never a hygiene secret).
+        run: npm run check:d1-drift
       - name: Secret scan (informational)
         # Non-blocking: scans the working tree only (--no-git), so it won't trip on
         # secrets still present in git history. Promote to blocking once it's green.
