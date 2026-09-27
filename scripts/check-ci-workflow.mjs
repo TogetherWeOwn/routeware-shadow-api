@@ -43,6 +43,15 @@ assert.match(
   "hygiene must run the D1 migration drift check (TOG-6275)"
 );
 
+// The 800-line source-file guard counts lines in hand-written src/ files and
+// fails on any file over the limit. Pin it present so oversize modules can
+// never land without the hygiene gate (TOG-6291).
+assert.match(
+  hygiene,
+  /npm run check:source-file-size/,
+  "hygiene must run the source-file-size guard (TOG-6291)"
+);
+
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
 // The optional staging probe already has a fail-closed CF_TOKEN gate. Allow only

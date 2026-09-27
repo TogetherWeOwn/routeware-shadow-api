@@ -98,6 +98,10 @@ jobs:
         # compare runs only with --remote plus an ambient token (deploy-time
         # concern, never a hygiene secret).
         run: npm run check:d1-drift
+      - name: Source file size guard (TOG-6291)
+        # Credential-free: counts lines in hand-written src/ files, fails on any
+        # file over 800 lines. No network access and no credential use.
+        run: npm run check:source-file-size
       - name: Secret scan (informational)
         # Non-blocking: scans the working tree only (--no-git), so it won't trip on
         # secrets still present in git history. Promote to blocking once it's green.
