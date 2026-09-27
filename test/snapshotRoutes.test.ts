@@ -34,7 +34,7 @@ const syncState: {
   runResult: unknown;
   streamResult: unknown;
   runCalls: unknown[];
-  streamCalls: Array<{ db: unknown; body: unknown }>;
+  streamCalls: Array<{ db: unknown; body: unknown; batchSize?: number; options?: unknown }>;
 } = { runResult: null, streamResult: null, runCalls: [], streamCalls: [] };
 
 /**
@@ -47,8 +47,8 @@ vi.mock("../src/lib/d1SnapshotSync", () => {
     syncState.runCalls.push(env);
     return syncState.runResult;
   };
-  const stream = async (db: unknown, body: unknown) => {
-    syncState.streamCalls.push({ db, body });
+  const stream = async (db: unknown, body: unknown, batchSize?: number, options?: unknown) => {
+    syncState.streamCalls.push({ db, body, batchSize, options });
     return syncState.streamResult;
   };
   return {
@@ -718,6 +718,30 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
       expect(body.title).toBe("Empty body");
       expect(syncState.streamCalls).toHaveLength(0);
+    });
+
+    it("never passes reconcile to the stream sync, so a partial import cannot delete", async () => {
+      // Arrange — import is possibly-partial (CUSTOMER_SNAPSHOT.md): it must
+      // upsert what it sees and leave every other row alone. The stream sync
+      // only deletes when `options.reconcile` is set, so the handler must pass
+      // no options at all — not even `{ reconcile: false }` by way of a
+      // default that a later edit could flip.
+      const { db } = readDb({});
+      const env = makeEnv(db);
+      syncState.streamResult = { upserted: 1, rowCount: 1, deleted: 0 };
+
+      // Act
+      await call(spec.routes, `${spec.base}/import`, env, {
+        method: "POST",
+        body: "a,b\n1,2\n",
+        headers: { "content-type": "text/csv" }
+      });
+
+      // Assert — called with exactly (db, body): no batch size, no options.
+      expect(syncState.streamCalls).toHaveLength(1);
+      expect(syncState.streamCalls[0].db).toBe(db);
+      expect(syncState.streamCalls[0].batchSize).toBeUndefined();
+      expect(syncState.streamCalls[0].options).toBeUndefined();
     });
   });
 });

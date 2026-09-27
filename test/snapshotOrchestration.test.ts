@@ -94,6 +94,7 @@ vi.mock("../src/lib/snapshot/streamSync", () => ({
 const {
   getDataSnapshotPlan,
   runAddressSnapshotSync,
+  runContainerSnapshotSync,
   runCustomerSnapshotSync,
   runDataSnapshotSync,
   runDataSnapshotSyncChainedHttp
@@ -265,6 +266,18 @@ describe("runCustomerSnapshotSync", () => {
 
     // Assert
     expect(calls.syncs).toEqual([{ table: "address", batchSize: 80, reconcile: true }]);
+  });
+
+  it("reconciles the container table with its own batch size", async () => {
+    // Arrange / Act — the third table must reconcile too: a container run that
+    // skipped the delete would leave upstream-deleted containers in D1 forever.
+    // Pinned separately from customer/address so a copy-paste that drops
+    // `reconcile: true` on this one path fails loudly.
+    await runContainerSnapshotSync(envWith({ CONTAINER_REPORT_QUERY_ID: "25" }));
+
+    // Assert
+    expect(calls.archived).toEqual(["container"]);
+    expect(calls.syncs).toEqual([{ table: "container", batchSize: 40, reconcile: true }]);
   });
 });
 
