@@ -239,7 +239,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 
 **D1 snapshots (Routeware custom CSV reports):** \`customer_snapshot\` (CustomerID) → \`address_snapshot\` (PickupAddressID, CustomerID) → \`container_snapshot\` (ContainerID, PickupAddressID). **Export source:** set \`*_REPORT_EXPORT_PATH\` (static URL) **or** \`*_REPORT_QUERY_ID\` (WebRW: client \`requestID\` + \`GET\` \`QueryExecuteDownload\`), then \`POST /api/v1/data-snapshot/sync\` (bearer) or the daily cron. \`POST /api/v1/...-snapshot/import\` accepts a raw CSV body. See \`CUSTOMER_SNAPSHOT.md\` for setup and migration commands.
 
-**Data entity (\`/api/v1/data/*\`, tag \`data-entity\`):** bearer = \`CUSTOMER_SNAPSHOT_SYNC_SECRET\`. \`GET\` reads nested D1 snapshots (customer + address + container graph) with ETag/cache. \`POST\` applies changes to Routeware, returns \`upstream\` + \`posted\` fields, then refreshes D1 from \`GetCustomerDetailFull\` and invalidates that cache for affected ids.",
+**Data entity (\`/api/v1/data/*\`, tag \`data-entity\`):** bearer = \`CUSTOMER_SNAPSHOT_SYNC_SECRET\`. \`GET\` reads nested D1 snapshots (customer + address + container graph) with ETag/cache. \`POST\` applies changes to Routeware, returns ids + sync outcome only (never submitted fields or the upstream body), then refreshes D1 from \`GetCustomerDetailFull\` and invalidates that cache for affected ids.",
     "title": "Routeware Shadow API",
     "version": "1.0.0",
   },
@@ -971,7 +971,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "schema": {},
               },
             },
-            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad request",
@@ -1040,7 +1040,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "schema": {},
               },
             },
-            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad request",
@@ -1113,7 +1113,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`). \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`upstream\` (Routeware body), \`posted\` (form fields you sent), \`ok\`, \`localSync\`.",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`). \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
         "responses": {
           "200": {
             "content": {
@@ -1121,7 +1121,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "schema": {},
               },
             },
-            "description": "Routeware response + \`posted\` fields + optional local D1 sync summary",
+            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad request",

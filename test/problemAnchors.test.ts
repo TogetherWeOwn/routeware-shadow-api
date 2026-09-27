@@ -46,8 +46,9 @@ import { validationFailureHook } from "../src/routes/shared";
  *   DO rewrite: HTML-200 silent failures become 502).
  * - R3: `src/authSession.do.ts` plain-text 400/404/423s are the Durable
  *   Object's internal stub protocol, unreachable from the public API surface.
- * - R4: `POST /api/v1/data/*` echoes the caller's own `posted` fields and
- *   `localSync.reason` (OpenAPI-documented, bearer-gated to the submitter).
+ * - R4: `POST /api/v1/data/*` returns ids + `upstreamBytes` + fixed
+ *   `localSync.code` only — never submitted fields or the upstream body
+ *   (TOG-6535; pinned by `test/dataEntityPostHandlers.test.ts`).
  *
  * The `type` assertions below compare against string literals, never against
  * `problemType(...)` output: recomputing the expected value with the function
