@@ -41,16 +41,17 @@ export default defineConfig({
        * below are the first hermetic measurement of coverage that was always
        * this high in truth.
        *
-       * Branches at 79.48% now sits just under the ECC 80% standard (user-scope
-       * ~/.claude/rules/ecc/common/engineering.md § "The non-negotiable sequence"
-       * step 2). Recovering it is the top open task — see
+       * Branches recovered above the ECC 80% standard on 2026-09-27 (TOG-5484):
+       * `test/d1TestMigrations.ts` applies the D1 migrations to the test
+       * `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the
+       * login → download → parse → upsert path with assertions. See
        * docs/TEST-INVARIANTS.md § "The coverage ratchet".
        */
       thresholds: {
-        statements: 85,
-        branches: 79,
-        functions: 89,
-        lines: 86
+        statements: 86,
+        branches: 80,
+        functions: 90,
+        lines: 87
       }
     }
   }
