@@ -57,6 +57,21 @@ export type SnapshotSyncCounts = {
 export type StreamSyncOptions = {
   /** Delete rows not seen in this run (report sync). Off for partial imports. */
   reconcile?: boolean;
+  /**
+   * Reject an import that yields zero data rows (empty body, header-only CSV,
+   * or no parseable rows) with `InvalidSnapshotCsvError` instead of returning
+   * silent all-zero counts. Set by the `...-snapshot/import` routes; the
+   * report `sync` path leaves it off so a bad/empty export returns zeros and
+   * skips reconciliation rather than throwing.
+   */
+  requireDataRows?: boolean;
+  /**
+   * Cap on request body bytes, enforced by a streaming counter so a huge
+   * actual body is rejected with `SnapshotTooLargeError` without buffering.
+   * Set by the `...-snapshot/import` routes; unset (the report `sync` path)
+   * means no cap — upstream report size is the operator's own config.
+   */
+  maxBytes?: number;
 };
 
 export async function upsertCustomerSnapshotRows(

@@ -23,6 +23,13 @@ export {
 export { createReportRequest, fetchReportCsvForPath } from "./snapshot/reportFetch";
 
 export {
+  InvalidSnapshotCsvError,
+  SNAPSHOT_IMPORT_MAX_BYTES,
+  STREAM_BATCH_ADDR,
+  STREAM_BATCH_CONT,
+  STREAM_BATCH_CUST,
+  SnapshotTooLargeError,
+  isSnapshotTooLarge,
   syncAddressSnapshotFromCsvText,
   syncAddressSnapshotFromStream,
   syncContainerSnapshotFromCsvText,

@@ -12,6 +12,7 @@ section below.
 | `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
 | `method-not-allowed` | 405 | The upstream does not support the HTTP method (e.g. customer hard delete). |
 | `rate-limited` | 429 | Too many failed bearer-auth attempts from one IP. See below. |
+| `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
 | `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `internal` | 500 | An unexpected error. Details are logged, not returned. |
@@ -104,6 +105,17 @@ current token (one good request clears the block immediately); otherwise the
 block expires on its own after 60 seconds. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
+
+## Oversized snapshot import (`payload-too-large`)
+
+`POST /api/v1/{customer,address,container}-snapshot/import` refuses bodies
+over `SNAPSHOT_IMPORT_MAX_BYTES` (`src/lib/snapshot/streamSync.ts`) with a
+413. A truthful `Content-Length` fails fast before the stream is read; a
+missing, non-numeric or understated one falls through to a streaming byte
+counter that rejects the same way without buffering the file. The limit
+covers operator uploads only — the report `sync` path is uncapped (upstream
+export size is the operator's own config) — and a rejected import never
+touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
 
 ## Query-param allowlist (reports probe)
 
