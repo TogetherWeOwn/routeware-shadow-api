@@ -64,6 +64,25 @@ export function parseBool(s: string): boolean {
   return t === "true" || t === "1" || t === "yes";
 }
 
+/**
+ * TOG-6542: missing/empty boolean with an enabled-true default.
+ *
+ * The cron CSV path collapses "column absent" and "empty cell" to `""`
+ * (via `cell()`), while the write-through path (`detailFullSync.ts`) and
+ * the D1 schema (`DEFAULT 1`) default absent `Enabled`/`ExtrasAllowed` to
+ * `true`. Plain `parseBool("")` is `false`, so the same entity flapped
+ * disabled (cron) / enabled (POST). Use this for `Enabled`/`ExtrasAllowed`
+ * only; `OnCall`/`GPSLocked` correctly stay on `parseBool` (DB `DEFAULT 0`,
+ * write-through defaults `false`).
+ */
+export function parseBoolDefaultTrue(s: string): boolean {
+  const t = s.trim().toLowerCase();
+  if (t === "") {
+    return true;
+  }
+  return t === "true" || t === "1" || t === "yes";
+}
+
 export function parseInt10(s: string): number | null {
   const t = s.trim();
   if (t === "") {

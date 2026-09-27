@@ -2,7 +2,7 @@ import {
   cell,
   emptyToNull,
   mapCsvHeaders,
-  parseBool,
+  parseBoolDefaultTrue,
   parseCsvLine
 } from "./csvParse";
 
@@ -59,7 +59,7 @@ export function parseCustomerSnapshotRow(
     phone1: emptyToNull(cell(cols, row, "Phone1", "phone1")),
     phone2: emptyToNull(cell(cols, row, "Phone2", "phone2")),
     comments: emptyToNull(cell(cols, row, "Comments", "comments")),
-    enabled: parseBool(cell(cols, row, "Enabled", "enabled"))
+    enabled: parseBoolDefaultTrue(cell(cols, row, "Enabled", "enabled"))
   };
 }
 
