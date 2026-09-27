@@ -140,3 +140,39 @@ export async function invalidateCustomerGraph(params: {
     await Promise.all(ops.slice(i, i + INVALIDATE_GRAPH_CHUNK_SIZE).map((op) => op()));
   }
 }
+
+/**
+ * TOG-6534: bounded retry around `invalidateCustomerGraph`.
+ *
+ * A mid-graph throw leaves the graph partially invalidated — the deletes
+ * before the failure landed, the rest did not — and the POST handlers cannot
+ * resume the remainder from the single customer id alone, so stale
+ * address/container PII keeps serving. Cache deletes are idempotent, so the
+ * whole graph is simply attempted again, up to `maxAttempts` total tries.
+ * Each failed attempt is logged server-side (error only, never bodies); if
+ * every attempt fails the last error propagates — the same loud contract as
+ * `invalidateCustomerGraph`, so the caller still must not report success.
+ */
+export const INVALIDATE_GRAPH_MAX_ATTEMPTS = 2;
+
+export async function invalidateCustomerGraphWithRetry(
+  params: {
+    customerId: number;
+    addressIds: number[];
+    containerIds: number[];
+  },
+  maxAttempts: number = INVALIDATE_GRAPH_MAX_ATTEMPTS
+): Promise<void> {
+  const attempts = Math.max(1, Math.floor(maxAttempts));
+  let lastError: unknown = new Error("invalidateCustomerGraphWithRetry: no attempts made");
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await invalidateCustomerGraph(params);
+      return;
+    } catch (e) {
+      lastError = e;
+      console.error(`invalidateCustomerGraph attempt ${attempt}/${attempts} failed`, e);
+    }
+  }
+  throw lastError;
+}
