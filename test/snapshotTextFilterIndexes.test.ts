@@ -32,6 +32,15 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  *   multi-line like 0001/0002.
  * - `console.log` is swallowed in the pool, so every observation is an
  *   assertion, not a log line.
+ *
+ * TOG-7383 extension: the same file now also audits the shapes 0003 did NOT
+ * touch — the customer list/filter queries (served by 0001's
+ * `idx_customer_snapshot_enabled`, so 0003 is a no-op for them) and the
+ * container `customerId` join composed with `enabled + q`. Verdict: no
+ * missing-index gaps; no migration 0004 needed. The full 23-shape EXPLAIN
+ * matrix (before/after, all three tables) was run under `node:sqlite`
+ * (SQLite 3.53.4, same engine family as D1) and its per-shape plan lines are
+ * quoted in `docs/TEST-INVARIANTS.md` § "migration 0003".
  */
 
 const db = () => (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
@@ -71,9 +80,15 @@ async function explain(sql: string, ...binds: unknown[]): Promise<string[]> {
 const ADDR_SELECT =
   "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments, " +
   "extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at FROM address_snapshot";
+const CUST_SELECT =
+  "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name, " +
+  "name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at FROM customer_snapshot";
 const ADDR_Q = "instr(lower(coalesce(address, '')), lower(?)) > 0";
+const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
 const CONT_Q =
   "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
+// TOG-7383: same join shape as src/routes/containerSnapshot.ts `customerId` filter.
+const CONT_JOIN = "INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id";
 
 const plans: Record<string, string[]> = {};
 
@@ -121,6 +136,18 @@ beforeAll(async () => {
     "main",
     "main"
   );
+  // TOG-7383: customer shapes use 0001's idx_customer_snapshot_enabled, so
+  // capture them BEFORE 0003 to prove 0003 is a no-op for that table.
+  plans.custEnabledQBefore = await explain(
+    `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
+    "acme",
+    50,
+    0
+  );
+  plans.custCountEnabledQBefore = await explain(
+    `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
+    "acme"
+  );
 
   await applyMigration(m3);
 
@@ -159,6 +186,34 @@ beforeAll(async () => {
   );
   plans.contQAloneAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    "main",
+    "main",
+    50,
+    0
+  );
+  // TOG-7383: prove 0003 changes nothing for the customer table (0001's
+  // enabled index already serves its shapes), record the customer q-alone
+  // boundary, and pin the container customerId-join + enabled + q plan.
+  plans.custEnabledQAfter = await explain(
+    `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
+    "acme",
+    50,
+    0
+  );
+  plans.custCountEnabledQAfter = await explain(
+    `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
+    "acme"
+  );
+  plans.custQAloneAfter = await explain(
+    `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} ORDER BY customer_id LIMIT ? OFFSET ?`,
+    "acme",
+    50,
+    0
+  );
+  plans.contJoinEnabledQAfter = await explain(
+    `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
+      `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    1,
     "main",
     "main",
     50,
@@ -269,6 +324,56 @@ describe("container text filter (q over location_address OR serial_number)", () 
       .prepare(
         `SELECT c.container_id FROM container_snapshot c INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id ` +
           `WHERE a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
+      )
+      .bind(1, "main", "main", 50, 0)
+      .all<{ container_id: number }>();
+    expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
+  });
+});
+
+describe("customer text filter (q over company_name) — TOG-7383", () => {
+  it("already seeks 0001's enabled index before 0003", () => {
+    expect(plans.custEnabledQBefore.join(" ")).toContain(
+      "SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)"
+    );
+    expect(plans.custCountEnabledQBefore.join(" ")).toContain(
+      "SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)"
+    );
+  });
+
+  it("0003 is a no-op for the customer table (no 0003 index involved)", () => {
+    expect(plans.custEnabledQAfter).toEqual(plans.custEnabledQBefore);
+    expect(plans.custCountEnabledQAfter).toEqual(plans.custCountEnabledQBefore);
+    expect(plans.custEnabledQAfter.join(" ")).not.toContain("0003");
+  });
+
+  it("q-alone still scans — same instr() substring boundary as address/container", () => {
+    expect(plans.custQAloneAfter.join(" ")).toContain("SCAN");
+    expect(plans.custQAloneAfter.join(" ")).not.toContain("SEARCH");
+  });
+
+  it("still returns the right rows for enabled + q (filter proof)", async () => {
+    const r = await db()
+      .prepare(`${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`)
+      .bind("acme", 50, 0)
+      .all<{ customer_id: number }>();
+    expect((r.results ?? []).map((x) => x.customer_id)).toEqual([1]);
+  });
+});
+
+describe("container customerId join + enabled + q — TOG-7383", () => {
+  it("seeks indexes after 0003 (enabled-prefix composite on c, customer_id on a)", () => {
+    const plan = plans.contJoinEnabledQAfter.join(" ");
+    expect(plan).toContain("SEARCH");
+    expect(plan).toMatch(/idx_container_snapshot_enabled_(serial|location)_lower/);
+    expect(plan).toContain("idx_address_snapshot_customer_id");
+  });
+
+  it("still returns the right rows for join + enabled + q (filter proof)", async () => {
+    const r = await db()
+      .prepare(
+        `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
+          `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
       .bind(1, "main", "main", 50, 0)
       .all<{ container_id: number }>();
