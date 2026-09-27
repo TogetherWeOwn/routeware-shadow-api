@@ -132,9 +132,17 @@ describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
 });
 
 describe("fetchReportCsvByQueryId scrub (TOG-5821 site 10)", () => {
-  it("reports the status without the upstream body", async () => {
-    // Arrange / Act — the message used to reach the cron log wrapped in
-    // `[step]` context.
+  // TOG-6543: every query-id fetch polls QueryRequestIsComplete first, so the
+  // download-throw pin queues a completed poll ahead of the failing download.
+  const pollComplete = () =>
+    new Response("true", {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+
+  it("reports the poll status without the upstream body", async () => {
+    // Arrange / Act — the poll itself fails; the message used to reach the
+    // cron log wrapped in `[step]` context.
     behavior.responses = [piiResponse];
     const error = (await fetchReportCsvByQueryId(baseEnv, "23").catch(
       (e: unknown) => e
@@ -142,6 +150,21 @@ describe("fetchReportCsvByQueryId scrub (TOG-5821 site 10)", () => {
 
     // Assert
     expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("QueryRequestIsComplete failed: HTTP 503");
+    expectScrubbed(error.message, "503");
+  });
+
+  it("reports the download status without the upstream body", async () => {
+    // Arrange / Act — the poll completes, then both download attempts fail
+    // with a body carrying PII-shaped text.
+    behavior.responses = [pollComplete, piiResponse, piiResponse];
+    const error = (await fetchReportCsvByQueryId(baseEnv, "23").catch(
+      (e: unknown) => e
+    )) as Error;
+
+    // Assert
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("QueryExecuteDownload failed: HTTP 503");
     expectScrubbed(error.message, "503");
   });
 });
