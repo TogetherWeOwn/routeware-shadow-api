@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-09-27
+
+Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
+health, Routeware account/customer/report proxies, customer/address/container
+snapshots with sync and import, data-entity reads and writes, and the
+versioned OpenAPI document at `GET /openapi.json`.
+
 - TOG-5840: `openapi.json` `info.version` is now wired to
   `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
   `1.0.0`, so consumers can tell releases apart. Added
