@@ -104,7 +104,7 @@ const appSettingsGetRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -132,10 +132,10 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream read failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered appSettingsGet with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+        "Upstream read failed: Routeware answered appSettingsGet with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -170,7 +170,7 @@ const queryRequestIsCompleteRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -201,10 +201,10 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream read failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered QueryRequestIsComplete with HTTP 200 but the body looks like an HTML error page (silent failure). The poll did not succeed.",
+        "Upstream read failed: Routeware answered QueryRequestIsComplete with HTTP 200 but the body looks like an HTML error page (silent failure). The poll did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }

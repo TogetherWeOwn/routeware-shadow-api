@@ -101,7 +101,7 @@ describe("read passthrough silent-failure guard (TOG-6266)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream read failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("CustomersRead");
   });
@@ -139,7 +139,7 @@ describe("read passthrough silent-failure guard (TOG-6266)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream read failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("GetCustomerDetailFull");
   });
@@ -163,7 +163,7 @@ describe("read passthrough silent-failure guard (TOG-6266)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream read failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("CustomerTypesRead");
   });
@@ -187,7 +187,7 @@ describe("read passthrough silent-failure guard (TOG-6266)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream read failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("appSettingsGet");
   });
@@ -209,7 +209,7 @@ describe("read passthrough silent-failure guard (TOG-6266)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream read failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("QueryRequestIsComplete");
   });

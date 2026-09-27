@@ -126,7 +126,9 @@ containerSnapshotRoutes.openapi(containerSnapshotByIdRoute, async (c) => {
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
-      detail: "containerId must be an integer"
+      detail:
+        "containerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#containerId=${c.req.param("containerId")}`
     });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
@@ -143,7 +145,8 @@ containerSnapshotRoutes.openapi(containerSnapshotByIdRoute, async (c) => {
       type: problemType("not-found"),
       title: "Not Found",
       status: 404,
-      detail: `No container row for container_id=${id}`
+      detail: `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.url).pathname}#container_id=${id}`
     });
   }
   return c.json(row, 200);
@@ -171,21 +174,23 @@ const containerSnapshotSyncRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
-    503: { description: "Not configured" }
+    503: { description: "Service Unavailable" }
   }
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotSyncRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const misconfigured = requireSnapshotSecret(c.env);
+  const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   if (!c.env.CONTAINER_REPORT_EXPORT_PATH?.trim() && !c.env.CONTAINER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: problemType("misconfigured"),
-      title: "Not configured",
+      title: "Service Unavailable",
       status: 503,
-      detail: "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
+      detail:
+        "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await runContainerSnapshotSync(c.env);
@@ -235,8 +240,11 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
   if (!body) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST the CSV as raw body. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body);

@@ -425,7 +425,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "503": {
-            "description": "Not configured",
+            "description": "Service Unavailable",
           },
         },
         "summary": "Fetch address report CSV and upsert D1",
@@ -666,7 +666,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "503": {
-            "description": "Not configured",
+            "description": "Service Unavailable",
           },
         },
         "summary": "Fetch container report CSV and upsert D1",
@@ -885,7 +885,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Missing or invalid bearer token",
           },
           "503": {
-            "description": "Secret or report path not configured",
+            "description": "Service Unavailable",
           },
         },
         "summary": "Fetch Routeware report CSV and upsert D1",
@@ -1043,13 +1043,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad Request",
           },
           "401": {
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Token preparation failed",
+            "description": "Bad Gateway",
           },
         },
         "summary": "Create/update address in Routeware + sync D1",
@@ -1141,13 +1141,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad Request",
           },
           "401": {
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Token preparation failed",
+            "description": "Bad Gateway",
           },
         },
         "summary": "Create/update container in Routeware + sync D1",
@@ -1263,13 +1263,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad Request",
           },
           "401": {
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Token preparation failed",
+            "description": "Bad Gateway",
           },
         },
         "summary": "Create/update customer in Routeware + sync D1",
@@ -1407,7 +1407,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "SaveAddressForm (create or update)",
@@ -1464,7 +1464,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "SaveContainerForm (create or update)",
@@ -1557,7 +1557,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "CustomerTypesRead",
@@ -1633,7 +1633,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "CustomersRead (harvested SPA traffic)",
@@ -1683,7 +1683,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "GetCustomerDetailFull",
@@ -1798,7 +1798,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "SaveCustomerLongForm (create or update)",
@@ -1841,7 +1841,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "appSettingsGet",
@@ -1915,7 +1915,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
           "502": {
-            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+            "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "QueryRequestIsComplete (allowlisted query params forwarded upstream)",

@@ -211,8 +211,8 @@ describe("GET /api/v1/data/customer", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(BAD_REQUEST_TYPE);
-    expect(body.title).toBe("Bad request");
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.title).toBe("Bad Request");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
     expect(calls.getCustomer).toBeUndefined();
   });
 
@@ -247,13 +247,13 @@ describe.each([
     name: "address",
     path: "/api/v1/data/address",
     handler: "getAddress",
-    detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
+    detail: "Query `id` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request."
   },
   {
     name: "container",
     path: "/api/v1/data/container",
     handler: "getContainer",
-    detail: "Query `id` (container_id) is required and must be a positive integer."
+    detail: "Query `id` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request."
   }
 ])("GET $path", (spec) => {
   it("delegates a positive id", async () => {

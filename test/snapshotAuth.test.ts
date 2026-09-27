@@ -15,22 +15,24 @@ import { problemType } from "../src/lib/problem";
  * either, so sending the API token passes the outer gate and is then rejected
  * by the inner check — which is exactly the path these tests exercise.
  *
- * The `detail` strings are asserted verbatim. They are inconsistent between
- * routes today (some omit `detail` entirely); that is pre-existing, and pinning
- * it here is deliberate, so a later DRY pass cannot quietly change the wording
- * a client sees.
+ * The inner 401 body is canonical (TOG-7030): one detail naming the sync
+ * secret and the remedy doc, plus `instance` for the request path. Per-route
+ * wording drift was unified in `requireSnapshotAuth` itself.
  */
 
 const API_TOKEN = "test-api-token";
 const SYNC_SECRET = "test-sync-secret";
 
 const UNAUTHORIZED_TYPE = problemType("unauthorized");
+const INNER_DETAIL =
+  "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized.";
 
 type ProblemBody = {
   type: string;
   title: string;
   status: number;
   detail?: string;
+  instance?: string;
 };
 
 async function call(
@@ -45,43 +47,19 @@ async function call(
   return exports.default.fetch(`http://test.local${path}`, { method, headers });
 }
 
-/** Every route guarded by the narrower snapshot-secret check, with its exact 401 detail. */
-const GUARDED_ROUTES: Array<{ method: string; path: string; detail?: string }> = [
-  {
-    method: "POST",
-    path: "/api/v1/customer-snapshot/sync",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  {
-    method: "POST",
-    path: "/api/v1/customer-snapshot/import",
-    detail: "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset."
-  },
-  {
-    method: "POST",
-    path: "/api/v1/data-snapshot/sync",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  { method: "POST", path: "/api/v1/address-snapshot/sync", detail: "Bearer token required." },
+/** Every route guarded by the narrower snapshot-secret check. All 13 share the canonical inner 401 body. */
+const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
+  { method: "POST", path: "/api/v1/customer-snapshot/sync" },
+  { method: "POST", path: "/api/v1/customer-snapshot/import" },
+  { method: "POST", path: "/api/v1/data-snapshot/sync" },
+  { method: "POST", path: "/api/v1/address-snapshot/sync" },
   { method: "POST", path: "/api/v1/address-snapshot/import" },
   { method: "POST", path: "/api/v1/container-snapshot/sync" },
   { method: "POST", path: "/api/v1/container-snapshot/import" },
-  {
-    method: "GET",
-    path: "/api/v1/data/customer?id=1",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  {
-    method: "GET",
-    path: "/api/v1/data/address?id=1",
-    detail: "Bearer required (same as snapshot sync secret)."
-  },
-  {
-    method: "GET",
-    path: "/api/v1/data/container?id=1",
-    detail: "Bearer required (same as snapshot sync secret)."
-  },
-  { method: "POST", path: "/api/v1/data/customer", detail: "Bearer required." },
+  { method: "GET", path: "/api/v1/data/customer?id=1" },
+  { method: "GET", path: "/api/v1/data/address?id=1" },
+  { method: "GET", path: "/api/v1/data/container?id=1" },
+  { method: "POST", path: "/api/v1/data/customer" },
   { method: "POST", path: "/api/v1/data/address" },
   { method: "POST", path: "/api/v1/data/container" }
 ];
@@ -141,14 +119,16 @@ describe("snapshot-secret auth gate", () => {
       // Arrange / Act — a valid app token that is NOT the sync secret.
       const response = await call(route.method, route.path);
 
-      // Assert
+      // Assert — the canonical inner 401: same detail on every route, plus
+      // the request path as instance.
       expect(response.status).toBe(401);
       expect(response.headers.get("content-type")).toContain("problem+json");
       const body = (await response.json()) as ProblemBody;
       expect(body.type).toBe(UNAUTHORIZED_TYPE);
       expect(body.title).toBe("Unauthorized");
       expect(body.status).toBe(401);
-      expect(body.detail).toBe(route.detail);
+      expect(body.detail).toBe(INNER_DETAIL);
+      expect(body.instance).toBe(route.path.split("?")[0]);
     });
   }
 
@@ -169,7 +149,7 @@ describe("snapshot-secret auth gate", () => {
 
     // Assert — the request reached the sync body instead of being turned away at
     // the gate. `[env.test.vars]` sets CONTAINER_REPORT_QUERY_ID, so the 503
-    // "not configured" short-circuit does not fire; the attempted upstream call
+    // short-circuit does not fire; the attempted upstream call
     // is what proves the inner check was cleared.
     //
     // The status is pinned to 500, not merely `not.toBe(401)`: the stub above makes

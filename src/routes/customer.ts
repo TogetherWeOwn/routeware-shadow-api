@@ -58,7 +58,7 @@ const customersReadRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -99,10 +99,10 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream read failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered CustomersRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+        "Upstream read failed: Routeware answered CustomersRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -137,7 +137,7 @@ const customerDetailFullRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -166,10 +166,10 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream read failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered GetCustomerDetailFull with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+        "Upstream read failed: Routeware answered GetCustomerDetailFull with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -204,7 +204,7 @@ const customerTypesReadRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -232,10 +232,10 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream read failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered CustomerTypesRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed.",
+        "Upstream read failed: Routeware answered CustomerTypesRead with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -285,7 +285,7 @@ const customerSaveLongFormRoute = createRoute({
     ...upstreamPassthrough200,
     502: {
       description:
-        "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -304,11 +304,13 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     );
   } catch (err) {
     console.error("prepareSaveCustomerLongFormBody", err);
+    const msg = err instanceof Error ? err.message : String(err);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Anti-forgery token preparation failed",
+      title: "Bad Gateway",
       status: 502,
-      detail: err instanceof Error ? err.message : String(err)
+      detail: `Anti-forgery token preparation failed: ${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.url).pathname
     });
   }
   const upstreamUrl = routewareWebRwUrl(
@@ -339,10 +341,10 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream save failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered SaveCustomerLongForm with HTTP 200 but the body looks like an HTML error page (silent failure). The save did not succeed.",
+        "Upstream save failed: Routeware answered SaveCustomerLongForm with HTTP 200 but the body looks like an HTML error page (silent failure). The save did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -412,9 +414,11 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
   if (!Number.isInteger(customerId) || customerId <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Bad request",
+      title: "Bad Request",
       status: 400,
-      detail: "Query `customerID` is required and must be a positive integer."
+      detail:
+        "Query `customerID` is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const upstreamUrl = routewareWebRwUrlWithQueryAllowlist(
@@ -452,10 +456,10 @@ const customerDeleteNotSupportedRoute = createRoute({
 customerRoutes.openapi(customerDeleteNotSupportedRoute, (c) =>
   problemJsonResponse({
     type: problemType("method-not-allowed"),
-    title: "Customer delete not supported",
+    title: "Method Not Allowed",
     status: 405,
     detail:
-      "Routeware does not support deleting customers via HTTP DELETE. Load the customer with GET /api/v1/routeware/customer/load-long-modal?customerID={id}, then POST /api/v1/routeware/customer/save-long-form with the same field set and Enabled=false (or your tenant’s equivalent) to disable the record.",
+      "Customer delete is not supported: Routeware does not support deleting customers via HTTP DELETE. Load the customer with GET /api/v1/routeware/customer/load-long-modal?customerID={id}, then POST /api/v1/routeware/customer/save-long-form with the same field set and Enabled=false (or your tenant’s equivalent) to disable the record. See docs/PROBLEMS.md#method-not-allowed.",
     instance: new URL(c.req.url).pathname
   })
 );

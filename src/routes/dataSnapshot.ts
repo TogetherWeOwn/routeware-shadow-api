@@ -40,9 +40,9 @@ const dataSnapshotSyncRoute = createRoute({
 });
 
 dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
   const r = await runDataSnapshotSyncChainedHttp(origin, c.env);

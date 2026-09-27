@@ -34,7 +34,7 @@ export function notFoundProblem(path: string): Response {
     type: problemType("not-found"),
     title: "Not Found",
     status: 404,
-    detail: `No operation registered for ${path}`,
+    detail: `No operation registered for ${path}. See docs/PROBLEMS.md#not-found.`,
     instance: path
   });
 }
