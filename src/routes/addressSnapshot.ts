@@ -57,6 +57,10 @@ const addressSnapshotListRoute = createRoute({
     200: {
       description: "Rows and total",
       content: { "application/json": { schema: snapshotListResponse } }
+    },
+    400: {
+      description:
+        "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -278,7 +282,11 @@ const addressSnapshotImportRoute = createRoute({
         }
       }
     },
-    401: { description: "Unauthorized" }
+    401: { description: "Unauthorized" },
+    400: {
+      description:
+        "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
+    }
   }
 });
 
