@@ -23,6 +23,37 @@ const customersReadRoute = createRoute({
   summary: "CustomersRead (harvested SPA traffic)",
   description:
     "Forwards the JSON body to WebRW `CustomersRead` with **application/json** (e.g. the harvested Ext.NET store shape: `filter`, `page`, `start`, `limit`, `group`, `sort`). OData-style `skip`/`take` keys are translated server-side onto `start`/`limit` (which upstream is proven to honor via the harvested SPA traffic); an explicit `start`/`limit` always wins and non-JSON bodies pass through untouched. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "Ext.NET store read body (see example)",
+      content: {
+        "application/json": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              filter: { type: "array" },
+              page: { type: "integer" },
+              start: { type: "integer" },
+              limit: { type: "integer" },
+              group: { type: "string" },
+              sort: { type: "string" }
+            }
+          },
+          // Mirrors tools/api-discovery/examples/customers-read.post.example.json.
+          example: {
+            filter: [{ property: "CustomerID", operator: ">", value: 0 }],
+            page: 1,
+            start: 0,
+            limit: 50,
+            group: "[]",
+            sort: '[{"property":"CustomerID","direction":"ASC"}]'
+          }
+        }
+      }
+    }
+  },
   responses: {
     ...upstreamPassthrough200,
     502: {
@@ -84,7 +115,24 @@ const customerDetailFullRoute = createRoute({
   tags: ["customer"],
   summary: "GetCustomerDetailFull",
   description:
-    "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+    "Loads one customer record from WebRW `GetCustomerDetailFull` with **application/json** (e.g. `{\"CustomerID\": 345734}` — set a real id). Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "Detail lookup body (see example — set CustomerID to a real id)",
+      content: {
+        "application/json": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: { CustomerID: { type: "integer" } }
+          },
+          // Mirrors tools/api-discovery/examples/get-customer-detail-full.post.example.json.
+          example: { CustomerID: 345734 }
+        }
+      }
+    }
+  },
   responses: {
     ...upstreamPassthrough200,
     502: {
@@ -135,6 +183,23 @@ const customerTypesReadRoute = createRoute({
   summary: "CustomerTypesRead",
   description:
     "Customer type / category list for pickers (same store pattern as other Ext.NET `*Read` actions). Send **application/x-www-form-urlencoded** (e.g. `EnabledOnly=true`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "Picker filter body (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: { EnabledOnly: { type: "string" } }
+          },
+          // Mirrors tools/api-discovery/examples/customer-types-read.post.example.urlencoded.
+          example: { EnabledOnly: "true" }
+        }
+      }
+    }
+  },
   responses: {
     ...upstreamPassthrough200,
     502: {
@@ -184,6 +249,38 @@ const customerSaveLongFormRoute = createRoute({
   summary: "SaveCustomerLongForm (create or update)",
   description:
     "Proxies to WebRW `SaveCustomerLongForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `AddNewLong` (create, `CustomerID` 0 / absent) or `LoadLongCustomerModal?customerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `CustomerID=0` for create; set `CustomerID` for updates. Disable customers with `Enabled=false` (no upstream delete). Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "Ext.NET/MVC customer form body — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              CustomerTypeID: { type: "string" },
+              CompanyName: { type: "string" },
+              FirstName: { type: "string" },
+              LastName: { type: "string" },
+              Enabled: { type: "string" },
+              CustomerID: { type: "string" }
+            }
+          },
+          // Mirrors tools/api-discovery/examples/save-customer-long-form.post.example.urlencoded.
+          example: {
+            CustomerTypeID: "1",
+            CompanyName: "ExampleCo",
+            FirstName: "Jane",
+            LastName: "Doe",
+            Enabled: "true",
+            CustomerID: "0"
+          }
+        }
+      }
+    }
+  },
   responses: {
     ...upstreamPassthrough200,
     502: {

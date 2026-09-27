@@ -8,6 +8,10 @@ export const metaRoutes = createRouteModule();
 const healthRoute = createRoute({
   method: "get",
   path: "/api/v1/health",
+  tags: ["meta"],
+  summary: "Liveness probe (public, no bearer)",
+  description:
+    "The one route the `/api/v1/*` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is `GET /api/v1/readiness`.",
   security: [],
   responses: {
     200: {

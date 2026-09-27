@@ -24,6 +24,10 @@ export const routewareRoutes = createRouteModule();
 const loginPageRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/account/login-page",
+  tags: ["routeware"],
+  summary: "Routeware login page (sessionless probe)",
+  description:
+    "Fetches the fixed `LOGIN_URL` with no session — never reads or writes the shared Routeware session, sends no `Cookie` upstream, and strips upstream `Set-Cookie`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`; the client query string is never forwarded. See `docs/PROBLEMS.md` § login-page fetch.",
   responses: {
     200: {
       description:
@@ -43,6 +47,10 @@ routewareRoutes.openapi(loginPageRoute, async (c) => {
 const homeIndexRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/home/index",
+  tags: ["routeware"],
+  summary: "Routeware home index (sessioned passthrough)",
+  description:
+    "Forwards to WebRW `Home/Index` under the shared Routeware session (unlike the sessionless `login-page` probe). Upstream answers with whatever content type the SPA serves — HTML, JSON, or other.",
   responses: {
     200: {
       description:
@@ -77,7 +85,21 @@ const appSettingsGetRoute = createRoute({
   tags: ["data"],
   summary: "appSettingsGet",
   description:
-    "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+    "Reads WebRW `Data/appSettingsGet` with **application/json** (the harvested body is `{}`). Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "App-settings body (see example — the harvested body is empty)",
+      content: {
+        "application/json": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: { type: "object" },
+          // Mirrors tools/api-discovery/examples/app-settings-get.post.example.json.
+          example: {}
+        }
+      }
+    }
+  },
   responses: {
     ...upstreamPassthrough200,
     502: {

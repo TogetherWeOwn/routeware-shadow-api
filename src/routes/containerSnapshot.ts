@@ -100,6 +100,8 @@ const containerSnapshotByIdRoute = createRoute({
   path: "/api/v1/container-snapshot/{containerId}",
   tags: ["container-snapshot"],
   summary: "Get one container snapshot row",
+  description:
+    "Reads one row from the daily snapshot DB by `containerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ containerId: z.coerce.number().int() })
   },
@@ -199,6 +201,20 @@ const containerSnapshotImportRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "Import container CSV into D1",
   description: "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys.",
+  request: {
+    body: {
+      description: "Routeware Container Details CSV (header + data rows — see example)",
+      content: {
+        "text/csv": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (the handler streams the raw body).
+          schema: { type: "string" },
+          example:
+            "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote\n100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,"
+        }
+      }
+    }
+  },
   responses: {
     200: {
       description: "Result",
