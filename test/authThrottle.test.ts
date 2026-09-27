@@ -8,6 +8,7 @@ import {
   clearAuthFailures,
   clientIpFromRequest,
   recordAuthFailure,
+  resetAuthThrottleFailOpenLogForTests,
   throttleCheckVerdict,
   throttleObjectName,
   throttleRecordFailure,
@@ -224,6 +225,25 @@ describe("throttle fail-open paths", () => {
     } as unknown as Env;
   }
 
+  // `console.error` is swapped directly rather than with `vi.spyOn`: under
+  // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
+  // so reading `console.error` back does not return the installed spy (same
+  // pattern as test/dataEntityPostHandlers.test.ts).
+  const loggedErrors: unknown[][] = [];
+  const realConsoleError = console.error;
+
+  beforeEach(() => {
+    resetAuthThrottleFailOpenLogForTests();
+    loggedErrors.length = 0;
+    console.error = (...args: unknown[]) => {
+      loggedErrors.push(args);
+    };
+  });
+
+  afterEach(() => {
+    console.error = realConsoleError;
+  });
+
   it("records open when the DO fetch rejects (auth still enforced by the caller)", async () => {
     // Arrange
     const env = envWithStub({
@@ -267,6 +287,50 @@ describe("throttle fail-open paths", () => {
 
     // Act / Assert — resolves, does not reject.
     await expect(clearAuthFailures(env, req)).resolves.toBeUndefined();
+  });
+
+  it("logs exactly one error line per window when the DO is down (TOG-6530)", async () => {
+    // Arrange — the throttle DO is dead; caller still enforces auth (open verdict).
+    const env = envWithStub({
+      fetch: async () => {
+        throw new Error("DO unreachable");
+      }
+    });
+
+    // Act — a burst of failures inside one window.
+    const now = 1_000_000;
+    for (let i = 0; i < 5; i++) {
+      const verdict = await recordAuthFailure(env, req, now + i);
+      expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
+    }
+
+    // Assert — exactly one line, fixed category, no IP/token/PII.
+    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+  });
+
+  it("logs non-OK and malformed fail-opens once per window, then again after the window", async () => {
+    // Arrange
+    const badStatus = envWithStub({ fetch: async () => new Response("x", { status: 500 }) });
+    const malformed = envWithStub({
+      fetch: async () => Response.json({ blocked: "yes-ish" })
+    });
+
+    // Act — both failure kinds inside one window.
+    const now = 2_000_000;
+    await recordAuthFailure(badStatus, req, now);
+    await recordAuthFailure(malformed, req, now + 1);
+
+    // Assert — the first line wins; the second is deduped within the window.
+    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"]]);
+
+    // Act — past the window edge the alarm fires again.
+    await recordAuthFailure(malformed, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
+
+    // Assert
+    expect(loggedErrors).toEqual([
+      ["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"],
+      ["AUTH THROTTLE FAIL-OPEN do_malformed"]
+    ]);
   });
 });
 

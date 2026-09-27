@@ -68,6 +68,32 @@ function retryAfterSec(blockedUntilMs: number, nowMs: number): number {
   return Math.max(1, Math.ceil((blockedUntilMs - nowMs) / 1000));
 }
 
+/**
+ * Process-wide timestamp of the last fail-open log line. A down throttle DO
+ * would otherwise emit one line per failed request (up to brute-force volume);
+ * dedup to one line per `AUTH_THROTTLE_WINDOW_MS` keeps the alarm without
+ * spamming the log.
+ */
+let lastFailOpenLogMs: number | null = null;
+
+/**
+ * Log a throttle fail-open exactly once per window. `reason` is one of the
+ * fixed categories (`do_error`, `do_non_ok status=N`, `do_malformed`) — never
+ * an IP, token, header, or body (CONVENTIONS.md §1 fact 2, §4).
+ */
+function logFailOpenOnce(reason: string, nowMs: number): void {
+  if (lastFailOpenLogMs !== null && nowMs - lastFailOpenLogMs < AUTH_THROTTLE_WINDOW_MS) {
+    return;
+  }
+  lastFailOpenLogMs = nowMs;
+  console.error(`AUTH THROTTLE FAIL-OPEN ${reason}`);
+}
+
+/** Test-only: reset the per-window fail-open log dedup. */
+export function resetAuthThrottleFailOpenLogForTests(): void {
+  lastFailOpenLogMs = null;
+}
+
 export function throttleCheckVerdict(
   state: AuthThrottleState | null,
   nowMs: number
@@ -85,10 +111,15 @@ export function throttleCheckVerdict(
  * Record one failed outer-gate check for the request's IP and report whether
  * the IP is now throttled. Never throws: storage errors fail OPEN to the
  * pre-throttle 401 behavior (auth itself is still enforced by the caller).
+ *
+ * Fail-open is logged exactly once per `AUTH_THROTTLE_WINDOW_MS` (process-wide,
+ * so a down throttle DO cannot spam the log): the line is a fixed string with
+ * a reason category (and status code for non-OK) — never IP, token, or body.
  */
 export async function recordAuthFailure(
   env: Env,
-  req: HeaderReader
+  req: HeaderReader,
+  nowMs: number = Date.now()
 ): Promise<AuthThrottleVerdict> {
   const open: AuthThrottleVerdict = { blocked: false, retryAfterSec: 0 };
   try {
@@ -99,14 +130,17 @@ export async function recordAuthFailure(
       method: "POST"
     });
     if (!res.ok) {
+      logFailOpenOnce(`do_non_ok status=${res.status}`, nowMs);
       return open;
     }
     const verdict = (await res.json()) as Partial<AuthThrottleVerdict>;
     if (typeof verdict.blocked !== "boolean" || typeof verdict.retryAfterSec !== "number") {
+      logFailOpenOnce("do_malformed", nowMs);
       return open;
     }
     return { blocked: verdict.blocked, retryAfterSec: verdict.retryAfterSec };
   } catch {
+    logFailOpenOnce("do_error", nowMs);
     return open;
   }
 }
