@@ -41,7 +41,7 @@ Use the **sync secret**, not `SHADOW_API_TOKEN`: the app-wide gate accepts eithe
 
 ## 2. Import order: customers → addresses → containers
 
-D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and the **local D1 enforces it**: importing an address whose customer is missing (or a container whose address is missing) fails with a 500 (`D1 address_snapshot batch at row offset …: D1_ERROR: FOREIGN KEY constraint failed` in the Worker log, §7). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. (This contradicts `CUSTOMER_SNAPSHOT.md` and the `upsert.ts`/`reconcile.ts` header comments, which say D1 does *not* enforce FKs: on the local D1 used to validate this doc — fresh migrate, `wrangler dev`, 2026-09-27 — `PRAGMA foreign_keys` returned `1` and both direct-SQL and Worker-path orphan writes were rejected with `SQLITE_CONSTRAINT_FOREIGNKEY`. Remote-D1 behavior was not verified from here.) The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:102-121`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
+D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and the **local D1 enforces it**: importing an address whose customer is missing (or a container whose address is missing) fails with a 500 (`D1 address_snapshot batch at row offset …: D1_ERROR: FOREIGN KEY constraint failed` in the Worker log, §7). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. (This contradicts `CUSTOMER_SNAPSHOT.md` and the `upsert.ts` header comments, which say D1 does *not* enforce FKs: on the local D1 used to validate this doc — fresh migrate, `wrangler dev`, 2026-09-27 — `PRAGMA foreign_keys` returned `1` and both direct-SQL and Worker-path orphan writes were rejected with `SQLITE_CONSTRAINT_FOREIGNKEY`. Remote-D1 behavior was not verified from here.) The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:102-121`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
 
 Prefer per-table `.../import` (raw CSV body) for backfill: unlike `.../sync` it needs no report path/query vars and never deletes (see §5). One call per table, **in this order**.
 
@@ -82,7 +82,7 @@ ContainerID,PickupAddressID,Address,SerialNumber,Enabled
 101,11,200 Farm Rd,SN-101,true
 ```
 
-(Containers read the street from the `Address` column into `location_address`; `SerialNumber` is optional but useful for §3 spot checks. Booleans accept `true`/`1`/`yes` — and a boolean column you **omit** imports as false (`parseBool("")` is false), so a CSV without an `Enabled` column lands every row disabled. Include `Enabled` explicitly.)
+(Containers read the street from the `Address` column into `location_address`; `SerialNumber` is optional but useful for §3 spot checks. Booleans accept `true`/`1`/`yes` — and an omitted `Enabled` column imports as **true** (`parseBoolDefaultTrue("")` is true on main, `src/lib/csvParse.ts:78-84`), so a CSV without an `Enabled` column lands every row enabled. Include `Enabled` explicitly to control it.)
 
 **Do not mix a partial `import` with a `sync` mid-backfill:** a `sync` run against a half-loaded chain fails loudly — child rows referencing not-yet-imported parents 500 at the upsert batch, and a parent reconcile whose export dropped still-referenced rows 500s at the delete (§5, §7). Finish all three imports, verify (§3–4), then hand over to the daily cron/`sync` path.
 
@@ -114,7 +114,7 @@ The same reads are available over HTTP (same bearer): `GET /api/v1/customer-snap
 
 ## 4. Orphan checks (must both be zero)
 
-On the local D1 the FK chain is enforced, so an out-of-order `import` fails at the offending batch (§2) rather than writing orphans — but a zero orphan count is still the acceptance proof (and on any D1 where FKs are *not* enforced, a `sync` that reconciles a parent away can strand children). These are the exact anti-joins `getSnapshotOrphans` runs (`src/lib/snapshot/reconcile.ts:58-97`); the counts below must be `0` before the backfill is accepted:
+On the local D1 the FK chain is enforced, so an out-of-order `import` fails at the offending batch (§2) rather than writing orphans — but a zero orphan count is still the acceptance proof (and on any D1 where FKs are *not* enforced, a `sync` that reconciles a parent away can strand children). The counts below must be `0` before the backfill is accepted. (An HTTP equivalent, `GET /api/v1/data-snapshot/orphans`, lands with [TOG-5814](/TOG/issues/TOG-5814) and is not on `main` yet — use the SQL here.)
 
 ```bash
 npx wrangler d1 execute routeware-customer-snapshot --local --json \
@@ -132,7 +132,6 @@ npx wrangler d1 execute routeware-customer-snapshot --local --json \
   --command "SELECT t.container_id AS id FROM container_snapshot t LEFT JOIN address_snapshot a ON a.pickup_address_id = t.pickup_address_id WHERE a.pickup_address_id IS NULL ORDER BY t.container_id LIMIT 100"
 ```
 
-Shortcut (same bearer, same result, counts plus id samples): `GET /api/v1/data-snapshot/orphans?sampleLimit=100` → `{"orphanAddresses":{"count":0,…},"orphanContainers":{"count":0,…}}`.
 
 ## 5. Caveats that bite (import vs sync, reconciliation)
 
@@ -162,8 +161,8 @@ There is no undo log — every write is an `INSERT … ON CONFLICT DO UPDATE` ke
 | Combined `data-snapshot/sync` returns a table as `null` / `{"skipped":true}` | FK guard: address needs customer configured, container needs both (`getDataSnapshotPlan`) | Configure the missing table's report vars, or backfill that table via `.../import` |
 | Customer `sync` fails at reconcile with `FOREIGN KEY constraint failed` | Export dropped a customer that still has address rows; parent deletes are FK-blocked (§5) | Sync address then container first (their reconciles remove the referencing rows), then re-run the customer sync |
 | Orphan count nonzero after all three imports | Not reachable through `import` on this D1 (FK rejects first) — rows arrived another way | §4 sample queries → fix source → re-import in order |
-| Upstream HTML-200 during `sync` (login page, not CSV) | Routeware session lost, not a D1 problem | Verify tenant credentials; see `docs/CONVENTIONS.md` §1 fact 1 and `docs/SECRET-ROTATION-RUNBOOK.md` §2.3 |
+| Upstream HTML-200 during `sync` (login page, not CSV) | Routeware session lost, not a D1 problem | Diagnose on body shape/content-type, not status (`docs/CONVENTIONS.md` §1 fact 1); re-verify tenant `LOGIN_USERNAME` + `LOGIN_PASSWORD` in the Routeware UI and re-put the Worker secrets (`npx wrangler secret put LOGIN_USERNAME`, `npx wrangler secret put LOGIN_PASSWORD`), then update local `.dev.vars` |
 
 ## 8. Done criteria
 
-Backfill is accepted when, on the fresh local D1 from §1: the three §3 counts match the three `rowCount`s, both §4 orphan counts are `0` (or the `/orphans` endpoint reports both `count: 0`), and spot checks match the CSVs. At that point the tables are ready for the daily cron/`sync` path to take over (`CUSTOMER_SNAPSHOT.md` checklist steps 5–6; alarm loop in `docs/CRON-SYNC-ALARM-RUNBOOK.md`).
+Backfill is accepted when, on the fresh local D1 from §1: the three §3 counts match the three `rowCount`s, both §4 orphan counts are `0`, and spot checks match the CSVs. At that point the tables are ready for the daily cron/`sync` path to take over (`CUSTOMER_SNAPSHOT.md` checklist steps 5–6; alarm loop in `docs/CRON-SYNC-ALARM-RUNBOOK.md`).
