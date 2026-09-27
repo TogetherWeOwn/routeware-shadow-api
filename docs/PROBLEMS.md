@@ -97,3 +97,24 @@ the login redirect (provably safe); a timeout is never retried, so worst case
 is 2x one attempt. Override per deploy with the optional `UPSTREAM_TIMEOUT_MS`
 / `UPSTREAM_REPORT_TIMEOUT_MS` bindings (absent/invalid falls back to the
 defaults).
+
+## Login-page fetch (sessionless probe)
+
+`GET /api/v1/routeware/account/login-page` fetches the fixed `LOGIN_URL` with
+no session (`forwardToUpstream(..., null, ...)` in `src/routes/routeware.ts`):
+it never calls `readSessionState` or `establishSession`, never reads or writes
+the primary `AuthSession` state, sends no `Cookie` upstream, and strips
+upstream `Set-Cookie` before responding (`docs/CONVENTIONS.md` § 4), so the
+probe can neither leak nor plant the shared Routeware session. Pinned by
+`test/loginPageSessionIsolation.test.ts`.
+
+Usage notes:
+
+- The route is bearer-gated like every `/api/v1/*` route except
+  `GET /api/v1/health` — it is not a public probe. Unauthenticated calls 401
+  at the outer gate and count toward the per-IP `rate-limited` budget above.
+- Each authorized call makes exactly one upstream `GET` (no session-retry
+  loop), and the client query string is never forwarded — the upstream URL is
+  fixed. A valid token clears the caller's own per-IP throttle bucket
+  (`auth-throttle:<ip>`), which is separate storage from the primary session
+  state this route never touches.
