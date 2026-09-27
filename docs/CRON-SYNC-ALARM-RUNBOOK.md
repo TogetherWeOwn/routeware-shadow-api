@@ -131,8 +131,9 @@ curl -s http://localhost:18789/__scheduled
 # error "CUSTOMER_SNAPSHOT_SYNC_SECRET is not set".
 ```
 
-Then re-run the §2 queries with `--local` (empty tables return
-`last_sync: NULL, rows: 0` — the missed-run verdict). Two local quirks, both
+Apply migrations first (`npm run db:migrate:local`), then re-run the §2 queries
+with `--local` (empty tables return `last_sync: NULL, rows: 0` — the missed-run
+verdict). Two local quirks, both
 expected: `cron` is `""` (the `/__scheduled` test trigger sends no cron field;
 production sends `0 7 * * *`), and `wrangler dev` parents orphan `workerd`
 listeners on its ports — map them by socket inode (`/proc/net/tcp`) and kill
