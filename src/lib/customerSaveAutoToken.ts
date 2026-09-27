@@ -1,6 +1,7 @@
+import { isLoginRedirect } from "./loginRedirect";
 import { forwardToUpstream } from "./upstreamForward";
+import { readSessionState, type SessionState } from "./sessionState";
 import { routewareWebRwUrl } from "./upstreamUrl";
-import type { SessionState } from "./sessionState";
 
 function escapeRegexKey(key: string): string {
   return key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -133,10 +134,69 @@ export type PrepareSaveBodyOptions = {
   nowMs?: number;
 };
 
+export type AntiForgeryModalRefresh = {
+  /** AuthSession Durable Object stub; re-read after `establishSession`. */
+  sessionStub: DurableObjectStub;
+  /**
+   * Re-establish the Routeware session — the same `establishSession` the save
+   * POST retry uses, so the modal fetch and the save share one login path.
+   */
+  establishSession: (
+    env: Env,
+    stub: DurableObjectStub,
+    bootstrapUrl: string
+  ) => Promise<void>;
+};
+
+/**
+ * True when modal HTML is actually the Routeware login page, not the modal.
+ *
+ * A cold or server-side-dead session can surface as HTTP 200 HTML (never a
+ * 401 — see CONVENTIONS.md fact 1): upstream serves the login form instead of
+ * the modal. Without this check that shape falls through to the "layout may
+ * have changed" error, blaming markup for a dead session. Markers are the
+ * login URL fragments (`isLoginRedirect` checks the same pair on 302s) plus
+ * the ExtJS login-field ids `browserAuth.ts` drives.
+ */
+export function isRoutewareLoginPageHtml(html: string): boolean {
+  if (html.includes("/Account/Login") || html.includes("Login.aspx")) {
+    return true;
+  }
+  if (html.includes("UserName-inputEl") || html.includes("Password-inputEl")) {
+    return true;
+  }
+  return (
+    /\bname\s*=\s*["']UserName["']/i.test(html) &&
+    /\bname\s*=\s*["']Password["']/i.test(html)
+  );
+}
+
+function sessionExpiredModalError(modalPath: string): Error {
+  return new Error(
+    `Routeware session expired while loading anti-forgery modal (${modalPath}): ` +
+      "upstream returned the login page, not the modal."
+  );
+}
+
+function layoutChangedModalError(): Error {
+  return new Error(
+    "Could not parse __RequestVerificationToken from Routeware modal HTML (layout may have changed)."
+  );
+}
+
 /**
  * Resolve a save-long-form anti-forgery token, preferring the cache. A fresh
  * cached entry for this session + modal URL avoids the modal GET entirely;
  * on a miss (or `forceRefresh`) exactly one GET populates the entry.
+ *
+ * When `refresh` is provided (the save routes pass the AuthSession stub + the
+ * same `establishSession` the save POST retry uses), the modal GET gets the
+ * same session-recovery path as every other upstream call (TOG-6025): a login
+ * redirect — or login-page HTML with HTTP 200 — establishes the session once
+ * and refetches the modal under the fresh session instead of 502ing. Without
+ * `refresh` the fetch still names the session as the cause when upstream
+ * answers with a login redirect/page, so the 502 never blames a layout change
+ * for a dead session.
  */
 export async function resolveSaveCustomerLongFormToken(
   env: Env,
@@ -144,7 +204,8 @@ export async function resolveSaveCustomerLongFormToken(
   incoming: Request,
   modalUrl: URL,
   modalPath: string,
-  options: PrepareSaveBodyOptions = {}
+  options: PrepareSaveBodyOptions = {},
+  refresh?: AntiForgeryModalRefresh
 ): Promise<string> {
   const nowMs = options.nowMs ?? Date.now();
   if (!options.forceRefresh) {
@@ -162,23 +223,67 @@ export async function resolveSaveCustomerLongFormToken(
       referer: incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
+  const fetchModal = (s: SessionState) =>
+    forwardToUpstream(modalReq, modalUrl, s, null, {
+      internalMarker: "anti-forgery-modal"
+    });
 
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
-  });
+  let currentSession = session;
+  let refreshed = false;
+  const recoverOnce = async (): Promise<void> => {
+    if (!refresh || refreshed) {
+      return;
+    }
+    await refresh.establishSession(env, refresh.sessionStub, env.LOGIN_URL);
+    currentSession = await readSessionState(refresh.sessionStub);
+    refreshed = true;
+  };
+
+  let modalResp = await fetchModal(currentSession);
+  // Only refetch when a refresh path exists: without one the second GET would
+  // repeat the dead session verbatim, so fall through to the session-naming
+  // error below instead.
+  if (refresh && !refreshed && isLoginRedirect(modalResp)) {
+    await recoverOnce();
+    modalResp = await fetchModal(currentSession);
+  }
   if (!modalResp.ok) {
+    if (isLoginRedirect(modalResp)) {
+      throw sessionExpiredModalError(modalPath);
+    }
     throw new Error(
       `Could not load anti-forgery modal (${modalPath}): HTTP ${modalResp.status}`
     );
   }
-  const html = await modalResp.text();
+  // The login check runs BEFORE token parsing on purpose: the login form
+  // carries its own `__RequestVerificationToken`, and injecting that token
+  // into the save POST posts a token from the wrong form under no session —
+  // an upstream HTML error page, never a loud failure.
+  let html = await modalResp.text();
+  // Same guard as the 302 path: refetch only when recovery can change the
+  // outcome. The post-retry `isRoutewareLoginPageHtml` throw below still names
+  // the session for callers without `refresh`.
+  if (refresh && !refreshed && isRoutewareLoginPageHtml(html)) {
+    await recoverOnce();
+    const retryResp = await fetchModal(currentSession);
+    if (!retryResp.ok) {
+      if (isLoginRedirect(retryResp)) {
+        throw sessionExpiredModalError(modalPath);
+      }
+      throw new Error(
+        `Could not load anti-forgery modal (${modalPath}): HTTP ${retryResp.status}`
+      );
+    }
+    html = await retryResp.text();
+  }
+  if (isRoutewareLoginPageHtml(html)) {
+    throw sessionExpiredModalError(modalPath);
+  }
   const token = extractRequestVerificationTokenFromHtml(html);
   if (!token) {
-    throw new Error(
-      "Could not parse __RequestVerificationToken from Routeware modal HTML (layout may have changed)."
-    );
+    throw layoutChangedModalError();
   }
-  antiForgeryTokenCache.set(antiForgeryCacheKey(session, modalUrl), {
+  antiForgeryTokenCache.set(antiForgeryCacheKey(currentSession, modalUrl), {
     token,
     expiresAtMs: nowMs + antiForgeryTokenTtlMs(env)
   });
@@ -197,7 +302,8 @@ export async function prepareSaveCustomerLongFormBody(
   incoming: Request,
   bodyBuffer: ArrayBuffer | null,
   contentType: string | null,
-  options: PrepareSaveBodyOptions = {}
+  options: PrepareSaveBodyOptions = {},
+  refresh?: AntiForgeryModalRefresh
 ): Promise<ArrayBuffer | null> {
   if (!autoTokenEnabled(env)) {
     return bodyBuffer;
@@ -233,7 +339,8 @@ export async function prepareSaveCustomerLongFormBody(
     incoming,
     modalUrl,
     modalPath,
-    options
+    options,
+    refresh
   );
 
   const merged = injectAntiForgeryTokenIntoUrlencoded(raw, token);

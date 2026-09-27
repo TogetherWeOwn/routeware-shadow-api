@@ -106,7 +106,9 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
       session,
       c.req.raw,
       bodyBuffer,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      {},
+      { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (err) {
     console.error("prepareSaveCustomerLongFormBody", err);

@@ -218,7 +218,9 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       session,
       c.req.raw,
       buf,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      {},
+      { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
     return problemJsonResponse({
