@@ -1377,6 +1377,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/reports/query-request-is-complete": {
       "get": {
+        "description": "Polls upstream \`GET /Reports/QueryRequestIsComplete\`. Only \`requestID\` (the one-time report request id) and \`_\` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in \`docs/PROBLEMS.md\` § query-param allowlist.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "requestID",
+            "required": false,
+            "schema": {
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "_",
+            "required": false,
+            "schema": {
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1397,7 +1416,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
         },
-        "summary": "QueryRequestIsComplete (query string forwarded to upstream)",
+        "summary": "QueryRequestIsComplete (allowlisted query params forwarded upstream)",
         "tags": [
           "reports",
         ],

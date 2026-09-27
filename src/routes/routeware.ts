@@ -99,9 +99,8 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
  * (silently ignored) so unknown params never reach Routeware.
  *
  * `requestID` is the one-time report request id (a UUID the browser generates
- * per download, confirmed by the `exampleQuery` in `route-map.json` and
- * `CUSTOMER_SNAPSHOT.md` § query-id mode); `_` is the jQuery cache-buster
- * timestamp the SPA appends.
+ * per download — see `CUSTOMER_SNAPSHOT.md` § query-id mode); `_` is the
+ * jQuery cache-buster timestamp the SPA appends.
  */
 export const QUERY_REQUEST_IS_COMPLETE_PARAMS = ["requestID", "_"] as const;
 
