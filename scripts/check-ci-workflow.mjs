@@ -32,6 +32,17 @@ assert.match(
   "build must run the per-file coverage gate (TOG-6288)"
 );
 
+const hygiene = jobBlock("hygiene");
+// The D1 drift check runs credential-free in hygiene (local apply into a
+// scratch persist dir + manifest compare; the read-only remote compare only
+// runs with --remote plus an ambient token). Pin it present so a migration
+// can never land without the journal/manifest compare.
+assert.match(
+  hygiene,
+  /npm run check:d1-drift/,
+  "hygiene must run the D1 migration drift check (TOG-6275)"
+);
+
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
 // The optional staging probe already has a fail-closed CF_TOKEN gate. Allow only
