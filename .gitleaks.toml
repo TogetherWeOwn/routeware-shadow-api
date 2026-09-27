@@ -1,4 +1,4 @@
-# gitleaks config for the informational CI secret scan (working tree only).
+# gitleaks config for the blocking CI secret scan (full git history).
 # Extends the default ruleset and allowlists intentional dev/test placeholders and
 # fixtures so only NEW, real secrets are flagged.
 [extend]
@@ -18,4 +18,7 @@ regexes = [
   '''test-api-token''',
   '''test-sync-secret''',
   '''test-password-not-real''',
+  # `SNAPSHOTS_R2_ENABLED` is a "true"/"false" feature flag in wrangler.toml, not a
+  # secret — the generic-api-key rule flags the identifier itself (TOG-5485).
+  '''SNAPSHOTS_R2_ENABLED''',
 ]
