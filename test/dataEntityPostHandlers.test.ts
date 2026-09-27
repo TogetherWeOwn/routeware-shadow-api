@@ -282,8 +282,10 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
     expect(calls.entity).toEqual([{ kind: "customer", id: 5 }]);
   });
 
-  it("invalidates the customer when the container sync throws", async () => {
-    // Arrange
+  it("invalidates both the customer and the posted container when the container sync throws", async () => {
+    // Arrange — mirrors the address handler: the posted ContainerID keys its own
+    // cached GET /api/v1/data/container bundle (which nests address + customer
+    // PII), so it must be invalidated too or stale PII is served indefinitely.
     behavior.syncError = "boom";
 
     // Act
@@ -294,6 +296,21 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
     // Assert
     expect(res.status).toBe(200);
     expect(calls.graph).toEqual([]);
+    expect(calls.entity).toEqual([
+      { kind: "customer", id: 5 },
+      { kind: "container", id: 100 }
+    ]);
+  });
+
+  it("invalidates only the customer when the container sync throws and no container id was posted", async () => {
+    // Arrange — a create posts ContainerID=0/absent; only the customer key can be
+    // invalidated because the new container id is unknown until the sync succeeds.
+    behavior.syncError = "boom";
+
+    // Act
+    await handlePostDataContainer(postCtx(formBody({ CustomerID: "5" })));
+
+    // Assert
     expect(calls.entity).toEqual([{ kind: "customer", id: 5 }]);
   });
 });
