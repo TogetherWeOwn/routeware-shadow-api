@@ -3,6 +3,14 @@ import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
 } from "../lib/d1SnapshotSync";
+// Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
+// mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
+// facade import throws at module scope there. The deep module is never mocked.
+import {
+  InvalidSnapshotCsvError,
+  SNAPSHOT_IMPORT_MAX_BYTES,
+  isSnapshotTooLarge
+} from "../lib/snapshot/streamSync";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
@@ -11,6 +19,10 @@ import {
   requireSnapshotSecret,
   snapshotListResponse
 } from "./shared";
+import {
+  mapSnapshotImportError,
+  rejectOversizedSnapshotImport
+} from "./snapshotImport";
 
 /** D1 container snapshot: reads plus the CSV sync/import writers. */
 export const containerSnapshotRoutes = createRouteModule();
@@ -243,6 +255,11 @@ const containerSnapshotImportRoute = createRoute({
 containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const oversized = rejectOversizedSnapshotImport(
+    { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
+    SNAPSHOT_IMPORT_MAX_BYTES
+  );
+  if (oversized) return oversized;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
@@ -255,9 +272,22 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
     });
   }
   try {
-    const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body);
+    // No positional batch size: the per-table default in `streamSync` is the
+    // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
+    // not forward extra args anyway.
+    const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
+      requireDataRows: true,
+      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES
+    });
     return c.json(r, 200);
   } catch (e) {
+    const mapped = mapSnapshotImportError(
+      c.req.url,
+      e,
+      isSnapshotTooLarge,
+      (err) => err instanceof InvalidSnapshotCsvError
+    );
+    if (mapped) return mapped;
     const fk = foreignKeyProblem(e);
     if (fk) return fk;
     throw e;
