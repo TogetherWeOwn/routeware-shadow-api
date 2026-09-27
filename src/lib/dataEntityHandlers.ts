@@ -8,6 +8,7 @@ import {
 } from "./dataEntityRead";
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
 import {
+  entityDataCacheControlValue,
   getCachedDataEntity,
   invalidateCustomerGraph,
   invalidateDataEntity,
@@ -67,7 +68,7 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
     if (ifNone && ce && matchesIfNoneMatch(ifNone, ce)) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etagHeader(ce), "Cache-Control": "private, max-age=60" }
+        headers: { ETag: etagHeader(ce), "Cache-Control": entityDataCacheControlValue() }
       });
     }
     if (!ifNone) {
@@ -88,7 +89,7 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
   if (matchesIfNoneMatch(ifNone, etag)) {
     return new Response(null, {
       status: 304,
-      headers: { ETag: etagHeader(etag), "Cache-Control": "private, max-age=60" }
+      headers: { ETag: etagHeader(etag), "Cache-Control": entityDataCacheControlValue() }
     });
   }
   const res = new Response(body, {
@@ -96,7 +97,7 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
     headers: {
       "content-type": "application/json; charset=utf-8",
       ETag: etagHeader(etag),
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": entityDataCacheControlValue(),
       "X-Entity-ETag": etag
     }
   });
@@ -115,7 +116,7 @@ export async function handleGetDataAddress(
     if (ifNone && ce && matchesIfNoneMatch(ifNone, ce)) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etagHeader(ce), "Cache-Control": "private, max-age=60" }
+        headers: { ETag: etagHeader(ce), "Cache-Control": entityDataCacheControlValue() }
       });
     }
     if (!ifNone) {
@@ -136,7 +137,7 @@ export async function handleGetDataAddress(
   if (matchesIfNoneMatch(ifNone, etag)) {
     return new Response(null, {
       status: 304,
-      headers: { ETag: etagHeader(etag), "Cache-Control": "private, max-age=60" }
+      headers: { ETag: etagHeader(etag), "Cache-Control": entityDataCacheControlValue() }
     });
   }
   const res = new Response(body, {
@@ -144,7 +145,7 @@ export async function handleGetDataAddress(
     headers: {
       "content-type": "application/json; charset=utf-8",
       ETag: etagHeader(etag),
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": entityDataCacheControlValue(),
       "X-Entity-ETag": etag
     }
   });
@@ -163,7 +164,7 @@ export async function handleGetDataContainer(
     if (ifNone && ce && matchesIfNoneMatch(ifNone, ce)) {
       return new Response(null, {
         status: 304,
-        headers: { ETag: etagHeader(ce), "Cache-Control": "private, max-age=60" }
+        headers: { ETag: etagHeader(ce), "Cache-Control": entityDataCacheControlValue() }
       });
     }
     if (!ifNone) {
@@ -184,7 +185,7 @@ export async function handleGetDataContainer(
   if (matchesIfNoneMatch(ifNone, etag)) {
     return new Response(null, {
       status: 304,
-      headers: { ETag: etagHeader(etag), "Cache-Control": "private, max-age=60" }
+      headers: { ETag: etagHeader(etag), "Cache-Control": entityDataCacheControlValue() }
     });
   }
   const res = new Response(body, {
@@ -192,7 +193,7 @@ export async function handleGetDataContainer(
     headers: {
       "content-type": "application/json; charset=utf-8",
       ETag: etagHeader(etag),
-      "Cache-Control": "private, max-age=60",
+      "Cache-Control": entityDataCacheControlValue(),
       "X-Entity-ETag": etag
     }
   });
