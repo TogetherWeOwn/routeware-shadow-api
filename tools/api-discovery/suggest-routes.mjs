@@ -3,9 +3,10 @@
  * From route-gaps.json, emit a commented TypeScript checklist for src/app.ts.
  * Run after: npm run process
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stubBlock } from "./lib/stubNaming.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gapsPath = join(__dirname, "out", "route-gaps.json");
@@ -31,25 +32,15 @@ const lines = [
 ];
 
 for (const m of missing.slice(0, 40)) {
-  const seg = m.upstreamPath.replace(/^\/WebRW\/?/i, "").replace(/\/+/g, "/");
-  const kebab = seg
-    .replace(/([a-z])([A-Z])/g, "$1-$2")
-    .replace(/[\s_]+/g, "-")
-    .replace(/\/{2,}/g, "/")
-    .toLowerCase()
-    .replace(/[^a-z0-9/-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^\/+|\/+$/g, "");
-  const shadow = `/api/v1/routeware/${kebab}`;
-  lines.push(`// ${m.count}x  ${m.method} ${m.upstreamPath}`);
-  lines.push(`// → add route-map: shadowPath "${shadow}" (adjust naming)`);
-  lines.push(`// → createRoute method: "${m.method.toLowerCase()}", path: "${shadow}"`);
-  lines.push("");
+  // Naming lives in lib/stubNaming.mjs so tests can pin it without a browser.
+  lines.push(...stubBlock(m));
 }
 
 if (missing.length > 40) {
   lines.push(`// … and ${missing.length - 40} more (see route-gaps.json)`);
 }
 
+// Fresh checkout has no out/ dir yet — create it before the write below.
+await mkdir(join(__dirname, "out"), { recursive: true });
 await writeFile(outTs, lines.join("\n"), "utf8");
 console.log("Wrote", outTs, `(${missing.length} gaps, first 40 listed).`);

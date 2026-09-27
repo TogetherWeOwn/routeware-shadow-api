@@ -38,6 +38,10 @@ export const REDACTED = "__REDACTED__";
  * Field/param names whose *values* are secrets or PII. Header redaction alone
  * leaves these exposed in request bodies (login POST, save forms) and query
  * strings, so they are masked in the harvest too.
+ *
+ * Besides login credentials and tokens this covers the save-form PII the
+ * harvest records (person/company names, phones, free-text comments) — the
+ * credential/PII masking the discovery README promises.
  */
 const SENSITIVE_VALUE_KEYS = new Set([
   "password",
@@ -54,7 +58,13 @@ const SENSITIVE_VALUE_KEYS = new Set([
   "secret",
   "authorization",
   "access_token",
-  "refresh_token"
+  "refresh_token",
+  "firstname",
+  "lastname",
+  "phone1",
+  "phone2",
+  "companyname",
+  "comments"
 ]);
 
 function isSensitiveKey(key: string): boolean {
@@ -85,11 +95,16 @@ export function redactUrlEncoded(raw: string): string {
     .join("&");
 }
 
-/** Mask string values for sensitive keys in a JSON preview (best-effort, regex-based). */
+/**
+ * Mask scalar values for sensitive keys in a JSON preview (best-effort,
+ * regex-based). Strings, numbers, booleans and null are masked; objects and
+ * arrays are left alone (nested redaction is out of scope for previews).
+ */
 export function redactJsonPreview(raw: string): string {
+  const scalar = `"(?:[^"\\\\]|\\\\.)*"|-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|true|false|null`;
   let out = raw;
   for (const key of SENSITIVE_VALUE_KEYS) {
-    const re = new RegExp(`("${key}"\\s*:\\s*)"(?:[^"\\\\]|\\\\.)*"`, "gi");
+    const re = new RegExp(`("${key}"\\s*:\\s*)(?:${scalar})`, "gi");
     out = out.replace(re, `$1"${REDACTED}"`);
   }
   return out;
@@ -108,6 +123,20 @@ export function redactHtmlAntiForgery(html: string): string {
   return out;
 }
 
+/**
+ * True when a body looks like `k=v&k2=v2` rather than HTML or JSON: it
+ * contains `=` but does not open with a tag or a JSON structural character.
+ * Used to catch urlencoded-shaped login/save bodies recorded with a
+ * text/plain or missing content type.
+ */
+function looksUrlEncoded(body: string): boolean {
+  if (!body.includes("=")) {
+    return false;
+  }
+  const t = body.trimStart();
+  return !(t.startsWith("<") || t.startsWith("{") || t.startsWith("["));
+}
+
 /** Redact secrets in a captured body preview, chosen by content type. */
 export function redactBodyPreview(
   contentType: string | null | undefined,
@@ -123,7 +152,21 @@ export function redactBodyPreview(
   if (ct.includes("json")) {
     return redactJsonPreview(body);
   }
-  // HTML or unknown: strip anti-forgery token values (a safe no-op otherwise).
+  if (ct.includes("html") || ct.includes("xml")) {
+    return redactHtmlAntiForgery(body);
+  }
+  // text/plain, missing, or other unrecognized types: bodies that look
+  // urlencoded- or JSON-shaped would otherwise fall through to the HTML
+  // redactor untouched (it is a no-op outside anti-forgery inputs). Run the
+  // shape-appropriate redactors first, then anti-forgery tokens.
+  const t = body.trimStart();
+  if (t.startsWith("{") || t.startsWith("[")) {
+    return redactHtmlAntiForgery(redactJsonPreview(body));
+  }
+  if (looksUrlEncoded(body)) {
+    return redactHtmlAntiForgery(redactUrlEncoded(body));
+  }
+  // Anything else: strip anti-forgery token values (a safe no-op otherwise).
   return redactHtmlAntiForgery(body);
 }
 

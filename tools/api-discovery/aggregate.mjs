@@ -4,7 +4,7 @@
  * resource types, and up to 3 diverse samples (query, headers, bodies, responses).
  */
 import { createReadStream } from "node:fs";
-import { stat, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,9 @@ function buildSample(row) {
 
 const inFile = join(__dirname, "out", "harvest.ndjson");
 const outFile = join(__dirname, "out", "discovered-operations.json");
+
+// Fresh checkout has no out/ dir yet — create it before any writeFile below.
+await mkdir(join(__dirname, "out"), { recursive: true });
 
 let st;
 try {
