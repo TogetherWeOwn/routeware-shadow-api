@@ -3,6 +3,7 @@ import { prepareSaveCustomerLongFormBody } from "../lib/customerSaveAutoToken";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { readSessionState } from "../lib/sessionState";
 import {
   routewareWebRwUrl,
@@ -93,8 +94,14 @@ const customerSaveLongFormRoute = createRoute({
   tags: ["customer"],
   summary: "SaveCustomerLongForm (create or update)",
   description:
-    "Proxies to WebRW `SaveCustomerLongForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `AddNewLong` (create, `CustomerID` 0 / absent) or `LoadLongCustomerModal?customerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `CustomerID=0` for create; set `CustomerID` for updates. Disable customers with `Enabled=false` (no upstream delete).",
-  responses: upstreamPassthrough200
+    "Proxies to WebRW `SaveCustomerLongForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `AddNewLong` (create, `CustomerID` 0 / absent) or `LoadLongCustomerModal?customerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `CustomerID=0` for create; set `CustomerID` for updates. Disable customers with `Enabled=false` (no upstream delete). Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  responses: {
+    ...upstreamPassthrough200,
+    502: {
+      description:
+        "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
@@ -124,7 +131,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/SaveCustomerLongForm"
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -132,6 +139,24 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     bodyBuffer,
     establishSession
   );
+  // Routeware signals a failed save silently: an HTML error page with HTTP 200
+  // (CONVENTIONS.md §1). Passing that through as 200 tells the client the save
+  // worked when it did not. Same heuristic as the /data/* write path.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway"),
+      title: "Upstream save failed",
+      status: 502,
+      detail:
+        "Routeware answered SaveCustomerLongForm with HTTP 200 but the body looks like an HTML error page (silent failure). The save did not succeed.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });
 
 const customerAddNewLongRoute = createRoute({
