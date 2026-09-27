@@ -4,6 +4,10 @@ import {
   isPlaceholderAntiForgeryToken,
   lastUrlEncodedValue
 } from "./customerSaveAutoToken";
+import {
+  forwardWithSessionRetry,
+  type ModalRetryContext
+} from "./forwardWithSessionRetry";
 import { forwardToUpstream } from "./upstreamForward";
 import { routewareWebRwUrl } from "./upstreamUrl";
 import type { SessionState } from "./sessionState";
@@ -13,12 +17,53 @@ function autoTokenEnabled(env: Env): boolean {
   return v !== "false" && v !== "0";
 }
 
+/**
+ * Modal GET for the address/container save forms. With retry context the fetch
+ * runs through `forwardWithSessionRetry` (one re-establish + retry,
+ * `internalMarker` preserved) so an expired stored session heals instead of
+ * surfacing a 502 the next save would hit again (TOG-6462); without context it
+ * keeps the direct forward. Status-shape errors stay with the callers, whose
+ * form-specific messages (`Load address modal …` / `Load container modal …`)
+ * are pinned by tests and surfaced as the 502 problem+json detail.
+ */
+async function fetchAntiForgeryModal(
+  env: Env,
+  session: SessionState,
+  modalReq: Request,
+  modalUrl: URL,
+  retry: ModalRetryContext
+): Promise<Response> {
+  if (retry.sessionStub && retry.establishSession) {
+    return forwardWithSessionRetry(
+      env,
+      retry.sessionStub,
+      modalReq,
+      modalUrl,
+      null,
+      retry.establishSession,
+      { internalMarker: "anti-forgery-modal" }
+    );
+  }
+  return forwardToUpstream(modalReq, modalUrl, session, null, {
+    internalMarker: "anti-forgery-modal"
+  });
+}
+
+/**
+ * For SaveAddressForm: same anti-forgery flow as the customer long form.
+ *
+ * With retry context the modal fetch runs through `forwardWithSessionRetry`,
+ * so an expired stored session (modal answers 302 → login, or HTTP-200 login
+ * page) re-establishes once and retries instead of surfacing a 502 the next
+ * save would hit again (TOG-6462).
+ */
 export async function prepareSaveAddressFormBody(
   env: Env,
   session: SessionState,
   incoming: Request,
   bodyBuffer: ArrayBuffer | null,
-  contentType: string | null
+  contentType: string | null,
+  retry: ModalRetryContext = {}
 ): Promise<ArrayBuffer | null> {
   if (!autoTokenEnabled(env)) {
     return bodyBuffer;
@@ -60,9 +105,7 @@ export async function prepareSaveAddressFormBody(
         incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
-  });
+  const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
   if (!modalResp.ok) {
     throw new Error(`Load address modal (${modalPath}): HTTP ${modalResp.status}`);
   }
@@ -75,12 +118,21 @@ export async function prepareSaveAddressFormBody(
   return new TextEncoder().encode(merged).buffer;
 }
 
+/**
+ * For SaveContainerForm: same anti-forgery flow as the customer long form.
+ *
+ * With retry context the modal fetch runs through `forwardWithSessionRetry`,
+ * so an expired stored session (modal answers 302 → login, or HTTP-200 login
+ * page) re-establishes once and retries instead of surfacing a 502 the next
+ * save would hit again (TOG-6462).
+ */
 export async function prepareSaveContainerFormBody(
   env: Env,
   session: SessionState,
   incoming: Request,
   bodyBuffer: ArrayBuffer | null,
-  contentType: string | null
+  contentType: string | null,
+  retry: ModalRetryContext = {}
 ): Promise<ArrayBuffer | null> {
   if (!autoTokenEnabled(env)) {
     return bodyBuffer;
@@ -122,9 +174,7 @@ export async function prepareSaveContainerFormBody(
         incoming.headers.get("referer") ?? `${env.TARGET_ORIGIN}${env.TARGET_BASE_PATH}/Customer/Customers`
     }
   });
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
-  });
+  const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
   if (!modalResp.ok) {
     throw new Error(`Load container modal (${modalPath}): HTTP ${modalResp.status}`);
   }

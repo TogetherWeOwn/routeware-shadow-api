@@ -1,6 +1,10 @@
+import {
+  forwardWithSessionRetry,
+  type ModalRetryContext
+} from "./forwardWithSessionRetry";
+import { readSessionState, type SessionState } from "./sessionState";
 import { forwardToUpstream } from "./upstreamForward";
 import { routewareWebRwUrl } from "./upstreamUrl";
-import type { SessionState } from "./sessionState";
 
 function escapeRegexKey(key: string): string {
   return key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -131,7 +135,7 @@ export function clearAntiForgeryTokenCache(): void {
   antiForgeryTokenCache.clear();
 }
 
-export type PrepareSaveBodyOptions = {
+export type PrepareSaveBodyOptions = ModalRetryContext & {
   /** Skip the cache entry even when fresh (stale-token recovery). */
   forceRefresh?: boolean;
   /** Clock override for TTL tests; defaults to `Date.now()`. */
@@ -142,6 +146,15 @@ export type PrepareSaveBodyOptions = {
  * Resolve a save-long-form anti-forgery token, preferring the cache. A fresh
  * cached entry for this session + modal URL avoids the modal GET entirely;
  * on a miss (or `forceRefresh`) exactly one GET populates the entry.
+ *
+ * TOG-6462: with retry context the modal GET runs through
+ * `forwardWithSessionRetry`, so an expired stored session (modal answers 302
+ * → login, or HTTP-200 login page) re-establishes once and retries instead of
+ * surfacing a 502 the next save would hit again. Healing is bounded: exactly
+ * one re-login and one retry (a retry that still sees login is returned
+ * as-is — non-2xx — and surfaces here as the modal-load error), and a hung
+ * upstream throws `UpstreamTimeoutError`, which the retry helper never
+ * retries, instead of looping.
  */
 export async function resolveSaveCustomerLongFormToken(
   env: Env,
@@ -152,6 +165,10 @@ export async function resolveSaveCustomerLongFormToken(
   options: PrepareSaveBodyOptions = {}
 ): Promise<string> {
   const nowMs = options.nowMs ?? Date.now();
+  const retry =
+    options.sessionStub && options.establishSession
+      ? { sessionStub: options.sessionStub, establishSession: options.establishSession }
+      : null;
   if (!options.forceRefresh) {
     const cached = antiForgeryTokenCache.get(antiForgeryCacheKey(session, modalUrl));
     if (cached && nowMs < cached.expiresAtMs) {
@@ -168,9 +185,19 @@ export async function resolveSaveCustomerLongFormToken(
     }
   });
 
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
-  });
+  const modalResp = retry
+    ? await forwardWithSessionRetry(
+        env,
+        retry.sessionStub,
+        modalReq,
+        modalUrl,
+        null,
+        retry.establishSession,
+        { internalMarker: "anti-forgery-modal" }
+      )
+    : await forwardToUpstream(modalReq, modalUrl, session, null, {
+        internalMarker: "anti-forgery-modal"
+      });
   if (!modalResp.ok) {
     throw new Error(
       `Could not load anti-forgery modal (${modalPath}): HTTP ${modalResp.status}`
@@ -183,7 +210,13 @@ export async function resolveSaveCustomerLongFormToken(
       "Could not parse __RequestVerificationToken from Routeware modal HTML (layout may have changed)."
     );
   }
-  antiForgeryTokenCache.set(antiForgeryCacheKey(session, modalUrl), {
+  // Key on the session the token was minted for. After a heal the DO holds
+  // the fresh session; caching under it keeps the next save on one modal GET.
+  // The direct path has no DO read — the passed session stays the key.
+  const cacheSession = retry
+    ? await readSessionState(retry.sessionStub)
+    : session;
+  antiForgeryTokenCache.set(antiForgeryCacheKey(cacheSession, modalUrl), {
     token,
     expiresAtMs: nowMs + antiForgeryTokenTtlMs(env)
   });
@@ -195,6 +228,13 @@ export async function resolveSaveCustomerLongFormToken(
  * token is missing or a placeholder, resolve the token via the session-keyed cache
  * (one modal GET per TTL window) and inject `__RequestVerificationToken` before
  * forwarding upstream.
+ *
+ * With retry context (`options.sessionStub` + `options.establishSession`) the
+ * modal fetch runs through `forwardWithSessionRetry`, so an expired stored
+ * session (modal answers 302 → login, or HTTP-200 login page) re-establishes
+ * once and retries instead of surfacing a 502 the next save would hit again
+ * (TOG-6462). Supplied-token and disabled-auto-token paths return before any
+ * session read, unchanged.
  */
 export async function prepareSaveCustomerLongFormBody(
   env: Env,
