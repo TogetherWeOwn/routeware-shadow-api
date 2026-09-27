@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
+import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
@@ -76,12 +77,42 @@ app.use("/api/v1/*", async (c, next) => {
     return next();
   }
   if (!isApiAuthorized(c.env, c.req)) {
+    // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
+    // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
+    // a token-guessing loop slows to a crawl. (Ported to main without the
+    // sibling CORS layer TOG-5809, which is not yet merged here: responses use
+    // the plain pre-CORS envelope, and OPTIONS keeps main's current 401
+    // posture — it just never consumes throttle budget.)
+    if (method !== "OPTIONS") {
+      const verdict = await recordAuthFailure(c.env, {
+        header: (name: string) => c.req.header(name)
+      });
+      if (verdict.blocked) {
+        const throttled = problemJsonResponse({
+          type: problemType("rate-limited"),
+          title: "Too Many Requests",
+          status: 429,
+          detail:
+            "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited."
+        });
+        throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
+        return throttled;
+      }
+    }
     return problemJsonResponse({
       type: problemType("unauthorized"),
       title: "Unauthorized",
       status: 401,
       detail:
         "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
+    });
+  }
+  // A valid token clears the IP's failure count, so one bad burst (or a
+  // shared NAT IP) never locks out legitimate traffic. Preflight carries no
+  // credentials by design, so it never touches the throttle either way.
+  if (method !== "OPTIONS") {
+    await clearAuthFailures(c.env, {
+      header: (name: string) => c.req.header(name)
     });
   }
   return next();
