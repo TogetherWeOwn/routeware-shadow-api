@@ -116,6 +116,15 @@ cannot reach Routeware as new query surface. Matching is case-sensitive.
 Unknown params therefore need no problem+json `type`: there is no failure to
 report.
 
+## Query-param allowlist (load-long-modal probe)
+
+`GET /api/v1/routeware/customer/load-long-modal` forwards only `customerID`
+upstream to `GET /WebRW/Customer/LoadLongCustomerModal` (same allowlist
+pattern as the reports probe above). Unknown params are silently dropped.
+Unlike the reports probe, `customerID` is required: a missing, empty, or
+non-positive-integer value is a 400 naming the required param, and no upstream
+fetch is made.
+
 ## Login-page fetch (sessionless probe)
 
 `GET /api/v1/routeware/account/login-page` fetches the fixed `LOGIN_URL` with

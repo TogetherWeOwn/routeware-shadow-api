@@ -1,4 +1,4 @@
-import { createRoute } from "@hono/zod-openapi";
+import { createRoute, z } from "@hono/zod-openapi";
 import { prepareSaveCustomerLongFormBody } from "../lib/customerSaveAutoToken";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
@@ -7,7 +7,7 @@ import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { readSessionState } from "../lib/sessionState";
 import {
   routewareWebRwUrl,
-  routewareWebRwUrlWithIncomingSearch
+  routewareWebRwUrlWithQueryAllowlist
 } from "../lib/upstreamUrl";
 import { createRouteModule, upstreamPassthrough200 } from "./shared";
 
@@ -183,22 +183,54 @@ customerRoutes.openapi(customerAddNewLongRoute, async (c) => {
   );
 });
 
+/**
+ * Query params the `load-long-modal` edit form sends and the shadow API
+ * forwards upstream. Everything else on the client query string is dropped
+ * (silently ignored) so unknown params never reach Routeware.
+ *
+ * `customerID` is the numeric Routeware customer id; unlike the reports probe
+ * it is required — a missing or non-numeric value is a 400, never a bare
+ * upstream fetch.
+ */
+export const LOAD_LONG_MODAL_PARAMS = ["customerID"] as const;
+
 const customerLoadLongModalRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/customer/load-long-modal",
   tags: ["customer"],
-  summary: "LoadLongCustomerModal",
+  summary: "LoadLongCustomerModal (allowlisted query params forwarded upstream)",
   description:
-    "Loads the edit-customer long form HTML/JS for the given `customerID` query parameter (forwarded to upstream unchanged).",
-  responses: upstreamPassthrough200
+    "Loads the edit-customer long form HTML/JS for the given `customerID` query parameter. Only `customerID` is forwarded upstream to `GET /Customer/LoadLongCustomerModal`; any other query param is silently dropped. `customerID` is required and must be a positive integer. Documented in `docs/PROBLEMS.md` § query-param allowlist.",
+  request: {
+    query: z.object({
+      customerID: z.string().optional()
+    })
+  },
+  responses: {
+    ...upstreamPassthrough200,
+    400: {
+      description: "Missing/invalid customerID (application/problem+json)"
+    }
+  }
 });
 
 customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
-  const upstreamUrl = routewareWebRwUrlWithIncomingSearch(
+  const raw = c.req.valid("query").customerID?.trim() ?? "";
+  const customerId = raw === "" ? Number.NaN : Number(raw);
+  if (!Number.isInteger(customerId) || customerId <= 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad request",
+      status: 400,
+      detail: "Query `customerID` is required and must be a positive integer."
+    });
+  }
+  const upstreamUrl = routewareWebRwUrlWithQueryAllowlist(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
     "/Customer/LoadLongCustomerModal",
-    c.req.raw
+    c.req.raw,
+    LOAD_LONG_MODAL_PARAMS
   );
   return forwardWithSessionRetry(
     c.env,

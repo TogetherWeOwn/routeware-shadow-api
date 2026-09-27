@@ -1268,7 +1268,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/load-long-modal": {
       "get": {
-        "description": "Loads the edit-customer long form HTML/JS for the given \`customerID\` query parameter (forwarded to upstream unchanged).",
+        "description": "Loads the edit-customer long form HTML/JS for the given \`customerID\` query parameter. Only \`customerID\` is forwarded upstream to \`GET /Customer/LoadLongCustomerModal\`; any other query param is silently dropped. \`customerID\` is required and must be a positive integer. Documented in \`docs/PROBLEMS.md\` § query-param allowlist.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "customerID",
+            "required": false,
+            "schema": {
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1288,8 +1298,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
+          "400": {
+            "description": "Missing/invalid customerID (application/problem+json)",
+          },
         },
-        "summary": "LoadLongCustomerModal",
+        "summary": "LoadLongCustomerModal (allowlisted query params forwarded upstream)",
         "tags": [
           "customer",
         ],
