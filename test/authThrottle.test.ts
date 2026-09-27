@@ -370,6 +370,10 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(throttled.headers.get("content-type")).toContain("problem+json");
     const retryAfter = throttled.headers.get("retry-after");
     expect(retryAfter).toMatch(/^\d+$/);
+    // Browser clients can only read Retry-After cross-origin when exposed.
+    expect(throttled.headers.get("access-control-expose-headers")).toMatch(
+      /retry-after/i
+    );
     expect(Number(retryAfter)).toBeGreaterThan(0);
     expect(Number(retryAfter)).toBeLessThanOrEqual(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
     const body = (await throttled.json()) as {
