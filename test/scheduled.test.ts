@@ -55,7 +55,8 @@ const { scheduled } = await import("../src/scheduled");
 
 const logs: string[] = [];
 const errors: unknown[][] = [];
-const real = { log: console.log, error: console.error };
+const warns: string[] = [];
+const real = { log: console.log, error: console.error, warn: console.warn };
 
 /** Captures the promise handed to waitUntil so the test can await it. */
 function fakeCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -122,17 +123,22 @@ beforeEach(() => {
   behavior.rawThrow = false;
   logs.length = 0;
   errors.length = 0;
+  warns.length = 0;
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   };
   console.error = (...a: unknown[]) => {
     errors.push(a);
   };
+  console.warn = (...a: unknown[]) => {
+    warns.push(a.map(String).join(" "));
+  };
 });
 
 afterEach(() => {
   console.log = real.log;
   console.error = real.error;
+  console.warn = real.warn;
 });
 
 describe("scheduled sync path selection", () => {
@@ -148,6 +154,8 @@ describe("scheduled sync path selection", () => {
     expect(line.mode).toBe("chained-http");
     expect(line.configSource).toBe("SHADOW_API_PUBLIC_BASE");
     expect(line.d1LimitRisk).toBe(false);
+    // No fallback warning on the chained path — the var resolved.
+    expect(warns).toEqual([]);
   });
 
   it("falls back to a single invocation when no public base url is set", async () => {
@@ -161,6 +169,11 @@ describe("scheduled sync path selection", () => {
     expect(line.mode).toBe("single-invocation");
     expect(line.configSource).toBe("fallback-single-invocation");
     expect(line.d1LimitRisk).toBe(true);
+    // The fallback warning is the operator signal: without the var, D1's
+    // per-invocation limit applies to all tables as one pool.
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
+    expect(warns[0]).toContain("single invocation");
   });
 
   it("treats a whitespace-only public base url as unset", async () => {
@@ -171,6 +184,8 @@ describe("scheduled sync path selection", () => {
     expect(calls.single).toBe(1);
     expect(calls.chained).toEqual([]);
     expect(loggedLine().configSource).toBe("fallback-single-invocation");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
   });
 });
 

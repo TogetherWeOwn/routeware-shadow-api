@@ -90,9 +90,20 @@ export async function scheduled(
             : "unknown",
       };
       try {
-        const r = publicBase
-          ? await runDataSnapshotSyncChainedHttp(publicBase, env)
-          : await runDataSnapshotSync(env);
+        let r: DataSnapshotResult;
+        if (publicBase) {
+          r = await runDataSnapshotSyncChainedHttp(publicBase, env);
+        } else {
+          // Loud on purpose: the whole job then shares one invocation's D1
+          // operation budget, so a large export can die partway through.
+          // TOG-5827 pins this line — the cron path-selection test asserts it.
+          console.warn(
+            "SHADOW_API_PUBLIC_BASE is not set; running data-snapshot-sync as a " +
+              "single invocation (D1 per-invocation limit applies to all tables as one pool). " +
+              "Set SHADOW_API_PUBLIC_BASE to the Worker's public origin to use chained per-table syncs."
+          );
+          r = await runDataSnapshotSync(env);
+        }
         const tables = {
           customer: tableCounts(r.customer),
           address: tableCounts(r.address),
