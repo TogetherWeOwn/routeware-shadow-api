@@ -216,6 +216,24 @@ bodies) and `dataEntity*.test.ts` (the handlers). Two things it pins:
 
 Mutation-verified four ways.
 
+### `migrations/d1/0003_text_filter_indexes.sql` — container/address `q` indexes
+
+`test/snapshotTextFilterIndexes.test.ts` applies the committed migration files
+verbatim against the real pool D1, seeds rows, and runs the exact WHERE shapes
+from `src/routes/*Snapshot.ts` through `EXPLAIN QUERY PLAN` before and after
+0003. What it pins: `enabled + q` SELECT and COUNT go from SCAN to SEARCH on
+the new composite `(enabled, lower(...))` indexes; `q`-alone (`enabled=any`)
+still SCANs — no B-tree can serve a mid-string `instr()` substring match, so a
+"fix" adding a bare expression index changes nothing (it only ever reports
+`USING COVERING INDEX` for the same full scan). Two pool-D1 constraints shape
+the helper, not the migration: `db.exec()` takes single-line statements only,
+so the test splits `;`-separated statements through `prepare().run()`
+(`wrangler d1 migrations apply` splits them itself — the files stay
+multi-line); `console.log` is swallowed in the pool, so every observation is
+an assertion. The `*.sql?raw` / `cloudflare:test` declarations live in
+`test/sqlRaw.d.ts` (no precedent existed; the `?raw` import was probe-verified
+in-pool before use).
+
 ### `routes/shared.ts` — the snapshot auth helpers
 
 `requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 13 routes, and
