@@ -39,9 +39,17 @@ const hygiene = jobBlock("hygiene");
 // can never land without the journal/manifest compare.
 assert.match(
   hygiene,
-  /npm run check:d1-drift/,
+  /^        run: npm run check:d1-drift$/m,
   "hygiene must run the D1 migration drift check (TOG-6275)"
 );
+// Wrangler is a locked dev dependency, not a preinstalled runner tool. Require
+// setup and installation in order, before the credential-free local check.
+const hygieneNode = hygiene.search(/^      - uses: actions\/setup-node@v\d+$/m);
+const hygieneInstall = hygiene.search(/^      - run: npm ci$/m);
+const hygieneDrift = hygiene.search(/^        run: npm run check:d1-drift$/m);
+assert.ok(hygieneNode >= 0, "hygiene must set up Node for the D1 drift check (TOG-6275)");
+assert.ok(hygieneInstall > hygieneNode, "hygiene must install dependencies after Node setup (TOG-6275)");
+assert.ok(hygieneDrift > hygieneInstall, "hygiene must install dependencies before the D1 drift check (TOG-6275)");
 
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
