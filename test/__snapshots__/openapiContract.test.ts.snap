@@ -7,6 +7,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "schemas": {
       "CustomerSnapshotList": {
         "properties": {
+          "nextCursor": {
+            "description": "Primary key of the last row when a full page was returned; pass as \`cursor\` for the next page. Null at the end of results.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
           "rows": {
             "items": {
               "additionalProperties": {},
@@ -21,6 +28,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "required": [
           "rows",
           "total",
+          "nextCursor",
         ],
         "type": "object",
       },
@@ -106,6 +114,98 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "type": "object",
       },
+      "ReadinessResponse": {
+        "properties": {
+          "checks": {
+            "properties": {
+              "config": {
+                "properties": {
+                  "address": {
+                    "type": "boolean",
+                  },
+                  "container": {
+                    "type": "boolean",
+                  },
+                  "customer": {
+                    "type": "boolean",
+                  },
+                  "detail": {
+                    "type": "string",
+                  },
+                  "ok": {
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "ok",
+                  "customer",
+                  "address",
+                  "container",
+                ],
+                "type": "object",
+              },
+              "d1": {
+                "properties": {
+                  "detail": {
+                    "type": "string",
+                  },
+                  "ok": {
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "ok",
+                ],
+                "type": "object",
+              },
+              "r2": {
+                "properties": {
+                  "bound": {
+                    "type": "boolean",
+                  },
+                  "detail": {
+                    "type": "string",
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                  },
+                  "ok": {
+                    "type": "boolean",
+                  },
+                },
+                "required": [
+                  "ok",
+                  "bound",
+                  "enabled",
+                ],
+                "type": "object",
+              },
+            },
+            "required": [
+              "d1",
+              "r2",
+              "config",
+            ],
+            "type": "object",
+          },
+          "service": {
+            "type": "string",
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded",
+            ],
+            "type": "string",
+          },
+        },
+        "required": [
+          "status",
+          "service",
+          "checks",
+        ],
+        "type": "object",
+      },
       "ShadowHealthResponse": {
         "properties": {
           "service": {
@@ -155,7 +255,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "paths": {
     "/api/v1/address-snapshot": {
       "get": {
-        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`.",
+        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`. Paginate with \`limit\` + \`offset\` for small scans, or \`limit\` + \`cursor\` (keyset: rows with \`pickup_address_id\` greater than the cursor) for large scans.",
         "parameters": [
           {
             "in": "query",
@@ -220,6 +320,20 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
               "minimum": 0,
               "type": [
                 "integer",
@@ -372,7 +486,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot": {
       "get": {
-        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`.",
+        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`. Paginate with \`limit\` + \`offset\` for small scans, or \`limit\` + \`cursor\` (keyset: rows with \`container_id\` greater than the cursor) for large scans.",
         "parameters": [
           {
             "in": "query",
@@ -448,6 +562,20 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
               "minimum": 0,
               "type": [
                 "integer",
@@ -600,7 +728,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Paginate with \`limit\` + \`offset\` for small scans, or \`limit\` + \`cursor\` (keyset: rows with \`customer_id\` greater than the cursor) for large scans — the cursor seeks the primary-key index instead of scanning past a deep offset.",
         "parameters": [
           {
             "in": "query",
@@ -654,6 +782,20 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep \`offset\` for large scans.",
               "minimum": 0,
               "type": [
                 "integer",
@@ -1056,6 +1198,40 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "security": [],
+      },
+    },
+    "/api/v1/readiness": {
+      "get": {
+        "description": "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, and reports whether each snapshot report source is configured. Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse",
+                },
+              },
+            },
+            "description": "All dependencies ready",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse",
+                },
+              },
+            },
+            "description": "One or more dependencies not ready (per-dependency status in body)",
+          },
+        },
+        "summary": "Deep readiness probe (D1, R2, report config)",
+        "tags": [
+          "meta",
+        ],
       },
     },
     "/api/v1/routeware/account/login-page": {

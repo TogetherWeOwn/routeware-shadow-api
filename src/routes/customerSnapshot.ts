@@ -6,8 +6,10 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  keysetNextCursor,
   requireSnapshotAuth,
   requireSnapshotSecret,
+  snapshotCursorParam,
   snapshotListResponse
 } from "./shared";
 
@@ -20,14 +22,15 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Paginate with `limit` + `offset` for small scans, or `limit` + `cursor` (keyset: rows with `customer_id` greater than the cursor) for large scans — the cursor seeks the primary-key index instead of scanning past a deep offset.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
       q: z.string().optional().describe("Company name substring (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: snapshotCursorParam
     })
   },
   responses: {
@@ -63,15 +66,18 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  const pageWhere = p.cursor === undefined ? whereSql : `${whereSql} AND customer_id > ?`;
+  const pageBinds = p.cursor === undefined ? [...binds] : [...binds, p.cursor];
   const { results } = await db
     .prepare(
       `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
               name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-       FROM customer_snapshot WHERE ${whereSql} ORDER BY customer_id LIMIT ? OFFSET ?`
+       FROM customer_snapshot WHERE ${pageWhere} ORDER BY customer_id LIMIT ? OFFSET ?`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...pageBinds, p.limit, p.offset)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = (results ?? []) as Array<Record<string, unknown>>;
+  return c.json({ rows, total, nextCursor: keysetNextCursor(rows, "customer_id", p.limit) });
 });
 
 const customerSnapshotByIdRoute = createRoute({

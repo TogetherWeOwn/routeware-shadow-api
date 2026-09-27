@@ -86,6 +86,41 @@ export const upstreamPassthrough200 = {
 } as const;
 
 /**
+ * Keyset cursor query param shared by the customer, address and container
+ * snapshot list routes. The value is the last-seen primary key; the handler
+ * adds `<pk> > ?` so D1 seeks the PK index instead of scanning past a deep
+ * OFFSET. Prefer this over `offset` for large scans; leave `offset` at 0 when
+ * paging by cursor (the two compose, but a nonzero offset still scans).
+ */
+export const snapshotCursorParam = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .optional()
+  .describe(
+    "Keyset cursor: return rows with a primary key greater than this value. Prefer over deep `offset` for large scans."
+  );
+
+/**
+ * Next-page token for a keyset list response. Returns the primary key of the
+ * last row when a full page was returned (more rows may exist — pass it as
+ * `cursor`), or `null` when fewer than `limit` rows came back (end of
+ * results). A `null` for a full page whose last row lacks a numeric pk keeps
+ * the response shape stable instead of emitting a bogus cursor.
+ */
+export function keysetNextCursor(
+  rows: Array<Record<string, unknown>>,
+  pkField: string,
+  limit: number
+): number | null {
+  if (rows.length === 0 || rows.length < limit) {
+    return null;
+  }
+  const last = rows[rows.length - 1]?.[pkField];
+  return typeof last === "number" && Number.isInteger(last) ? last : null;
+}
+
+/**
  * Shared by the customer, address and container snapshot list routes. Keep this
  * a single instance — the `.openapi()` name registers one reusable component,
  * and three separate instances would register it three times.
@@ -93,6 +128,13 @@ export const upstreamPassthrough200 = {
 export const snapshotListResponse = z
   .object({
     rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int()
+    total: z.number().int(),
+    nextCursor: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "Primary key of the last row when a full page was returned; pass as `cursor` for the next page. Null at the end of results."
+      )
   })
   .openapi("CustomerSnapshotList");

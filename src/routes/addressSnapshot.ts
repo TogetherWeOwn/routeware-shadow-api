@@ -6,8 +6,10 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  keysetNextCursor,
   requireSnapshotAuth,
   requireSnapshotSecret,
+  snapshotCursorParam,
   snapshotListResponse
 } from "./shared";
 
@@ -20,7 +22,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Paginate with `limit` + `offset` for small scans, or `limit` + `cursor` (keyset: rows with `pickup_address_id` greater than the cursor) for large scans.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
@@ -28,7 +30,8 @@ const addressSnapshotListRoute = createRoute({
       q: z.string().optional().describe("Address line substring (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: snapshotCursorParam
     })
   },
   responses: {
@@ -68,15 +71,18 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  const pageWhere = p.cursor === undefined ? whereSql : `${whereSql} AND pickup_address_id > ?`;
+  const pageBinds = p.cursor === undefined ? [...binds] : [...binds, p.cursor];
   const { results } = await db
     .prepare(
       `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
               extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-       FROM address_snapshot WHERE ${whereSql} ORDER BY pickup_address_id LIMIT ? OFFSET ?`
+       FROM address_snapshot WHERE ${pageWhere} ORDER BY pickup_address_id LIMIT ? OFFSET ?`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...pageBinds, p.limit, p.offset)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = (results ?? []) as Array<Record<string, unknown>>;
+  return c.json({ rows, total, nextCursor: keysetNextCursor(rows, "pickup_address_id", p.limit) });
 });
 
 const addressSnapshotByIdRoute = createRoute({

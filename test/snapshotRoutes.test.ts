@@ -236,7 +236,11 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       // Assert — WHERE degenerates to the always-true seed, and the only binds
       // are the default limit/offset.
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2 });
+      expect(await res.json()).toEqual({
+        rows: [{ a: 1 }, { a: 2 }],
+        total: 2,
+        nextCursor: null
+      });
       expect(calls).toHaveLength(2);
       expect(calls[0].sql).toContain("WHERE 1 = 1");
       expect(calls[0].binds).toEqual([]);
@@ -359,6 +363,131 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ? OFFSET ?`);
     });
 
+    describe("keyset pagination", () => {
+      it("adds a primary-key seek predicate when cursor is supplied", async () => {
+        // Arrange
+        const { db, calls } = readDb({ total: 3, rows: [] });
+
+        // Act
+        await call(spec.routes, `${spec.base}?cursor=100`, makeEnv(db));
+
+        // Assert — `<pk> > ?` seeks the PK index instead of scanning past a
+        // deep OFFSET; the limit/offset binds still trail the cursor bind.
+        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
+        expect(calls[1].binds).toEqual([100, 50, 0]);
+      });
+
+      it("binds the cursor after the filter binds", async () => {
+        // Arrange
+        const { db, calls } = readDb({ total: 1, rows: [] });
+
+        // Act
+        await call(
+          spec.routes,
+          `${spec.base}?${spec.idParam}=7&cursor=100&limit=5`,
+          makeEnv(db)
+        );
+
+        // Assert
+        expect(calls[1].binds).toEqual([7, 100, 5, 0]);
+      });
+
+      it("keeps the count over the filter WHERE, without the cursor predicate", async () => {
+        // Arrange — `total` is the filter match count, so the count query must
+        // not gain the `<pk> > ?` fragment the select gets.
+        const { db, calls } = readDb({ total: 3, rows: [] });
+
+        // Act
+        await call(
+          spec.routes,
+          `${spec.base}?${spec.idParam}=7&cursor=100`,
+          makeEnv(db)
+        );
+
+        // Assert
+        expect(calls[0].sql).not.toContain(" > ?");
+        expect(calls[0].binds).toEqual([7]);
+        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
+      });
+
+      it("returns the last primary key as nextCursor on a full page", async () => {
+        // Arrange
+        const rows = [{ [spec.idColumn]: 10 }, { [spec.idColumn]: 20 }];
+        const { db } = readDb({ total: 5, rows });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}?limit=2`, makeEnv(db));
+
+        // Assert
+        expect(await res.json()).toEqual({ rows, total: 5, nextCursor: 20 });
+      });
+
+      it("returns a null nextCursor on a short final page", async () => {
+        // Arrange
+        const rows = [{ [spec.idColumn]: 10 }];
+        const { db } = readDb({ total: 1, rows });
+
+        // Act
+        const res = await call(spec.routes, spec.base, makeEnv(db));
+
+        // Assert
+        expect(await res.json()).toEqual({ rows, total: 1, nextCursor: null });
+      });
+
+      it("chains pages by feeding nextCursor back as cursor", async () => {
+        // Arrange — the fake returns canned rows, so this pins the chaining
+        // contract (cursor bind on page two), not the data itself.
+        const pageOne = [{ [spec.idColumn]: 1 }, { [spec.idColumn]: 2 }];
+        const { db: dbOne } = readDb({ total: 3, rows: pageOne });
+        const firstRes = await call(
+          spec.routes,
+          `${spec.base}?limit=2`,
+          makeEnv(dbOne)
+        );
+        const { nextCursor } = (await firstRes.json()) as { nextCursor: number };
+
+        // Act
+        const { db: dbTwo, calls } = readDb({
+          total: 3,
+          rows: [{ [spec.idColumn]: 3 }]
+        });
+        await call(
+          spec.routes,
+          `${spec.base}?limit=2&cursor=${nextCursor}`,
+          makeEnv(dbTwo)
+        );
+
+        // Assert
+        expect(nextCursor).toBe(2);
+        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
+        expect(calls[1].binds).toEqual([2, 2, 0]);
+      });
+
+      it("rejects a negative cursor", async () => {
+        // Arrange
+        const { db, calls } = readDb({ total: 0, rows: [] });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}?cursor=-1`, makeEnv(db));
+
+        // Assert
+        expect(res.status).toBe(400);
+        expect(calls).toHaveLength(0);
+      });
+
+      it("rejects a non-numeric cursor", async () => {
+        // Arrange
+        const { db, calls } = readDb({ total: 0, rows: [] });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}?cursor=abc`, makeEnv(db));
+
+        // Assert
+        expect(res.status).toBe(400);
+        expect(calls).toHaveLength(0);
+      });
+    });
+
     it("reports total 0 when the count query returns no row", async () => {
       // Arrange
       const { db } = readDb({ total: null, rows: [] });
@@ -367,7 +496,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("returns an empty rows array when the select yields no results field", async () => {
@@ -379,7 +508,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("rejects a limit above the 500 ceiling", async () => {
