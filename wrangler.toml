@@ -34,7 +34,11 @@ TARGET_ORIGIN = "https://killeen.routeware.com"
 TARGET_BASE_PATH = "/WebRW"
 LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login"
 SESSION_TTL_SECONDS = 1800
-OPENAPI_DOCS_ENABLED = "true"
+# Docs are OFF by default in deployed envs (fail-closed): /openapi.json and
+# /docs return 404 unless explicitly enabled per-env with
+# OPENAPI_DOCS_ENABLED="true", or locally via `.dev.vars` (see .dev.vars.example).
+# The Vitest `test` env below keeps docs ON so contract tests can read the spec.
+OPENAPI_DOCS_ENABLED = "false"
 # When true (default), POST save-long-form injects __RequestVerificationToken via Routeware modal GET.
 CUSTOMER_SAVE_AUTO_TOKEN = "true"
 # Path on TARGET_ORIGIN for the CSV report (set after recording), e.g. /WebRW/Reports/YourExport?format=csv

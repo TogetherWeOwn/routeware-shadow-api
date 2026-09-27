@@ -130,8 +130,11 @@ the handover runbook rather than running them opportunistically.
 
 ## OpenAPI and docs
 
-- **`GET /openapi.json`** — OpenAPI 3.1 document (disabled when `OPENAPI_DOCS_ENABLED` is not `"true"`).
-- **`GET /docs`** — Scalar UI when enabled.
+- **`GET /openapi.json`** — OpenAPI 3.1 document. Served only when `OPENAPI_DOCS_ENABLED`
+  is `"true"`; deployed envs default it to `"false"` (fail-closed, 404), while local dev
+  enables it via [`.dev.vars.example`](./.dev.vars.example) and the Vitest `test` env keeps it
+  on for contract tests.
+- **`GET /docs`** — Scalar UI, same gate as above.
 
 ## API discovery (traffic harvest)
 
