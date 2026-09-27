@@ -80,7 +80,11 @@ export function mapCurrentCustomerToRow(cc: Record<string, unknown>): CustomerSn
     phone1: s(cc.Phone1),
     phone2: s(cc.Phone2),
     comments: s(cc.Comments),
-    enabled: b(cc.Enabled)
+    // TOG-6542: absent Enabled defaults to true, matching the cron CSV
+    // path (`parseBoolDefaultTrue`), the address/container guards below,
+    // and the D1 `DEFAULT 1` — coercing undefined yields false and would
+    // flap the same customer disabled (POST) / enabled (cron).
+    enabled: cc.Enabled !== undefined ? b(cc.Enabled) : true
   };
 }
 

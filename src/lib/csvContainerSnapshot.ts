@@ -3,6 +3,7 @@ import {
   emptyToNull,
   mapCsvHeaders,
   parseBool,
+  parseBoolDefaultTrue,
   parseCsvLine,
   parseInt10
 } from "./csvParse";
@@ -68,7 +69,7 @@ export function parseContainerSnapshotRow(
     gpsLocked: parseBool(cell(cols, row, "GPSLocked", "gpslocked")),
     latitude: emptyToNull(cell(cols, row, "Latitude", "latitude")),
     longitude: emptyToNull(cell(cols, row, "Longitude", "longitude")),
-    enabled: parseBool(cell(cols, row, "Enabled", "enabled")),
+    enabled: parseBoolDefaultTrue(cell(cols, row, "Enabled", "enabled")),
     locationAddress: emptyToNull(
       cell(cols, row, "Address", "address", "locationaddress")
     ),
