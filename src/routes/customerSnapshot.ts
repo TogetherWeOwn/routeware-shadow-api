@@ -107,7 +107,9 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
-      detail: "customerId must be an integer"
+      detail:
+        "customerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#customerId=${c.req.param("customerId")}`
     });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
@@ -122,7 +124,8 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
       type: problemType("not-found"),
       title: "Not Found",
       status: 404,
-      detail: `No snapshot row for customer_id=${customerId}`
+      detail: `No snapshot row for customer_id=${customerId}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.url).pathname}#customer_id=${customerId}`
     });
   }
   return c.json(row, 200);
@@ -150,22 +153,23 @@ const customerSnapshotSyncRoute = createRoute({
       }
     },
     401: { description: "Missing or invalid bearer token" },
-    503: { description: "Secret or report path not configured" }
+    503: { description: "Service Unavailable" }
   }
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: problemType("misconfigured"),
-      title: "Not configured",
+      title: "Service Unavailable",
       status: 503,
       detail:
-        "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md."
+        "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await runCustomerSnapshotSync(c.env);
@@ -196,15 +200,17 @@ const customerSnapshotImportRoute = createRoute({
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
+      title: "Bad Request",
       status: 400,
-      detail: "POST the CSV file as the raw request body."
+      detail:
+        "POST the CSV file as the raw request body. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await syncCustomerSnapshotFromStream(

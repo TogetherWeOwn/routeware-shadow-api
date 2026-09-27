@@ -464,7 +464,7 @@ describe("HTTP API", () => {
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail?: string };
     expect(body.status).toBe(405);
-    expect(body.title).toContain("not supported");
+    expect(body.title).toContain("Method Not Allowed");
     expect(body.detail).toMatch(/save-long-form/i);
   });
 });

@@ -488,7 +488,7 @@ describe("POST handler request-validation branches", () => {
       // Assert
       expect(res.status).toBe(400);
       const body = (await res.json()) as { title: string };
-      expect(body.title).toBe("Empty body");
+      expect(body.title).toBe("Bad Request");
       expect(calls.forwarded).toEqual([]);
     });
 
@@ -515,8 +515,8 @@ describe("POST handler request-validation branches", () => {
       // Assert
       expect(res.status).toBe(502);
       const body = (await res.json()) as { title: string; detail: string };
-      expect(body.title).toBe("Anti-forgery preparation failed");
-      expect(body.detail).toBe("token fetch failed");
+      expect(body.title).toBe("Bad Gateway");
+      expect(body.detail).toBe("token fetch failed See docs/PROBLEMS.md#bad-gateway.");
       expect(calls.forwarded).toEqual([]);
     });
   }

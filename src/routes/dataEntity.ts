@@ -45,16 +45,18 @@ const dataCustomerGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const q = c.req.valid("query");
   const id = q.id ?? q.customerId;
   if (id === undefined) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Bad request",
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` or `customerId` (customer_id) is required."
+      detail:
+        "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataCustomer({ env: c.env, var: c.var, req: c.req }, id);
@@ -78,15 +80,17 @@ const dataAddressGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Bad request",
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
+      detail:
+        "Query `id` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id);
@@ -110,15 +114,17 @@ const dataContainerGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Bad request",
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` (container_id) is required and must be a positive integer."
+      detail:
+        "Query `id` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id);
@@ -129,9 +135,9 @@ const dataEntityPostResponse = {
     description: "Routeware response + `posted` fields + optional local D1 sync summary",
     content: { "application/json": { schema: z.unknown() } }
   },
-  400: { description: "Bad request" },
+  400: { description: "Bad Request" },
   401: { description: "Unauthorized" },
-  502: { description: "Token preparation failed" }
+  502: { description: "Bad Gateway" }
 } as const;
 
 const dataCustomerPostRoute = createRoute({
@@ -145,7 +151,7 @@ const dataCustomerPostRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   return handlePostDataCustomer({ env: c.env, var: c.var, req: c.req });
 });

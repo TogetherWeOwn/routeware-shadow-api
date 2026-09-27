@@ -62,7 +62,7 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number };
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
   });
 

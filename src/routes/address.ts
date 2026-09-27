@@ -24,7 +24,7 @@ const addressSaveAddressFormRoute = createRoute({
     ...addressSaveFormDocs.responses,
     502: {
       description:
-        "Upstream save failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
     }
   }
 });
@@ -42,11 +42,13 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
     );
   } catch (err) {
     console.error("prepareSaveAddressFormBody", err);
+    const msg = err instanceof Error ? err.message : String(err);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Anti-forgery token preparation failed",
+      title: "Bad Gateway",
       status: 502,
-      detail: err instanceof Error ? err.message : String(err)
+      detail: `Anti-forgery token preparation failed: ${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.url).pathname
     });
   }
   const upstreamUrl = routewareWebRwUrl(
@@ -75,10 +77,10 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Upstream save failed",
+      title: "Bad Gateway",
       status: 502,
       detail:
-        "Routeware answered SaveAddressForm with HTTP 200 but the body looks like an HTML error page (silent failure). The save did not succeed.",
+        "Upstream save failed: Routeware answered SaveAddressForm with HTTP 200 but the body looks like an HTML error page (silent failure). The save did not succeed. See docs/PROBLEMS.md#bad-gateway.",
       instance: new URL(c.req.url).pathname
     });
   }

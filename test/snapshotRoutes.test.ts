@@ -175,8 +175,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CUSTOMER_REPORT_EXPORT_PATH",
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md.",
-    notFoundDetail: (id) => `No snapshot row for customer_id=${id}`
+      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "address",
@@ -191,8 +191,8 @@ const SPECS: Spec[] = [
     exportPathVar: "ADDRESS_REPORT_EXPORT_PATH",
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No address row for pickup_address_id=${id}`
+      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "container",
@@ -208,8 +208,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CONTAINER_REPORT_EXPORT_PATH",
     queryIdVar: "CONTAINER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No container row for container_id=${id}`
+      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`
   }
 ];
 
@@ -486,7 +486,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.headers.get("content-type")).toContain("problem+json");
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}misconfigured`);
-      expect(body.title).toBe("Not configured");
+      expect(body.title).toBe("Service Unavailable");
       expect(body.detail).toBe(spec.notConfiguredDetail);
       expect(syncState.runCalls).toHaveLength(0);
     });
@@ -587,7 +587,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
-      expect(body.title).toBe("Empty body");
+      expect(body.title).toBe("Bad Request");
       expect(syncState.streamCalls).toHaveLength(0);
     });
   });

@@ -93,7 +93,8 @@ app.use("/api/v1/*", async (c, next) => {
           title: "Too Many Requests",
           status: 429,
           detail:
-            "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited."
+            "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited.",
+          instance: new URL(c.req.raw.url).pathname
         });
         throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
         return throttled;
@@ -104,7 +105,8 @@ app.use("/api/v1/*", async (c, next) => {
       title: "Unauthorized",
       status: 401,
       detail:
-        "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."
+        "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   // A valid token clears the IP's failure count, so one bad burst (or a
@@ -156,10 +158,11 @@ app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
       type: problemType("forbidden"),
-      title: "Not available",
+      title: "Not Found",
       status: 404,
       detail:
-        "OpenAPI spec is disabled (set OPENAPI_DOCS_ENABLED=true to enable)."
+        "OpenAPI spec is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return c.json(app.getOpenAPI31Document(openApiDocumentConfig));
@@ -169,10 +172,11 @@ app.use("/docs", async (c, next) => {
   if (!openapiDocsEnabled(c.env)) {
     return problemJsonResponse({
       type: problemType("forbidden"),
-      title: "Not available",
+      title: "Not Found",
       status: 404,
       detail:
-        "OpenAPI UI is disabled (set OPENAPI_DOCS_ENABLED=true to enable)."
+        "OpenAPI UI is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return next();
@@ -196,7 +200,7 @@ app.onError((err, _c) => {
     type: problemType("internal"),
     title: "Internal Server Error",
     status: 500,
-    detail: "An unexpected error occurred. See Worker logs for details."
+    detail: "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."
   });
 });
 

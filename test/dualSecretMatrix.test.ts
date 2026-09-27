@@ -130,7 +130,7 @@ const GENERAL = { method: "GET", path: "/api/v1/shadow/health" };
 // token yields the inner 401. Query string omitted deliberately.
 const PRIVILEGED = { method: "GET", path: "/api/v1/data/customer" };
 const PRIVILEGED_INNER_DETAIL =
-  "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.";
+  "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized.";
 
 describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
   const originalFetch = globalThis.fetch;
@@ -194,7 +194,7 @@ describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
     // wiring changed, not that auth passed.
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
   });
 
   it("privileged route rejects a wrong token at the outer gate", async () => {

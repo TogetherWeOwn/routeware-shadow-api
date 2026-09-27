@@ -207,9 +207,10 @@ Mutation-verified four ways.
 ### `routes/shared.ts` — the snapshot auth helpers
 
 `requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 13 routes, and
-`test/snapshotAuth.test.ts` pins each route's exact problem+json body. The `detail` wording is
-deliberately a per-call-site argument rather than fixed in the helper — it is inconsistent between
-routes today, and unifying it would change what clients see, so that belongs in its own change.
+`test/snapshotAuth.test.ts` pins the canonical inner 401/503 body every route
+shares. The per-call-site `detail` wording was unified in the helpers by
+TOG-7030 (one 401 detail naming the sync secret, one 503 detail naming the
+secret config, each with the remedy-doc link and `instance`).
 
 ### `src/app.ts` and the `src/routes/` module rules
 

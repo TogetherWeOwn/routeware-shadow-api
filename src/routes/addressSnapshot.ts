@@ -108,7 +108,9 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
-      detail: "pickupAddressId must be an integer"
+      detail:
+        "pickupAddressId must be an integer. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#pickupAddressId=${c.req.param("pickupAddressId")}`
     });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
@@ -123,7 +125,8 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
       type: problemType("not-found"),
       title: "Not Found",
       status: 404,
-      detail: `No address row for pickup_address_id=${id}`
+      detail: `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.url).pathname}#pickup_address_id=${id}`
     });
   }
   return c.json(row, 200);
@@ -151,21 +154,23 @@ const addressSnapshotSyncRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
-    503: { description: "Not configured" }
+    503: { description: "Service Unavailable" }
   }
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer token required.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: problemType("misconfigured"),
-      title: "Not configured",
+      title: "Service Unavailable",
       status: 503,
-      detail: "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
+      detail:
+        "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await runAddressSnapshotSync(c.env);
@@ -201,9 +206,11 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
   if (!body) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
+      title: "Bad Request",
       status: 400,
-      detail: "POST the CSV as raw body."
+      detail:
+        "POST the CSV as raw body. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body);
