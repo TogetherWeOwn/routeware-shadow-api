@@ -107,7 +107,17 @@ Only after the production Cloudflare account, resources and Worker secrets are r
    gh variable set PRODUCTION_DEPLOY_ENABLED --body true --repo <owner>/<repo>
    ```
 5. Push a reviewed commit to `main`; confirm both blocking jobs pass, the deploy job runs, and
-   `GET /api/v1/health` responds afterwards.
+   `GET /api/v1/health` responds afterwards. Then run the post-deploy probe
+   (`scripts/post-deploy-probe.mjs`, `npm run probe:post-deploy`), which hits
+   `GET /api/v1/health` (public) and `GET /api/v1/shadow/health` (authed) and exits 0
+   only when both pass:
+   ```bash
+   npm run probe:post-deploy -- https://<worker-url>
+   # local dev: npm run dev in one shell, then
+   npm run probe:post-deploy -- http://localhost:8787
+   ```
+   The bearer is read from `SHADOW_API_TOKEN` (else `CUSTOMER_SNAPSHOT_SYNC_SECRET`),
+   `--token-env=NAME`, or local `.dev.vars` — it is never logged and never committed.
 
 **Emergency stop / rollback:** delete `PRODUCTION_DEPLOY_ENABLED` or set it to anything other than
 `true`; the next workflow run skips deploy without disabling PR checks. Keep the code-level variable
