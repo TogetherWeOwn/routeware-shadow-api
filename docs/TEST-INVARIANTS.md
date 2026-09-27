@@ -47,10 +47,16 @@ change.** This is a measurement correction, and it is the one time these floors 
 
 ### Two known weaknesses in the ratchet itself
 
-- **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
-  with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
-  it matters more after a downward re-baseline, because a global floor that has just been lowered is
-  exactly where a localized regression hides.
+- **The thresholds are global-only — closed by the per-file gate (TOG-6288).** A new module with no
+  tests used to hide behind well-covered ones and never trip any global floor; `src/lib/browserAuth.ts`
+  sat at 0% on `main` as the living proof. The `build` job now runs `npm run check:per-file-coverage`,
+  which fails when any `src` file in `coverage/coverage-summary.json` has zero covered statements.
+  Native `perFile: true` was rejected: the installed Vitest only supports boolean `perFile`, which would
+  force every file against the global 87/81/91/87 floors that the known-gap files (csv parsers ~33–39%,
+  `httpAuth.ts` 8.77%) cannot meet. `browserAuth.ts` (puppeteer login, mocked at the module boundary in
+  `test/establishSession.test.ts`) is the sole entry in
+  `scripts/per-file-coverage-allowlist.json`; the gate also fails on graduated or stale allowlist entries
+  so the list cannot rot. Low-but-nonzero files stay the global ratchet's job, not this check's.
 - **"Raise them whenever the number goes up" is now a guardrail (TOG-6289).** The `build` job
   runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json` against the
   configured floors and fails when a metric climbs a full point above its floor without raising it.

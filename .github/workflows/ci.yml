@@ -35,6 +35,12 @@ jobs:
         # metric climbs a full point above its floor without raising it, and
         # prints the suggested thresholds block (TOG-6289).
         run: npm run check:coverage-ratchet
+      - name: Per-file coverage gate — no untested modules
+        # Global thresholds plus the ratchet guard the aggregates, but a new
+        # module with zero tests passes every global floor behind well-covered
+        # files. This fails on any src file with 0 covered statements unless
+        # allowlisted in scripts/per-file-coverage-allowlist.json (TOG-6288).
+        run: npm run check:per-file-coverage
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
       - name: Validate Worker build (no deploy)

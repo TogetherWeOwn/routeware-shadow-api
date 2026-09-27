@@ -23,6 +23,15 @@ assert.match(
   "build must run the coverage ratchet check (TOG-6289)"
 );
 
+// A global floor can be masked by well-covered files, so a new module with
+// zero tests still passes every aggregate number. Pin the per-file gate
+// present so no untested module can hide behind the globals (TOG-6288).
+assert.match(
+  build,
+  /npm run check:per-file-coverage/,
+  "build must run the per-file coverage gate (TOG-6288)"
+);
+
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
 // The optional staging probe already has a fail-closed CF_TOKEN gate. Allow only

@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "path": "src/lib/browserAuth.ts",
+      "reason": "Puppeteer browser login against the live Routeware host: needs the BROWSER binding plus real LOGIN_USERNAME/LOGIN_PASSWORD, untestable in CI. Mocked at the module boundary in test/establishSession.test.ts (TOG-6288).",
+      "issue": "TOG-6288"
+    }
+  ]
+}
