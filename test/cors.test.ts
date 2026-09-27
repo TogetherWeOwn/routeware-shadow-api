@@ -1,0 +1,139 @@
+import { exports } from "cloudflare:workers";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Matches wrangler.toml [env.test.vars].
+const API_TOKEN = "test-api-token";
+const FOREIGN_ORIGIN = "https://app.example.com";
+
+/**
+ * Call the Worker through the same `exports.default.fetch()` surface the
+ * acceptance check uses. Adds `Authorization: Bearer <token>` unless `token`
+ * is null (used to prove preflight needs no credentials).
+ */
+async function call(
+  path: string,
+  init: RequestInit = {},
+  token: string | null = API_TOKEN
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (token !== null) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  return exports.default.fetch(`http://test.local${path}`, { ...init, headers });
+}
+
+/** Headers every /api/v1/* response must carry when called from a browser. */
+function expectHardened(res: Response): void {
+  expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
+  expect(res.headers.get("vary")).toMatch(/origin/i);
+  expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(res.headers.get("x-frame-options")).toBe("DENY");
+  expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+}
+
+describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    // No upstream fetch expected: preflight short-circuits, and the
+    // non-preflight cases below hit local handlers (health, 404, 401).
+    // Fail loudly if anything tries to leave the Worker instead.
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("Unexpected upstream fetch in CORS test");
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("answers OPTIONS from a foreign Origin with 204 + ACAO headers, no token", async () => {
+    const response = await call(
+      "/api/v1/routeware/customer/customers-read",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: FOREIGN_ORIGIN,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization, content-type"
+        }
+      },
+      null
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(response.headers.get("access-control-allow-methods")).toContain("POST");
+    expect(response.headers.get("access-control-allow-methods")).toContain("OPTIONS");
+    expect(response.headers.get("access-control-allow-headers")).toMatch(
+      /authorization/i
+    );
+    expect(response.headers.get("access-control-max-age")).toBe("86400");
+  });
+
+  it("echoes the request Origin on a real GET and hardens the response", async () => {
+    const response = await call(
+      "/api/v1/health",
+      { headers: { Origin: FOREIGN_ORIGIN } },
+      null
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expectHardened(response);
+  });
+
+  it("stamps ACAO + hardening headers on the 401 gate response", async () => {
+    const response = await call(
+      "/api/v1/routeware/home/index",
+      { headers: { Origin: FOREIGN_ORIGIN } },
+      null
+    );
+    expect(response.status).toBe(401);
+    expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expectHardened(response);
+  });
+
+  it("stamps ACAO + hardening headers on a 404", async () => {
+    const response = await call(
+      "/api/v1/does-not-exist",
+      { headers: { Origin: FOREIGN_ORIGIN } }
+    );
+    expect(response.status).toBe(404);
+    expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expectHardened(response);
+  });
+
+  it("returns wildcard ACAO when no Origin is sent (non-browser client)", async () => {
+    const response = await call("/api/v1/health", {}, null);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    expectHardened(response);
+  });
+
+  it("does not set Access-Control-Allow-Credentials (bearer auth, no cookies)", async () => {
+    const response = await call(
+      "/api/v1/health",
+      { headers: { Origin: FOREIGN_ORIGIN } },
+      null
+    );
+    expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+  });
+
+  it("does not relay upstream Set-Cookie on a proxied GET from a foreign Origin", async () => {
+    globalThis.fetch = vi.fn(
+      async (): Promise<Response> =>
+        new Response("mock-index", {
+          status: 200,
+          headers: {
+            "content-type": "text/plain",
+            "set-cookie": ".WebRW=super-secret-session; Path=/; HttpOnly"
+          }
+        })
+    ) as typeof fetch;
+    const response = await call("/api/v1/routeware/home/index", {
+      headers: { Origin: FOREIGN_ORIGIN }
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+});
