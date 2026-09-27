@@ -19,13 +19,13 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 6 | `src/lib/sessionRefreshLock.ts` warn | `err.message` | clean — DO transport errors |
  * | 7 | `src/app.ts` `onError` | generic 500 to client; full `err` to server log only | clean — client never sees internals |
  * | 8 | `src/routes/*` + `dataEntityHandlers.ts` 502 `detail` | `err.message` from anti-forgery prep (fixed strings, status codes) | clean — pinned below |
- * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only** |
+ * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only, reason replaced by fixed `code` (TOG-6535)** |
  * | 10 | `src/lib/routewareQueryReportCsv.ts` throw | **was** `…<status> — <upstream body slice>` → reached cron logs via `[step]` wrap | **FIXED — status only** |
  * | 11 | `src/lib/snapshot/orchestration.ts` chained throw (1200-char slice) | body of an *internal* subrequest to our own sync routes (problem+json / counts) | clean — never upstream text |
  * | 12 | `src/lib/readiness.ts` D1 detail (200-char slice) | D1 driver error text | clean — no PII source; existing "no secrets" test |
  * | 13 | `src/lib/httpAuth.ts` login-failure throw | status + cookie *names* (`.WebRW`, …), never values | clean — names are fixed identifiers |
  * | 14 | `src/lib/upstreamForward.ts` `stripUpstreamSetCookie` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
- * | 15 | `POST /api/v1/data/*` `posted` echo | client's own submitted form fields | by design (documented in OpenAPI); bearer-gated to the submitter |
+ * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED (TOG-6535) — ids + `upstreamBytes` + fixed `code` only; pinned below** |
  * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / `REPLACE_WITH_TOKEN_FROM_PAGE` | clean — pinned below |
  *
  * No real secrets appear anywhere in this file: the PII stand-ins below are
@@ -118,8 +118,8 @@ describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
     // shared mock answers PII/503 by default; queued explicitly for clarity.)
 
     // Act — the message used to reach API clients verbatim inside
-    // `localSync.reason` (POST /api/v1/data/* keeps 200 and reports the sync
-    // failure there).
+    // `localSync.reason` before TOG-6535 (POST /api/v1/data/* keeps 200 and
+    // maps the sync failure to a fixed `localSync.code`).
     behavior.responses = [piiResponse, piiResponse];
     const error = (await fetchGetCustomerDetailFull(baseEnv, sessionStub, 5, true).catch(
       (e: unknown) => e
