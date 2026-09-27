@@ -1,0 +1,5 @@
+# Checked-in manifest for the D1 drift check (TOG-6275).
+# Regenerate after adding/removing/editing a migration with:
+#   sha256sum migrations/d1/*.sql | sed 's|migrations/d1/||' > migrations/d1/.sha256sum
+cac4f8b5bb47d4fcdb9457c03e9f3777e5385bd0a0f9772ca4bad8a9541deb95  0001_customer_snapshot.sql
+3ea4995c9100140be666d308c6317816aab0194ed59e5fdfff91b302a0c71648  0002_address_container.sql
