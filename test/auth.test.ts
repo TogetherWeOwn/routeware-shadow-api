@@ -29,6 +29,16 @@ describe("bearerMatches", () => {
     expect(bearerMatches(reqWith("Bearer s3cret"), "s3cret")).toBe(true);
     expect(bearerMatches(reqWith("bearer s3cret"), "s3cret")).toBe(true);
   });
+  it("rejects trailing garbage after the token (TOG-6532)", () => {
+    // Unanchored `/^Bearer\s+(\S+)/i` parsed `Bearer <valid> junk` as `<valid>`,
+    // so the gate (prefix) and audit/redaction (full header) disagreed.
+    expect(bearerMatches(reqWith("Bearer s3cret junk"), "s3cret")).toBe(false);
+    expect(bearerMatches(reqWith("Bearer s3cret  junk"), "s3cret")).toBe(false);
+    expect(bearerMatches(reqWith("Bearer s3cret\tjunk"), "s3cret")).toBe(false);
+    const env = { CUSTOMER_SNAPSHOT_SYNC_SECRET: "sync" } as unknown as Env;
+    expect(isApiAuthorized(env, reqWith("Bearer sync junk"))).toBe(false);
+    expect(isApiAuthorized(env, reqWith("Bearer sync"))).toBe(true);
+  });
   it("rejects wrong/missing tokens and empty expected", () => {
     expect(bearerMatches(reqWith("Bearer nope"), "s3cret")).toBe(false);
     expect(bearerMatches(reqWith(undefined), "s3cret")).toBe(false);
