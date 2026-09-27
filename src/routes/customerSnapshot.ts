@@ -79,6 +79,8 @@ const customerSnapshotByIdRoute = createRoute({
   path: "/api/v1/customer-snapshot/{customerId}",
   tags: ["customer-snapshot"],
   summary: "Get one customer snapshot row",
+  description:
+    "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ customerId: z.coerce.number().int() })
   },
@@ -182,6 +184,20 @@ const customerSnapshotImportRoute = createRoute({
   summary: "Import CSV body into D1",
   description:
     "Raw CSV bytes (same format as the Routeware export). `Content-Type: text/csv` or `application/octet-stream`. Requires bearer secret.",
+  request: {
+    body: {
+      description: "Routeware customer CSV (header + data rows — see example)",
+      content: {
+        "text/csv": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (the handler streams the raw body).
+          schema: { type: "string" },
+          example:
+            "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled\n123,,Co 123,Jane,,Doe,,,,,,,true"
+        }
+      }
+    }
+  },
   responses: {
     200: {
       description: "Import result",

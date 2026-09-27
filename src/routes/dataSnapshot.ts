@@ -29,7 +29,7 @@ const dataSnapshotSyncRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
   description:
-    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron should set `SHADOW_API_PUBLIC_BASE` to this Worker’s public URL. Each table is streamed; see `CUSTOMER_SNAPSHOT.md`.",
+    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when `SHADOW_API_PUBLIC_BASE` is set (otherwise it falls back to one single-invocation run — see `src/scheduled.ts`). Each table is streamed; see `CUSTOMER_SNAPSHOT.md`.",
   responses: {
     200: {
       description: "Per-table Result (null if that export path is empty or was skipped for FKs)",

@@ -341,6 +341,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/address-snapshot/import": {
       "post": {
         "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys.",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date
+10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,",
+              "schema": {
+                "type": "string",
+              },
+            },
+          },
+          "description": "Routeware Address Details CSV (header + data rows — see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -424,6 +436,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/{pickupAddressId}": {
       "get": {
+        "description": "Reads one row from the daily snapshot DB by \`pickupAddressId\`. Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`. Returns 404 when no row exists for that id.",
         "parameters": [
           {
             "in": "path",
@@ -569,6 +582,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/container-snapshot/import": {
       "post": {
         "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys.",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote
+100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,",
+              "schema": {
+                "type": "string",
+              },
+            },
+          },
+          "description": "Routeware Container Details CSV (header + data rows — see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -652,6 +677,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/{containerId}": {
       "get": {
+        "description": "Reads one row from the daily snapshot DB by \`containerId\`. Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`. Returns 404 when no row exists for that id.",
         "parameters": [
           {
             "in": "path",
@@ -775,6 +801,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/customer-snapshot/import": {
       "post": {
         "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires bearer secret.",
+        "requestBody": {
+          "content": {
+            "text/csv": {
+              "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled
+123,,Co 123,Jane,,Doe,,,,,,,true",
+              "schema": {
+                "type": "string",
+              },
+            },
+          },
+          "description": "Routeware customer CSV (header + data rows — see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -858,6 +896,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/{customerId}": {
       "get": {
+        "description": "Reads one row from the daily snapshot DB by \`customerId\`. Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`. Returns 404 when no row exists for that id.",
         "parameters": [
           {
             "in": "path",
@@ -898,7 +937,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data-snapshot/sync": {
       "post": {
-        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron should set \`SHADOW_API_PUBLIC_BASE\` to this Worker’s public URL. Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.",
+        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.",
         "responses": {
           "200": {
             "content": {
@@ -922,6 +961,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\`.",
         "parameters": [
           {
             "in": "query",
@@ -963,7 +1003,36 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`.",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "Address": "1 Main St",
+                "CustomerID": "5",
+                "PickupAddressID": "0",
+              },
+              "schema": {
+                "properties": {
+                  "Address": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "SaveAddressForm fields — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -991,6 +1060,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\`.",
         "parameters": [
           {
             "in": "query",
@@ -1032,7 +1102,35 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row).",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "ContainerID": "0",
+                "PickupAddressID": "10",
+              },
+              "schema": {
+                "properties": {
+                  "ContainerID": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "SaveContainerForm fields — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1113,7 +1211,48 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`). \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "CompanyName": "ExampleCo",
+                "CustomerID": "0",
+                "CustomerTypeID": "1",
+                "Enabled": "true",
+                "FirstName": "Jane",
+                "LastName": "Doe",
+              },
+              "schema": {
+                "properties": {
+                  "CompanyName": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "CustomerTypeID": {
+                    "type": "string",
+                  },
+                  "Enabled": {
+                    "type": "string",
+                  },
+                  "FirstName": {
+                    "type": "string",
+                  },
+                  "LastName": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1141,6 +1280,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/health": {
       "get": {
+        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`.",
         "responses": {
           "200": {
             "content": {
@@ -1154,6 +1294,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "security": [],
+        "summary": "Liveness probe (public, no bearer)",
+        "tags": [
+          "meta",
+        ],
       },
     },
     "/api/v1/readiness": {
@@ -1192,6 +1336,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/account/login-page": {
       "get": {
+        "description": "Fetches the fixed \`LOGIN_URL\` with no session — never reads or writes the shared Routeware session, sends no \`Cookie\` upstream, and strips upstream \`Set-Cookie\`. Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`; the client query string is never forwarded. See \`docs/PROBLEMS.md\` § login-page fetch.",
         "responses": {
           "200": {
             "content": {
@@ -1204,11 +1349,44 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream HTML for the Routeware login page (unauthenticated fetch)",
           },
         },
+        "summary": "Routeware login page (sessionless probe)",
+        "tags": [
+          "routeware",
+        ],
       },
     },
     "/api/v1/routeware/address/save-address-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveAddressForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankAddress?customerID=\` (create, \`PickupAddressID\` 0 / absent) or \`LoadAddressModal?PickupAddressID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`PickupAddressID=0\` with \`CustomerID\` for create; set \`PickupAddressID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "Address": "1 Main St",
+                "CustomerID": "5",
+                "PickupAddressID": "0",
+              },
+              "schema": {
+                "properties": {
+                  "Address": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "PickupAddress form body — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1241,6 +1419,31 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/container/save-container-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveContainerForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankContainer?pickupAddressID=\` (create, \`ContainerID\` 0 / absent) or \`LoadContainerModal?ContainerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`ContainerID=0\` with \`PickupAddressID\` for create; set \`ContainerID\` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "ContainerID": "0",
+                "PickupAddressID": "10",
+              },
+              "schema": {
+                "properties": {
+                  "ContainerID": {
+                    "type": "string",
+                  },
+                  "PickupAddressID": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Container form body — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1316,6 +1519,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/customer/customer-types-read": {
       "post": {
         "description": "Customer type / category list for pickers (same store pattern as other Ext.NET \`*Read\` actions). Send **application/x-www-form-urlencoded** (e.g. \`EnabledOnly=true\`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "EnabledOnly": "true",
+              },
+              "schema": {
+                "properties": {
+                  "EnabledOnly": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Picker filter body (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1348,6 +1569,50 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/customer/customers-read": {
       "post": {
         "description": "Forwards the JSON body to WebRW \`CustomersRead\` with **application/json** (e.g. the harvested Ext.NET store shape: \`filter\`, \`page\`, \`start\`, \`limit\`, \`group\`, \`sort\`). OData-style \`skip\`/\`take\` keys are translated server-side onto \`start\`/\`limit\` (which upstream is proven to honor via the harvested SPA traffic); an explicit \`start\`/\`limit\` always wins and non-JSON bodies pass through untouched. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "filter": [
+                  {
+                    "operator": ">",
+                    "property": "CustomerID",
+                    "value": 0,
+                  },
+                ],
+                "group": "[]",
+                "limit": 50,
+                "page": 1,
+                "sort": "[{"property":"CustomerID","direction":"ASC"}]",
+                "start": 0,
+              },
+              "schema": {
+                "properties": {
+                  "filter": {
+                    "type": "array",
+                  },
+                  "group": {
+                    "type": "string",
+                  },
+                  "limit": {
+                    "type": "integer",
+                  },
+                  "page": {
+                    "type": "integer",
+                  },
+                  "sort": {
+                    "type": "string",
+                  },
+                  "start": {
+                    "type": "integer",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Ext.NET store read body (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1379,7 +1644,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/detail-full": {
       "post": {
-        "description": "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "description": "Loads one customer record from WebRW \`GetCustomerDetailFull\` with **application/json** (e.g. \`{"CustomerID": 345734}\` — set a real id). Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {
+                "CustomerID": 345734,
+              },
+              "schema": {
+                "properties": {
+                  "CustomerID": {
+                    "type": "integer",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Detail lookup body (see example — set CustomerID to a real id)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1454,6 +1737,47 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "/api/v1/routeware/customer/save-long-form": {
       "post": {
         "description": "Proxies to WebRW \`SaveCustomerLongForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`AddNewLong\` (create, \`CustomerID\` 0 / absent) or \`LoadLongCustomerModal?customerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`CustomerID=0\` for create; set \`CustomerID\` for updates. Disable customers with \`Enabled=false\` (no upstream delete). Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "example": {
+                "CompanyName": "ExampleCo",
+                "CustomerID": "0",
+                "CustomerTypeID": "1",
+                "Enabled": "true",
+                "FirstName": "Jane",
+                "LastName": "Doe",
+              },
+              "schema": {
+                "properties": {
+                  "CompanyName": {
+                    "type": "string",
+                  },
+                  "CustomerID": {
+                    "type": "string",
+                  },
+                  "CustomerTypeID": {
+                    "type": "string",
+                  },
+                  "Enabled": {
+                    "type": "string",
+                  },
+                  "FirstName": {
+                    "type": "string",
+                  },
+                  "LastName": {
+                    "type": "string",
+                  },
+                  "__RequestVerificationToken": {
+                    "type": "string",
+                  },
+                },
+                "type": "object",
+              },
+            },
+          },
+          "description": "Ext.NET/MVC customer form body — token injected server-side when omitted (see example)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1485,7 +1809,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/data/app-settings-get": {
       "post": {
-        "description": "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "description": "Reads WebRW \`Data/appSettingsGet\` with **application/json** (the harvested body is \`{}\`). Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "example": {},
+              "schema": {
+                "type": "object",
+              },
+            },
+          },
+          "description": "App-settings body (see example — the harvested body is empty)",
+        },
         "responses": {
           "200": {
             "content": {
@@ -1517,6 +1852,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/home/index": {
       "get": {
+        "description": "Forwards to WebRW \`Home/Index\` under the shared Routeware session (unlike the sessionless \`login-page\` probe). Upstream answers with whatever content type the SPA serves — HTML, JSON, or other.",
         "responses": {
           "200": {
             "content": {
@@ -1532,6 +1868,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types)",
           },
         },
+        "summary": "Routeware home index (sessioned passthrough)",
+        "tags": [
+          "routeware",
+        ],
       },
     },
     "/api/v1/routeware/reports/query-request-is-complete": {
@@ -1586,6 +1926,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/shadow/health": {
       "get": {
+        "description": "Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`. Returns \`{status, service, version}\` when the Worker is running; it does not check D1, R2, or report config.",
         "responses": {
           "200": {
             "content": {
