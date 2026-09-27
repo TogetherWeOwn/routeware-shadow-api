@@ -3,7 +3,9 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
+import { addressRoutes } from "./routes/address";
 import { containerSnapshotRoutes } from "./routes/containerSnapshot";
+import { containerRoutes } from "./routes/container";
 import { customerRoutes } from "./routes/customer";
 import { customerSnapshotRoutes } from "./routes/customerSnapshot";
 import { dataEntityRoutes } from "./routes/dataEntity";
@@ -29,6 +31,8 @@ const openApiDocumentConfig = {
     { name: "shadow", description: "Versioned Shadow API staging slice" },
     { name: "routeware" },
     { name: "customer" },
+    { name: "address", description: "Routeware PickupAddress writes (explicit proxy to WebRW)" },
+    { name: "container", description: "Routeware Container writes (explicit proxy to WebRW)" },
     { name: "data" },
     { name: "reports" },
     { name: "customer-snapshot", description: "D1: customer custom report" },
@@ -109,6 +113,8 @@ app.route("/", metaRoutes);
 app.route("/", shadowRoutes);
 app.route("/", routewareRoutes);
 app.route("/", customerRoutes);
+app.route("/", addressRoutes);
+app.route("/", containerRoutes);
 app.route("/", customerSnapshotRoutes);
 app.route("/", dataSnapshotRoutes);
 app.route("/", addressSnapshotRoutes);

@@ -1074,6 +1074,64 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         },
       },
     },
+    "/api/v1/routeware/address/save-address-form": {
+      "post": {
+        "description": "Proxies to WebRW \`SaveAddressForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankAddress?customerID=\` (create, \`PickupAddressID\` 0 / absent) or \`LoadAddressModal?PickupAddressID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`PickupAddressID=0\` with \`CustomerID\` for create; set \`PickupAddressID\` for updates.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "SaveAddressForm (create or update)",
+        "tags": [
+          "address",
+        ],
+      },
+    },
+    "/api/v1/routeware/container/save-container-form": {
+      "post": {
+        "description": "Proxies to WebRW \`SaveContainerForm\` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when \`__RequestVerificationToken\` is missing or is a placeholder, the Worker uses the stored Routeware session to GET \`CreateBlankContainer?pickupAddressID=\` (create, \`ContainerID\` 0 / absent) or \`LoadContainerModal?ContainerID=\` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set \`CUSTOMER_SAVE_AUTO_TOKEN=false\` to disable. Use \`ContainerID=0\` with \`PickupAddressID\` for create; set \`ContainerID\` for updates.",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {},
+              },
+              "text/html": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+        },
+        "summary": "SaveContainerForm (create or update)",
+        "tags": [
+          "container",
+        ],
+      },
+    },
     "/api/v1/routeware/customer": {
       "delete": {
         "description": "Routeware WebRW does not expose a hard delete. Disable or retire a customer by submitting \`save-long-form\` with \`Enabled=false\` (and other required fields from the loaded record).",
@@ -1377,6 +1435,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     {
       "name": "customer",
+    },
+    {
+      "description": "Routeware PickupAddress writes (explicit proxy to WebRW)",
+      "name": "address",
+    },
+    {
+      "description": "Routeware Container writes (explicit proxy to WebRW)",
+      "name": "container",
     },
     {
       "name": "data",
