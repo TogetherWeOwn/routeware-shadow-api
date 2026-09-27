@@ -118,6 +118,12 @@ Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D
 
 If a **single** table still exceeds ~1000 operations, run that table’s sync in multiple passes or ask Cloudflare for a limit increase.
 
+### Sync batch sizing vs the D1 budget (TOG-6293)
+
+Measured 2026-09-27 (`SELECT COUNT(*)` only, no PII): customer **109,894**, address **111,620**, container **388,735** rows. Under the per-`db.batch()`-call counting model (one call = 1 op + 1 reconcile `DELETE` per non-empty sync), the committed chunk sizes (`STREAM_BATCH_CUST/ADDR = 80`, `STREAM_BATCH_CONT = 40` in `src/lib/snapshot/streamSync.ts`) cost **1,375 / 1,397 / 9,720 ops** per table — every table exceeds its own 1000-op chained budget, and a pooled single invocation totals 12,492 ops. Safe per-table (chained) sizes at these counts: **customer 120** (917 ops, margin 83), **address 120** (932 ops, margin 68), **container 400** (973 ops, margin 27). Even at safe sizes the three tables pooled in one invocation total 2,822 ops, so chained mode stays required; growing the batch further buys fewer calls but packs more statements per call (the 100-bind / 100 KB per-statement caps still bind inside each call, pinned by `test/snapshotUpsert.test.ts`).
+
+Reproduce: `node scripts/check-sync-batch-budget.mjs` (measures the committed constants; exit 0 always — `OVER` is a finding, not a gate failure). Try candidates without editing source, e.g. `node scripts/check-sync-batch-budget.mjs --batch-customer=120 --batch-address=120 --batch-container=400`, or re-run against fresh counts with `--customer-rows=N --address-rows=N --container-rows=N`. Unit pins: `test/syncBatchBudget.test.ts`.
+
 ### 503 / `exceededMemory` (rare)
 
 Workers cap **memory** per isolate (~128 MB). Sync and import now **stream** the CSV and upsert in batches (no full-file `string` for report downloads), which is what you need for very large container exports. If you still see `exceededMemory`, run the three `POST` sync routes as **separate** requests in order, or lower batch pressure by splitting work across times.
