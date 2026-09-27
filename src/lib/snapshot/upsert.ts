@@ -48,6 +48,30 @@ export async function reconcileDeleteStale(
   return res.meta.changes ?? 0;
 }
 
+/** Reconcile one complete customer graph, including containers of removed addresses. */
+export async function reconcileCustomerChildren(
+  db: D1Database,
+  customerId: number,
+  syncedAt: string
+): Promise<{ addressIds: number[]; containerIds: number[] }> {
+  // Keep the address scope alive until its containers have been deleted. Batch
+  // makes the two deletes atomic; RETURNING also gives cache invalidation the
+  // removed ids without a racy read-before-delete or a large IN bind list.
+  const [containers, addresses] = await db.batch<{ id: number }>([
+    db.prepare(`DELETE FROM container_snapshot
+      WHERE pickup_address_id IN (
+        SELECT pickup_address_id FROM address_snapshot WHERE customer_id = ?
+      ) AND synced_at < ? RETURNING container_id AS id`).bind(customerId, syncedAt),
+    db.prepare(`DELETE FROM address_snapshot
+      WHERE customer_id = ? AND synced_at < ?
+      RETURNING pickup_address_id AS id`).bind(customerId, syncedAt)
+  ]);
+  return {
+    addressIds: addresses.results.map((r) => r.id),
+    containerIds: containers.results.map((r) => r.id)
+  };
+}
+
 export type SnapshotSyncCounts = {
   upserted: number;
   rowCount: number;
@@ -57,6 +81,8 @@ export type SnapshotSyncCounts = {
 export type StreamSyncOptions = {
   /** Delete rows not seen in this run (report sync). Off for partial imports. */
   reconcile?: boolean;
+  /** Observation boundary captured before fetching the report, not after download. */
+  syncedAt?: string;
 };
 
 export async function upsertCustomerSnapshotRows(
