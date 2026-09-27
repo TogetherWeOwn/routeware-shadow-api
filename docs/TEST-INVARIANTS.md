@@ -107,6 +107,13 @@ Mutation-verified six ways, including both casing swaps.
   `undefined` yields `false` and would silently disable every address.
 - `test/detailFullSyncFetch.test.ts` pins the re-auth retry, including that the session is **re-read**
   after `establishSession` rather than the stale one reused.
+- Upstream failure text is **never embedded in thrown errors**: `fetchGetCustomerDetailFull`
+  throws `GetCustomerDetailFull failed: HTTP <status>` (no body slice), because the message
+  reaches API clients verbatim inside `localSync.reason`. Same for
+  `fetchReportCsvByQueryId` (`QueryExecuteDownload failed: HTTP <status>` — the cron log
+  is the sink). `test/piiScrub.test.ts` pins both against PII-shaped HTML, plus the
+  anti-forgery modal 502s (status + modal path only) and fixture hygiene. See the
+  audit table at the top of that file for the full `console.*` / problem+json sweep.
 
 Both mutation-verified.
 
