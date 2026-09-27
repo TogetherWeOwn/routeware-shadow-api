@@ -1,3 +1,10 @@
+import {
+  AUTH_THROTTLE_STATE_KEY,
+  throttleCheckVerdict,
+  throttleRecordFailure,
+  type AuthThrottleState
+} from "./lib/authThrottle";
+
 type SessionState = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
@@ -31,6 +38,26 @@ function parseSetBody(body: unknown): StoredSession | null {
     return null;
   }
   return { cookieHeader, expiresAtMs };
+}
+
+/**
+ * Narrow an unknown stored value to throttle state. Stale or foreign values
+ * (e.g. a session field written under a colliding key by a bug) reset to
+ * empty rather than throwing inside the DO.
+ */
+function isThrottleState(value: unknown): value is AuthThrottleState {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const { failures, windowStartMs, blockedUntilMs } = value as Record<string, unknown>;
+  return (
+    typeof failures === "number" &&
+    Number.isInteger(failures) &&
+    failures >= 0 &&
+    typeof windowStartMs === "number" &&
+    Number.isFinite(windowStartMs) &&
+    (blockedUntilMs === null || (typeof blockedUntilMs === "number" && Number.isFinite(blockedUntilMs)))
+  );
 }
 
 export class AuthSession {
@@ -86,6 +113,28 @@ export class AuthSession {
     if (url.pathname === "/unlock") {
       await this.state.storage.put("refreshing", false);
       await this.state.storage.delete("lockedAt");
+      return new Response("OK");
+    }
+
+    // Per-IP bearer-failure throttle (TOG-5820). Each client IP gets its own
+    // DO instance (`auth-throttle:<ip>`), so this storage key is namespaced by
+    // construction. Malformed/absent state is treated as empty, never fatal.
+    if (url.pathname === "/throttle/check") {
+      const raw = await this.state.storage.get<unknown>(AUTH_THROTTLE_STATE_KEY);
+      const state = isThrottleState(raw) ? raw : null;
+      return Response.json(throttleCheckVerdict(state, Date.now()));
+    }
+
+    if (url.pathname === "/throttle/failure") {
+      const raw = await this.state.storage.get<unknown>(AUTH_THROTTLE_STATE_KEY);
+      const state = isThrottleState(raw) ? raw : null;
+      const { next, verdict } = throttleRecordFailure(state, Date.now());
+      await this.state.storage.put(AUTH_THROTTLE_STATE_KEY, next);
+      return Response.json(verdict);
+    }
+
+    if (url.pathname === "/throttle/clear") {
+      await this.state.storage.delete(AUTH_THROTTLE_STATE_KEY);
       return new Response("OK");
     }
 

@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
+import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors } from "./lib/cors";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
@@ -81,6 +82,24 @@ app.use("/api/v1/*", async (c, next) => {
   }
   const isPublic = method === "GET" && path === "/api/v1/health";
   if (!isPublic && !isApiAuthorized(c.env, c.req)) {
+    // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
+    // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
+    // a token-guessing loop slows to a crawl.
+    const verdict = await recordAuthFailure(c.env, {
+      header: (name: string) => c.req.header(name)
+    });
+    if (verdict.blocked) {
+      const retryAfter = String(verdict.retryAfterSec);
+      const throttled = problemJsonResponse({
+        type: problemType("rate-limited"),
+        title: "Too Many Requests",
+        status: 429,
+        detail:
+          "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited."
+      });
+      throttled.headers.set("Retry-After", retryAfter);
+      return withCors(throttled, c.req.raw);
+    }
     return withCors(
       problemJsonResponse({
         type: problemType("unauthorized"),
@@ -91,6 +110,13 @@ app.use("/api/v1/*", async (c, next) => {
       }),
       c.req.raw
     );
+  }
+  if (!isPublic) {
+    // A valid token clears the IP's failure count, so one bad burst (or a
+    // shared NAT IP) never locks out legitimate traffic.
+    await clearAuthFailures(c.env, {
+      header: (name: string) => c.req.header(name)
+    });
   }
   await next();
   // Stamp CORS + hardening headers on every downstream response (including
