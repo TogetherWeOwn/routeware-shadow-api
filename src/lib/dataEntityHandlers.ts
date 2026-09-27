@@ -461,6 +461,10 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       } catch (e) {
         console.error("post container sync", e);
         await invalidateDataEntity("customer", customerId);
+        const cid = Number.parseInt(posted.ContainerID ?? "0", 10);
+        if (Number.isFinite(cid) && cid > 0) {
+          await invalidateDataEntity("container", cid);
+        }
       }
     }
   }
