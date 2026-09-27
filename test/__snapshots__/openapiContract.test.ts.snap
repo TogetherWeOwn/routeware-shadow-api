@@ -1315,7 +1315,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/customer-types-read": {
       "post": {
-        "description": "Customer type / category list for pickers (same store pattern as other Ext.NET \`*Read\` actions). Send **application/x-www-form-urlencoded** (e.g. \`EnabledOnly=true\`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once.",
+        "description": "Customer type / category list for pickers (same store pattern as other Ext.NET \`*Read\` actions). Send **application/x-www-form-urlencoded** (e.g. \`EnabledOnly=true\`). Request body is not validated here so the Worker can forward the raw body after session middleware consumes the stream once. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1334,6 +1334,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "CustomerTypesRead",
@@ -1344,7 +1347,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/customers-read": {
       "post": {
-        "description": "Forwards the JSON body to WebRW \`CustomersRead\` with **application/json** (e.g. the harvested Ext.NET store shape: \`filter\`, \`page\`, \`start\`, \`limit\`, \`group\`, \`sort\`). OData-style \`skip\`/\`take\` keys are translated server-side onto \`start\`/\`limit\` (which upstream is proven to honor via the harvested SPA traffic); an explicit \`start\`/\`limit\` always wins and non-JSON bodies pass through untouched.",
+        "description": "Forwards the JSON body to WebRW \`CustomersRead\` with **application/json** (e.g. the harvested Ext.NET store shape: \`filter\`, \`page\`, \`start\`, \`limit\`, \`group\`, \`sort\`). OData-style \`skip\`/\`take\` keys are translated server-side onto \`start\`/\`limit\` (which upstream is proven to honor via the harvested SPA traffic); an explicit \`start\`/\`limit\` always wins and non-JSON bodies pass through untouched. Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1364,6 +1367,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
+          "502": {
+            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
+          },
         },
         "summary": "CustomersRead (harvested SPA traffic)",
         "tags": [
@@ -1373,6 +1379,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/customer/detail-full": {
       "post": {
+        "description": "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1391,6 +1398,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "GetCustomerDetailFull",
@@ -1475,6 +1485,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/data/app-settings-get": {
       "post": {
+        "description": "Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "responses": {
           "200": {
             "content": {
@@ -1493,6 +1504,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "appSettingsGet",
@@ -1522,7 +1536,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/routeware/reports/query-request-is-complete": {
       "get": {
-        "description": "Polls upstream \`GET /Reports/QueryRequestIsComplete\`. Only \`requestID\` (the one-time report request id) and \`_\` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in \`docs/PROBLEMS.md\` § query-param allowlist.",
+        "description": "Polls upstream \`GET /Reports/QueryRequestIsComplete\`. Only \`requestID\` (the one-time report request id) and \`_\` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in \`docs/PROBLEMS.md\` § query-param allowlist. Routeware signals a failed poll silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
         "parameters": [
           {
             "in": "query",
@@ -1559,6 +1573,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+          },
+          "502": {
+            "description": "Upstream read failed (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
         },
         "summary": "QueryRequestIsComplete (allowlisted query params forwarded upstream)",
