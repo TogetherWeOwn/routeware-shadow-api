@@ -4,7 +4,7 @@ import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { forwardToUpstream } from "../lib/upstreamForward";
 import {
   routewareWebRwUrl,
-  routewareWebRwUrlWithIncomingSearch
+  routewareWebRwUrlWithQueryAllowlist
 } from "../lib/upstreamUrl";
 import { createRouteModule, upstreamPassthrough200 } from "./shared";
 
@@ -93,20 +93,41 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
   );
 });
 
+/**
+ * Query params the UI's `QueryRequestIsComplete` poll sends and the shadow API
+ * forwards upstream. Everything else on the client query string is dropped
+ * (silently ignored) so unknown params never reach Routeware.
+ *
+ * `requestID` is the one-time report request id (a UUID the browser generates
+ * per download, confirmed by the `exampleQuery` in `route-map.json` and
+ * `CUSTOMER_SNAPSHOT.md` § query-id mode); `_` is the jQuery cache-buster
+ * timestamp the SPA appends.
+ */
+export const QUERY_REQUEST_IS_COMPLETE_PARAMS = ["requestID", "_"] as const;
+
 const queryRequestIsCompleteRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/reports/query-request-is-complete",
   tags: ["reports"],
-  summary: "QueryRequestIsComplete (query string forwarded to upstream)",
+  summary: "QueryRequestIsComplete (allowlisted query params forwarded upstream)",
+  description:
+    "Polls upstream `GET /Reports/QueryRequestIsComplete`. Only `requestID` (the one-time report request id) and `_` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in `docs/PROBLEMS.md` § query-param allowlist.",
+  request: {
+    query: z.object({
+      requestID: z.string().optional(),
+      _: z.string().optional()
+    })
+  },
   responses: upstreamPassthrough200
 });
 
 routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
-  const upstreamUrl = routewareWebRwUrlWithIncomingSearch(
+  const upstreamUrl = routewareWebRwUrlWithQueryAllowlist(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
     "/Reports/QueryRequestIsComplete",
-    c.req.raw
+    c.req.raw,
+    QUERY_REQUEST_IS_COMPLETE_PARAMS
   );
   return forwardWithSessionRetry(
     c.env,
