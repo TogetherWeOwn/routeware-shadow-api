@@ -87,6 +87,24 @@ Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
+A valid-token reset only clears the requester's own IP bucket (the same
+`auth-throttle:<ip>` Durable Object key the failures were counted under), so
+it cannot be abused to clear an attacker's budget: a reset requires passing
+the bearer check, which an attacker without the token cannot do, and a reset
+from one IP never touches another IP's counter. Pinned by
+`test/throttleResetIsolation.test.ts`.
+
+Shared-NAT note: clients behind one egress IP share a single 20-failure
+budget, so a bad actor — or a misconfigured client retrying a stale token —
+behind the same NAT can cause `429` responses for other clients' failed
+attempts from that IP. This never blocks legitimate traffic: a request with
+the valid token always passes, even while its IP is blocked, and clears the
+shared counter. Operator remedy: confirm the affected client is sending the
+current token (one good request clears the block immediately); otherwise the
+block expires on its own after 60 seconds. If `429`s recur from one egress
+IP, find the client burning the budget and fix its token, or route operator
+traffic through a distinct egress IP.
+
 ## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
 
 Every Routeware fetch runs under a bounded per-attempt budget: 15s for
