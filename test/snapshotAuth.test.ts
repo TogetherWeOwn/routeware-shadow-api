@@ -101,6 +101,15 @@ describe("snapshot-secret auth gate", () => {
     upstreamFetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      // TOG-6543: the query-id leg polls QueryRequestIsComplete before its
+      // download. The poll answers complete so the download attempt is what
+      // throws, preserving the "reached the sync body" proof below.
+      if (url.includes("/Reports/QueryRequestIsComplete")) {
+        return new Response("true", {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
       throw new Error(`Unexpected upstream fetch in test: ${url}`);
     }) as MockedFunction<typeof fetch>;
     globalThis.fetch = upstreamFetch;
@@ -168,17 +177,19 @@ describe("snapshot-secret auth gate", () => {
     // handler. `not.toBe(401)` would also accept the **404** you get by deleting the
     // route outright, which must not read as a passing auth test.
     expect(response.status).toBe(500);
-    // Exactly one upstream call, and it is the report download — not "some fetch
-    // happened", which any future middleware would satisfy.
-    expect(upstreamFetch).toHaveBeenCalledTimes(1);
-    const [requested] = upstreamFetch.mock.calls[0];
-    const requestedUrl =
+    // Two upstream calls: the TOG-6543 completion poll (answered complete by
+    // the stub above), then the report download — which throws. Asserting both
+    // URLs, not "some fetch happened", which any future middleware would satisfy.
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    const requestedUrls = upstreamFetch.mock.calls.map(([requested]) =>
       typeof requested === "string"
         ? requested
         : requested instanceof URL
           ? requested.href
-          : requested.url;
-    expect(requestedUrl).toContain("/Reports/QueryExecuteDownload");
-    expect(requestedUrl).toContain("queryID=25");
+          : requested.url
+    );
+    expect(requestedUrls[0]).toContain("/Reports/QueryRequestIsComplete");
+    expect(requestedUrls[1]).toContain("/Reports/QueryExecuteDownload");
+    expect(requestedUrls[1]).toContain("queryID=25");
   });
 });

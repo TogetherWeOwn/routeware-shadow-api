@@ -122,12 +122,16 @@ function makeEnv(stub: DurableObjectStub): Env {
 
 describe("cron login thunder-herd (TOG-6548)", () => {
   const originalFetch = globalThis.fetch;
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const cookie = new Headers(init?.headers).get("cookie") ?? "";
+    // TOG-6543: the query-id leg polls QueryRequestIsComplete before its
+    // download. The poll answers "true" on a fresh session — stale still 302s
+    // so the query-id leg joins the herd instead of bypassing it.
+    const isPoll = String(url).includes("QueryRequestIsComplete");
     if (cookie.includes(".WebRW=fresh")) {
-      return new Response(CSV, {
+      return new Response(isPoll ? "true" : CSV, {
         status: 200,
-        headers: { "content-type": "text/csv" }
+        headers: { "content-type": isPoll ? "application/json" : "text/csv" }
       });
     }
     return new Response("", { status: 302, headers: { location: LOGIN_URL } });
@@ -165,10 +169,11 @@ describe("cron login thunder-herd (TOG-6548)", () => {
 
     // Assert — the refresh lock collapsed the storm into a single upstream
     // login and a single /set; every step retried exactly once (3 stale
-    // forwards + 3 fresh forwards) and all three landed 200 with CSV.
+    // forwards + 4 fresh forwards — the query-id leg's extra forward is its
+    // TOG-6543 completion poll) and all three landed 200 with CSV.
     expect(counters.httpLogins).toBe(1);
     expect(counters.sets).toBe(1);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
     expect(state.cookieHeader).toBe(".WebRW=fresh");
     for (const res of results) {
       expect(res.status).toBe(200);
