@@ -11,6 +11,7 @@
     "dev": "wrangler dev",
     "check:devvars": "node scripts/check-devvars.mjs",
     "check:shadow-api-v1": "node scripts/check-shadow-api-v1.mjs",
+    "check:source-file-size": "node scripts/check-source-file-size.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",
