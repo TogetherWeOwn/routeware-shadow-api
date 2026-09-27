@@ -1,5 +1,9 @@
 import type { SessionState } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
+import {
+  DEFAULT_UPSTREAM_TIMEOUT_MS,
+  fetchWithUpstreamTimeout
+} from "./upstreamTimeout";
 
 export type ForwardOptions = {
   /**
@@ -8,6 +12,13 @@ export type ForwardOptions = {
    * the incoming client request, so external clients cannot spoof it.
    */
   internalMarker?: string;
+  /**
+   * Per-attempt time-to-headers budget in ms (TOG-5835). Defaults to
+   * `DEFAULT_UPSTREAM_TIMEOUT_MS`; report-CSV callers pass the larger
+   * report budget. A hung upstream throws `UpstreamTimeoutError` (never
+   * retried — the single retry is reserved for the login redirect).
+   */
+  timeoutMs?: number;
 };
 
 export async function forwardToUpstream(
@@ -41,12 +52,22 @@ export async function forwardToUpstream(
     headers.set("Cookie", session.cookieHeader);
   }
 
-  const upstream = await fetch(upstreamUrl.toString(), {
-    method: incoming.method,
-    headers,
-    body: bodyBuffer,
-    redirect: "manual"
-  });
+  // Bounded per-attempt budget (TOG-5835): a hung Routeware host throws
+  // `UpstreamTimeoutError` instead of holding the Worker to the 300s CPU
+  // limit. The timer covers time-to-headers only, so a started body stream is
+  // not cut off. Timeouts are never retried — the single retry is reserved
+  // for the login redirect (see `forwardWithSessionRetry`).
+  const timeoutMs = options.timeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
+  const upstream = await fetchWithUpstreamTimeout(
+    upstreamUrl.toString(),
+    {
+      method: incoming.method,
+      headers,
+      body: bodyBuffer,
+      redirect: "manual"
+    },
+    timeoutMs
+  );
 
   return stripUpstreamSetCookie(upstream);
 }

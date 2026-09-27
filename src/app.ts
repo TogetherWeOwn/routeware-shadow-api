@@ -3,6 +3,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
 import { containerSnapshotRoutes } from "./routes/containerSnapshot";
@@ -188,7 +189,16 @@ app.use(
 
 app.notFound((c) => notFoundProblem(new URL(c.req.url).pathname));
 
-app.onError((err, _c) => {
+app.onError((err, c) => {
+  // A hung Routeware host throws `UpstreamTimeoutError` from any direct
+  // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
+  // a 500. The message is a fixed string (no URL/body/PII). Session-retry
+  // routes map this themselves before it reaches here; this is the backstop
+  // for direct forwarders (login-page, modals, detail-full sync internals).
+  if (isUpstreamTimeout(err)) {
+    console.error("UPSTREAM TIMEOUT", err.message);
+    return upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
+  }
   // Log the full error for observability, but do not echo internal details
   // (messages, stack, upstream text) back to the client.
   console.error("APP ERROR", err);

@@ -86,3 +86,14 @@ rotating candidate tokens does not evade it.
 Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
+
+## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
+
+Every Routeware fetch runs under a bounded per-attempt budget: 15s for
+interactive forwards (API passthrough, anti-forgery modals, login), 60s for
+report-CSV downloads. A hung upstream host answers as 502 problem+json, never
+a 500 and never a hang to the 300s CPU limit. The single retry is reserved for
+the login redirect (provably safe); a timeout is never retried, so worst case
+is 2x one attempt. Override per deploy with the optional `UPSTREAM_TIMEOUT_MS`
+/ `UPSTREAM_REPORT_TIMEOUT_MS` bindings (absent/invalid falls back to the
+defaults).

@@ -2,6 +2,7 @@ import { forwardToUpstream } from "./upstreamForward";
 import { establishSession } from "./establishSession";
 import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
+import { readReportTimeoutMs } from "./upstreamTimeout";
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -59,14 +60,18 @@ async function forwardSessionAware(
   url: URL,
   body: ArrayBuffer | null
 ): Promise<Response> {
+  // Report budget (TOG-5835): full-table CSV downloads get 60s per attempt
+  // (vs 15s interactive) — worst case 2x with the single login-redirect retry.
+  // Timeouts throw `UpstreamTimeoutError` and are never retried.
+  const timeoutMs = readReportTimeoutMs(env);
   const stub = env.AUTH_SESSION.get(env.AUTH_SESSION.idFromName("primary"));
   let session = await readSessionState(stub);
-  const run = () => forwardToUpstream(makeReq(), url, session, body);
+  const run = () => forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
   let resp = await run();
   if (resp.status !== 200 || isLoginRedirect(resp)) {
     await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
-    resp = await forwardToUpstream(makeReq(), url, session, body);
+    resp = await forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
   }
   return resp;
 }
