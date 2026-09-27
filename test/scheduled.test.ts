@@ -11,32 +11,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * D1's per-invocation operation cap — picking the wrong one turns a working
  * nightly job into one that dies partway through, with the tables it already
  * reconciled left in whatever state it reached.
+ *
+ * A third property is new with structured logging: every run emits exactly one
+ * `data-snapshot-sync {...}` JSON line whose `outcome` is `success`,
+ * `unconfigured`, or `failed`. A silent failure must never look like "no
+ * report paths configured" — that distinction is what the missed-sync alarm in
+ * `docs/CRON-SYNC-ALARM-RUNBOOK.md` keys on.
  */
 
-type Result = { upserted: number; rowCount: number } | null;
+type Result = { upserted: number; rowCount: number; deleted?: number } | null;
 
 const calls: { chained: string[]; single: number } = { chained: [], single: 0 };
 
 const behavior: {
   result: { customer: Result; address: Result; container: Result };
   error: string | null;
+  rawThrow: boolean;
 } = {
   result: { customer: null, address: null, container: null },
-  error: null
+  error: null,
+  rawThrow: false
 };
 
 vi.mock("../src/lib/d1SnapshotSync", () => ({
   runDataSnapshotSyncChainedHttp: async (publicBase: string) => {
     calls.chained.push(publicBase);
     if (behavior.error) {
-      throw new Error(behavior.error);
+      // `rawThrow` covers the non-Error rejection branch in the handler.
+      throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
     }
     return behavior.result;
   },
   runDataSnapshotSync: async () => {
     calls.single += 1;
     if (behavior.error) {
-      throw new Error(behavior.error);
+      throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
     }
     return behavior.result;
   }
@@ -45,9 +54,8 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
 const { scheduled } = await import("../src/scheduled");
 
 const logs: string[] = [];
-const warns: string[] = [];
 const errors: unknown[][] = [];
-const real = { log: console.log, warn: console.warn, error: console.error };
+const real = { log: console.log, error: console.error };
 
 /** Captures the promise handed to waitUntil so the test can await it. */
 function fakeCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -72,12 +80,38 @@ function envWith(publicBase?: string): Env {
     : { SHADOW_API_PUBLIC_BASE: publicBase }) as unknown as Env;
 }
 
-const controller = {} as ScheduledController;
+/** A realistic cron controller; the bare-object variant covers the fallback. */
+function controllerWith(meta?: { cron?: string; scheduledTime?: number }): ScheduledController {
+  return { ...(meta ?? {}) } as ScheduledController;
+}
 
-async function runScheduled(env: Env): Promise<void> {
+async function runScheduled(
+  env: Env,
+  controller: ScheduledController = controllerWith({
+    cron: "0 7 * * *",
+    scheduledTime: Date.parse("2026-09-27T07:00:00.000Z")
+  })
+): Promise<void> {
   const { ctx, settled } = fakeCtx();
   await scheduled(controller, env, ctx);
   await settled();
+}
+
+/** Parses the single structured line; asserts the greppable prefix. */
+function loggedLine(): Record<string, unknown> {
+  expect(logs).toHaveLength(1);
+  expect(logs[0].startsWith("data-snapshot-sync ")).toBe(true);
+  return JSON.parse(logs[0].slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+}
+
+function errorLine(): Record<string, unknown> {
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toHaveLength(1);
+  expect(String(errors[0][0]).startsWith("data-snapshot-sync ")).toBe(true);
+  return JSON.parse(String(errors[0][0]).slice("data-snapshot-sync ".length)) as Record<
+    string,
+    unknown
+  >;
 }
 
 beforeEach(() => {
@@ -85,14 +119,11 @@ beforeEach(() => {
   calls.single = 0;
   behavior.result = { customer: null, address: null, container: null };
   behavior.error = null;
+  behavior.rawThrow = false;
   logs.length = 0;
-  warns.length = 0;
   errors.length = 0;
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
-  };
-  console.warn = (...a: unknown[]) => {
-    warns.push(a.map(String).join(" "));
   };
   console.error = (...a: unknown[]) => {
     errors.push(a);
@@ -101,7 +132,6 @@ beforeEach(() => {
 
 afterEach(() => {
   console.log = real.log;
-  console.warn = real.warn;
   console.error = real.error;
 });
 
@@ -114,6 +144,10 @@ describe("scheduled sync path selection", () => {
     // Assert
     expect(calls.chained).toEqual(["https://api.example.test"]);
     expect(calls.single).toBe(0);
+    const line = loggedLine();
+    expect(line.mode).toBe("chained-http");
+    expect(line.configSource).toBe("SHADOW_API_PUBLIC_BASE");
+    expect(line.d1LimitRisk).toBe(false);
   });
 
   it("falls back to a single invocation when no public base url is set", async () => {
@@ -123,6 +157,10 @@ describe("scheduled sync path selection", () => {
     // Assert
     expect(calls.single).toBe(1);
     expect(calls.chained).toEqual([]);
+    const line = loggedLine();
+    expect(line.mode).toBe("single-invocation");
+    expect(line.configSource).toBe("fallback-single-invocation");
+    expect(line.d1LimitRisk).toBe(true);
   });
 
   it("treats a whitespace-only public base url as unset", async () => {
@@ -132,32 +170,15 @@ describe("scheduled sync path selection", () => {
     // Assert
     expect(calls.single).toBe(1);
     expect(calls.chained).toEqual([]);
-  });
-
-  it("warns that the single-invocation path may hit D1 limits", async () => {
-    // Arrange / Act — this warning is the only signal that the nightly job is
-    // one large export away from dying partway through.
-    await runScheduled(envWith());
-
-    // Assert
-    expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is unset");
-  });
-
-  it("does not warn when the chained path is used", async () => {
-    // Arrange / Act
-    await runScheduled(envWith("https://api.example.test"));
-
-    // Assert
-    expect(warns).toEqual([]);
+    expect(loggedLine().configSource).toBe("fallback-single-invocation");
   });
 });
 
-describe("scheduled result reporting", () => {
-  it("summarises every table that ran", async () => {
+describe("scheduled structured outcome", () => {
+  it("logs success with per-table counts and duration", async () => {
     // Arrange
     behavior.result = {
-      customer: { upserted: 3, rowCount: 4 },
+      customer: { upserted: 3, rowCount: 4, deleted: 1 },
       address: { upserted: 5, rowCount: 6 },
       container: { upserted: 7, rowCount: 8 }
     };
@@ -166,12 +187,22 @@ describe("scheduled result reporting", () => {
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert
-    expect(logs).toContain(
-      "data snapshot sync: customer: 3 upserted, 4 rows; address: 5 upserted, 6 rows; container: 7 upserted, 8 rows"
-    );
+    const line = loggedLine();
+    expect(line.event).toBe("data-snapshot-sync");
+    expect(line.outcome).toBe("success");
+    expect(line.tables).toEqual({
+      customer: { upserted: 3, rowCount: 4, deleted: 1 },
+      address: { upserted: 5, rowCount: 6 },
+      container: { upserted: 7, rowCount: 8 }
+    });
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows, 1 deleted");
+    expect(typeof line.durationMs).toBe("number");
+    expect(line.cron).toBe("0 7 * * *");
+    expect(line.scheduledTime).toBe("2026-09-27T07:00:00.000Z");
+    expect(line.error).toBeUndefined();
   });
 
-  it("omits the tables that were skipped", async () => {
+  it("marks skipped tables explicitly instead of omitting them", async () => {
     // Arrange
     behavior.result = { customer: { upserted: 3, rowCount: 4 }, address: null, container: null };
 
@@ -179,18 +210,32 @@ describe("scheduled result reporting", () => {
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert
-    expect(logs).toContain("data snapshot sync: customer: 3 upserted, 4 rows; ");
+    const line = loggedLine();
+    expect(line.outcome).toBe("success");
+    expect((line.tables as Record<string, unknown>).address).toBeNull();
+    expect(line.summary).toContain("address: skipped (no report path configured)");
   });
 
-  it("reports explicitly when nothing was configured", async () => {
-    // Arrange — an all-null result must not look like a silent success.
+  it("reports unconfigured — not success — when nothing was configured", async () => {
+    // Arrange — an all-null result is a config state, and the alarm treats it
+    // as distinct from a passing sync.
     behavior.result = { customer: null, address: null, container: null };
 
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert
-    expect(logs).toContain("data snapshot sync: no report paths configured");
+    expect(loggedLine().outcome).toBe("unconfigured");
+  });
+
+  it("falls back to unknown scheduling metadata on a bare controller", async () => {
+    // Arrange / Act
+    await runScheduled(envWith("https://api.example.test"), controllerWith());
+
+    // Assert — the handler must never throw before it can log.
+    const line = loggedLine();
+    expect(line.cron).toBe("unknown");
+    expect(line.scheduledTime).toBe("unknown");
   });
 });
 
@@ -204,30 +249,33 @@ describe("scheduled failure handling", () => {
     await expect(runScheduled(envWith("https://api.example.test"))).resolves.toBeUndefined();
   });
 
-  it("logs the failure with its step tag intact", async () => {
+  it("logs the failure with outcome failed and its step tag intact", async () => {
     // Arrange
     behavior.error = "[customer snapshot] D1_ERROR: database is locked";
 
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
-    // Assert
-    expect(errors).toHaveLength(1);
-    expect(errors[0][0]).toBe("scheduled data snapshot sync failed");
-    expect((errors[0][1] as Error).message).toBe(
-      "[customer snapshot] D1_ERROR: database is locked"
-    );
+    // Assert — failures go to console.error so they stay out of the success
+    // stream, but keep the same greppable prefix and JSON shape.
+    expect(logs).toEqual([]);
+    const line = errorLine();
+    expect(line.outcome).toBe("failed");
+    expect(line.error).toBe("[customer snapshot] D1_ERROR: database is locked");
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(typeof line.durationMs).toBe("number");
   });
 
-  it("does not log a success summary when the sync failed", async () => {
+  it("stringifies a non-Error rejection instead of dropping it", async () => {
     // Arrange
-    behavior.error = "boom";
+    behavior.error = "raw string failure";
+    behavior.rawThrow = true;
 
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert
-    expect(logs).toEqual([]);
+    expect(errorLine().error).toBe("raw string failure");
   });
 
   it("catches a failure on the single-invocation path too", async () => {
@@ -240,5 +288,6 @@ describe("scheduled failure handling", () => {
     // Assert
     expect(errors).toHaveLength(1);
     expect(calls.single).toBe(1);
+    expect(errorLine().mode).toBe("single-invocation");
   });
 });
