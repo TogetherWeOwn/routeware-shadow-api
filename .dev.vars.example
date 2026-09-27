@@ -16,8 +16,10 @@ CUSTOMER_SNAPSHOT_SYNC_SECRET=
 # Optional: override for staging
 # TARGET_ORIGIN=https://example.routeware.com
 
-# Optional: disable interactive API docs (OpenAPI JSON still served at /openapi.json)
-# OPENAPI_DOCS_ENABLED=false
+# Local API docs: deployed envs default OPENAPI_DOCS_ENABLED to "false"
+# (fail-closed — /openapi.json and /docs return 404). Set "true" here to keep
+# the Scalar UI + spec available under `wrangler dev`.
+OPENAPI_DOCS_ENABLED=true
 
 # Optional: disable automatic __RequestVerificationToken injection on POST save-long-form (default on in wrangler.toml)
 # CUSTOMER_SAVE_AUTO_TOKEN=false

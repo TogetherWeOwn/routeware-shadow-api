@@ -197,8 +197,10 @@ format step — none is configured.**
 
 - Routes are versioned under `/api/v1`. Each route has a documented OpenAPI operation via
   `@hono/zod-openapi`.
-- Machine-readable spec: `GET /openapi.json`. Interactive docs: `GET /docs` when
-  `OPENAPI_DOCS_ENABLED` is `true` in `[vars]` / `.dev.vars`.
+- Machine-readable spec: `GET /openapi.json`. Interactive docs: `GET /docs`. Both
+  are served only when `OPENAPI_DOCS_ENABLED` is `"true"`; deployed envs default it to
+  `"false"` (fail-closed, 404), local dev enables it via `.dev.vars`, and the Vitest
+  `test` env keeps it on for contract tests.
 - Errors produced by this Worker use RFC 7807 `application/problem+json` (`src/lib/problem.ts`), and
   every `type` URL anchors into [`PROBLEMS.md`](PROBLEMS.md). Tests pin those strings verbatim.
 
