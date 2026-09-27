@@ -4,6 +4,7 @@ import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
+import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
 import {
   routewareWebRwUrl,
@@ -228,6 +229,11 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the /data/* write path.
   const upText = await up.clone().text();
   if (routewarePostLooksSuccessful(up.status, upText)) {
+    // TOG-6463: a successful routeware-tier save must refresh D1 + evict the
+    // data-entity cache, or shadow reads keep serving the pre-save record.
+    // Never throws: a local refresh failure must not turn the passthrough 200
+    // into a 500 (the save itself succeeded upstream).
+    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "customer", bodyBuffer, upText);
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
