@@ -172,6 +172,7 @@ describe("throttle burst verification (TOG-6278)", () => {
 
   it("OPTIONS interleaved with failures never consumes budget", async () => {
     // Arrange — 10 failures, a 20-deep OPTIONS burst, then 9 more failures.
+    // TOG-5809 answers OPTIONS with a 204 preflight before the bearer gate.
     for (let i = 0; i < 10; i++) {
       await expectFailure401(await call(HOME_INDEX, { token: `pre-${i}`, ip: OPTIONS_IP }));
     }
@@ -181,7 +182,8 @@ describe("throttle burst verification (TOG-6278)", () => {
         ip: OPTIONS_IP,
         method: "OPTIONS"
       });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
     }
     for (let i = 0; i < 9; i++) {
       await expectFailure401(await call(HOME_INDEX, { token: `post-${i}`, ip: OPTIONS_IP }));

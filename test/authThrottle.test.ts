@@ -424,8 +424,8 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
   });
 
   it("CORS preflight never consumes throttle budget", async () => {
-    // Arrange — main has no TOG-5809 preflight early-return yet, so OPTIONS
-    // reaches the gate as a 401; it must not burn budget doing so.
+    // Arrange — TOG-5809 answers OPTIONS with a 204 preflight before the
+    // bearer gate; it must not burn throttle budget doing so.
     const PREFLIGHT_IP = "192.0.2.71";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
       const res = await call("/api/v1/routeware/home/index", {
@@ -433,7 +433,8 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
         ip: PREFLIGHT_IP,
         method: "OPTIONS"
       });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
     }
 
     // Assert — the IP's first real gated failure is still a 401, not a 429.

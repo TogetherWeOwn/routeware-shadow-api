@@ -184,11 +184,14 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("CORS preflight stays 401 without consuming throttle budget", async () => {
+  it("CORS preflight answers 204 without consuming throttle budget", async () => {
+    // TOG-5809 answers OPTIONS with a 204 preflight before the bearer gate;
+    // it must not burn throttle budget doing so.
     const path = "/api/v1/routeware/home/index";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
       const res = await call("OPTIONS", path, { token: "wrong", ip: PREFLIGHT_IP });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
     }
     const gated = await call("GET", path, { token: "wrong", ip: PREFLIGHT_IP });
     expect(gated.status).toBe(401);
