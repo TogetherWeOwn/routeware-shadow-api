@@ -118,3 +118,14 @@ Usage notes:
   fixed. A valid token clears the caller's own per-IP throttle bucket
   (`auth-throttle:<ip>`), which is separate storage from the primary session
   state this route never touches.
+
+## Query-param allowlist (reports probe)
+
+`GET /api/v1/routeware/reports/query-request-is-complete` forwards only an
+explicit allowlist upstream to `GET /WebRW/Reports/QueryRequestIsComplete`:
+`requestID` (the one-time report request id the browser generates per
+download) and `_` (the SPA's cache-buster timestamp). Any other query param is
+silently dropped — never forwarded, never an error — so arbitrary client input
+cannot reach Routeware as new query surface. Matching is case-sensitive.
+Unknown params therefore need no problem+json `type`: there is no failure to
+report.

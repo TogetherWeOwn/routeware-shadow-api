@@ -189,7 +189,7 @@ Example mappings from a typical harvest (SPA + ExtJS):
 | `POST /api/v1/routeware/customer/customers-read` | `POST /Customer/CustomersRead` |
 | `POST /api/v1/routeware/customer/detail-full` | `POST /Customer/GetCustomerDetailFull` |
 | `POST /api/v1/routeware/data/app-settings-get` | `POST /Data/appSettingsGet` |
-| `GET /api/v1/routeware/reports/query-request-is-complete` | `GET /Reports/QueryRequestIsComplete` (client query string forwarded) |
+| `GET /api/v1/routeware/reports/query-request-is-complete` | `GET /Reports/QueryRequestIsComplete` (`requestID` + `_` forwarded; other query params dropped — see `docs/PROBLEMS.md` § query-param allowlist) |
 
 ## Project rules
 
