@@ -8,7 +8,12 @@ function escapeRegexKey(key: string): string {
 
 /** Last occurrence wins (duplicate keys in x-www-form-urlencoded). */
 export function lastUrlEncodedValue(raw: string, key: string): string | undefined {
-  const re = new RegExp(`(?:^|&)${escapeRegexKey(key)}=([^&]*)`, "gi");
+  // TOG-6520: case-EXACT on purpose. Upstream `Save*` actions read form keys
+  // case-sensitively, so a case-insensitive match here picks the edit modal
+  // (e.g. `customerid=5` matching `CustomerID`) while upstream treats the same
+  // body as a create — an edit-modal token on a create body, a silent wrong
+  // operation on PII. Lowercase keys must fall through to the create path.
+  const re = new RegExp(`(?:^|&)${escapeRegexKey(key)}=([^&]*)`, "g");
   let m: RegExpExecArray | null;
   let lastEnc: string | undefined;
   while ((m = re.exec(raw)) !== null) {
