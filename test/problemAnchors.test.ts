@@ -320,10 +320,10 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-request`);
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
   });
 
-  it("body-less snapshot import: 400 bad-request Empty body", async () => {
+  it("body-less snapshot import: 400 bad-request", async () => {
     const res = await customerSnapshotRoutes.fetch(
       new Request("http://test.local/api/v1/customer-snapshot/import", {
         method: "POST",
@@ -335,7 +335,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-request`);
-    expect(body.title).toBe("Empty body");
+    expect(body.title).toBe("Bad Request");
   });
 
   it("body-less data-entity POST: 400 bad-request", async () => {
@@ -364,7 +364,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.headers.get("content-type")).toContain("application/problem+json");
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}not-found`);
-    expect(body.detail).toBe("No snapshot row for customer_id=9999");
+    expect(body.detail).toBe("No snapshot row for customer_id=9999. See docs/PROBLEMS.md#not-found.");
   });
 
   it("unconfigured sync: 503 misconfigured", async () => {
@@ -384,7 +384,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}misconfigured`);
-    expect(body.title).toBe("Not configured");
+    expect(body.title).toBe("Service Unavailable");
   });
 });
 
@@ -510,7 +510,7 @@ describe("app-level errors anchor verbatim (through the full stack)", () => {
     expect(res.status).toBe(502);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-gateway`);
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
   });
 
   it("throwing handler: 500 internal without leaking internals", async () => {

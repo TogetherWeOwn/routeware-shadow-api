@@ -237,7 +237,7 @@ app.onError((err, c) => {
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured"),
-        title: "Not configured",
+        title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
         instance: new URL(c.req.url).pathname
@@ -257,6 +257,7 @@ app.onError((err, c) => {
         "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."
     }),
     c.req.raw
-  );});
+  );
+});
 
 export default app;
