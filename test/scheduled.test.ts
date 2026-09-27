@@ -51,7 +51,7 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
   }
 }));
 
-const { scheduled } = await import("../src/scheduled");
+const { scheduled, resolveChainedBase } = await import("../src/scheduled");
 
 const logs: string[] = [];
 const errors: unknown[][] = [];
@@ -171,6 +171,72 @@ describe("scheduled sync path selection", () => {
     expect(calls.single).toBe(1);
     expect(calls.chained).toEqual([]);
     expect(loggedLine().configSource).toBe("fallback-single-invocation");
+  });
+
+  it.each([
+    ["malformed URL", "not a url"],
+    ["missing scheme", "api.example.test"],
+    ["non-http(s) scheme", "ftp://api.example.test"],
+    ["path-suffixed origin", "https://api.example.test/worker"],
+    ["query-suffixed origin", "https://api.example.test?x=1"],
+    ["fragment-suffixed origin", "https://api.example.test#frag"],
+    ["userinfo origin", "https://user:pass@api.example.test"],
+  ])("falls back to single-invocation on %s without throwing", async (_label, value) => {
+    // Arrange — a malformed SHADOW_API_PUBLIC_BASE must never throw before
+    // logging (TOG-6285): the run falls back and still emits its structured
+    // success/unconfigured line with d1LimitRisk=true.
+    behavior.result = { customer: { upserted: 1, rowCount: 1 }, address: null, container: null };
+
+    // Act / Assert — resolves (no rejection), runs the single path.
+    await expect(runScheduled(envWith(value))).resolves.toBeUndefined();
+    expect(calls.single).toBe(1);
+    expect(calls.chained).toEqual([]);
+    const line = loggedLine();
+    expect(line.mode).toBe("single-invocation");
+    expect(line.configSource).toBe("fallback-single-invocation");
+    expect(line.d1LimitRisk).toBe(true);
+    expect(line.outcome).toBe("success");
+  });
+
+  it("still chains when a valid origin has surrounding whitespace", async () => {
+    // Arrange / Act — trim is preserved, not treated as malformed.
+    await runScheduled(envWith("  https://api.example.test  "));
+
+    // Assert
+    expect(calls.chained).toEqual(["https://api.example.test"]);
+    expect(calls.single).toBe(0);
+    expect(loggedLine().mode).toBe("chained-http");
+  });
+});
+
+describe("resolveChainedBase", () => {
+  it.each([
+    ["https://api.example.test", "https://api.example.test"],
+    ["https://api.example.test/", "https://api.example.test/"],
+    ["http://localhost:8787", "http://localhost:8787"],
+    ["  https://api.example.test  ", "https://api.example.test"],
+  ])("accepts %s", (input, expected) => {
+    expect(resolveChainedBase(input)).toBe(expected);
+  });
+
+  it.each([
+    ["empty", ""],
+    ["whitespace-only", "   "],
+    ["malformed", "not a url"],
+    ["missing scheme", "api.example.test"],
+    ["non-http scheme", "ftp://api.example.test"],
+    ["path suffix", "https://api.example.test/worker"],
+    ["query suffix", "https://api.example.test?x=1"],
+    ["fragment suffix", "https://api.example.test#frag"],
+    ["userinfo", "https://user:pass@api.example.test"],
+  ])("rejects %s", (_label, input) => {
+    expect(resolveChainedBase(input)).toBeNull();
+  });
+
+  it("rejects non-string input without throwing", () => {
+    expect(resolveChainedBase(undefined)).toBeNull();
+    expect(resolveChainedBase(null)).toBeNull();
+    expect(resolveChainedBase(42)).toBeNull();
   });
 });
 
