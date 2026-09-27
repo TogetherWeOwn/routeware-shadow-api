@@ -103,6 +103,15 @@ describe("hermetic snapshot sync e2e", () => {
     globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      // TOG-6543: every query-id fetch polls QueryRequestIsComplete before
+      // its download. The poll answers complete immediately so the e2e keeps
+      // exercising the download retry leg (first download 302s, then CSV).
+      if (url.includes("/Reports/QueryRequestIsComplete")) {
+        return new Response("true", {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
       if (url.includes("/Reports/QueryExecuteDownload")) {
         const qid = new URL(url).searchParams.get("queryID") ?? "";
         const csv = CSV_BY_QID[qid];

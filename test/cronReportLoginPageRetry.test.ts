@@ -84,6 +84,9 @@ const env = {
   TARGET_ORIGIN: "https://killeen.example.test",
   TARGET_BASE_PATH: "/WebRW",
   LOGIN_URL: "https://killeen.example.test/WebRW/Account/Login",
+  // TOG-6543: 1ms inter-poll delay keeps the poll budget/loop real without
+  // slowing the suite (the guard treats 0 as absent, so it must be ≥ 1).
+  REPORT_QUERY_POLL_INTERVAL_MS: "1",
   AUTH_SESSION: {
     idFromName: () => ({}) as unknown as DurableObjectId,
     get: () => ({}) as unknown as DurableObjectStub
@@ -137,50 +140,64 @@ describe("fetchReportCsvForPath 200-login-page retry (TOG-6540)", () => {
 });
 
 describe("fetchReportCsvByQueryId 200-login-page retry (TOG-6540)", () => {
+  // TOG-6543: every query-id fetch polls QueryRequestIsComplete first, so each
+  // queue below starts with a completed poll; the download responses follow.
+  const pollComplete = () =>
+    new Response("true", {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+
   it("re-establishes and retries once on a 200 login page, returning the CSV", async () => {
-    // Arrange
-    behavior.responses = [loginPage, () => csv()];
+    // Arrange — poll completes, then the download sees an expired session.
+    behavior.responses = [pollComplete, loginPage, () => csv()];
 
     // Act
     const resp = await fetchReportCsvByQueryId(env, "23");
 
-    // Assert
+    // Assert — one poll + one re-login + one download retry, CSV returned.
     expect(calls.established).toBe(1);
-    expect(calls.forwards).toHaveLength(2);
-    expect(calls.forwards[0].cookie).toBe("ASP.NET_SessionId=s1");
+    expect(calls.forwards).toHaveLength(3);
+    expect(calls.sessionReads).toBe(3);
+    expect(calls.forwards[0].url).toContain("QueryRequestIsComplete");
     expect(calls.forwards[1].cookie).toBe("ASP.NET_SessionId=s2");
+    expect(calls.forwards[2].cookie).toBe("ASP.NET_SessionId=s3");
+    expect(calls.forwards[2].url).toContain("QueryExecuteDownload");
     expect(resp.status).toBe(200);
     expect(resp.headers.get("content-type")).toContain("text/csv");
     expect(await resp.text()).toBe("id,name\n1,Acme\n");
   });
 
   it("throws status-only when the retry still sees a login page", async () => {
-    // Arrange
-    behavior.responses = [loginPage, loginPage];
+    // Arrange — poll completes, but re-login did not take.
+    behavior.responses = [pollComplete, loginPage, loginPage];
 
     // Act
     const error = (await fetchReportCsvByQueryId(env, "23").catch(
       (e: unknown) => e
     )) as Error;
 
-    // Assert
+    // Assert — no retry loop (3 forwards, 1 login), and no byte of the
+    // upstream body survives in the message (TOG-5821).
     expect(calls.established).toBe(1);
-    expect(calls.forwards).toHaveLength(2);
+    expect(calls.forwards).toHaveLength(3);
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toBe("QueryExecuteDownload failed: HTTP 200");
     expect(error.message).not.toContain("FAKE-TOKEN");
   });
 
-  it("does not re-authenticate when the first attempt is already CSV", async () => {
+  it("does not re-authenticate when poll and download both succeed first try", async () => {
     // Arrange
-    behavior.responses = [() => csv()];
+    behavior.responses = [pollComplete, () => csv()];
 
     // Act
     const resp = await fetchReportCsvByQueryId(env, "23");
 
     // Assert
     expect(calls.established).toBe(0);
-    expect(calls.forwards).toHaveLength(1);
+    expect(calls.forwards).toHaveLength(2);
+    expect(calls.forwards[0].url).toContain("QueryRequestIsComplete");
+    expect(calls.forwards[1].url).toContain("QueryExecuteDownload");
     expect(await resp.text()).toBe("id,name\n1,Acme\n");
   });
 });
