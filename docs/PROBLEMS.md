@@ -163,7 +163,8 @@ Routeware WebRW exposes no hard delete for customers, so
 `DELETE /api/v1/routeware/customer` always answers `405` with a
 `method-not-allowed` problem+json body. This is the one canonical reference
 for that limitation: the OpenAPI descriptions in [`src/app.ts`](../src/app.ts)
-and [`src/routes/customer.ts`](../src/routes/customer.ts) point here.
+and [`src/routes/customer.ts`](../src/routes/customer.ts) document the same
+disable-via-save pattern.
 
 Retire a customer by disabling it instead — the disable-via-save pattern:
 
