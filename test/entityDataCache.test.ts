@@ -28,7 +28,9 @@ const behavior: {
   entry: Response | undefined;
   putError: string | null;
   deleteError: string | null;
-} = { entry: undefined, putError: null, deleteError: null };
+  /** TOG-6534: fail the next N deletes, then succeed — simulates a transient mid-graph throw. */
+  deleteFailTimes: number;
+} = { entry: undefined, putError: null, deleteError: null, deleteFailTimes: 0 };
 
 const fakeCache = {
   async match(request: Request): Promise<Response | undefined> {
@@ -42,6 +44,10 @@ const fakeCache = {
     cacheOps.puts.push({ url: request.url, body: await response.text() });
   },
   async delete(request: Request): Promise<boolean> {
+    if (behavior.deleteFailTimes > 0) {
+      behavior.deleteFailTimes -= 1;
+      throw new Error("transient cache failure");
+    }
     if (behavior.deleteError) {
       throw new Error(behavior.deleteError);
     }
@@ -57,6 +63,7 @@ vi.stubGlobal("caches", { default: fakeCache });
 const {
   getCachedDataEntity,
   invalidateCustomerGraph,
+  invalidateCustomerGraphWithRetry,
   invalidateDataEntity,
   putCachedDataEntity,
   sha256Etag
@@ -64,6 +71,8 @@ const {
 
 const loggedWarnings: unknown[][] = [];
 const realConsoleWarn = console.warn;
+const loggedErrors: unknown[][] = [];
+const realConsoleError = console.error;
 
 beforeEach(() => {
   cacheOps.matches = [];
@@ -72,14 +81,20 @@ beforeEach(() => {
   behavior.entry = undefined;
   behavior.putError = null;
   behavior.deleteError = null;
+  behavior.deleteFailTimes = 0;
   loggedWarnings.length = 0;
   console.warn = (...args: unknown[]) => {
     loggedWarnings.push(args);
+  };
+  loggedErrors.length = 0;
+  console.error = (...args: unknown[]) => {
+    loggedErrors.push(args);
   };
 });
 
 afterEach(() => {
   console.warn = realConsoleWarn;
+  console.error = realConsoleError;
 });
 
 describe("cache key namespacing", () => {
@@ -265,6 +280,67 @@ describe("invalidateCustomerGraph", () => {
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/customer/5");
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/address/1249");
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/container/2299");
+  });
+});
+
+describe("invalidateCustomerGraphWithRetry (TOG-6534)", () => {
+  it("invalidates the remaining ids on the retry path after a mid-graph throw", async () => {
+    // Arrange — the first whole-graph attempt throws mid-graph (the two
+    // deletes that landed stay landed; deletes are idempotent), the retry
+    // then completes the graph.
+    behavior.deleteFailTimes = 2;
+
+    // Act
+    await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: [100]
+    });
+
+    // Assert — every id invalidated despite the transient mid-graph throw.
+    expect(new Set(cacheOps.deletes)).toEqual(
+      new Set([
+        "https://routeware-shadow-entity/v1/customer/5",
+        "https://routeware-shadow-entity/v1/address/10",
+        "https://routeware-shadow-entity/v1/container/100"
+      ])
+    );
+    expect(loggedErrors).toHaveLength(1);
+    expect(String(loggedErrors[0][0])).toContain("invalidateCustomerGraph attempt 1/2 failed");
+  });
+
+  it("succeeds without retry noise when the first attempt lands clean", async () => {
+    // Arrange / Act
+    await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: []
+    });
+
+    // Assert
+    expect(cacheOps.deletes).toEqual([
+      "https://routeware-shadow-entity/v1/customer/5",
+      "https://routeware-shadow-entity/v1/address/10"
+    ]);
+    expect(loggedErrors).toEqual([]);
+  });
+
+  it("propagates the last error when every attempt fails", async () => {
+    // Arrange — persistent outage: both attempts throw.
+    behavior.deleteError = "cache unavailable";
+
+    // Act
+    const error = (await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: []
+    }).catch((e: unknown) => e)) as Error;
+
+    // Assert — same loud contract as invalidateCustomerGraph: the caller
+    // still must not report success.
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("cache unavailable");
+    expect(loggedErrors).toHaveLength(2);
   });
 });
 

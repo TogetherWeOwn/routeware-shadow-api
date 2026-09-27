@@ -9,7 +9,7 @@ import {
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
 import {
   getCachedDataEntity,
-  invalidateCustomerGraph,
+  invalidateCustomerGraphWithRetry,
   invalidateDataEntity,
   putCachedDataEntity,
   sha256Etag
@@ -301,7 +301,10 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       try {
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
         localSync = { done: true, customerId, addressIds: g.addressIds, containerIds: g.containerIds };
-        await invalidateCustomerGraph({
+        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        await invalidateCustomerGraphWithRetry({
           customerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds
@@ -396,7 +399,10 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        await invalidateCustomerGraph({
+        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        await invalidateCustomerGraphWithRetry({
           customerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds
@@ -502,7 +508,10 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        await invalidateCustomerGraph({
+        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        await invalidateCustomerGraphWithRetry({
           customerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds

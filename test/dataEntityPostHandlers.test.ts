@@ -110,6 +110,11 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
     invalidateCustomerGraph: async (p: Graph) => {
       calls.graph.push(p);
     },
+    // TOG-6534: handlers now call the retry wrapper; track it on the same
+    // `calls.graph` ledger so success-path assertions are unchanged.
+    invalidateCustomerGraphWithRetry: async (p: Graph) => {
+      calls.graph.push(p);
+    },
     invalidateDataEntity: async (kind: string, id: number) => {
       calls.entity.push({ kind, id });
     }
