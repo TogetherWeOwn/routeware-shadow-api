@@ -41,11 +41,11 @@ Avoid the daily cron window (`0 7 * * *` UTC, `wrangler.toml:77`) for step 2 —
 
 - **Gates:** `.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` via the narrower in-handler check on top of the app-wide gate (`src/routes/shared.ts:26-57`; route copy in `src/routes/customerSnapshot.ts:143-166`, `src/routes/dataEntity.ts:28-48`). Also the general-API fallback when `SHADOW_API_TOKEN` is unset.
 - **Blast radius (largest bearer):** all snapshot automation (daily cron chains per-table subrequests with this bearer), all sync/import callers, all data-entity clients on fallback deployments. D1/R2 contents are unaffected; only access is cut over.
-- **Rotate:** outside the 07:00 UTC cron window → `npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET` → update every sync caller, the cron chain needs no code change (same Worker reads the new secret on the next invocation; `src/scheduled.ts:15-23`) → update local `.dev.vars`.
+- **Rotate:** outside the 07:00 UTC cron window → `npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET` → update every sync caller, the cron chain needs no code change (same Worker reads the new secret on the next invocation; mode selection in `src/scheduled.ts`) → update local `.dev.vars`.
 - **Verify:**
   - New secret on a sync route → success sync JSON; old secret → 401; unset Worker → 503 `misconfigured` (`requireSnapshotSecret`, `src/routes/shared.ts:60-73`).
   - Manual chain: `POST /api/v1/data-snapshot/sync` with the new secret succeeds (customer → address → container order matters for FKs; `CUSTOMER_SNAPSHOT.md` checklist).
-  - Next scheduled run logs `data snapshot sync: customer/address/container …` with no auth errors (`npx wrangler tail` or dashboard logs). Silent empty sync with `SHADOW_API_PUBLIC_BASE` unset is a config warning, not auth success (`src/scheduled.ts:19-23`).
+  - Next scheduled run logs `data-snapshot-sync {"outcome":"success",…}` with no auth errors (`npx wrangler tail` or dashboard logs). An `outcome: "unconfigured"` line with `SHADOW_API_PUBLIC_BASE` unset is a config warning, not auth success (`docs/CRON-SYNC-ALARM-RUNBOOK.md` §0).
 - **Rollback:** restore the previous value out-of-band via `wrangler secret put`, re-run the manual chain. Keep the old value recoverable out-of-band until one successful scheduled run completes.
 
 ### 2.3 `LOGIN_USERNAME` + `LOGIN_PASSWORD` — Routeware tenant login
@@ -55,7 +55,7 @@ Avoid the daily cron window (`0 7 * * *` UTC, `wrangler.toml:77`) for step 2 —
 - **Rotate (owner-only, Routeware UI first):** change (or create-then-disable) the `API` login in the Routeware tenant UI → `npx wrangler secret put LOGIN_USERNAME` + `npx wrangler secret put LOGIN_PASSWORD` → update local `.dev.vars`. Rotate as a pair; a username change means a new account, not a rename. The next request performs a fresh login — Durable Object state loss is harmless (`docs/HANDOVER.md` § 3B-7); nothing migrates.
 - **Verify:**
   - An upstream-backed read returns real JSON (not the login page HTML). On doubt, inspect body shape/content-type, not status.
-  - Worker logs show a fresh login then `data snapshot sync:` row counts; cookie **names** (never values) are `.WebRW`, `RCCApi`, `RCCApiRefresh`.
+  - Worker logs show a fresh login then a `data-snapshot-sync {"outcome":"success",…}` line with row counts in `tables`; cookie **names** (never values) are `.WebRW`, `RCCApi`, `RCCApiRefresh`.
   - Old tenant password no longer logs in at the Routeware UI (revocation at source).
 - **Rollback:** restore the previous tenant credential in the Routeware UI and re-put the previous Worker secrets. If the username was replaced, re-enable the old account rather than reusing a deleted name.
 
