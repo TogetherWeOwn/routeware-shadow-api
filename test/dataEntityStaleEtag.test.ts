@@ -60,6 +60,20 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
       for (const id of p.containerIds) {
         cacheStore.delete(cacheKey("container", id));
       }
+    },
+    // TOG-6534: handlers now call the retry wrapper; evict the same keys.
+    invalidateCustomerGraphWithRetry: async (p: {
+      customerId: number;
+      addressIds: number[];
+      containerIds: number[];
+    }) => {
+      cacheStore.delete(cacheKey("customer", p.customerId));
+      for (const id of p.addressIds) {
+        cacheStore.delete(cacheKey("address", id));
+      }
+      for (const id of p.containerIds) {
+        cacheStore.delete(cacheKey("container", id));
+      }
     }
   };
 });
