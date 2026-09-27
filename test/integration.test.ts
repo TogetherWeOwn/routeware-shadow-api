@@ -308,6 +308,49 @@ describe("HTTP API", () => {
     expect(body.url).toContain("LoadLongCustomerModal");
   });
 
+  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream (TOG-6404)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call(
+      "/api/v1/routeware/customer/load-long-modal?customerID=99&evilParam=1"
+    );
+    expect(response.status).toBe(200);
+    const upstreamCall = fetchMock.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/Customer/LoadLongCustomerModal")
+    );
+    expect(upstreamCall).toBeDefined();
+    const upstreamUrl = new URL(upstreamCall![0] as string);
+    expect(upstreamUrl.searchParams.get("customerID")).toBe("99");
+    expect(upstreamUrl.searchParams.has("evilParam")).toBe(false);
+  });
+
+  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream (TOG-6404)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const before = fetchMock.mock.calls.length;
+    const response = await call("/api/v1/routeware/customer/load-long-modal");
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    const body = (await response.json()) as { detail?: string };
+    expect(body.detail).toContain("customerID");
+    const upstreamCalls = fetchMock.mock.calls
+      .slice(before)
+      .filter(
+        (c: unknown[]) =>
+          typeof c[0] === "string" &&
+          (c[0] as string).includes("/WebRW/Customer/LoadLongCustomerModal")
+      );
+    expect(upstreamCalls).toHaveLength(0);
+  });
+
+  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID (TOG-6404)", async () => {
+    const response = await call("/api/v1/routeware/customer/load-long-modal?customerID=abc");
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    const body = (await response.json()) as { detail?: string };
+    expect(body.detail).toContain("customerID");
+  });
+
   it("POST /api/v1/routeware/address/save-address-form forwards to SaveAddressForm", async () => {
     const response = await call("/api/v1/routeware/address/save-address-form", {
       method: "POST",
