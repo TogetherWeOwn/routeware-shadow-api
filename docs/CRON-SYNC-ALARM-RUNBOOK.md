@@ -2,10 +2,10 @@
 
 **Status:** runbook only. No new services, no paid tiers, no new secrets, no workflow
 changes. Every check below uses observability this repo already has: Workers Logs
-(`[observability] enabled = true`, `wrangler.toml:10-12`), `wrangler tail`, and
+(`[observability] enabled = true` in `wrangler.toml`), `wrangler tail`, and
 `wrangler d1 execute`.
 **Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Cron `0 7 * * *` UTC
-(`wrangler.toml:81`), handler `src/scheduled.ts`, tests `test/scheduled.test.ts`.
+(`[triggers]` in `wrangler.toml`), handler `src/scheduled.ts`, tests `test/scheduled.test.ts`.
 **Why:** a silent cron failure used to look identical to "no report paths configured"
 (both were free-text log lines). Every run now emits exactly one structured line whose
 `outcome` is `success`, `unconfigured`, or `failed` — the alarm keys on that field,
@@ -30,11 +30,17 @@ data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"cha
 | *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
 
 Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
-`SHADOW_API_PUBLIC_BASE` is unset (`configSource: "fallback-single-invocation"`), so
+`SHADOW_API_PUBLIC_BASE` is unset — or set to something unusable
+(`configSource: "fallback-single-invocation"` either way), so
 D1's per-invocation operation budget applies to all three tables as one pool. At ~609k
 rows a large export can die partway through. The fix is configuration, not code: set
 `SHADOW_API_PUBLIC_BASE` to the Worker's public origin (see `CUSTOMER_SNAPSHOT.md`
-§ "D1: Too many API requests").
+§ "D1: Too many API requests"). The handler only accepts a bare `http(s)` origin —
+no path, query, fragment, or userinfo (`resolveChainedBase` in `src/scheduled.ts`,
+pinned by `test/scheduled.test.ts`): a path-suffixed or malformed value falls back
+to single-invocation silently, so a line with `d1LimitRisk: true` despite the var
+being "set" means the value failed that validation — re-check it character by
+character, don't just check presence.
 
 ## 1. Reading the last run's line
 
@@ -62,8 +68,10 @@ npx wrangler d1 execute routeware-customer-snapshot --remote --json \
 ```
 
 (Repeat for `address_snapshot` / `container_snapshot` for the tables you expect to
-run.) If `last_sync` predates today's run, the sync missed or failed regardless of
-what the logs say — triage as **failed**. This query reads one aggregate, no PII.
+run.) If `last_sync` is `NULL` (table empty — never synced) or predates today's run,
+the sync missed or failed regardless of what the logs say — triage as **failed**.
+`NULL` is the drill's core case, not an error in the query. This query reads one
+aggregate, no PII.
 
 ## 3. Config-drift check: are the report sources even set?
 
@@ -89,7 +97,52 @@ Until a log-based alerting tier exists, the alarm is this loop, run once daily a
    - No line at all with fresh `synced_at` — a duplicate/overlapping invocation; note it and watch the next run. No line with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
 5. Record the disposition where the team looks (issue comment or ops log): date, outcome, tables, action taken. Silence is how the next miss goes unnoticed.
 
-## 5. What this runbook does not cover
+## 5. Local missed-run drill (no deploy, no token, no tenant)
+
+Reproduces the `unconfigured` and `failed` alarm keys against the real handler on
+local dev. Needs `npm ci --include=dev` first (the worktree may not have
+devDependencies), plus a `.dev.vars` with `LOGIN_USERNAME` / `LOGIN_PASSWORD` and
+one client token — dummy placeholders are fine, the drill never authenticates
+upstream (gitignored, never commit).
+
+```bash
+# Terminal A — blanked report vars: deterministic `unconfigured`, no tenant touched.
+npx wrangler dev --port 18788 --test-scheduled \
+  --var "CUSTOMER_REPORT_EXPORT_PATH: " --var "CUSTOMER_REPORT_QUERY_ID: " \
+  --var "ADDRESS_REPORT_EXPORT_PATH: " --var "ADDRESS_REPORT_QUERY_ID: " \
+  --var "CONTAINER_REPORT_EXPORT_PATH: " --var "CONTAINER_REPORT_QUERY_ID: "
+# Terminal B — fire the cron trigger, read the greppable line in terminal A's log:
+curl -s http://localhost:18788/__scheduled
+# Expect exactly one line: outcome "unconfigured", all three tables null,
+# mode "single-invocation", configSource "fallback-single-invocation".
+```
+
+Fire a second server for the `failed` key — chained mode with no sync secret
+throws (`CUSTOMER_SNAPSHOT_SYNC_SECRET is not set`) before touching anything:
+
+```bash
+npx wrangler dev --port 18789 --test-scheduled \
+  --var "SHADOW_API_PUBLIC_BASE: http://localhost:18789" \
+  --var "CUSTOMER_REPORT_EXPORT_PATH: " --var "CUSTOMER_REPORT_QUERY_ID: " \
+  --var "ADDRESS_REPORT_EXPORT_PATH: " --var "ADDRESS_REPORT_QUERY_ID: " \
+  --var "CONTAINER_REPORT_EXPORT_PATH: " --var "CONTAINER_REPORT_QUERY_ID: "
+curl -s http://localhost:18789/__scheduled
+# Expect exactly one line on stderr: outcome "failed", mode "chained-http",
+# error "CUSTOMER_SNAPSHOT_SYNC_SECRET is not set".
+```
+
+Then re-run the §2 queries with `--local` (empty tables return
+`last_sync: NULL, rows: 0` — the missed-run verdict). Two local quirks, both
+expected: `cron` is `""` (the `/__scheduled` test trigger sends no cron field;
+production sends `0 7 * * *`), and `wrangler dev` parents orphan `workerd`
+listeners on its ports — map them by socket inode (`/proc/net/tcp`) and kill
+only those PIDs, never a broad `pkill`.
+
+`success` cannot be drilled locally without the Routeware tenant (a real report
+fetch needs session credentials) — it is covered by `test/scheduled.test.ts`
+and the hermetic `test/snapshotSyncE2E.test.ts` fixture path instead.
+
+## 6. What this runbook does not cover
 
 - Real-time paging: that needs a log-alerting tier this repo deliberately does not buy (card constraint: no paid services). The daily loop bounds detection latency to ~24h.
 - Upstream Routeware outages: Worker-side health is visible only through sync errors (§4 triage); there is no upstream probe.
