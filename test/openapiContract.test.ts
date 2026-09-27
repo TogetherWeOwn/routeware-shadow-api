@@ -152,6 +152,36 @@ describe("published OpenAPI document", () => {
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
   });
 
+  it("documents 400 on all snapshot imports and lists", async () => {
+    // Arrange — TOG-6522: imports return 400 on an empty body and lists
+    // return 400 on out-of-range query params, but neither branch was in the
+    // document, so generated clients never surfaced them.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const operations = [
+      "POST /api/v1/customer-snapshot/import",
+      "POST /api/v1/address-snapshot/import",
+      "POST /api/v1/container-snapshot/import",
+      "GET /api/v1/customer-snapshot",
+      "GET /api/v1/address-snapshot",
+      "GET /api/v1/container-snapshot"
+    ];
+    const missing = operations.filter((op) => {
+      const [method, path] = op.split(" ");
+      const responses = (
+        doc.paths[path]?.[method.toLowerCase()] as
+          | { responses?: Record<string, unknown> }
+          | undefined
+      )?.responses;
+      return !responses || !("400" in responses);
+    });
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(missing).toEqual([]);
+  });
+
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
     const doc = await fetchOpenApiDocument();

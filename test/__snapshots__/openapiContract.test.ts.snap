@@ -239,6 +239,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Rows and total",
           },
+          "400": {
+            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+          },
         },
         "summary": "List address snapshot rows (D1)",
         "tags": [
@@ -274,6 +277,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body.",
           },
           "401": {
             "description": "Unauthorized",
@@ -467,6 +473,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Rows and total",
           },
+          "400": {
+            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+          },
         },
         "summary": "List container snapshot rows (D1)",
         "tags": [
@@ -502,6 +511,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as the raw request body.",
           },
           "401": {
             "description": "Unauthorized",
@@ -673,6 +685,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Rows and total count for pagination",
           },
+          "400": {
+            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+          },
         },
         "summary": "List customer snapshot rows (D1)",
         "tags": [
@@ -708,6 +723,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Import result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV file as the raw request body.",
           },
           "401": {
             "description": "Unauthorized",
