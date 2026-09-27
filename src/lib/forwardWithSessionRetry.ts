@@ -1,8 +1,8 @@
 import { isLoginRedirect } from "./loginRedirect";
-import { forwardToUpstream } from "./upstreamForward";
+import { forwardToUpstream, type ForwardOptions } from "./upstreamForward";
 import { readSessionState, type SessionState } from "./sessionState";
 
-type EstablishSession = (
+export type EstablishSession = (
   env: Env,
   stub: DurableObjectStub,
   bootstrapUrl: string
@@ -36,7 +36,8 @@ export async function forwardWithSessionRetry(
   incoming: Request,
   upstreamUrl: URL,
   bodyBuffer: ArrayBuffer | null,
-  establishSession: EstablishSession
+  establishSession: EstablishSession,
+  options: ForwardOptions = {}
 ): Promise<Response> {
   let session: SessionState = await readSessionState(sessionStub);
 
@@ -52,7 +53,8 @@ export async function forwardWithSessionRetry(
     incoming,
     upstreamUrl,
     session,
-    bodyBuffer
+    bodyBuffer,
+    options
   );
 
   if (response.status === 200 || !isLoginRedirect(response)) {
@@ -65,5 +67,5 @@ export async function forwardWithSessionRetry(
 
   session = await readSessionState(sessionStub);
 
-  return forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer);
+  return forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer, options);
 }

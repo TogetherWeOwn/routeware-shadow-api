@@ -15,6 +15,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  *
  * `customerSaveAutoToken` and `upstreamUrl` are pure and deliberately NOT mocked
  * — the URLs and the merged body asserted below are the real ones.
+ *
+ * The modal fetch runs through the REAL `forwardWithSessionRetry` (only
+ * `upstreamForward` is mocked), so the expired-session tests below prove a
+ * 302 → login answer triggers exactly one re-establish + retry (TOG-6462)
+ * instead of a 502 loop.
  */
 
 type ModalCall = {
@@ -77,11 +82,39 @@ function makeEnv(autoToken?: string): Env {
   return {
     TARGET_ORIGIN: ORIGIN,
     TARGET_BASE_PATH: BASE,
-    CUSTOMER_SAVE_AUTO_TOKEN: autoToken
+    CUSTOMER_SAVE_AUTO_TOKEN: autoToken,
+    LOGIN_URL
   } as unknown as Env;
 }
 
-const session = { cookieHeader: "ASP.NET_SessionId=abc123", expiresAtMs: null, refreshing: false };
+const LOGIN_URL = "https://killeen.example.test/WebRW/Account/Login";
+
+const holder: {
+  value: { cookieHeader: string | null; expiresAtMs: number | null; refreshing: boolean };
+} = {
+  value: { cookieHeader: "ASP.NET_SessionId=abc123", expiresAtMs: null, refreshing: false }
+};
+
+const sessionStub = {
+  fetch: async () =>
+    new Response(JSON.stringify(holder.value), {
+      headers: { "content-type": "application/json" }
+    })
+} as unknown as DurableObjectStub;
+
+const establishCalls: string[] = [];
+async function establishSession(
+  _env: Env,
+  _stub: DurableObjectStub,
+  _bootstrapUrl: string
+): Promise<void> {
+  establishCalls.push(_bootstrapUrl);
+  holder.value = {
+    cookieHeader: "ASP.NET_SessionId=fresh",
+    expiresAtMs: Date.now() + 600_000,
+    refreshing: false
+  };
+}
 
 const URLENCODED = "application/x-www-form-urlencoded";
 
@@ -103,6 +136,12 @@ const GUARD_BODY = "CustomerID=5&PickupAddressID=10&ContainerID=100&Enabled=true
 beforeEach(() => {
   calls.modals = [];
   behavior.responses = [];
+  establishCalls.length = 0;
+  holder.value = {
+    cookieHeader: "ASP.NET_SessionId=abc123",
+    expiresAtMs: null,
+    refreshing: false
+  };
 });
 
 const FORMS = [
@@ -116,7 +155,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const result = await prepare(makeEnv("false"), session, request(), buffer, URLENCODED);
+    const result = await prepare(makeEnv("false"), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert — the same object, so nothing was re-encoded either.
     expect(result).toBe(buffer);
@@ -128,7 +167,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const result = await prepare(makeEnv("0"), session, request(), buffer, URLENCODED);
+    const result = await prepare(makeEnv("0"), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(result).toBe(buffer);
@@ -141,7 +180,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    await prepare(makeEnv(undefined), session, request(), buffer, URLENCODED);
+    await prepare(makeEnv(undefined), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals).toHaveLength(1);
@@ -152,7 +191,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    await prepare(makeEnv("no"), session, request(), buffer, URLENCODED);
+    await prepare(makeEnv("no"), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals).toHaveLength(1);
@@ -160,7 +199,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
 
   it("returns a null body unchanged", async () => {
     // Act
-    const result = await prepare(makeEnv(), session, request(), null, URLENCODED);
+    const result = await prepare(makeEnv(), sessionStub, request(), null, URLENCODED, establishSession);
 
     // Assert
     expect(result).toBeNull();
@@ -172,7 +211,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const empty = new ArrayBuffer(0);
 
     // Act
-    const result = await prepare(makeEnv(), session, request(), empty, URLENCODED);
+    const result = await prepare(makeEnv(), sessionStub, request(), empty, URLENCODED, establishSession);
 
     // Assert
     expect(result).toBe(empty);
@@ -184,7 +223,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const result = await prepare(makeEnv(), session, request(), buffer, null);
+    const result = await prepare(makeEnv(), sessionStub, request(), buffer, null, establishSession);
 
     // Assert
     expect(result).toBe(buffer);
@@ -197,7 +236,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const result = await prepare(makeEnv(), session, request(), buffer, "application/json");
+    const result = await prepare(makeEnv(), sessionStub, request(), buffer, "application/json", establishSession);
 
     // Assert
     expect(result).toBe(buffer);
@@ -212,10 +251,11 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     // Act
     await prepare(
       makeEnv(),
-      session,
+      sessionStub,
       request(),
       buffer,
-      "Application/X-WWW-Form-UrlEncoded; charset=UTF-8"
+      "Application/X-WWW-Form-UrlEncoded; charset=UTF-8",
+      establishSession
     );
 
     // Assert
@@ -227,7 +267,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(`__RequestVerificationToken=already-real&${GUARD_BODY}`);
 
     // Act
-    const result = await prepare(makeEnv(), session, request(), buffer, URLENCODED);
+    const result = await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert — no modal round trip for a client that did its own token handling.
     expect(result).toBe(buffer);
@@ -239,7 +279,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(`__RequestVerificationToken=REPLACE_ME&${GUARD_BODY}`);
 
     // Act
-    const result = await prepare(makeEnv(), session, request(), buffer, URLENCODED);
+    const result = await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals).toHaveLength(1);
@@ -251,7 +291,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(`__RequestVerificationToken=&${GUARD_BODY}`);
 
     // Act
-    await prepare(makeEnv(), session, request(), buffer, URLENCODED);
+    await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals).toHaveLength(1);
@@ -264,7 +304,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    await prepare(makeEnv(), session, request(), buffer, URLENCODED);
+    await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].cookie).toBe("ASP.NET_SessionId=abc123");
@@ -281,10 +321,11 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     // Act
     await prepare(
       makeEnv(),
-      session,
+      sessionStub,
       request({ referer: `${ORIGIN}${BASE}/Customer/Edit/5` }),
       buffer,
-      URLENCODED
+URLENCODED,
+      establishSession
     );
 
     // Assert
@@ -296,7 +337,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    await prepare(makeEnv(), session, request(), buffer, URLENCODED);
+    await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].referer).toBe(DEFAULT_REFERER);
@@ -308,7 +349,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const error = (await prepare(makeEnv(), session, request(), buffer, URLENCODED).catch(
+    const error = (await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession).catch(
       (e: unknown) => e
     )) as Error;
 
@@ -324,7 +365,7 @@ describe.each(FORMS)("$name pass-through guards", ({ prepare }) => {
     const buffer = body(GUARD_BODY);
 
     // Act
-    const error = (await prepare(makeEnv(), session, request(), buffer, URLENCODED).catch(
+    const error = (await prepare(makeEnv(), sessionStub, request(), buffer, URLENCODED, establishSession).catch(
       (e: unknown) => e
     )) as Error;
 
@@ -342,7 +383,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=10&CustomerID=5&Address=1+Main+St");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert — note the parameter is `PickupAddressID`, not the lowercase form
     // used on the create path; the modal ignores an unrecognised name and
@@ -357,7 +398,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("CustomerID=5&Address=1+Main+St");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -370,7 +411,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=0&CustomerID=5");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/PickupAddress/CreateBlankAddress");
@@ -381,7 +422,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=-1&CustomerID=5");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/PickupAddress/CreateBlankAddress");
@@ -392,7 +433,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=abc&CustomerID=5");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/PickupAddress/CreateBlankAddress");
@@ -403,7 +444,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=0010&CustomerID=5");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -416,7 +457,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=10&CustomerID=5&PickupAddressID=22");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -432,10 +473,11 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     // Act
     const error = (await prepareSaveAddressFormBody(
       env,
-      session,
+      sessionStub,
       request(),
       buffer,
-      URLENCODED
+URLENCODED,
+      establishSession
     ).catch((e: unknown) => e)) as Error;
 
     // Assert
@@ -451,10 +493,11 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     // Act
     const error = (await prepareSaveAddressFormBody(
       env,
-      session,
+      sessionStub,
       request(),
       buffer,
-      URLENCODED
+URLENCODED,
+      establishSession
     ).catch((e: unknown) => e)) as Error;
 
     // Assert — which modal was attempted is the whole diagnostic.
@@ -467,7 +510,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=10&CustomerID=5&Address=1+Main+St");
 
     // Act
-    const result = await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    const result = await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(decode(result)).toBe(
@@ -483,7 +526,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     );
 
     // Act
-    const result = await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    const result = await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     const merged = decode(result);
@@ -496,7 +539,7 @@ describe("prepareSaveAddressFormBody modal selection", () => {
     const buffer = body("PickupAddressID=10&CustomerID=5");
 
     // Act
-    await prepareSaveAddressFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveAddressFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].accept).toBe("text/html, */*; q=0.01");
@@ -511,7 +554,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=100&PickupAddressID=10");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -526,7 +569,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("PickupAddressID=10&Size=96");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -542,10 +585,11 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     // Act
     const error = (await prepareSaveContainerFormBody(
       env,
-      session,
+      sessionStub,
       request(),
       buffer,
-      URLENCODED
+URLENCODED,
+      establishSession
     ).catch((e: unknown) => e)) as Error;
 
     // Assert
@@ -558,7 +602,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=0&PickupAddressID=10");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/Container/CreateBlankContainer");
@@ -569,7 +613,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=-5&PickupAddressID=10");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/Container/CreateBlankContainer");
@@ -580,7 +624,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=&PickupAddressID=10");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toContain("/Container/CreateBlankContainer");
@@ -592,7 +636,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("PickupAddressID=0010&Size=96");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].url).toBe(
@@ -608,10 +652,11 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     // Act
     const error = (await prepareSaveContainerFormBody(
       env,
-      session,
+      sessionStub,
       request(),
       buffer,
-      URLENCODED
+      URLENCODED,
+      establishSession
     ).catch((e: unknown) => e)) as Error;
 
     // Assert
@@ -626,10 +671,11 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     // Act
     const error = (await prepareSaveContainerFormBody(
       env,
-      session,
+      sessionStub,
       request(),
       buffer,
-      URLENCODED
+      URLENCODED,
+      establishSession
     ).catch((e: unknown) => e)) as Error;
 
     // Assert
@@ -642,7 +688,7 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=100&PickupAddressID=10&Size=96");
 
     // Act
-    const result = await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    const result = await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(decode(result)).toBe(
@@ -655,9 +701,65 @@ describe("prepareSaveContainerFormBody modal selection", () => {
     const buffer = body("ContainerID=100&PickupAddressID=10");
 
     // Act
-    await prepareSaveContainerFormBody(env, session, request(), buffer, URLENCODED);
+    await prepareSaveContainerFormBody(env, sessionStub, request(), buffer, URLENCODED, establishSession);
 
     // Assert
     expect(calls.modals[0].accept).toBe("*/*");
+  });
+});
+
+describe("expired-session retry (TOG-6462)", () => {
+  const env = makeEnv();
+
+  const loginRedirect = () =>
+    new Response(null, { status: 302, headers: { location: LOGIN_URL } });
+
+  it("address: re-establishes once and retries the modal on a 302 → login", async () => {
+    // Arrange — token-less save, modal answers 302 because the stored session
+    // expired; the retry serves a token.
+    behavior.responses = [loginRedirect, () => tokenHtml("ADDR-RETRY")];
+    const buffer = body("PickupAddressID=10&CustomerID=5&Address=1+Main+St");
+
+    // Act
+    const result = await prepareSaveAddressFormBody(
+      env,
+      sessionStub,
+      request(),
+      buffer,
+      URLENCODED,
+      establishSession
+    );
+
+    // Assert — one login, one retry, token injected; no 502.
+    expect(establishCalls).toEqual([LOGIN_URL]);
+    expect(calls.modals).toHaveLength(2);
+    expect(calls.modals[0].cookie).toBe("ASP.NET_SessionId=abc123");
+    expect(calls.modals[1].cookie).toBe("ASP.NET_SessionId=fresh");
+    expect(calls.modals[1].internalMarker).toBe("anti-forgery-modal");
+    expect(decode(result)).toContain("__RequestVerificationToken=ADDR-RETRY");
+  });
+
+  it("container: re-establishes once and retries the modal on a 302 → login", async () => {
+    // Arrange
+    behavior.responses = [loginRedirect, () => tokenHtml("CONT-RETRY")];
+    const buffer = body("ContainerID=100&PickupAddressID=10&Size=96");
+
+    // Act
+    const result = await prepareSaveContainerFormBody(
+      env,
+      sessionStub,
+      request(),
+      buffer,
+      URLENCODED,
+      establishSession
+    );
+
+    // Assert
+    expect(establishCalls).toEqual([LOGIN_URL]);
+    expect(calls.modals).toHaveLength(2);
+    expect(calls.modals[0].cookie).toBe("ASP.NET_SessionId=abc123");
+    expect(calls.modals[1].cookie).toBe("ASP.NET_SessionId=fresh");
+    expect(calls.modals[1].internalMarker).toBe("anti-forgery-modal");
+    expect(decode(result)).toContain("__RequestVerificationToken=CONT-RETRY");
   });
 });

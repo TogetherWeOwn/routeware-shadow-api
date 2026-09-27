@@ -18,7 +18,6 @@ import {
 import { forwardWithSessionRetry } from "./forwardWithSessionRetry";
 import { establishSession } from "./establishSession";
 import { problemJsonResponse, problemType } from "./problem";
-import { readSessionState } from "./sessionState";
 import {
   parseCustomerIdFromSaveResponse,
   routewarePostLooksSuccessful,
@@ -216,15 +215,15 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       instance: new URL(c.req.raw.url).pathname
     });
   }
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveCustomerLongFormBody(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
       buf,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      establishSession
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -324,15 +323,15 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       instance: new URL(c.req.raw.url).pathname
     });
   }
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveAddressFormBody(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
       buf,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      establishSession
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -413,15 +412,15 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       instance: new URL(c.req.raw.url).pathname
     });
   }
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveContainerFormBody(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
       buf,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      establishSession
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

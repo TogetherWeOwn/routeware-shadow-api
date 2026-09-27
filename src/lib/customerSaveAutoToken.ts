@@ -1,6 +1,8 @@
-import { forwardToUpstream } from "./upstreamForward";
+import {
+  forwardWithSessionRetry,
+  type EstablishSession
+} from "./forwardWithSessionRetry";
 import { routewareWebRwUrl } from "./upstreamUrl";
-import type { SessionState } from "./sessionState";
 
 function escapeRegexKey(key: string): string {
   return key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -73,13 +75,18 @@ function autoTokenEnabled(env: Env): boolean {
  * For SaveCustomerLongForm: if the body is x-www-form-urlencoded and the anti-forgery
  * token is missing or a placeholder, GET the add/edit modal HTML with the same session
  * cookies and inject `__RequestVerificationToken` before forwarding upstream.
+ *
+ * The modal fetch runs through `forwardWithSessionRetry`, so an expired stored
+ * session (modal answers 302 → login) re-establishes once and retries instead
+ * of surfacing a 502 the next save would hit again (TOG-6462).
  */
 export async function prepareSaveCustomerLongFormBody(
   env: Env,
-  session: SessionState,
+  sessionStub: DurableObjectStub,
   incoming: Request,
   bodyBuffer: ArrayBuffer | null,
-  contentType: string | null
+  contentType: string | null,
+  establishSession: EstablishSession
 ): Promise<ArrayBuffer | null> {
   if (!autoTokenEnabled(env)) {
     return bodyBuffer;
@@ -118,9 +125,15 @@ export async function prepareSaveCustomerLongFormBody(
     }
   });
 
-  const modalResp = await forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
-  });
+  const modalResp = await forwardWithSessionRetry(
+    env,
+    sessionStub,
+    modalReq,
+    modalUrl,
+    null,
+    establishSession,
+    { internalMarker: "anti-forgery-modal" }
+  );
   if (!modalResp.ok) {
     throw new Error(
       `Could not load anti-forgery modal (${modalPath}): HTTP ${modalResp.status}`

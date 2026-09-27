@@ -5,7 +5,6 @@ import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
-import { readSessionState } from "../lib/sessionState";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
 import { addressSaveFormDocs, createRouteModule } from "./shared";
 
@@ -30,15 +29,15 @@ const addressSaveAddressFormRoute = createRoute({
 });
 
 addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer = c.var.bodyBuffer;
   try {
     bodyBuffer = await prepareSaveAddressFormBody(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
       bodyBuffer,
-      c.req.raw.headers.get("content-type")
+      c.req.raw.headers.get("content-type"),
+      establishSession
     );
   } catch (err) {
     console.error("prepareSaveAddressFormBody", err);
