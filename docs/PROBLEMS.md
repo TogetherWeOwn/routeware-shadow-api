@@ -87,6 +87,24 @@ Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
+A valid-token reset only clears the requester's own IP bucket (the same
+`auth-throttle:<ip>` Durable Object key the failures were counted under), so
+it cannot be abused to clear an attacker's budget: a reset requires passing
+the bearer check, which an attacker without the token cannot do, and a reset
+from one IP never touches another IP's counter. Pinned by
+`test/throttleResetIsolation.test.ts`.
+
+Shared-NAT note: clients behind one egress IP share a single 20-failure
+budget, so a bad actor — or a misconfigured client retrying a stale token —
+behind the same NAT can cause `429` responses for other clients' failed
+attempts from that IP. This never blocks legitimate traffic: a request with
+the valid token always passes, even while its IP is blocked, and clears the
+shared counter. Operator remedy: confirm the affected client is sending the
+current token (one good request clears the block immediately); otherwise the
+block expires on its own after 60 seconds. If `429`s recur from one egress
+IP, find the client burning the budget and fix its token, or route operator
+traffic through a distinct egress IP.
+
 ## Query-param allowlist (reports probe)
 
 `GET /api/v1/routeware/reports/query-request-is-complete` forwards only an
@@ -97,3 +115,24 @@ silently dropped — never forwarded, never an error — so arbitrary client inp
 cannot reach Routeware as new query surface. Matching is case-sensitive.
 Unknown params therefore need no problem+json `type`: there is no failure to
 report.
+
+## Login-page fetch (sessionless probe)
+
+`GET /api/v1/routeware/account/login-page` fetches the fixed `LOGIN_URL` with
+no session (`forwardToUpstream(..., null, ...)` in `src/routes/routeware.ts`):
+it never calls `readSessionState` or `establishSession`, never reads or writes
+the primary `AuthSession` state, sends no `Cookie` upstream, and strips
+upstream `Set-Cookie` before responding (`docs/CONVENTIONS.md` § 4), so the
+probe can neither leak nor plant the shared Routeware session. Pinned by
+`test/loginPageSessionIsolation.test.ts`.
+
+Usage notes:
+
+- The route is bearer-gated like every `/api/v1/*` route except
+  `GET /api/v1/health` — it is not a public probe. Unauthenticated calls 401
+  at the outer gate and count toward the per-IP `rate-limited` budget above.
+- Each authorized call makes exactly one upstream `GET` (no session-retry
+  loop), and the client query string is never forwarded — the upstream URL is
+  fixed. A valid token clears the caller's own per-IP throttle bucket
+  (`auth-throttle:<ip>`), which is separate storage from the primary session
+  state this route never touches.
