@@ -7,7 +7,7 @@ import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
-import { createRouteModule, upstreamPassthrough200 } from "./shared";
+import { containerSaveFormDocs, createRouteModule } from "./shared";
 
 /** Routeware container endpoints (tag `container`). */
 export const containerRoutes = createRouteModule();
@@ -19,28 +19,9 @@ const containerSaveContainerFormRoute = createRoute({
   summary: "SaveContainerForm (create or update)",
   description:
     "Proxies to WebRW `SaveContainerForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `CreateBlankContainer?pickupAddressID=` (create, `ContainerID` 0 / absent) or `LoadContainerModal?ContainerID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `ContainerID=0` with `PickupAddressID` for create; set `ContainerID` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
-  request: {
-    body: {
-      description: "Container form body — token injected server-side when omitted (see example)",
-      content: {
-        "application/x-www-form-urlencoded": {
-          // Plain SchemaObject, not a zod schema: docs-only, no runtime
-          // validator is installed (forwarding must stay byte-identical).
-          schema: {
-            type: "object",
-            properties: {
-              __RequestVerificationToken: { type: "string" },
-              ContainerID: { type: "string" },
-              PickupAddressID: { type: "string" }
-            }
-          },
-          example: { ContainerID: "0", PickupAddressID: "10" }
-        }
-      }
-    }
-  },
+  ...containerSaveFormDocs,
   responses: {
-    ...upstreamPassthrough200,
+    ...containerSaveFormDocs.responses,
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."

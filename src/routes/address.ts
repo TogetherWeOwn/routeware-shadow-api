@@ -7,7 +7,7 @@ import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
-import { createRouteModule, upstreamPassthrough200 } from "./shared";
+import { addressSaveFormDocs, createRouteModule } from "./shared";
 
 /** Routeware address endpoints (tag `address`). */
 export const addressRoutes = createRouteModule();
@@ -19,29 +19,9 @@ const addressSaveAddressFormRoute = createRoute({
   summary: "SaveAddressForm (create or update)",
   description:
     "Proxies to WebRW `SaveAddressForm` with **application/x-www-form-urlencoded** bodies. **Anti-forgery:** when `__RequestVerificationToken` is missing or is a placeholder, the Worker uses the stored Routeware session to GET `CreateBlankAddress?customerID=` (create, `PickupAddressID` 0 / absent) or `LoadAddressModal?PickupAddressID=` (edit), parses the token from HTML, and injects it before forwarding—clients normally do not need to send a token. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to disable. Use `PickupAddressID=0` with `CustomerID` for create; set `PickupAddressID` for updates. Routeware signals a failed save as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
-  request: {
-    body: {
-      description: "PickupAddress form body — token injected server-side when omitted (see example)",
-      content: {
-        "application/x-www-form-urlencoded": {
-          // Plain SchemaObject, not a zod schema: docs-only, no runtime
-          // validator is installed (forwarding must stay byte-identical).
-          schema: {
-            type: "object",
-            properties: {
-              __RequestVerificationToken: { type: "string" },
-              PickupAddressID: { type: "string" },
-              CustomerID: { type: "string" },
-              Address: { type: "string" }
-            }
-          },
-          example: { PickupAddressID: "0", CustomerID: "5", Address: "1 Main St" }
-        }
-      }
-    }
-  },
+  ...addressSaveFormDocs,
   responses: {
-    ...upstreamPassthrough200,
+    ...addressSaveFormDocs.responses,
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
