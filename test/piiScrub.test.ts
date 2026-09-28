@@ -26,7 +26,7 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 13 | `src/lib/httpAuth.ts` login-failure throw | status + cookie *names* (`.WebRW`, …), never values | clean — names are fixed identifiers |
  * | 14 | `src/lib/upstreamForward.ts` `stripUpstreamSetCookie` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
  * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED (TOG-6535) — ids + `upstreamBytes` + fixed `code` only; pinned below** |
- * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / `REPLACE_WITH_TOKEN_FROM_PAGE` | clean — pinned below |
+ * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / omits `__RequestVerificationToken` | clean — pinned below |
  *
  * No real secrets appear anywhere in this file: the PII stand-ins below are
  * `555-01xx` / `Example` values, and cookie stand-ins are `FAKE-…` literals.
@@ -222,8 +222,9 @@ describe("anti-forgery modal-failure messages carry upstream status, never body 
 
 describe("committed fixtures carry no real-looking PII or secrets (site 16)", () => {
   it("save-long-form example uses placeholders and empty contact fields", () => {
-    // Placeholder token marker, never a captured token…
-    expect(saveCustomerLongFormBody).toContain("REPLACE_WITH_TOKEN_FROM_PAGE");
+    // Token-less: the Worker auto-injects __RequestVerificationToken, so the
+    // example omits it entirely — never a captured token or placeholder…
+    expect(saveCustomerLongFormBody).not.toContain("__RequestVerificationToken");
     // …example names only…
     expect(saveCustomerLongFormBody).toContain("ExampleCo");
     // …empty contact fields, never a dialable number…
