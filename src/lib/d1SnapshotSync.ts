@@ -15,6 +15,9 @@
 
 export type { SnapshotSyncCounts, StreamSyncOptions } from "./snapshot/upsert";
 export {
+  findForeignKeyError,
+  isForeignKeyConstraintFailure,
+  SnapshotForeignKeyError,
   upsertAddressSnapshotRows,
   upsertContainerSnapshotRows,
   upsertCustomerSnapshotRows

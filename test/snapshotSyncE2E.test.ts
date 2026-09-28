@@ -14,9 +14,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  * serves CSV **only** for `QueryExecuteDownload` and throws on any other
  * upstream URL, so no test can reach `killeen.routeware.com`.
  *
- * Import order is customer → address → container: D1 does not enforce the
- * declared foreign keys, so the order is the only thing preventing orphan rows
- * (see docs/TEST-INVARIANTS.md § `getDataSnapshotPlan`). Each sync runs with
+ * Import order is customer → address → container: D1 enforces the declared
+ * foreign keys, so out-of-order rows 400 instead of writing orphans, and the
+ * plan guard (`getDataSnapshotPlan`) keeps a misconfigured run from failing
+ * batch-by-batch (see docs/TEST-INVARIANTS.md § `getDataSnapshotPlan`). Each sync runs with
  * `reconcile: true` (the route default via `run*SnapshotSync`), and the
  * customer sync pins the reconcile guard behaviorally: a pre-seeded stale row
  * is deleted while a bad/empty export must not wipe the table (unit-pinned in
