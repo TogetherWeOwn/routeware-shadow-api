@@ -204,7 +204,7 @@ All errors are `application/problem+json` with a `type` URL pointing at the
 Run these verbatim after `cp .dev.vars.example .dev.vars` (fill in
 `LOGIN_USERNAME` / `LOGIN_PASSWORD` plus one token), `npm run db:migrate:local`,
 and `npm run dev`. Every command below was run verbatim against local dev on
-`origin/main` (`ab6f947`) — match the bodies and the `HTTP` footers exactly.
+current `origin/main` — match the bodies and the `HTTP` footers exactly.
 
 ```bash
 # 1. Liveness — no token. Proves the Worker is up.
@@ -241,13 +241,16 @@ curl -s -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
 ```bash
 # 5. Deep readiness — authed. 200 means D1 answers, R2 is bound (or archiving
 #    explicitly disabled), and all three report sources are configured.
+#    `checks.cron` is advisory only: on a fresh clone it reports stale with
+#    null tables (the daily cron has never run) without flipping the overall
+#    status — that is expected, not a failure. (Fresh clones show 200: the
+#    [vars] defaults configure all three report query ids.)
 #    A 503 with "status":"degraded" is still a *passing probe response* —
 #    it names the sick dependency in checks — but stop and fix it, don't
-#    roll forward. (Fresh clones show 200: the [vars] defaults configure all
-#    three report query ids.)
+#    roll forward.
 curl -s -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
   http://localhost:8787/api/v1/readiness
-# {"status":"ok","service":"routeware-shadow-api","checks":{"d1":{"ok":true},"r2":{"ok":true,"bound":true,"enabled":true},"config":{"ok":true,"customer":true,"address":true,"container":true}}}
+# {"status":"ok","service":"routeware-shadow-api","checks":{"d1":{"ok":true},"r2":{"ok":true,"bound":true,"enabled":true},"config":{"ok":true,"customer":true,"address":true,"container":true},"cron":{"ok":false,"stale":true,"lastRunAt":null,"tables":{"customer":null,"address":null,"container":null},"detail":"No cron run recorded yet (cron_sync_state is empty or unreadable)."}}}
 # HTTP 200
 ```
 
@@ -258,4 +261,4 @@ the bearer gate is miswired, file a bug; rung 3 `EMPTY` → fill in a token in
 rungs 4–5 401 → the loaded value does not match the server's (edited
 `.dev.vars` without restarting, or wrong shell); rung 5 503 → read
 `checks.{d1,r2,config}` for the culprit (`detail` names it, values never
-leak).
+leak) — `checks.cron` staleness alone never 503s, it is advisory.
