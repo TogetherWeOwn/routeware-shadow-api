@@ -1,3 +1,4 @@
+import { LOCK_TTL_MS } from "../authSession.do";
 import { problemJsonResponse, problemType } from "./problem";
 import { readSessionState } from "./sessionState";
 
@@ -13,7 +14,18 @@ import { readSessionState } from "./sessionState";
  * `establishSession` is serialized by the same lock.
  */
 
-const WAIT_TIMEOUT_MS = 20_000;
+/**
+ * How long a waiter polls for the holder's fresh session before failing
+ * closed to 502 (TOG-6527).
+ *
+ * Derived from the lock TTL so the relationship can never drift: the budget
+ * must cover a worst-case browser login (~47s — two 15s selector waits + 15s
+ * navigation + 2s settle in `browserAuth.ts`) with margin, while staying 30s
+ * inside `LOCK_TTL_MS` so every waiter fails before the lock can go stale
+ * and admit a duplicate login. Cold-start waiters previously timed out at
+ * 20s, so any normal browser login outlasted them all.
+ */
+export const WAIT_TIMEOUT_MS = LOCK_TTL_MS - 30_000;
 const WAIT_INTERVAL_MS = 500;
 
 /**
