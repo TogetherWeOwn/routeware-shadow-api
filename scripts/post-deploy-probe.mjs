@@ -5,8 +5,12 @@
  * (authed) against a base URL.
  *
  * Usage:
- *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N]
+ *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [--skip-if-no-token]
  *   npm run probe:post-deploy -- <base-url>
+ *   npm run probe:post-deploy:scheduled   (scheduled mode: SHADOW_API_BASE + skip-safe)
+ *
+ * Base resolution: explicit <base-url> wins, then $SHADOW_API_BASE (same name
+ * as scripts/smoke-readiness.mjs), then http://localhost:8787 for local dev.
  *
  * Token resolution (never printed, never committed):
  *   1. --token-env=NAME (value read from process.env[NAME])
@@ -21,21 +25,28 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { argv, env, exit } from "node:process";
+import {
+  BASE_ENV,
+  DEFAULT_BASE,
+  SKIP_FLAG,
+  formatSkipLine,
+} from "./lib/postDeployProbe.mjs";
 
-const DEFAULT_BASE = "http://localhost:8787";
 const DEFAULT_TIMEOUT_MS = 15_000;
 const MAX_BODY_SNIPPET = 500;
 
 function usage() {
   return [
-    "Usage: node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N]",
+    `Usage: node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [${SKIP_FLAG}]`,
     "",
     "  <base-url>      Worker origin, e.g. http://localhost:8787 or",
     "                  https://routeware-shadow-api.<account>.workers.dev",
-    "                  (defaults to http://localhost:8787 when omitted)",
+    `                  (defaults to $${BASE_ENV}, else ${DEFAULT_BASE} when omitted)`,
     "  --token-env=NAME  Env var holding the bearer token",
     "                  (default: SHADOW_API_TOKEN, else CUSTOMER_SNAPSHOT_SYNC_SECRET)",
     "  --timeout-ms=N    Per-probe fetch timeout in ms (default 15000)",
+    `  ${SKIP_FLAG}  skip (exit 0) the authed probes when no token resolves;`,
+    "                  scheduled mode. Without it a missing token fails (exit 1).",
     "",
     "Token is never printed. For local dev it is read from the environment or",
     "from .dev.vars (SHADOW_API_TOKEN preferred, CUSTOMER_SNAPSHOT_SYNC_SECRET fallback).",
@@ -43,13 +54,16 @@ function usage() {
 }
 
 function parseArgs(args) {
-  let base = DEFAULT_BASE;
+  let base = "";
   let tokenEnv = null;
   let timeoutMs = DEFAULT_TIMEOUT_MS;
+  let skipIfNoToken = false;
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
       console.log(usage());
       exit(0);
+    } else if (arg === SKIP_FLAG) {
+      skipIfNoToken = true;
     } else if (arg.startsWith("--token-env=")) {
       tokenEnv = arg.slice("--token-env=".length).trim();
     } else if (arg.startsWith("--timeout-ms=")) {
@@ -66,7 +80,9 @@ function parseArgs(args) {
       base = arg;
     }
   }
-  return { base, tokenEnv, timeoutMs };
+  // Explicit <base-url> wins, then $SHADOW_API_BASE, then local default.
+  const resolved = base.trim() || env[BASE_ENV]?.trim() || DEFAULT_BASE;
+  return { base: resolved, tokenEnv, timeoutMs, skipIfNoToken };
 }
 
 /** Read KEY=value pairs from `.dev.vars` without ever logging values. */
@@ -137,7 +153,7 @@ async function fetchJson(url, { token, timeoutMs }) {
 }
 
 async function main() {
-  const { base, tokenEnv, timeoutMs } = parseArgs(argv.slice(2));
+  const { base, tokenEnv, timeoutMs, skipIfNoToken } = parseArgs(argv.slice(2));
   let origin;
   try {
     origin = new URL(base).origin;
@@ -168,15 +184,23 @@ async function main() {
     failures += 1;
   }
 
-  // Probe 2 — authenticated staging slice.
+  // Probe 2 — authenticated staging slice. In scheduled (skip-safe) mode a
+  // missing token skips the authed probes with an explicit log instead of
+  // failing: the job has no operator credentials and must not page on that.
   const token = resolveToken(tokenEnv);
+  let authedSkipped = 0;
   if (!token) {
-    console.log("FAIL GET /api/v1/shadow/health -> no bearer token found");
-    console.error(
-      "  set SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET) in the environment,",
-      "pass --token-env=NAME, or populate .dev.vars for local dev. The token value is never logged."
-    );
-    failures += 1;
+    if (skipIfNoToken) {
+      console.log(formatSkipLine({ path: "/api/v1/shadow/health" }));
+      authedSkipped += 1;
+    } else {
+      console.log("FAIL GET /api/v1/shadow/health -> no bearer token found");
+      console.error(
+        "  set SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET) in the environment,",
+        "pass --token-env=NAME, or populate .dev.vars for local dev. The token value is never logged."
+      );
+      failures += 1;
+    }
   } else {
     try {
       const { status, body, raw } = await fetchJson(`${origin}/api/v1/shadow/health`, {
@@ -213,8 +237,13 @@ async function main() {
   // Worker is up but a dependency is degraded — both prove the endpoint
   // answered, but either way the deploy must not roll forward silently.
   if (!token) {
-    console.log("FAIL GET /api/v1/readiness -> no bearer token found (see probe 2)");
-    failures += 1;
+    if (skipIfNoToken) {
+      console.log(formatSkipLine({ path: "/api/v1/readiness" }));
+      authedSkipped += 1;
+    } else {
+      console.log("FAIL GET /api/v1/readiness -> no bearer token found (see probe 2)");
+      failures += 1;
+    }
   } else {
     try {
       const { status, body, raw } = await fetchJson(`${origin}/api/v1/readiness`, {
@@ -253,6 +282,10 @@ async function main() {
   if (failures > 0) {
     console.error(`\npost-deploy probe: ${failures} probe(s) failed against ${origin}`);
     exit(1);
+  }
+  if (authedSkipped > 0) {
+    console.log(`\npost-deploy probe: public probe passed against ${origin}; ${authedSkipped} authed probe(s) skipped (no token, ${SKIP_FLAG})`);
+    return;
   }
   console.log(`\npost-deploy probe: all three probes passed against ${origin}`);
 }
