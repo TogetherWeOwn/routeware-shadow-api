@@ -106,6 +106,16 @@ Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
+Throttle storage errors fail open to the pre-throttle 401 behavior — auth
+stays enforced, only the counting degrades. Each fail-open logs exactly one
+`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
+is a fixed category, never IP/token/PII). Operator alarm path — log query +
+alert-rule proposal, nothing activated:
+`docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
+`test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
+on DO failure) alongside the dedup cases in `test/authThrottle.test.ts`
+(TOG-6530).
+
 A valid-token reset only clears the requester's own IP bucket (the same
 `auth-throttle:<ip>` Durable Object key the failures were counted under), so
 it cannot be abused to clear an attacker's budget: a reset requires passing
