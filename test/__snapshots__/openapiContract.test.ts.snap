@@ -1797,6 +1797,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
           },
+          "400": {
+            "description": "Bad Request (application/problem+json). Empty body where save fields are required.",
+          },
           "502": {
             "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
           },
