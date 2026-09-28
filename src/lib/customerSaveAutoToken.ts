@@ -4,6 +4,7 @@ import {
 } from "./forwardWithSessionRetry";
 import { readSessionState, type SessionState } from "./sessionState";
 import { forwardToUpstream } from "./upstreamForward";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
 function escapeRegexKey(key: string): string {
@@ -196,7 +197,10 @@ export async function resolveSaveCustomerLongFormToken(
         { internalMarker: "anti-forgery-modal" }
       )
     : await forwardToUpstream(modalReq, modalUrl, session, null, {
-        internalMarker: "anti-forgery-modal"
+        internalMarker: "anti-forgery-modal",
+        // Direct modal path honors UPSTREAM_TIMEOUT_MS (TOG-8359) — the
+        // forwarder default alone would ignore the per-deploy override.
+        timeoutMs: readUpstreamTimeoutMs(env)
       });
   if (!modalResp.ok) {
     throw new Error(
