@@ -521,4 +521,99 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(calls.fetches).toEqual([]);
     expect(result).toEqual({ customer: null, address: null, container: null });
   });
+
+  it("fails fast with a tagged timeout when a subrequest hangs (TOG-6547)", async () => {
+    // Arrange — the customer subrequest never settles (hung table). Before the
+    // bound it held the cron invocation to the platform timeout, starving the
+    // tables behind it with only `durationMs` as signal.
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      calls.fetches.push({ url: String(url), authorization: headers.authorization });
+      return new Promise<Response>(() => {});
+    });
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+
+    // Act
+    const start = Date.now();
+    const error = (await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({
+        CUSTOMER_REPORT_QUERY_ID: "23",
+        CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret",
+        CHAINED_SYNC_TIMEOUT_MS: "50"
+      })
+    ).catch((e: unknown) => e)) as InstanceType<typeof PartialDataSnapshotSyncError>;
+
+    // Assert — bounded (far under the 30s suite timeout), tagged with the
+    // table, attributed to it, and the later tables never attempted.
+    expect(Date.now() - start).toBeLessThan(5_000);
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("customer");
+    expect(error.message).toBe(
+      "[chained customer] POST /api/v1/customer-snapshot/sync timed out after 50ms"
+    );
+    expect(error.partial).toEqual({ customer: null, address: null, container: null });
+    expect(calls.fetches.map((f) => f.url)).toEqual([
+      "https://api.example.test/api/v1/customer-snapshot/sync"
+    ]);
+  });
+
+  it("tags a fast subrequest network failure without mapping it to a timeout (TOG-6547)", async () => {
+    // Arrange — the customer subrequest fails fast with a DNS-style error,
+    // not a hang: it must surface tagged with the table, never mapped to a
+    // timeout, and the bearer-gate 401/429 path (`!resp.ok`) is untouched.
+    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+      const headers = init.headers as Record<string, string>;
+      calls.fetches.push({ url: String(url), authorization: headers.authorization });
+      throw new TypeError("fetch failed");
+    });
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+
+    // Act
+    const error = (await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({
+        CUSTOMER_REPORT_QUERY_ID: "23",
+        CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret"
+      })
+    ).catch((e: unknown) => e)) as InstanceType<typeof PartialDataSnapshotSyncError>;
+
+    // Assert — rethrown verbatim out of `post()`, tagged by the outer handler.
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("customer");
+    expect(error.message).toBe("[chained customer] fetch failed");
+  });
+});
+
+describe("readChainedSyncTimeoutMs (TOG-6547)", () => {
+  it("defaults to 180s and honors the CHAINED_SYNC_TIMEOUT_MS binding", async () => {
+    // Arrange / Act
+    const { DEFAULT_CHAINED_SYNC_TIMEOUT_MS, readChainedSyncTimeoutMs } = await import(
+      "../src/lib/upstreamTimeout"
+    );
+
+    // Assert — 180s clears the 60s report budget with headroom while staying
+    // well inside the 300s platform CPU limit.
+    expect(DEFAULT_CHAINED_SYNC_TIMEOUT_MS).toBe(180_000);
+    expect(readChainedSyncTimeoutMs({} as Env)).toBe(180_000);
+    expect(
+      readChainedSyncTimeoutMs({ CHAINED_SYNC_TIMEOUT_MS: "5000" } as unknown as Env)
+    ).toBe(5_000);
+  });
+
+  it("falls back on absent/invalid overrides", async () => {
+    // Arrange / Act
+    const { readChainedSyncTimeoutMs } = await import("../src/lib/upstreamTimeout");
+
+    // Assert
+    for (const bad of ["", "nope", "-5", "0"]) {
+      expect(
+        readChainedSyncTimeoutMs({ CHAINED_SYNC_TIMEOUT_MS: bad } as unknown as Env)
+      ).toBe(180_000);
+    }
+  });
 });
