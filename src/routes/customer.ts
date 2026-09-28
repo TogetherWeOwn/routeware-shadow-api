@@ -1,5 +1,8 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { prepareSaveCustomerLongFormBody } from "../lib/customerSaveAutoToken";
+import {
+  evictAntiForgeryTokenCacheForBody,
+  prepareSaveCustomerLongFormBody
+} from "../lib/customerSaveAutoToken";
 import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
@@ -354,6 +357,11 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
+    // TOG-8149: the injected token was rejected upstream (silent failure),
+    // so drop it from the cache — otherwise the next token-less save replays
+    // the same known-rejected token until the TTL window expires. The next
+    // save refetches via one modal GET instead of 502-looping.
+    evictAntiForgeryTokenCacheForBody(bodyBuffer);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
       title: "Bad Gateway",

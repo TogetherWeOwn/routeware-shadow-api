@@ -135,3 +135,86 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
     expect(saveCalled).toBe(false);
   });
 });
+
+function staleTokenHtml(token: string): string {
+  return `<form><input name="__RequestVerificationToken" type="hidden" value="${token}" /></form>`;
+}
+
+function isAntiForgeryModalFetch(init?: RequestInit): boolean {
+  if (!init || typeof init !== "object" || !("headers" in init) || !init.headers) {
+    return false;
+  }
+  return (
+    new Headers(init.headers as HeadersInit).get("X-Routeware-Shadow-Internal") ===
+    "anti-forgery-modal"
+  );
+}
+
+describe("stale-token eviction (TOG-8149)", () => {
+  const originalFetch = globalThis.fetch;
+  let modalCalls = 0;
+  let saveBodies: string[] = [];
+
+  beforeEach(() => {
+    modalCalls = 0;
+    saveBodies = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (isAntiForgeryModalFetch(init)) {
+        modalCalls += 1;
+        return new Response(staleTokenHtml(`STALE-TOKEN-${modalCalls}`), {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8" }
+        });
+      }
+      if (url.includes("/WebRW/Customer/SaveCustomerLongForm")) {
+        const raw = new TextDecoder().decode(
+          (init?.body as ArrayBuffer | undefined) ?? new ArrayBuffer(0)
+        );
+        saveBodies.push(raw);
+        // Routeware's silent-failure shape: HTML 200, save rejected (CONVENTIONS.md §1).
+        return new Response(
+          "<!DOCTYPE html><html><body>Object reference not set to an instance of an object (save failed)</body></html>",
+          { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+        );
+      }
+      throw new Error(`Unexpected upstream fetch in test: ${url}`);
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("evicts the rejected token so the next token-less save refetches instead of 502-looping", async () => {
+    // Arrange — the issue repro: token-less create, upstream rejects the save
+    // silently. Pre-fix this made exactly 1 modal GET and 2 save POSTs carrying
+    // the same cached token (sticky 502 until the 5-minute TTL expired).
+    const headers = { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" };
+    const body = "CustomerID=0&CompanyName=Acme&Enabled=true";
+
+    // Act — two consecutive token-less saves.
+    const first = await call("/api/v1/routeware/customer/save-long-form", {
+      method: "POST",
+      body,
+      headers
+    });
+    const second = await call("/api/v1/routeware/customer/save-long-form", {
+      method: "POST",
+      body,
+      headers
+    });
+
+    // Assert — both saves still surface the silent failure as 502 (the save
+    // itself is not retried: the POST is not idempotent), but the rejected
+    // token was evicted: the second save paid one modal GET for a fresh token
+    // instead of replaying the known-rejected one.
+    expect(first.status).toBe(502);
+    expect(second.status).toBe(502);
+    expect(saveBodies).toHaveLength(2);
+    expect(modalCalls).toBe(2);
+    expect(saveBodies[0]).toContain("__RequestVerificationToken=STALE-TOKEN-1");
+    expect(saveBodies[1]).toContain("__RequestVerificationToken=STALE-TOKEN-2");
+  });
+});

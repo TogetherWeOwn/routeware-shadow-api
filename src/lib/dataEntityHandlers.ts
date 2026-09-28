@@ -1,5 +1,8 @@
 import { prepareSaveAddressFormBody, prepareSaveContainerFormBody } from "./addressContainerSaveForm";
-import { prepareSaveCustomerLongFormBody } from "./customerSaveAutoToken";
+import {
+  evictAntiForgeryTokenCacheForBody,
+  prepareSaveCustomerLongFormBody
+} from "./customerSaveAutoToken";
 import {
   getAddressBundleFromD1,
   getContainerBundleFromD1,
@@ -327,6 +330,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
   const customerId = parseCustomerIdFromSaveResponse(posted, upText);
+  if (!ok && up.status >= 200 && up.status < 300) {
+    // TOG-8149: same silent-failure eviction as the save-long-form route —
+    // a rejected token must not be replayed on the next token-less save.
+    evictAntiForgeryTokenCacheForBody(bodyBuffer);
+  }
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
     if (customerId !== null) {

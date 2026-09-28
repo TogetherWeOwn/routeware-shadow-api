@@ -34,6 +34,8 @@ vi.mock("../src/lib/upstreamForward", () => ({
 
 const {
   clearAntiForgeryTokenCache,
+  evictAntiForgeryTokenCacheByToken,
+  evictAntiForgeryTokenCacheForBody,
   prepareSaveCustomerLongFormBody,
   resolveSaveCustomerLongFormToken
 } = await import("../src/lib/customerSaveAutoToken");
@@ -200,6 +202,54 @@ describe("anti-forgery token cache", () => {
     expect(calls.urls).toHaveLength(2);
     expect(decode(first)).toContain("__RequestVerificationToken=TOKEN-1");
     expect(decode(second)).toContain("__RequestVerificationToken=TOKEN-2");
+  });
+
+  it("evicts a rejected token by value across sessions (TOG-8149)", async () => {
+    // Arrange — the same upstream token value cached under two session keys
+    // (the modal-heal shape: `resolveSaveCustomerLongFormToken` stores under
+    // the fresh session while the route still holds the stale one, so a
+    // session-keyed evict from the route would miss).
+    const env = makeEnv();
+    const raw = "Enabled=true";
+    await prepareSaveCustomerLongFormBody(env, makeSession("ASP.NET_SessionId=a"), request(), body(raw), URLENCODED);
+    tokenSeq = 0; // force the next modal GET to mint the same value
+    const second = await prepareSaveCustomerLongFormBody(env, makeSession("ASP.NET_SessionId=b"), request(), body(raw), URLENCODED);
+    expect(decode(second)).toContain("__RequestVerificationToken=TOKEN-1");
+    expect(calls.urls).toHaveLength(2);
+
+    // Act — upstream rejects the save: drop every entry holding that token.
+    expect(evictAntiForgeryTokenCacheByToken("TOKEN-1")).toBe(true);
+
+    // Assert — both entries are gone: the next save pays a modal GET instead
+    // of replaying the known-rejected token.
+    const third = await prepareSaveCustomerLongFormBody(env, makeSession("ASP.NET_SessionId=a"), request(), body(raw), URLENCODED);
+    expect(calls.urls).toHaveLength(3);
+    expect(decode(third)).toContain("__RequestVerificationToken=TOKEN-2");
+    expect(evictAntiForgeryTokenCacheByToken("TOKEN-never-cached")).toBe(false);
+  });
+
+  it("evicts from a forwarded save body and never throws (TOG-8149)", async () => {
+    // Arrange
+    const env = makeEnv();
+    const session = makeSession();
+    const raw = "CustomerID=5&Enabled=true";
+    const prepared = await prepareSaveCustomerLongFormBody(env, session, request(), body(raw), URLENCODED);
+    expect(calls.urls).toHaveLength(1);
+
+    // Act — the save-side silent-failure branch hands over the forwarded body.
+    expect(evictAntiForgeryTokenCacheForBody(prepared)).toBe(true);
+
+    // Assert — the next token-less save refetches via one modal GET.
+    const next = await prepareSaveCustomerLongFormBody(env, session, request(), body(raw), URLENCODED);
+    expect(calls.urls).toHaveLength(2);
+    expect(decode(next)).toContain("__RequestVerificationToken=TOKEN-2");
+
+    // Degenerate bodies evict nothing and never throw (a silent-failure branch
+    // must stay a 502, never become a 500).
+    expect(evictAntiForgeryTokenCacheForBody(null)).toBe(false);
+    expect(evictAntiForgeryTokenCacheForBody(new ArrayBuffer(0))).toBe(false);
+    expect(evictAntiForgeryTokenCacheForBody(body("CustomerID=5"))).toBe(false);
+    expect(evictAntiForgeryTokenCacheForBody(body("CustomerID=%ZZ"))).toBe(false);
   });
 
   it("resolveSaveCustomerLongFormToken returns the cached token without a fetch", async () => {
