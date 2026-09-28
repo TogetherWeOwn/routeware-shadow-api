@@ -44,8 +44,9 @@ Authorization: Bearer <SHADOW_API_TOKEN>
 
 `SHADOW_API_TOKEN` gates general access. When it is unset, the Worker falls back to
 `CUSTOMER_SNAPSHOT_SYNC_SECRET`. The privileged snapshot/data routes
-(`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`)
-additionally require `CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
+(`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`,
+`/api/v1/data-snapshot/sync`) additionally require
+`CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
 
 ### Dual-secret matrix (TOG-6298)
 
@@ -78,7 +79,7 @@ passing the outer gate with the API token is not enough:
 | Route class | `Bearer <API>` | `Bearer <SYNC>` | wrong / none |
 |---|---|---|---|
 | General (all `/api/v1/routeware/*`, snapshot list reads, `GET /api/v1/shadow/health`) | ✓ | ✓ | 401 outer gate |
-| Privileged (`.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` — 13 routes) | 401 inner check | ✓ | 401 outer gate |
+| Privileged (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` — 16 routes) | 401 inner check | ✓ | 401 outer gate |
 | Public (`GET /api/v1/health`) | n/a | n/a | 200, no token |
 
 Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP

@@ -263,11 +263,16 @@ change; removing them is a separate decision.
 
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 13 routes, and
-`test/snapshotAuth.test.ts` pins the canonical inner 401/503 body every route
-shares. The per-call-site `detail` wording was unified in the helpers by
-TOG-7030 (one 401 detail naming the sync secret, one 503 detail naming the
-secret config, each with the remedy-doc link and `instance`).
+`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
+routes (13 at TOG-7030 plus the 3 `GET ...-snapshot/export` downloads,
+TOG-8361), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
+body every route shares. The per-call-site `detail` wording was unified in
+the helpers by TOG-7030 (one 401 detail naming the sync secret, one 503
+detail naming the secret config, each with the remedy-doc link and
+`instance`). `test/authGateResweep.test.ts` (TOG-8386) pins the privileged
+inventory itself from the live router, so a new sync/import/export/data route
+without `requireSnapshotAuth` fails there instead of slipping past the outer
+gate on the general API token.
 
 ### `src/app.ts` and the `src/routes/` module rules
 
