@@ -183,6 +183,10 @@ const customerSaveLongFormRoute = createRoute({
   ...customerSaveLongFormDocs,
   responses: {
     ...customerSaveLongFormDocs.responses,
+    400: {
+      description:
+        "Bad Request (application/problem+json). Empty body where save fields are required."
+    },
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
@@ -191,7 +195,18 @@ const customerSaveLongFormRoute = createRoute({
 });
 
 customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
-  let bodyBuffer = c.var.bodyBuffer;
+  const rawBody = c.var.bodyBuffer;
+  if (!rawBody || rawBody.byteLength === 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveCustomerLongForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  let bodyBuffer: ArrayBuffer | null = rawBody;
   try {
     bodyBuffer = await prepareSaveCustomerLongFormBody(
       c.env,

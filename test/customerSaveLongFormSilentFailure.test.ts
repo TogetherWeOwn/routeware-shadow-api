@@ -23,15 +23,18 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
   let saveBody = '{"success":true}';
   let saveStatus = 200;
   let saveContentType = "application/json";
+  let saveCalled = false;
 
   beforeEach(() => {
     saveBody = '{"success":true}';
     saveStatus = 200;
     saveContentType = "application/json";
+    saveCalled = false;
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/WebRW/Customer/SaveCustomerLongForm")) {
+        saveCalled = true;
         return new Response(saveBody, {
           status: saveStatus,
           headers: { "content-type": saveContentType }
@@ -113,5 +116,22 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
     // Assert
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
+  });
+
+  it("rejects an empty urlencoded body with 400 without calling upstream (TOG-6402)", async () => {
+    // Act — 0-byte body, parity with handlePostDataCustomer (/data/customer).
+    const response = await call("/api/v1/routeware/customer/save-long-form", {
+      method: "POST",
+      body: "",
+      headers: { "content-type": "application/x-www-form-urlencoded; charset=UTF-8" }
+    });
+
+    // Assert — fail fast at the gate: no session/modal round-trip, no junk row.
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    const body = (await response.json()) as { title: string; status: number };
+    expect(body.title).toBe("Bad Request");
+    expect(body.status).toBe(400);
+    expect(saveCalled).toBe(false);
   });
 });
