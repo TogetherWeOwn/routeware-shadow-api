@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
@@ -11,7 +12,13 @@ function jobBlock(name) {
   return match[0];
 }
 
-assert.match(workflow, /^  pull_request:\n    branches: \[main\]$/m, "CI must run for pull requests targeting main");
+// TOG-6539: the CSV/.dev.vars PII gate only protects main when build and
+// hygiene actually run on every pull request. Asserting the pull_request
+// trigger alone let a workflow edit add if:/paths-ignore skips to those
+// jobs while the invariant check stayed green. The skip detector below
+// fails on any such skip (job-level if/paths/paths-ignore, step-level if:,
+// or pull_request paths/paths-ignore/types narrowing).
+assertNoPrTriggerSkips(workflow);
 
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
