@@ -1,4 +1,9 @@
-import { archiveReportCsvToR2AfterD1 } from "../r2SnapshotArchive";
+import {
+  archiveReportCsvToR2AfterD1,
+  isR2ArchiveDetail,
+  type R2ArchiveDetail,
+  type SnapshotArchiveTable
+} from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
 import { fetchReportCsvForPath } from "./reportFetch";
 import type { SnapshotSyncCounts } from "./upsert";
@@ -14,6 +19,8 @@ import {
 export type SnapshotTableResult = {
   upserted: number;
   rowCount: number;
+  /** R2 archive outcome for this table's CSV leg (TOG-6549). */
+  r2?: R2ArchiveDetail;
 } | null;
 
 export type DataSnapshotResult = {
@@ -21,6 +28,30 @@ export type DataSnapshotResult = {
   address: SnapshotTableResult;
   container: SnapshotTableResult;
 };
+
+/**
+ * Runs one table's D1→R2 legs and stamps the R2 outcome flat onto the D1
+ * counts (TOG-6549), following the house precedent that extra count fields
+ * (e.g. `deleted`) travel by spread. The route serializes the counts as-is,
+ * so the chained path and the cron line see the R2 status each table observed.
+ * `r2` is always set: the helper fires `onArchive` on every path
+ * (disabled/stored/failed), so a missing callback can only mean an older
+ * caller — default to a `failed` marker rather than inventing success.
+ */
+function syncTableWithR2<T extends SnapshotSyncCounts>(
+  env: Env,
+  table: SnapshotArchiveTable,
+  body: ReadableStream<Uint8Array>,
+  sync: (stream: ReadableStream<Uint8Array>) => Promise<T>
+): Promise<SnapshotSyncCounts> {
+  let archive: R2ArchiveDetail | null = null;
+  return archiveReportCsvToR2AfterD1(env, table, body, sync, (d) => {
+    archive = d;
+  }).then((counts) => ({
+    ...counts,
+    r2: archive ?? { status: "failed", reason: "R2 outcome unreported" }
+  }));
+}
 
 export async function runCustomerSnapshotSync(
   env: Env
@@ -39,7 +70,7 @@ export async function runCustomerSnapshotSync(
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "customer", resp.body, (s) =>
+  return syncTableWithR2(env, "customer", resp.body, (s) =>
     syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CUST, {
       reconcile: true,
       syncedAt
@@ -64,7 +95,7 @@ export async function runAddressSnapshotSync(
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "address", resp.body, (s) =>
+  return syncTableWithR2(env, "address", resp.body, (s) =>
     syncAddressSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_ADDR, {
       reconcile: true,
       syncedAt
@@ -91,7 +122,7 @@ export async function runContainerSnapshotSync(
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "container", resp.body, (s) =>
+  return syncTableWithR2(env, "container", resp.body, (s) =>
     syncContainerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CONT, {
       reconcile: true,
       syncedAt
@@ -172,13 +203,24 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
-type PerTableJson = { upserted: number; rowCount: number; skipped?: boolean };
+type PerTableJson = {
+  upserted: number;
+  rowCount: number;
+  skipped?: boolean;
+  /** R2 outcome stamped by the per-table sync route (TOG-6549); validated, never trusted blind. */
+  r2?: unknown;
+};
 
 function syncJsonToResult(j: PerTableJson): SnapshotTableResult {
   if (j.skipped) {
     return null;
   }
-  return { upserted: j.upserted, rowCount: j.rowCount };
+  const base = { upserted: j.upserted, rowCount: j.rowCount };
+  // Extra count fields (e.g. `deleted`) are dropped on the chained path by
+  // precedent; the R2 outcome is the exception — without it a failed archive
+  // hides behind a D1 `outcome:success`. Guarded: route JSON crosses a trust
+  // boundary, so only a well-formed detail travels (status discriminant only).
+  return (isR2ArchiveDetail(j.r2) ? { ...base, r2: j.r2 } : base) as SnapshotTableResult;
 }
 
 /**

@@ -54,13 +54,22 @@ vi.mock("../src/lib/routewareQueryReportCsv", () => ({
 }));
 
 vi.mock("../src/lib/r2SnapshotArchive", () => ({
+  // The chained path's `syncJsonToResult` validates `r2` through the real
+  // guard — keep it live so the mock reports a stored outcome, not a crash.
+  isR2ArchiveDetail: (v: unknown): v is { status: string } =>
+    typeof v === "object" && v !== null && (v as { status?: unknown }).status === "stored",
   archiveReportCsvToR2AfterD1: async (
     _env: unknown,
     kind: string,
     body: ReadableStream<Uint8Array>,
-    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>
+    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
+    onArchive?: (detail: { status: string }) => void
   ) => {
     calls.archived.push(kind);
+    // Mirror the real helper's TOG-6549 contract: the callback fires on every
+    // path, so the orchestration stamps `r2` onto the counts. A stored marker
+    // here keeps these tests on the D1 assertions they were written for.
+    onArchive?.({ status: "stored" });
     // `return await`, not `return`: returning the inner promise makes this
     // frame adopt it, and workerd reports the intermediate rejected promise as
     // unhandled even though runDataSnapshotSync catches the one it awaits.
@@ -246,7 +255,15 @@ describe("runCustomerSnapshotSync", () => {
     // Assert
     expect(calls.archived).toEqual(["customer"]);
     expect(calls.syncs).toEqual([{ table: "customer", batchSize: 80, reconcile: true }]);
-    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0 });
+    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } });
+  });
+
+  it("stamps the R2 archive outcome onto the counts (TOG-6549)", async () => {
+    // Arrange / Act — the mock archive reports stored, so the counts carry it.
+    const result = await runCustomerSnapshotSync(envWith({ CUSTOMER_REPORT_QUERY_ID: "23" }));
+
+    // Assert — only the status travels (message/key are log strings, not counts).
+    expect(result).toMatchObject({ r2: { status: "stored" } });
   });
 
   it("throws when the report response carries no body", async () => {
@@ -279,9 +296,9 @@ describe("runDataSnapshotSync", () => {
     // Assert
     expect(calls.syncs.map((s) => s.table)).toEqual(["customer", "address", "container"]);
     expect(result).toEqual({
-      customer: { upserted: 3, rowCount: 3, deleted: 0 },
-      address: { upserted: 3, rowCount: 3, deleted: 0 },
-      container: { upserted: 3, rowCount: 3, deleted: 0 }
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      container: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } }
     });
   });
 
@@ -330,8 +347,8 @@ describe("runDataSnapshotSync", () => {
     expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
     expect(error.failedTable).toBe("container");
     expect(error.partial).toEqual({
-      customer: { upserted: 3, rowCount: 3, deleted: 0 },
-      address: { upserted: 3, rowCount: 3, deleted: 0 },
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
       container: null,
     });
     expect(error.message).toBe("[container snapshot] D1_ERROR: database is locked");

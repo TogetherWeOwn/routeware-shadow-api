@@ -5,6 +5,39 @@
 
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
+/**
+ * Machine-readable R2 outcome for one table's archive leg (TOG-6549).
+ *
+ * The cron's structured line keys on this — a failed or disabled archive must
+ * never again hide behind a D1 `outcome:success`. Only the status, the object
+ * key (`snapshots/<date>/<table>.csv`, no row data) and the failure message
+ * travel here — never row data (CONVENTIONS.md fact 2).
+ */
+export type R2ArchiveStatus = "stored" | "disabled" | "failed";
+
+export type R2ArchiveDetail = {
+  status: R2ArchiveStatus;
+  /** Disabled reason or failure message (message-only, never row data). */
+  reason?: string;
+  /** Object key attempted/stored. Date + table only — no PII. */
+  key?: string;
+};
+
+const R2_ARCHIVE_STATUSES: readonly string[] = ["stored", "disabled", "failed"];
+
+/**
+ * Structural guard for an R2 outcome crossing a trust boundary (chained
+ * subrequest JSON, stubbed sync in tests). Checks the `status` discriminant
+ * only — `reason`/`key` are optional log strings, never row data.
+ */
+export function isR2ArchiveDetail(v: unknown): v is R2ArchiveDetail {
+  if (typeof v !== "object" || v === null) {
+    return false;
+  }
+  const s = (v as { status?: unknown }).status;
+  return typeof s === "string" && R2_ARCHIVE_STATUSES.includes(s);
+}
+
 /** S3 / R2 minimum part size for multipart uploads; last part may be smaller. */
 export const R2_MULTIPART_PART_SIZE = 5 * 1024 * 1024;
 
@@ -123,6 +156,11 @@ export async function putReadableStreamToR2(
  * sync must never leave a phantom archive row-set that the database never got
  * (TOG-6550). R2 is best-effort — its failures are logged, not thrown.
  *
+ * `onArchive` reports the machine-readable R2 outcome (TOG-6549) on every path
+ * — disabled, stored, or failed — so the caller can surface it in the cron log
+ * line instead of leaving a missing archive behind a D1 `outcome:success`. The
+ * callback fires at most once per call and never throws (it is a pure report).
+ *
  * Buffering note: the CSV is collected in memory (one buffer per chunk) so D1
  * and R2 see identical bytes. Snapshot exports are small enough for this today
  * (the largest is well under the 128 MiB isolate cap, and `tee()`'s internal
@@ -133,13 +171,15 @@ export async function archiveReportCsvToR2AfterD1<T>(
   env: Env,
   table: SnapshotArchiveTable,
   body: ReadableStream<Uint8Array>,
-  sync: (stream: ReadableStream<Uint8Array>) => Promise<T>
+  sync: (stream: ReadableStream<Uint8Array>) => Promise<T>,
+  onArchive?: (detail: R2ArchiveDetail) => void
 ): Promise<T> {
   const disabledReason = r2DisabledReason(env);
   if (disabledReason !== null) {
     console.log(
       `R2 snapshot archive disabled for ${table}: ${disabledReason}`
     );
+    onArchive?.({ status: "disabled", reason: disabledReason });
     return sync(body);
   }
   const key = snapshotR2ObjectKey(table);
@@ -167,8 +207,13 @@ export async function archiveReportCsvToR2AfterD1<T>(
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
     console.log(`R2 snapshot stored: ${key}`);
+    onArchive?.({ status: "stored", key });
   } catch (e) {
+    // Message-only: an R2 driver error carries no row data (same class as the
+    // D1 driver text already logged elsewhere — never upstream text).
+    const message = e instanceof Error ? e.message : String(e);
     console.error(`R2 snapshot put failed for ${key}`, e);
+    onArchive?.({ status: "failed", reason: message, key });
   }
   return result;
 }

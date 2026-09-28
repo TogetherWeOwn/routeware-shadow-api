@@ -3,6 +3,7 @@ import {
   runDataSnapshotSyncChainedHttp,
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
+import type { R2ArchiveDetail } from "./lib/r2SnapshotArchive";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
 export type CronSyncOutcome = "success" | "unconfigured" | "failed";
@@ -11,6 +12,8 @@ export type CronSyncTableCounts = {
   upserted: number;
   rowCount: number;
   deleted?: number;
+  /** R2 archive outcome for this table's CSV leg (TOG-6549). Absent only when the producer predates the instrumentation. */
+  r2?: R2ArchiveDetail;
 } | null;
 
 /**
@@ -91,7 +94,12 @@ export function resolveChainedBase(raw: unknown): string | null {
   return trimmed;
 }
 
-/** Spread preserves runtime extras (e.g. `deleted`) the narrow type drops. */
+/**
+ * Spread preserves runtime extras the narrow type drops: `deleted` counts and
+ * — the TOG-6549 point — the flat `r2` outcome the per-table sync stamped onto
+ * the counts. A failed or disabled archive must never hide behind a D1
+ * `outcome:success`; the `r2:` fragment in `summarizeTable` keys on this.
+ */
 function tableCounts(t: TableResult): CronSyncTableCounts {
   return t ? { ...t } : null;
 }
@@ -133,7 +141,13 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   }
   const deleted =
     t.deleted === undefined ? "" : `, ${t.deleted} deleted`;
-  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}`;
+  // TOG-6549: the R2 archive state rides in the summary so a missing archive
+  // is visible in the human-readable line, not just the JSON. `unknown` covers
+  // counts produced before the instrumentation (e.g. older route callers, or a
+  // test double that omitted the field).
+  const r2 = t.r2?.status ?? "unknown";
+  const archive = r2 === "stored" ? "" : `, r2: ${r2}`;
+  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}${archive}`;
 }
 
 export async function scheduled(
