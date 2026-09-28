@@ -44,6 +44,16 @@ assert.ok(hygieneNode >= 0, "hygiene must set up Node for the D1 drift check (TO
 assert.ok(hygieneInstall > hygieneNode, "hygiene must install dependencies after Node setup (TOG-6275)");
 assert.ok(hygieneDrift > hygieneInstall, "hygiene must install dependencies before the D1 drift check (TOG-6275)");
 
+// The OpenAPI drift check compares declared createRoute() ops against the
+// ops published via .openapi() in each mounted module, credential-free. Pin
+// it present so a dropped route can never land without the hygiene gate
+// (TOG-6282, gap G24).
+assert.match(
+  hygiene,
+  /^        run: npm run check:openapi-drift$/m,
+  "hygiene must run the OpenAPI drift check (TOG-6282)"
+);
+
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
 // never land without the hygiene gate (TOG-6291).
