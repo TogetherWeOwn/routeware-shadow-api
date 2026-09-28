@@ -85,6 +85,24 @@ Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
 route-class matrix) and `test/snapshotAuth.test.ts` (per-route inner 401
 bodies).
 
+### Read-only bearer role (TOG-8878)
+
+`SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
+reads. It passes the outer gate on GET requests only: a GET with the read
+token returns 200 on a general route, while any non-GET request with it 401s
+at the outer gate, and every privileged route (sync/import, GET exports,
+`/api/v1/data/*` reads) 401s at the inner sync-secret check — no privileged
+route accepts the read token. Unset or blank means unconfigured: the role
+fails closed. Use a distinct random value — if it ever equals the full token
+it inherits full access.
+
+```
+npx wrangler secret put SHADOW_API_READ_TOKEN
+```
+
+Pinned by `test/readOnlyRole.test.ts` (unit matrix + HTTP acceptance pair +
+per-privileged-route sweep + fail-closed contract).
+
 Set these as secrets in production — never in `wrangler.toml` `[vars]`:
 
 ```

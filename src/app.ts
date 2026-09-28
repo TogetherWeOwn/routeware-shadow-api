@@ -1,6 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
-import { isApiAuthorized } from "./lib/auth";
+import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
@@ -97,7 +97,13 @@ app.use("/api/v1/*", async (c, next) => {
     c.res = withCors(c.res, c.req.raw);
     return;
   }
-  if (!isApiAuthorized(c.env, c.req)) {
+  // Read-only role (TOG-8878): SHADOW_API_READ_TOKEN passes the outer gate
+  // on GET requests only, then flows through the same authorized path as a
+  // full token below. Non-GET requests with the read token fall through to
+  // the 401; privileged routes reject the read token at their inner
+  // sync-secret check (`requireSnapshotAuth`).
+  const readOnly = isReadAuthorized(c.env, c.req, method);
+  if (!readOnly && !isApiAuthorized(c.env, c.req)) {
     // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
     // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
     // a token-guessing loop slows to a crawl. (Preflight returns above, so

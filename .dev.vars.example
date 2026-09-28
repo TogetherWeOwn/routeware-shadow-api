@@ -7,6 +7,9 @@ LOGIN_PASSWORD=
 # At least one of these must be set (non-empty) or every /api/v1/* call returns 401.
 SHADOW_API_TOKEN=
 CUSTOMER_SNAPSHOT_SYNC_SECRET=
+# Optional read-only role (TOG-8878): GET-only access to non-privileged reads.
+# Writes/sync/import and every privileged route still require the tokens above.
+SHADOW_API_READ_TOKEN=
 
 # Optional: session auth method. Default "auto" (HTTP form login, browser fallback).
 # HTTP login needs no Browser Rendering, so `npm run dev` (local) works without --remote.
