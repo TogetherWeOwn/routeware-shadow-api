@@ -13,10 +13,9 @@ import { recordingDb } from "./snapshotDbFake";
  * quotes, multiline / quoted-CRLF fields, bare CR, NUL bytes, 10k-row files,
  * and quote-scanner behavior across stream chunk boundaries.
  *
- * One edge does NOT map cleanly: a stray unbalanced `"` mid-file silently
- * swallows every following row while the import returns 200. That is filed
- * as a bug card (see the pin test below) — the pin asserts current behavior
- * so the fixer knows exactly which assertion to flip.
+ * A stray unbalanced `"` mid-field is treated as a literal inch mark, so all
+ * well-formed rows land (fixed by [TOG-8536](/TOG/issues/TOG-8536); see the
+ * stray-quote tests below).
  *
  * Unit tests run against `recordingDb` (no D1); HTTP tests run through the
  * real app + real test D1 like test/snapshotImportEdges.test.ts.
