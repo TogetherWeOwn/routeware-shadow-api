@@ -4,6 +4,7 @@ import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
+import { isLoginPageUnavailableError } from "./lib/loginPageError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import {
   concurrentRefreshTimeoutProblem,
@@ -256,6 +257,28 @@ app.onError((err, c) => {
         title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname
+      }),
+      c.req.raw
+    );
+  }
+  // A WAF/maintenance block on the login page (TOG-6536): fast 502 naming
+  // the upstream status, not a 500 and never a browser launch. The message
+  // carries only the status number (a fixed PII-free string). Session-retry
+  // routes rethrow this past their single retry (the retry budget heals
+  // expired sessions, not blocked upstreams); this is the backstop.
+  // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
+  if (isLoginPageUnavailableError(err)) {
+    console.error("LOGIN PAGE UNAVAILABLE", err.message);
+    return withCors(
+      problemJsonResponse({
+        type: problemType("bad-gateway"),
+        title: "Upstream login unavailable",
+        status: 502,
+        detail:
+          `Routeware answered the login page with HTTP ${err.status} (WAF block or ` +
+          `maintenance page). Retry once; if it persists the upstream host is ` +
+          `blocking logins. See docs/PROBLEMS.md#bad-gateway.`,
         instance: new URL(c.req.url).pathname
       }),
       c.req.raw

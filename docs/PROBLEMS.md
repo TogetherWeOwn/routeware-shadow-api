@@ -265,3 +265,15 @@ A request that arrives while another request is refreshing waits up to 20s
 for the fresh session; if the holder never publishes (hung login), the waiter
 answers as 502 problem+json — never by forwarding with the expired cookie,
 which would surface upstream login HTML as a 200.
+
+## Blocked login page (`bad-gateway`, title "Upstream login unavailable")
+
+The HTTP login GETs the login page (and the Ext.NET init script) for the
+anti-forgery token. When upstream answers either GET with a non-200 — a WAF
+block or maintenance page (403/500/…) — the login fails fast as 502
+problem+json naming the upstream status, with zero Browser Rendering launches:
+a blocked page carries no token because there is no form, so falling back to
+the browser would burn Browser Rendering budget misdiagnosed as a markup
+change. A genuine 200 page with no token keeps the old behavior (treated as a
+markup change, browser fallback in auto mode). The 502 detail carries only the
+status number — never URL, body, or PII.

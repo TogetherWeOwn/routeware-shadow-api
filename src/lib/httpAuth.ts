@@ -1,3 +1,4 @@
+import { LoginPageUnavailableError } from "./loginPageError";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
@@ -78,6 +79,13 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     { headers: h1, redirect: "manual" },
     timeoutMs
   );
+  // Fail fast on a WAF/maintenance block (TOG-6536): without this, a
+  // non-200 page falls through to "token not found", which `establishSession`
+  // misreads as a markup change and answers with expensive Browser Rendering
+  // retries. The status (a fixed number) is safe for logs and 502s.
+  if (!pageRes.ok) {
+    throw new LoginPageUnavailableError(pageRes.status, "login page");
+  }
   mergeSetCookies(jar, pageRes);
   const html = await pageRes.text();
 
@@ -93,6 +101,9 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
       { headers: h2, redirect: "manual" },
       timeoutMs
     );
+    if (!axRes.ok) {
+      throw new LoginPageUnavailableError(axRes.status, "init script");
+    }
     mergeSetCookies(jar, axRes);
     token = extractAntiForgeryFromExtNet(await axRes.text());
   }
