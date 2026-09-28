@@ -16,11 +16,19 @@ export function snapshotR2ObjectKey(
   return `snapshots/${d}/${table}.csv`;
 }
 
-function r2Enabled(env: Env): boolean {
+/**
+ * Why the R2 archive is off, or `null` when it is on. Kept as a reason (not a
+ * boolean) so the disabled path can log *why* nothing was archived — an absent
+ * archive must be distinguishable from a failed one when the cron is green.
+ */
+function r2DisabledReason(env: Env): string | null {
   if (String(env.SNAPSHOTS_R2_ENABLED).toLowerCase() === "false") {
-    return false;
+    return "SNAPSHOTS_R2_ENABLED=false";
   }
-  return env.SNAPSHOTS !== undefined;
+  if (env.SNAPSHOTS === undefined) {
+    return "SNAPSHOTS binding unbound";
+  }
+  return null;
 }
 
 /**
@@ -109,12 +117,17 @@ export async function putReadableStreamToR2(
 }
 
 /**
- * Tee `body`, streaming one branch into D1 (`sync`) and the other into R2
- * **concurrently**. Consuming both branches at once keeps `tee()`'s internal
- * buffer bounded (peak ≈ one 5 MiB R2 part + one D1 batch) instead of buffering
- * the whole CSV. D1 is primary — its error propagates; R2 is best-effort and its
- * failures are logged, not thrown. The R2 leg is always awaited so it never
- * dangles past the request.
+ * Stream `body` through D1 (`sync`) first, then upload the **same bytes** to R2.
+ *
+ * D1 is primary and the R2 write runs strictly after it resolves: a failed D1
+ * sync must never leave a phantom archive row-set that the database never got
+ * (TOG-6550). R2 is best-effort — its failures are logged, not thrown.
+ *
+ * Buffering note: the CSV is collected in memory (one buffer per chunk) so D1
+ * and R2 see identical bytes. Snapshot exports are small enough for this today
+ * (the largest is well under the 128 MiB isolate cap, and `tee()`'s internal
+ * buffer would have held the same lag had one leg outrun the other); if exports
+ * ever approach isolate memory, switch to a byte-counted spill to a temp store.
  */
 export async function archiveReportCsvToR2AfterD1<T>(
   env: Env,
@@ -122,31 +135,52 @@ export async function archiveReportCsvToR2AfterD1<T>(
   body: ReadableStream<Uint8Array>,
   sync: (stream: ReadableStream<Uint8Array>) => Promise<T>
 ): Promise<T> {
-  if (!r2Enabled(env)) {
+  const disabledReason = r2DisabledReason(env);
+  if (disabledReason !== null) {
+    console.log(
+      `R2 snapshot archive disabled for ${table}: ${disabledReason}`
+    );
     return sync(body);
   }
-  const [forD1, forR2] = body.tee();
   const key = snapshotR2ObjectKey(table);
 
-  // Start the R2 upload before awaiting D1 so both branches drain together.
-  const r2Task = putReadableStreamToR2(env.SNAPSHOTS, key, forR2, {
-    httpMetadata: { contentType: "text/csv; charset=utf-8" }
-  }).then(
-    () => {
-      console.log(`R2 snapshot stored: ${key}`);
-    },
-    (e) => {
-      console.error(`R2 snapshot put failed for ${key}`, e);
-    }
-  );
-
+  // Drain the source once; both legs consume identical in-memory copies.
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
   try {
-    const result = await sync(forD1);
-    await r2Task;
-    return result;
-  } catch (e) {
-    // D1 (primary) failed; still settle the R2 leg so it does not dangle.
-    await r2Task;
-    throw e;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value?.byteLength) {
+        chunks.push(value.slice());
+      }
+      if (done) {
+        break;
+      }
+    }
+  } finally {
+    reader.releaseLock();
   }
+
+  const result = await sync(streamFromChunks(chunks));
+  try {
+    await putReadableStreamToR2(env.SNAPSHOTS, key, streamFromChunks(chunks), {
+      httpMetadata: { contentType: "text/csv; charset=utf-8" }
+    });
+    console.log(`R2 snapshot stored: ${key}`);
+  } catch (e) {
+    console.error(`R2 snapshot put failed for ${key}`, e);
+  }
+  return result;
+}
+
+function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
+  const copies = chunks.map((c) => c.slice());
+  return new ReadableStream({
+    start(controller) {
+      for (const c of copies) {
+        controller.enqueue(c);
+      }
+      controller.close();
+    }
+  });
 }
