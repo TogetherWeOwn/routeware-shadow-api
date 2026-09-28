@@ -117,6 +117,46 @@ describe("address/container save create without parent id (TOG-8148)", () => {
     expect(upstreamCalls).toBe(0);
   });
 
+  it("address empty body → 400 bad-request with zero upstream calls (TOG-8462)", async () => {
+    // Act — empty urlencoded body; the guard must fire before the modal path.
+    const response = await call("/api/v1/routeware/address/save-address-form", {
+      method: "POST",
+      body: "",
+      headers: { "content-type": FORM }
+    });
+
+    // Assert — matches the customer save-long-form empty-body contract.
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("application/problem+json");
+    const body = (await response.json()) as ProblemBody;
+    expect(body.type).toBe(BAD_REQUEST_TYPE);
+    expect(body.title).toBe("Bad Request");
+    expect(body.status).toBe(400);
+    expect(body.detail).toContain("SaveAddressForm fields");
+    expect(body.instance).toBe("/api/v1/routeware/address/save-address-form");
+    expect(upstreamCalls).toBe(0);
+  });
+
+  it("container empty body → 400 bad-request with zero upstream calls (TOG-8462)", async () => {
+    // Act — empty urlencoded body; the guard must fire before the modal path.
+    const response = await call("/api/v1/routeware/container/save-container-form", {
+      method: "POST",
+      body: "",
+      headers: { "content-type": FORM }
+    });
+
+    // Assert
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("application/problem+json");
+    const body = (await response.json()) as ProblemBody;
+    expect(body.type).toBe(BAD_REQUEST_TYPE);
+    expect(body.title).toBe("Bad Request");
+    expect(body.status).toBe(400);
+    expect(body.detail).toContain("SaveContainerForm fields");
+    expect(body.instance).toBe("/api/v1/routeware/container/save-container-form");
+    expect(upstreamCalls).toBe(0);
+  });
+
   it("address edit without CustomerID still reaches upstream (400 is create-only)", async () => {
     // Arrange — the modal fetch is stubbed, so a token-less edit flows:
     // modal fetch → inject → forward → 200.
