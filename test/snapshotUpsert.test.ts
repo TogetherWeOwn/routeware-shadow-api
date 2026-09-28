@@ -15,7 +15,10 @@ import {
   customerMultiInsertSql
 } from "../src/lib/snapshot/tableSql";
 import {
+  findForeignKeyError,
+  isForeignKeyConstraintFailure,
   reconcileDeleteStale,
+  SnapshotForeignKeyError,
   upsertAddressSnapshotRows,
   upsertContainerSnapshotRows,
   upsertCustomerSnapshotRows
@@ -317,6 +320,199 @@ describe("upsertAddressSnapshotRows and upsertContainerSnapshotRows", () => {
     expect(error.message).toContain(
       "D1 container_snapshot batch at row offset 0 (1 rows, 1 SQL ops)"
     );
+  });
+});
+
+describe("isForeignKeyConstraintFailure", () => {
+  it("matches the D1 FK message case-insensitively", () => {
+    // Arrange / Act / Assert
+    expect(isForeignKeyConstraintFailure("D1_ERROR: FOREIGN KEY constraint failed")).toBe(true);
+    expect(isForeignKeyConstraintFailure("foreign key constraint failed")).toBe(true);
+  });
+
+  it("rejects non-FK D1 errors", () => {
+    // Arrange / Act / Assert
+    expect(isForeignKeyConstraintFailure("D1_ERROR: too many SQL variables")).toBe(false);
+    expect(isForeignKeyConstraintFailure("")).toBe(false);
+  });
+});
+
+describe("findForeignKeyError", () => {
+  function fkError(): SnapshotForeignKeyError {
+    return new SnapshotForeignKeyError({
+      table: "address_snapshot",
+      column: "customer_id",
+      parentTable: "customer_snapshot",
+      missingKeys: [999],
+      rowOffset: 0
+    });
+  }
+
+  it("returns the typed error itself", () => {
+    // Arrange
+    const fk = fkError();
+
+    // Act / Assert
+    expect(findForeignKeyError(fk)).toBe(fk);
+  });
+
+  it("walks the cause chain through sync-step context wrappers", () => {
+    // Arrange — orchestration.ts wraps step failures as `[step] msg` with
+    // `cause`, and the routes must still find the typed error underneath.
+    const fk = fkError();
+    const wrapped = new Error(`[address snapshot] ${fk.message}`, { cause: fk });
+
+    // Act / Assert
+    expect(findForeignKeyError(wrapped)).toBe(fk);
+  });
+
+  it("returns null for plain errors and non-errors", () => {
+    // Arrange / Act / Assert
+    expect(findForeignKeyError(new Error("D1_ERROR: too many SQL variables"))).toBeNull();
+    expect(findForeignKeyError("FOREIGN KEY constraint failed")).toBeNull();
+    expect(findForeignKeyError(null)).toBeNull();
+    expect(findForeignKeyError(undefined)).toBeNull();
+  });
+});
+
+describe("upsert FK mapping (TOG-7744)", () => {
+  const FK_MESSAGE = "D1_ERROR: FOREIGN KEY constraint failed";
+
+  it("throws a typed FK error naming table, column, missing keys and offset", async () => {
+    // Arrange — the second chunk fails on the FK; the parent lookup finds
+    // customer 1 but not 999, so only the dangling key is reported.
+    const { db, selects } = recordingDb({
+      failFromBatch: 1,
+      failMessage: FK_MESSAGE,
+      allResults: [{ customer_id: 1 }]
+    });
+    const rows = [
+      addressRow(1),
+      addressRow(2),
+      { ...addressRow(3), customerId: 999 },
+      { ...addressRow(4), customerId: 1 }
+    ];
+
+    // Act
+    const error = (await upsertAddressSnapshotRows(db, rows, 2, SYNCED_AT).catch(
+      (e: unknown) => e
+    )) as SnapshotForeignKeyError;
+
+    // Assert
+    expect(error).toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.table).toBe("address_snapshot");
+    expect(error.column).toBe("customer_id");
+    expect(error.parentTable).toBe("customer_snapshot");
+    expect(error.missingKeys).toEqual([999]);
+    expect(error.rowOffset).toBe(2);
+    expect(error.cause).toBeInstanceOf(Error);
+    // Error-path-only query: one parent lookup for the failed chunk.
+    expect(selects).toHaveLength(1);
+    expect(selects[0].sql).toBe(
+      "SELECT customer_id FROM customer_snapshot WHERE customer_id IN (?, ?)"
+    );
+    expect(selects[0].binds).toEqual([1, 999]);
+  });
+
+  it("dedupes and sorts missing keys across the failed chunk", async () => {
+    // Arrange — no parent rows at all, so every distinct FK value is missing.
+    const { db } = recordingDb({
+      failFromBatch: 0,
+      failMessage: FK_MESSAGE,
+      allResults: []
+    });
+    const rows = [
+      { ...addressRow(1), customerId: 1001 },
+      { ...addressRow(2), customerId: 999 },
+      { ...addressRow(3), customerId: 1001 }
+    ];
+
+    // Act
+    const error = (await upsertAddressSnapshotRows(db, rows, 80, SYNCED_AT).catch(
+      (e: unknown) => e
+    )) as SnapshotForeignKeyError;
+
+    // Assert
+    expect(error).toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.missingKeys).toEqual([999, 1001]);
+  });
+
+  it("maps container FK failures to the address parent", async () => {
+    // Arrange
+    const { db } = recordingDb({
+      failFromBatch: 0,
+      failMessage: FK_MESSAGE,
+      allResults: [{ pickup_address_id: 1 }]
+    });
+    const rows = [
+      { ...containerRow(1), pickupAddressId: 999 },
+      { ...containerRow(2), pickupAddressId: 1 }
+    ];
+
+    // Act
+    const error = (await upsertContainerSnapshotRows(db, rows, 50, SYNCED_AT).catch(
+      (e: unknown) => e
+    )) as SnapshotForeignKeyError;
+
+    // Assert
+    expect(error).toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.table).toBe("container_snapshot");
+    expect(error.column).toBe("pickup_address_id");
+    expect(error.parentTable).toBe("address_snapshot");
+    expect(error.missingKeys).toEqual([999]);
+    expect(error.rowOffset).toBe(0);
+  });
+
+  it("keeps the generic batch message and cause for non-FK failures, with no parent lookup", async () => {
+    // Arrange
+    const { db, selects } = recordingDb({ failFromBatch: 0 });
+
+    // Act
+    const error = (await upsertAddressSnapshotRows(db, [addressRow(1)], 80, SYNCED_AT).catch(
+      (e: unknown) => e
+    )) as Error & { cause?: unknown };
+
+    // Assert
+    expect(error).not.toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.message).toBe(
+      "D1 address_snapshot batch at row offset 0 (1 rows, 1 SQL ops): D1_ERROR: too many SQL variables"
+    );
+    expect(error.cause).toBeInstanceOf(Error);
+    expect(selects).toEqual([]);
+  });
+
+  it("keeps the generic batch message when the parent lookup itself fails", async () => {
+    // Arrange — the batch failed on an FK but the diff query errored, so the
+    // typed error cannot name keys and the caller keeps the batch error.
+    const { db } = recordingDb({
+      failFromBatch: 0,
+      failMessage: FK_MESSAGE,
+      failAll: true
+    });
+
+    // Act
+    const error = (await upsertAddressSnapshotRows(
+      db,
+      [{ ...addressRow(1), customerId: 999 }],
+      80,
+      SYNCED_AT
+    ).catch((e: unknown) => e)) as Error;
+
+    // Assert
+    expect(error).not.toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.message).toContain("D1 address_snapshot batch at row offset 0");
+  });
+
+  it("issues no parent lookup on the happy path", async () => {
+    // Arrange
+    const { db, selects } = recordingDb();
+
+    // Act
+    const result = await upsertAddressSnapshotRows(db, [addressRow(1)], 80, SYNCED_AT);
+
+    // Assert
+    expect(result).toEqual({ upserted: 1 });
+    expect(selects).toEqual([]);
   });
 });
 

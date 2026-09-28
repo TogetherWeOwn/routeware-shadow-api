@@ -6,6 +6,7 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  foreignKeyProblem,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse
@@ -175,11 +176,17 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const r = await runAddressSnapshotSync(c.env);
-  if (!r) {
-    return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
+  try {
+    const r = await runAddressSnapshotSync(c.env);
+    if (!r) {
+      return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
+    }
+    return c.json(r, 200);
+  } catch (e) {
+    const fk = foreignKeyProblem(e);
+    if (fk) return fk;
+    throw e;
   }
-  return c.json(r, 200);
 });
 
 const addressSnapshotImportRoute = createRoute({
@@ -229,6 +236,12 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body);
-  return c.json(r, 200);
+  try {
+    const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body);
+    return c.json(r, 200);
+  } catch (e) {
+    const fk = foreignKeyProblem(e);
+    if (fk) return fk;
+    throw e;
+  }
 });

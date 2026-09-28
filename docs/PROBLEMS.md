@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, etc. |
+| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
 | `unauthorized` | 401 | Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
@@ -15,6 +15,23 @@ section below.
 | `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `internal` | 500 | An unexpected error. Details are logged, not returned. |
+
+## Dangling snapshot references (`bad-request`)
+
+D1 enforces the snapshot FK chain (`address.customer_id` →
+`customer_snapshot`, `container.pickup_address_id` → `address_snapshot`), so a
+snapshot `.../import` or `.../sync` whose rows reference missing parents is
+rejected with 400, never written as orphans:
+
+```
+Dangling reference: address_snapshot.customer_id=999 has no row in
+customer_snapshot.customer_id (batch at row offset 0). Import customers first.
+```
+
+Only the failing batch is lost — earlier batches in the same upload still
+land. Fix: import the parents first (customers, then addresses, then
+containers). The `detail` lists up to 20 missing integer keys, then `+N more`
+— integer keys only, never PII.
 
 ## Authentication (`unauthorized`)
 

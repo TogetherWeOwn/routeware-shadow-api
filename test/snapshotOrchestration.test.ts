@@ -4,13 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * `src/lib/snapshot/orchestration.ts` is the cron's control flow, and it was at
  * 4.1%.
  *
- * The load-bearing part is `getDataSnapshotPlan`. D1 does not enforce the
- * declared foreign keys (`address.customer_id`, `container.pickup_address_id`)
- * and a streamed sync spans many `db.batch` calls rather than one transaction,
- * so referential integrity rests entirely on import order plus these guards.
- * Syncing addresses without customers, or containers without addresses, writes
- * orphan rows that no constraint rejects — and because each report reconciles,
- * the orphans then survive until someone notices the bundle reads are wrong.
+ * The load-bearing part is `getDataSnapshotPlan`. D1 enforces the declared
+ * foreign keys (`address.customer_id`, `container.pickup_address_id`) — a
+ * dangling reference 400s instead of writing an orphan — and a streamed sync
+ * spans many `db.batch` calls rather than one transaction, so the guards keep
+ * a misconfigured run from failing batch-by-batch and keep each report's
+ * reconcile from deleting against a half-loaded chain.
  *
  * The second target is error attribution: a failure in any of the three steps
  * must be re-thrown tagged with which step failed and with `cause` intact, or a
@@ -147,8 +146,8 @@ describe("getDataSnapshotPlan enforces import order", () => {
   });
 
   it("refuses to sync addresses when customers are not configured", () => {
-    // Arrange / Act — D1 does not enforce address.customer_id, so this would
-    // write addresses pointing at customers that were never imported.
+    // Arrange / Act — without the guard an address sync against missing
+    // customers would 400 batch-by-batch on the enforced address.customer_id FK.
     const plan = getDataSnapshotPlan(envWith({ ADDRESS_REPORT_QUERY_ID: "24" }));
 
     // Assert
