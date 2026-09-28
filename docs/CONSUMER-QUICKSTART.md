@@ -198,3 +198,64 @@ curl -X POST http://localhost:8787/api/v1/routeware/customer/save-long-form \
 
 All errors are `application/problem+json` with a `type` URL pointing at the
 [`PROBLEMS.md`](./PROBLEMS.md) section that explains them.
+
+## Smoke ladder: five copy-paste commands (fresh clone → green)
+
+Run these verbatim after `cp .dev.vars.example .dev.vars` (fill in
+`LOGIN_USERNAME` / `LOGIN_PASSWORD` plus one token), `npm run db:migrate:local`,
+and `npm run dev`. Every command below was run verbatim against local dev on
+`origin/main` (`ab6f947`) — match the bodies and the `HTTP` footers exactly.
+
+```bash
+# 1. Liveness — no token. Proves the Worker is up.
+curl -s -w '\nHTTP %{http_code}\n' http://localhost:8787/api/v1/health
+# {"status":"ok","service":"routeware-shadow-api"}
+# HTTP 200
+```
+
+```bash
+# 2. The bearer gate is up — no token must fail closed, never 200/empty.
+curl -s -w '\nHTTP %{http_code}\n' http://localhost:8787/api/v1/shadow/health
+# {"type":".../PROBLEMS.md#unauthorized","title":"Unauthorized","status":401,...}
+# HTTP 401
+```
+
+```bash
+# 3. Load the token from .dev.vars into this shell (never printed).
+#    Prefers SHADOW_API_TOKEN, falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET;
+#    last non-empty line wins (the example file ships both keys empty).
+TOKEN=$(grep -E '^[[:space:]]*(export[[:space:]]+)?SHADOW_API_TOKEN[[:space:]]*=' .dev.vars | cut -d= -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" | grep -v '^$' | tail -1)
+[ -n "$TOKEN" ] || TOKEN=$(grep -E '^[[:space:]]*(export[[:space:]]+)?CUSTOMER_SNAPSHOT_SYNC_SECRET[[:space:]]*=' .dev.vars | cut -d= -f2- | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" | grep -v '^$' | tail -1)
+[ -n "$TOKEN" ] && echo "token loaded (${#TOKEN} chars, value redacted)" || echo "EMPTY: set SHADOW_API_TOKEN in .dev.vars and restart wrangler dev"
+# token loaded (N chars, value redacted)
+```
+
+```bash
+# 4. Versioned shadow probe — authed. Extra "version":"v1" vs rung 1.
+curl -s -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/shadow/health
+# {"status":"ok","service":"routeware-shadow-api","version":"v1"}
+# HTTP 200
+```
+
+```bash
+# 5. Deep readiness — authed. 200 means D1 answers, R2 is bound (or archiving
+#    explicitly disabled), and all three report sources are configured.
+#    A 503 with "status":"degraded" is still a *passing probe response* —
+#    it names the sick dependency in checks — but stop and fix it, don't
+#    roll forward. (Fresh clones show 200: the [vars] defaults configure all
+#    three report query ids.)
+curl -s -w '\nHTTP %{http_code}\n' -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/readiness
+# {"status":"ok","service":"routeware-shadow-api","checks":{"d1":{"ok":true},"r2":{"ok":true,"bound":true,"enabled":true},"config":{"ok":true,"customer":true,"address":true,"container":true}}}
+# HTTP 200
+```
+
+Rung-by-rung failures: `curl: (7)` on rung 1 → `npm run dev` is not
+listening (see `README.md` quick start); rung 2 returning anything but 401 →
+the bearer gate is miswired, file a bug; rung 3 `EMPTY` → fill in a token in
+`.dev.vars` and restart `wrangler dev` (it reads the file only at boot);
+rungs 4–5 401 → the loaded value does not match the server's (edited
+`.dev.vars` without restarting, or wrong shell); rung 5 503 → read
+`checks.{d1,r2,config}` for the culprit (`detail` names it, values never
+leak).
