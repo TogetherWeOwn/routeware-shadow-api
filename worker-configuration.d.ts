@@ -29,6 +29,7 @@ declare namespace Cloudflare {
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
 		AUTH_MODE: "auto";
+		THROTTLE_TRUST_XFF: "true";
 		LOGIN_USERNAME: "test-user";
 		LOGIN_PASSWORD: "test-password-not-real";
 		AUTH_SESSION: DurableObjectNamespace<import("./src/worker").AuthSession>;
@@ -56,6 +57,7 @@ declare namespace Cloudflare {
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
 		AUTH_MODE: "auto";
+		THROTTLE_TRUST_XFF: "true" | "false";
 		LOGIN_USERNAME?: "test-user";
 		LOGIN_PASSWORD?: "test-password-not-real";
 		AUTH_SESSION: DurableObjectNamespace<import("./src/worker").AuthSession>;

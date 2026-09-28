@@ -27,6 +27,12 @@ OPENAPI_DOCS_ENABLED=true
 # Optional: skip writing report CSVs to R2 (wrangler.toml / dashboard R2 binding)
 # SNAPSHOTS_R2_ENABLED=false
 
+# Optional: trust X-Forwarded-For for bearer-throttle bucketing (TOG-8888).
+# Default in wrangler.toml is "false" (fail-closed — XFF-only callers share the
+# "unknown" bucket). Set "true" here only for local dev behind no Cloudflare
+# proxy; never enable on a deployed Worker.
+# THROTTLE_TRUST_XFF=true
+
 # Non-secret Worker defaults (wrangler.toml [vars]). `wrangler dev` overlays
 # `.dev.vars` on those defaults, so these stay commented unless you need a
 # local override. Every wrangler [vars] key must be mentioned here (active or

@@ -94,9 +94,13 @@ npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET
 
 ## Brute-force throttling (`rate-limited`)
 
-Failed bearer-auth checks on `/api/v1/*` are counted per client IP (from
-`CF-Connecting-IP`, falling back to `X-Forwarded-For`) in the `AuthSession`
-Durable Object. After 20 failures inside a 60-second window, further failed
+Failed bearer-auth checks on `/api/v1/*` are counted per client IP in the
+`AuthSession` Durable Object. The IP comes from `CF-Connecting-IP` (which
+Cloudflare overwrites, so clients cannot spoof it); `X-Forwarded-For` is
+honored only when `THROTTLE_TRUST_XFF="true"` (dev/test) — production
+XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
+value can neither evade the throttle by rotation nor frame a victim's bucket.
+After 20 failures inside a 60-second window, further failed
 attempts from that IP get `429 Too Many Requests` with a problem+json body and
 a `Retry-After` header, for 60 seconds. The block is per-IP, not per-token, so
 rotating candidate tokens does not evade it.
