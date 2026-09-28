@@ -18,11 +18,19 @@ import type { AppEnv } from "./types";
  * here can carry customer PII (company-name/company substrings), so the zod
  * messages (which echo received values) are deliberately not forwarded.
  */
-export function validationFailureHook(result: {
-  success: boolean;
-  target: string;
-  error?: { issues: Array<{ path: PropertyKey[] }> };
-}): Response | undefined {
+export function validationFailureHook(
+  result: {
+    success: boolean;
+    target: string;
+    error?: { issues: Array<{ path: PropertyKey[] }> };
+  },
+  // The framework calls hooks as `hook(result, context)` (zod-validator): the
+  // second arg carries `env`, so schema rejections honor the
+  // `PROBLEM_TYPE_BASE` override. Optional so direct unit-test calls
+  // (`validationFailureHook({success, target, error})`) keep working and fall
+  // back to the committed default.
+  c?: { env?: Env }
+): Response | undefined {
   if (result.success || !result.error) {
     return undefined;
   }
@@ -31,7 +39,7 @@ export function validationFailureHook(result: {
   );
   const unique = [...new Set(fields)];
   return problemJsonResponse({
-    type: problemType("bad-request"),
+    type: problemType("bad-request", c?.env),
     title: "Bad Request",
     status: 400,
     detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
@@ -84,7 +92,7 @@ export function requireSnapshotAuth(c: SnapshotAuthContext): Response | null {
     return null;
   }
   return problemJsonResponse({
-    type: problemType("unauthorized"),
+    type: problemType("unauthorized", c.env),
     title: "Unauthorized",
     status: 401,
     detail:
@@ -102,7 +110,7 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
     return null;
   }
   return problemJsonResponse({
-    type: problemType("misconfigured"),
+    type: problemType("misconfigured", c.env),
     title: "Service Unavailable",
     status: 503,
     detail:
@@ -120,7 +128,7 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
  * pulls an upstream export with dangling references is the same client-actionable
  * 400 as an `import` with dangling rows, not a 500.
  */
-export function foreignKeyProblem(err: unknown): Response | null {
+export function foreignKeyProblem(err: unknown, env?: Env): Response | null {
   const fk = findForeignKeyError(err);
   if (!fk) {
     return null;
@@ -131,7 +139,7 @@ export function foreignKeyProblem(err: unknown): Response | null {
   const parents =
     fk.parentTable === "customer_snapshot" ? "customers" : "addresses";
   return problemJsonResponse({
-    type: problemType("bad-request"),
+    type: problemType("bad-request", env),
     title: "Bad Request",
     status: 400,
     detail:

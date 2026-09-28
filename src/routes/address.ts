@@ -37,7 +37,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
   const rawBody = c.var.bodyBuffer;
   if (!rawBody || rawBody.byteLength === 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -61,7 +61,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "New address requires CustomerID in POST body") {
       return problemJsonResponse({
-        type: problemType("bad-request"),
+        type: problemType("bad-request", c.env),
         title: "Bad Request",
         status: 400,
         detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
@@ -69,7 +69,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
       });
     }
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail: `Anti-forgery token preparation failed: ${msg} See docs/PROBLEMS.md#bad-gateway.`,
@@ -101,7 +101,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:

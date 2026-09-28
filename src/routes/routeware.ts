@@ -136,7 +136,7 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:
@@ -205,7 +205,7 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:

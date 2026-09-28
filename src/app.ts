@@ -108,7 +108,7 @@ app.use("/api/v1/*", async (c, next) => {
     });
     if (verdict.blocked) {
       const throttled = problemJsonResponse({
-        type: problemType("rate-limited"),
+        type: problemType("rate-limited", c.env),
         title: "Too Many Requests",
         status: 429,
         detail:
@@ -120,7 +120,7 @@ app.use("/api/v1/*", async (c, next) => {
     }
     return withCors(
       problemJsonResponse({
-        type: problemType("unauthorized"),
+        type: problemType("unauthorized", c.env),
         title: "Unauthorized",
         status: 401,
         detail:
@@ -180,7 +180,7 @@ app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
     return withSecurityHeaders(
       problemJsonResponse({
-        type: problemType("forbidden"),
+        type: problemType("forbidden", c.env),
         title: "Not Found",
         status: 404,
         detail:
@@ -198,7 +198,7 @@ app.use("/docs", async (c, next) => {
   if (!openapiDocsEnabled(c.env)) {
     return withSecurityHeaders(
       problemJsonResponse({
-        type: problemType("forbidden"),
+        type: problemType("forbidden", c.env),
         title: "Not Found",
         status: 404,
         detail:
@@ -234,7 +234,7 @@ app.use(
 // they stamp CORS headers directly — otherwise a browser sees a CORS error
 // instead of the real 404/500 status.
 app.notFound((c) =>
-  withCors(notFoundProblem(new URL(c.req.url).pathname), c.req.raw)
+  withCors(notFoundProblem(new URL(c.req.url).pathname, c.env), c.req.raw)
 );
 
 app.onError((err, c) => {
@@ -247,7 +247,7 @@ app.onError((err, c) => {
   if (isUpstreamTimeout(err)) {
     console.error("UPSTREAM TIMEOUT", err.message);
     return withCors(
-      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
+      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
       c.req.raw
     );
   }
@@ -259,7 +259,7 @@ app.onError((err, c) => {
   if (isConcurrentRefreshTimeout(err)) {
     console.error("CONCURRENT REFRESH TIMEOUT", err.message);
     return withCors(
-      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
+      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
       c.req.raw
     );
   }
@@ -271,7 +271,7 @@ app.onError((err, c) => {
     console.error("INVALID AUTH_MODE", err.message);
     return withCors(
       problemJsonResponse({
-        type: problemType("misconfigured"),
+        type: problemType("misconfigured", c.env),
         title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
@@ -290,7 +290,7 @@ app.onError((err, c) => {
     console.error("LOGIN PAGE UNAVAILABLE", err.message);
     return withCors(
       problemJsonResponse({
-        type: problemType("bad-gateway"),
+        type: problemType("bad-gateway", c.env),
         title: "Upstream login unavailable",
         status: 502,
         detail:
@@ -307,7 +307,7 @@ app.onError((err, c) => {
   console.error("APP ERROR", err);
   return withCors(
     problemJsonResponse({
-      type: problemType("internal"),
+      type: problemType("internal", c.env),
       title: "Internal Server Error",
       status: 500,
       detail:

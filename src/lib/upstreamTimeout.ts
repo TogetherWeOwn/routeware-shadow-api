@@ -134,9 +134,13 @@ export async function fetchWithUpstreamTimeout(
 }
 
 /** 502 problem+json for a timed-out upstream step. No URL, no body, no PII. */
-export function upstreamTimeoutProblem(timeoutMs: number, instance?: string): Response {
+export function upstreamTimeoutProblem(
+  timeoutMs: number,
+  instance?: string,
+  env?: Env
+): Response {
   return problemJsonResponse({
-    type: problemType("bad-gateway"),
+    type: problemType("bad-gateway", env),
     title: "Upstream timed out",
     status: 502,
     detail:
