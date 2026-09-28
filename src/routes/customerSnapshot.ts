@@ -137,7 +137,11 @@ const customerSnapshotExportRoute = createRoute({
 customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return snapshotCsvResponse(c.env.CUSTOMER_DB, CUSTOMER_SNAPSHOT_EXPORT);
+  return snapshotCsvResponse(
+    c.env.CUSTOMER_DB,
+    CUSTOMER_SNAPSHOT_EXPORT,
+    c.req.header("if-none-match")
+  );
 });
 
 const customerSnapshotByIdRoute = createRoute({
