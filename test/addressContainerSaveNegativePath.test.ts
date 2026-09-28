@@ -97,7 +97,7 @@ describe("address/container save negative-path contract (TOG-7377)", () => {
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     const body = (await response.json()) as ProblemBody;
     expect(body.type).toBe(BAD_GATEWAY_TYPE);
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("SaveAddressForm");
     expect(body.instance).toBe("/api/v1/routeware/address/save-address-form");
@@ -120,7 +120,7 @@ describe("address/container save negative-path contract (TOG-7377)", () => {
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     const body = (await response.json()) as ProblemBody;
     expect(body.type).toBe(BAD_GATEWAY_TYPE);
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("SaveContainerForm");
     expect(body.instance).toBe("/api/v1/routeware/container/save-container-form");

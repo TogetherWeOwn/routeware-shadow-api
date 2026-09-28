@@ -232,7 +232,7 @@ describe("app 503 on typo'd AUTH_MODE (TOG-6531)", () => {
       stack?: unknown;
     };
     expect(body.type).toBe(`${PROBLEM_TYPE_BASE}misconfigured`);
-    expect(body.title).toBe("Not configured");
+    expect(body.title).toBe("Service Unavailable");
     expect(body.status).toBe(503);
     expect(body.detail).toContain("browserr");
     for (const mode of AUTH_MODES) {

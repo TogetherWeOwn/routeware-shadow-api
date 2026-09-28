@@ -140,9 +140,10 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
   if (!bundle) {
     return problemJsonResponse({
       type: problemType("not-found"),
-      title: "Not found",
+      title: "Not Found",
       status: 404,
-      detail: `No snapshot data for customer_id=${customerId} (import/sync first).`
+      detail: `No snapshot data for customer_id=${customerId} (import/sync first). See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.raw.url).pathname}?id=${customerId}`
     });
   }
   const body = bundleJsonString(bundle);
@@ -188,9 +189,10 @@ export async function handleGetDataAddress(
   if (!bundle || !bundle.address) {
     return problemJsonResponse({
       type: problemType("not-found"),
-      title: "Not found",
+      title: "Not Found",
       status: 404,
-      detail: `No snapshot for pickup_address_id=${pickupAddressId}.`
+      detail: `No snapshot for pickup_address_id=${pickupAddressId}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.raw.url).pathname}?id=${pickupAddressId}`
     });
   }
   const body = bundleJsonString(bundle);
@@ -236,9 +238,10 @@ export async function handleGetDataContainer(
   if (!bundle || !bundle.container) {
     return problemJsonResponse({
       type: problemType("not-found"),
-      title: "Not found",
+      title: "Not Found",
       status: 404,
-      detail: `No snapshot for container_id=${containerId}.`
+      detail: `No snapshot for container_id=${containerId}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.raw.url).pathname}?id=${containerId}`
     });
   }
   const body = bundleJsonString(bundle);
@@ -267,9 +270,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
+      title: "Bad Request",
       status: 400,
-      detail: "POST application/x-www-form-urlencoded (SaveCustomerLongForm fields)."
+      detail:
+        "POST application/x-www-form-urlencoded (SaveCustomerLongForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const session = await readSessionState(c.var.sessionStub);
@@ -284,18 +289,23 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Anti-forgery preparation failed",
+      title: "Bad Gateway",
       status: 502,
-      detail: e instanceof Error ? e.message : String(e)
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const url = routewareWebRwUrl(
@@ -368,8 +378,11 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveAddressForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const session = await readSessionState(c.var.sessionStub);
@@ -384,18 +397,23 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Anti-forgery preparation failed",
+      title: "Bad Gateway",
       status: 502,
-      detail: e instanceof Error ? e.message : String(e)
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const url = routewareWebRwUrl(
@@ -474,8 +492,11 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveContainerForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const session = await readSessionState(c.var.sessionStub);
@@ -490,18 +511,23 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
     return problemJsonResponse({
       type: problemType("bad-gateway"),
-      title: "Anti-forgery preparation failed",
+      title: "Bad Gateway",
       status: 502,
-      detail: e instanceof Error ? e.message : String(e)
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
       type: problemType("bad-request"),
-      title: "Empty body",
-      status: 400
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
     });
   }
   const url = routewareWebRwUrl(

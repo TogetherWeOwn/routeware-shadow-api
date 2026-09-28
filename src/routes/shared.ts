@@ -67,22 +67,17 @@ export function snapshotSyncAuthorized(c: SnapshotAuthContext): boolean {
 
 type SnapshotAuthContext = {
   env: Env;
-  req: { header: (name: string) => string | undefined };
+  req: { header: (name: string) => string | undefined; url: string };
 };
 
 /**
  * Guard for the snapshot-secret routes: returns a 401 problem+json response to
  * return as-is, or `null` when the caller is authorized.
  *
- * `detail` is per-call-site rather than fixed here because the existing wording
- * differs between routes (several omit it entirely). That inconsistency is
- * pre-existing and pinned by `test/snapshotAuth.test.ts`; unifying it would
- * change what clients see, so it belongs in its own change.
+ * The detail is fixed here (TOG-7030): every privileged route names the sync
+ * secret and the remedy doc, so clients see one canonical 401 body.
  */
-export function requireSnapshotAuth(
-  c: SnapshotAuthContext,
-  detail?: string
-): Response | null {
+export function requireSnapshotAuth(c: SnapshotAuthContext): Response | null {
   if (snapshotSyncAuthorized(c)) {
     return null;
   }
@@ -90,7 +85,9 @@ export function requireSnapshotAuth(
     type: problemType("unauthorized"),
     title: "Unauthorized",
     status: 401,
-    detail
+    detail:
+      "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized.",
+    instance: new URL(c.req.url).pathname
   });
 }
 
@@ -98,15 +95,17 @@ export function requireSnapshotAuth(
  * Guard for routes that need `CUSTOMER_SNAPSHOT_SYNC_SECRET` to be configured
  * at all: returns a 503 problem+json response, or `null` when it is set.
  */
-export function requireSnapshotSecret(env: Env, detail?: string): Response | null {
-  if (env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
+export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
+  if (c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim()) {
     return null;
   }
   return problemJsonResponse({
     type: problemType("misconfigured"),
-    title: "Not configured",
+    title: "Service Unavailable",
     status: 503,
-    detail
+    detail:
+      "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets. See docs/PROBLEMS.md#misconfigured.",
+    instance: new URL(c.req.url).pathname
   });
 }
 
