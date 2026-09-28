@@ -70,6 +70,11 @@ export function createRouteModule(): OpenAPIHono<AppEnv> {
  * Snapshot and data-entity routes gate on `CUSTOMER_SNAPSHOT_SYNC_SECRET`
  * specifically. This is a second, narrower check that runs inside the handler,
  * on top of the app-wide `/api/v1/*` bearer gate in `app.ts`.
+ *
+ * Only the sync secret clears it — never `SHADOW_API_TOKEN`, and never the
+ * read-only `SHADOW_API_READ_TOKEN` (TOG-8878): the read token may pass the
+ * outer gate on GET, but every privileged route (including GET exports and
+ * `/api/v1/data/*` reads) 401s here.
  */
 export function snapshotSyncAuthorized(c: SnapshotAuthContext): boolean {
   return bearerMatches(c.req, c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET);

@@ -77,11 +77,12 @@ describe("compareVarsParity (TOG-8367)", () => {
     expect(outcome.ok).toBe(true);
   });
 
-  it("pins the secret allowlist to the four documented credential keys", () => {
+  it("pins the secret allowlist to the five documented credential keys", () => {
     expect([...SECRET_KEYS].sort()).toEqual([
       "CUSTOMER_SNAPSHOT_SYNC_SECRET",
       "LOGIN_PASSWORD",
       "LOGIN_USERNAME",
+      "SHADOW_API_READ_TOKEN",
       "SHADOW_API_TOKEN",
     ]);
   });
