@@ -1,6 +1,7 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
 import { bearerMatches } from "../lib/auth";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { findForeignKeyError } from "../lib/snapshot/upsert";
 import type { AppEnv } from "./types";
 
 /**
@@ -107,6 +108,36 @@ export function requireSnapshotSecret(env: Env, detail?: string): Response | nul
     title: "Not configured",
     status: 503,
     detail
+  });
+}
+
+/**
+ * Map a dangling-FK snapshot failure to 400 `bad-request` problem+json, or
+ * `null` when the error is not an FK violation. Lists up to 20 missing integer
+ * keys, then `+N more` — integer keys only, no PII, no secrets.
+ *
+ * Shared by the address/container import and sync handlers: a `sync` that
+ * pulls an upstream export with dangling references is the same client-actionable
+ * 400 as an `import` with dangling rows, not a 500.
+ */
+export function foreignKeyProblem(err: unknown): Response | null {
+  const fk = findForeignKeyError(err);
+  if (!fk) {
+    return null;
+  }
+  const shown = fk.missingKeys.slice(0, 20);
+  const extra = fk.missingKeys.length - shown.length;
+  const keys = extra > 0 ? `${shown.join(", ")} +${extra} more` : shown.join(", ");
+  const parents =
+    fk.parentTable === "customer_snapshot" ? "customers" : "addresses";
+  return problemJsonResponse({
+    type: problemType("bad-request"),
+    title: "Bad Request",
+    status: 400,
+    detail:
+      `Dangling reference: ${fk.table}.${fk.column}=${keys} has no row in ` +
+      `${fk.parentTable}.${fk.column} (batch at row offset ${fk.rowOffset}). ` +
+      `Import ${parents} first. See docs/PROBLEMS.md#bad-request.`
   });
 }
 

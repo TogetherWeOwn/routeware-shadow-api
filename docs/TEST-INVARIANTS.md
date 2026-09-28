@@ -158,10 +158,12 @@ instead of a log line.
 
 ### `getDataSnapshotPlan` — the referential-integrity guard
 
-`test/snapshotOrchestration.test.ts` pins it. D1 does not enforce `address.customer_id` or
-`container.pickup_address_id`, and a streamed sync spans many `db.batch` calls rather than one
-transaction, so **import order (customer → address → container) is the only thing preventing orphan
-rows.** Address only runs if customer is configured; container only if both are.
+`test/snapshotOrchestration.test.ts` pins it. D1 enforces `address.customer_id` and
+`container.pickup_address_id` unconditionally (a dangling reference is rejected with
+400 `bad-request`, never written as an orphan), and a streamed sync spans many
+`db.batch` calls rather than one transaction, so **import order
+(customer → address → container) is enforced both by the database and by the plan.**
+Address only runs if customer is configured; container only if both are.
 
 That file also pins the `[step]` error tagging, which is what tells you which table a scheduled-run
 failure came from.
