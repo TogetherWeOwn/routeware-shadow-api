@@ -59,12 +59,16 @@ export default defineConfig({
        * `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the
        * login → download → parse → upsert path with assertions. See
        * docs/TEST-INVARIANTS.md § "The coverage ratchet".
+       *
+       * Re-measured hermetically 2026-09-28 at `2d61255` (TOG-5826):
+       * statements 90.98% (2160/2374), branches 88.27% (1416/1604),
+       * functions 93.67% (311/332), lines 91.51% (2103/2298).
        */
       thresholds: {
         statements: 90,
-        branches: 86,
-        functions: 92,
-        lines: 90
+        branches: 88,
+        functions: 93,
+        lines: 91
       }
     }
   }
