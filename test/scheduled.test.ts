@@ -283,6 +283,32 @@ describe("scheduled structured outcome", () => {
     expect(line.error).toBeUndefined();
   });
 
+  it("reports deleted for every synced table in the cron summary (TOG-7391)", async () => {
+    // Arrange — the chained path now carries per-table `deleted`; the cron
+    // line must show it for address/container, not just customer.
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4, deleted: 1 },
+      address: { upserted: 5, rowCount: 6, deleted: 2 },
+      container: { upserted: 7, rowCount: 8, deleted: 0 }
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = loggedLine();
+    expect(line.tables).toEqual({
+      customer: { upserted: 3, rowCount: 4, deleted: 1 },
+      address: { upserted: 5, rowCount: 6, deleted: 2 },
+      container: { upserted: 7, rowCount: 8, deleted: 0 }
+    });
+    expect(line.summary).toBe(
+      "customer: 3 upserted, 4 rows, 1 deleted; " +
+        "address: 5 upserted, 6 rows, 2 deleted; " +
+        "container: 7 upserted, 8 rows, 0 deleted"
+    );
+  });
+
   it("marks skipped tables explicitly instead of omitting them", async () => {
     // Arrange
     behavior.result = { customer: { upserted: 3, rowCount: 4 }, address: null, container: null };

@@ -404,6 +404,55 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(result.customer).toBeNull();
   });
 
+  it("carries deleted counts for every synced table, not just customer (TOG-7391)", async () => {
+    // Arrange — each per-table subrequest reports its reconcile deletions.
+    stubFetch();
+    for (const [path, deleted] of [
+      ["/api/v1/customer-snapshot/sync", 1],
+      ["/api/v1/address-snapshot/sync", 2],
+      ["/api/v1/container-snapshot/sync", 3]
+    ] as const) {
+      behavior.httpResponses.set(path, {
+        status: 200,
+        body: JSON.stringify({ upserted: 3, rowCount: 3, deleted })
+      });
+    }
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert — the chained runner used to rebuild {upserted, rowCount} here,
+    // so the cron line showed `deleted` only on the single-invocation path.
+    expect(result).toEqual({
+      customer: { upserted: 3, rowCount: 3, deleted: 1 },
+      address: { upserted: 3, rowCount: 3, deleted: 2 },
+      container: { upserted: 3, rowCount: 3, deleted: 3 }
+    });
+  });
+
+  it("leaves deleted absent when the subrequest did not report it", async () => {
+    // Arrange — default stub returns {upserted, rowCount} with no `deleted`;
+    // the runner must not invent a phantom `deleted: 0`.
+    stubFetch();
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert
+    expect(result).toEqual({
+      customer: { upserted: 3, rowCount: 3 },
+      address: { upserted: 3, rowCount: 3 },
+      container: { upserted: 3, rowCount: 3 }
+    });
+    expect("deleted" in (result.customer as object)).toBe(false);
+  });
+
   it("throws with the step, status and truncated body when a subrequest fails", async () => {
     // Arrange
     stubFetch();

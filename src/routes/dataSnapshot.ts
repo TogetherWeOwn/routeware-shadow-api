@@ -39,6 +39,18 @@ const dataSnapshotSyncRoute = createRoute({
   }
 });
 
+/**
+ * The combined shape is `{upserted, rowCount} | null` per table — the
+ * per-table `deleted` reconcile counts stay on the per-table sync responses
+ * and the cron line, and are stripped here (TOG-7391). Pinned by
+ * `test/syncSummaryContract.test.ts` and `test/dataSnapshotRoutes.test.ts`.
+ */
+function withoutDeleted(
+  t: { upserted: number; rowCount: number } | null
+): { upserted: number; rowCount: number } | null {
+  return t ? { upserted: t.upserted, rowCount: t.rowCount } : null;
+}
+
 dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
@@ -46,5 +58,12 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
   const r = await runDataSnapshotSyncChainedHttp(origin, c.env);
-  return c.json(r, 200);
+  return c.json(
+    {
+      customer: withoutDeleted(r.customer),
+      address: withoutDeleted(r.address),
+      container: withoutDeleted(r.container)
+    },
+    200
+  );
 });

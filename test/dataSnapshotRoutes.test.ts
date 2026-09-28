@@ -223,6 +223,28 @@ describe("POST /api/v1/data-snapshot/sync response shapes", () => {
     expect(Object.keys(body.container).sort()).toEqual(["rowCount", "upserted"]);
   });
 
+  it("strips deleted counts from the chained result: the combined shape stays {upserted, rowCount} (TOG-7391)", async () => {
+    // Arrange — the chain now carries per-table `deleted` for the cron line;
+    // the combined route must not leak it (shape pinned end to end in
+    // syncSummaryContract.test.ts).
+    behavior.result = {
+      customer: { upserted: 2, rowCount: 2, deleted: 1 },
+      address: { upserted: 2, rowCount: 2, deleted: 2 },
+      container: { upserted: 2, rowCount: 2, deleted: 0 }
+    };
+
+    // Act
+    const res = await post("http://test.local/api/v1/data-snapshot/sync", makeEnv());
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      customer: { upserted: 2, rowCount: 2 },
+      address: { upserted: 2, rowCount: 2 },
+      container: { upserted: 2, rowCount: 2 }
+    });
+  });
+
   it("preserves an all-null result: unconfigured tables are null, not zero-row successes", async () => {
     // Arrange — no report source configured upstream: the chain ran, every
     // table was skipped.

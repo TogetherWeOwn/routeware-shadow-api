@@ -14,6 +14,12 @@ import {
 export type SnapshotTableResult = {
   upserted: number;
   rowCount: number;
+  /**
+   * Rows the reconcile step deleted (upstream deletions). Present when the
+   * table ran a reconciling sync; the single-invocation path always carries
+   * it, and the chained path carries it once the per-table sync reported it.
+   */
+  deleted?: number;
 } | null;
 
 export type DataSnapshotResult = {
@@ -129,13 +135,23 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
-type PerTableJson = { upserted: number; rowCount: number; skipped?: boolean };
+type PerTableJson = { upserted: number; rowCount: number; deleted?: number; skipped?: boolean };
 
+/**
+ * Carry the per-table sync counts through, including `deleted` when the
+ * subrequest reported it (TOG-7391). The chained runner previously rebuilt
+ * `{upserted, rowCount}` here, so the cron line showed `deleted` only on the
+ * single-invocation path. The combined `POST /api/v1/data-snapshot/sync`
+ * route strips `deleted` back out (its `{upserted, rowCount}` shape is
+ * pinned by `test/syncSummaryContract.test.ts`), so this never leaks there.
+ */
 function syncJsonToResult(j: PerTableJson): SnapshotTableResult {
   if (j.skipped) {
     return null;
   }
-  return { upserted: j.upserted, rowCount: j.rowCount };
+  return j.deleted === undefined
+    ? { upserted: j.upserted, rowCount: j.rowCount }
+    : { upserted: j.upserted, rowCount: j.rowCount, deleted: j.deleted };
 }
 
 /**
