@@ -30,8 +30,10 @@ const calls: {
 const behavior: {
   bodyless: boolean;
   syncError: string | null;
+  /** When set, only this table's stream sync throws (TOG-6546). */
+  syncErrorTable: string | null;
   httpResponses: Map<string, { status: number; body: string }>;
-} = { bodyless: false, syncError: null, httpResponses: new Map() };
+} = { bodyless: false, syncError: null, syncErrorTable: null, httpResponses: new Map() };
 
 function reportResponse(): Response {
   return new Response(behavior.bodyless ? null : "CustomerID\n1,,Acme", { status: 200 });
@@ -75,7 +77,7 @@ function recordSync(table: string) {
     options: { reconcile?: boolean } = {}
   ) => {
     calls.syncs.push({ table, batchSize, reconcile: options.reconcile });
-    if (behavior.syncError) {
+    if (behavior.syncError && (behavior.syncErrorTable === null || behavior.syncErrorTable === table)) {
       throw new Error(behavior.syncError);
     }
     return { upserted: 3, rowCount: 3, deleted: 0 };
@@ -120,6 +122,7 @@ beforeEach(() => {
   calls.fetches = [];
   behavior.bodyless = false;
   behavior.syncError = null;
+  behavior.syncErrorTable = null;
   behavior.httpResponses = new Map();
   console.log = () => {};
 });
@@ -307,6 +310,34 @@ describe("runDataSnapshotSync", () => {
     expect(error.cause).toBeInstanceOf(Error);
   });
 
+  it("carries the partial results and failed table on the thrown error (TOG-6546)", async () => {
+    // Arrange — the acceptance case: container fails after customer and
+    // address succeeded. Both tables were attempted (three sync calls) and
+    // the error keeps the two successes. Only counts travel — never row data.
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+    behavior.syncError = "D1_ERROR: database is locked";
+    behavior.syncErrorTable = "container";
+
+    // Act
+    const error = (await runDataSnapshotSync(envWith(ALL_CONFIGURED)).catch(
+      (e: unknown) => e
+    )) as InstanceType<typeof PartialDataSnapshotSyncError> & { cause?: unknown };
+
+    // Assert
+    expect(calls.syncs.map((s) => s.table)).toEqual(["customer", "address", "container"]);
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("container");
+    expect(error.partial).toEqual({
+      customer: { upserted: 3, rowCount: 3, deleted: 0 },
+      address: { upserted: 3, rowCount: 3, deleted: 0 },
+      container: null,
+    });
+    expect(error.message).toBe("[container snapshot] D1_ERROR: database is locked");
+    expect(error.cause).toBeInstanceOf(Error);
+  });
+
   it("stops before the later steps when an earlier one fails", async () => {
     // Arrange — continuing past a failed customer import would write addresses
     // against a half-written customer table.
@@ -426,6 +457,36 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(error.message).toBe(
       `[chained customer] POST /api/v1/customer-snapshot/sync → 500: ${"X".repeat(1200)}`
     );
+  });
+
+  it("carries succeeded tables on the error when a later subrequest fails (TOG-6546)", async () => {
+    // Arrange — container subrequest fails after customer/address succeeded.
+    stubFetch();
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+    behavior.httpResponses.set("/api/v1/container-snapshot/sync", {
+      status: 500,
+      body: "D1 limit",
+    });
+
+    // Act
+    const error = (await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    ).catch((e: unknown) => e)) as InstanceType<typeof PartialDataSnapshotSyncError>;
+
+    // Assert — all three attempted, the two successes kept, failed table named.
+    expect(calls.fetches.map((f) => f.url)).toEqual([
+      "https://api.example.test/api/v1/customer-snapshot/sync",
+      "https://api.example.test/api/v1/address-snapshot/sync",
+      "https://api.example.test/api/v1/container-snapshot/sync",
+    ]);
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("container");
+    expect(error.partial.customer).toEqual({ upserted: 3, rowCount: 3 });
+    expect(error.partial.address).toEqual({ upserted: 3, rowCount: 3 });
+    expect(error.partial.container).toBeNull();
   });
 
   it("does not post the tables the plan skipped", async () => {
