@@ -9,6 +9,7 @@ import {
   type ModalRetryContext
 } from "./forwardWithSessionRetry";
 import { forwardToUpstream } from "./upstreamForward";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 import type { SessionState } from "./sessionState";
 
@@ -45,7 +46,10 @@ async function fetchAntiForgeryModal(
     );
   }
   return forwardToUpstream(modalReq, modalUrl, session, null, {
-    internalMarker: "anti-forgery-modal"
+    internalMarker: "anti-forgery-modal",
+    // Direct modal path honors UPSTREAM_TIMEOUT_MS (TOG-8359) — the forwarder
+    // default alone would ignore the per-deploy override.
+    timeoutMs: readUpstreamTimeoutMs(env)
   });
 }
 

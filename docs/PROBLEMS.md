@@ -146,6 +146,37 @@ attempt):
 | Report-CSV downloads (`routewareQueryReportCsv`, `snapshot/reportFetch`) | 60s (`REPORT_UPSTREAM_TIMEOUT_MS`) | 120s | one re-login + retry; timeouts never retried |
 | Query-report poll (`pollQueryRequestIsComplete`: 2.5s × 24 attempts ≈ 60s) | ≈60s poll + 60s download | fits in one Worker invocation | poll loop, not a fetch retry |
 
+Per-route wiring map (TOG-8359 audit — every Routeware-backed route/handler to
+its budget source; all flow through `fetchWithUpstreamTimeout` via
+`forwardToUpstream` or `forwardWithSessionRetry`, never a bare `fetch`):
+
+| Public route(s) | Upstream (WebRW) | Path code | Budget / attempt |
+|---|---|---|---|
+| GET /api/v1/routeware/account/login-page | LOGIN_URL (fixed) | direct `forwardToUpstream` | 15s interactive (`UPSTREAM_TIMEOUT_MS`) |
+| GET /api/v1/routeware/home/index | /Home/Index | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/data/app-settings-get | /Data/appSettingsGet | `forwardWithSessionRetry` | 15s interactive |
+| GET /api/v1/routeware/reports/query-request-is-complete | /Reports/QueryRequestIsComplete | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/customer/customers-read | /Customer/CustomersRead | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/customer/detail-full | /Customer/GetCustomerDetailFull | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/customer/customer-types-read | /Customer/CustomerTypesRead | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/customer/save-long-form (+ AddNewLong / LoadLongCustomerModal token GET) | /Customer/SaveCustomerLongForm | `forwardWithSessionRetry` + modal via retry or direct (override-honoring) | 15s interactive |
+| GET /api/v1/routeware/customer/add-new-long | /Customer/AddNewLong | `forwardWithSessionRetry` | 15s interactive |
+| GET /api/v1/routeware/customer/load-long-modal | /Customer/LoadLongCustomerModal | `forwardWithSessionRetry` | 15s interactive |
+| POST /api/v1/routeware/address/save-address-form (+ CreateBlankAddress / LoadAddressModal token GET) | /PickupAddress/SaveAddressForm | `forwardWithSessionRetry` + modal via retry or direct | 15s interactive |
+| POST /api/v1/routeware/container/save-container-form (+ CreateBlankContainer / LoadContainerModal token GET) | /Container/SaveContainerForm | `forwardWithSessionRetry` + modal via retry or direct | 15s interactive |
+| POST /api/v1/data/customer, /data/address, /data/container | Save forwards + GetCustomerDetailFull D1 refresh | `forwardWithSessionRetry` + `fetchGetCustomerDetailFull` (direct, override-honoring) | 15s interactive |
+| POST /api/v1/customer-snapshot/sync, /address-snapshot/sync, /container-snapshot/sync, /data-snapshot/sync | report export path or QueryExecuteDownload (+ QueryRequestIsComplete poll) | `fetchReportCsvForPath` / `fetchReportCsvByQueryId` | 60s report (`UPSTREAM_REPORT_TIMEOUT_MS`) |
+| (internal) login: login-page GET, Ext.NET init GET, login POST | LOGIN_URL + ext.axd | `httpAuth.httpLogin` direct `fetchWithUpstreamTimeout` | 15s interactive per fetch |
+| (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` bare `fetch` | no upstream budget — same-Worker subrequest, excluded |
+
+TOG-8359 fixes: four direct `forwardToUpstream` callers (login-page probe,
+`fetchGetCustomerDetailFull`, customer modal direct path, address/container
+modal direct path) passed no `timeoutMs`, silently ignoring
+`UPSTREAM_TIMEOUT_MS`. They now pass `readUpstreamTimeoutMs(env)`; report paths
+already passed the report budget. Pinned by
+`test/upstreamTimeoutRoutes.test.ts` (hung upstream → timely
+`UpstreamTimeoutError` on each fixed path + source-wiring assertions).
+
 Why timeouts are never retried: the single retry is reserved for the login
 redirect (provably safe — `forwardWithSessionRetry` retries only that), while
 retrying a timeout could double-execute a non-idempotent POST. Pinned by

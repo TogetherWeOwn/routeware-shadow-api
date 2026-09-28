@@ -4,6 +4,7 @@ import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { forwardToUpstream } from "../lib/upstreamForward";
+import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import {
   routewareWebRwUrl,
   routewareWebRwUrlWithQueryAllowlist
@@ -41,7 +42,11 @@ const loginPageRoute = createRoute({
 
 routewareRoutes.openapi(loginPageRoute, async (c) => {
   const upstreamUrl = new URL(c.env.LOGIN_URL);
-  return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer);
+  // Sessionless probe honors UPSTREAM_TIMEOUT_MS like every other interactive
+  // forward (TOG-8359) — the forwarder default alone would ignore the override.
+  return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer, {
+    timeoutMs: readUpstreamTimeoutMs(c.env)
+  });
 });
 
 const homeIndexRoute = createRoute({
