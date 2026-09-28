@@ -118,6 +118,11 @@ jobs:
         # Credential-free: counts lines in hand-written src/ files, fails on any
         # file over 800 lines. No network access and no credential use.
         run: npm run check:source-file-size
+      - name: Vars parity check (TOG-8367)
+        # Credential-free: compares wrangler.toml [vars] keys against
+        # .dev.vars.example mentions (active or commented `# KEY=`), failing
+        # on divergence in either direction. Keys only, never values.
+        run: npm run check:vars-parity
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
