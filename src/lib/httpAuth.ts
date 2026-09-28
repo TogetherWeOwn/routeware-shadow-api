@@ -17,17 +17,80 @@ import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeo
 
 type Jar = Record<string, string>;
 
-function mergeSetCookies(jar: Jar, res: Response): void {
+/**
+ * Upstream `Set-Cookie` attribute semantics for the tenant jar (TOG-9207).
+ *
+ * The Worker is a server-side HTTP client, so it plays the network-stack role
+ * a browser's cookie store would play — with two simplifications that are safe
+ * here and documented so they stay safe:
+ *
+ * - `Secure`: the cookie may only be replayed over HTTPS. Every sessioned
+ *   forward targets `TARGET_ORIGIN`, which is `https://` in `wrangler.toml`
+ *   (all envs). A `Secure` tenant cookie is therefore always eligible for
+ *   replay, and must never be sent if an operator ever points a deploy at an
+ *   `http://` origin. There is no per-cookie scheme tracking because there is
+ *   a single upstream origin, not a browser profile visiting many sites.
+ * - `HttpOnly`: the cookie is invisible to page JavaScript. That holds by
+ *   construction — the jar lives in Worker memory and the `AuthSession` DO,
+ *   and `stripUpstreamSetCookie` (`src/lib/upstreamForward.ts`) removes every
+ *   upstream `Set-Cookie` before a client response is built, so no tenant
+ *   cookie value ever reaches a browser, log line, or error message.
+ * - `Domain`/`Path`/`SameSite` need no enforcement: the jar replays to exactly
+ *   one origin (`TARGET_ORIGIN` + `TARGET_BASE_PATH`), never across origins,
+ *   and server-to-server `fetch` has no address bar, no third-party context,
+ *   and no CSRF surface — clients authenticate with a bearer token.
+ * - `Expires`/`Max-Age` ARE enforced: a deletion/rotation cookie evicts the
+ *   name from the jar (see `isExpiredSetCookie`). Without this, an upstream
+ *   sign-out (`Name=; Expires=<past>`) would linger as an empty `Name=` pair
+ *   replayed on every forward.
+ */
+export function mergeSetCookies(jar: Jar, res: Response, nowMs: number = Date.now()): void {
   const list = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
   for (const sc of list) {
-    const m = /^([^=;]+)=([^;]*)/.exec(sc);
-    if (m) {
-      jar[m[1].trim()] = m[2];
+    const semi = sc.indexOf(";");
+    const pair = semi === -1 ? sc : sc.slice(0, semi);
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      continue;
+    }
+    const name = pair.slice(0, eq).trim();
+    if (!name) {
+      continue;
+    }
+    const value = pair.slice(eq + 1);
+    const attrs = semi === -1 ? "" : sc.slice(semi + 1);
+    if (isExpiredSetCookie(attrs, nowMs)) {
+      // Upstream deleted/rotated this name away — evict it so the stale value
+      // (or an empty `Name=` ghost) is never replayed.
+      delete jar[name];
+    } else {
+      jar[name] = value;
     }
   }
 }
 
-function cookieHeaderFrom(jar: Jar): string {
+/**
+ * True when a `Set-Cookie` attribute string carries an already-fired expiry:
+ * `Max-Age <= 0`, or an `Expires` date at/before `nowMs`. A bare empty value
+ * with NO expiry signal is stored faithfully (not evicted) — only an explicit
+ * expiry deletes, per RFC 6265 §5.3 step 12.
+ */
+function isExpiredSetCookie(attrs: string, nowMs: number): boolean {
+  const maxAge = /(?:^|;)\s*max-age\s*=\s*"?(-?\d+)"?/i.exec(attrs);
+  if (maxAge && Number(maxAge[1]) <= 0) {
+    return true;
+  }
+  const expires = /(?:^|;)\s*expires\s*=\s*([^;]+)/i.exec(attrs);
+  if (expires) {
+    const t = Date.parse(expires[1].trim());
+    if (Number.isFinite(t) && t <= nowMs) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function cookieHeaderFrom(jar: Jar): string {
   return Object.entries(jar)
     .map(([k, v]) => `${k}=${v}`)
     .join("; ");
