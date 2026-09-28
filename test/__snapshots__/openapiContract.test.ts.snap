@@ -106,10 +106,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             ],
             "type": "string",
           },
+          "version": {
+            "type": "string",
+          },
         },
         "required": [
           "status",
           "service",
+          "version",
         ],
         "type": "object",
       },
