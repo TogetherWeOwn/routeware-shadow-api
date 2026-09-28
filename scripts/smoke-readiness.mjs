@@ -77,6 +77,21 @@ for (const name of ["d1", "r2", "config"]) {
   if (!c.ok) failed = true;
 }
 
+// 4. Cron staleness — advisory only (TOG-8883). The probe never flips the
+// overall status, so it must never fail this gate: a never-yet-run staging
+// Worker is deployable. Printed for the operator, not gated on.
+const cron = checks?.cron;
+if (!cron) {
+  console.log("  cron: MISSING from response (older deploy?)");
+} else {
+  const perTable = ["customer", "address", "container"]
+    .map((t) => `${t}=${cron.tables?.[t]?.outcome ?? "none"}@${cron.tables?.[t]?.ranAt ?? "?"}`)
+    .join(" ");
+  console.log(
+    `  cron: ${cron.stale ? "STALE (advisory)" : "fresh"} lastRunAt=${cron.lastRunAt ?? "none"} ${perTable}${cron.detail ? ` — ${cron.detail}` : ""}`.trimEnd()
+  );
+}
+
 if (ready.res.status !== 200 || ready.body?.status !== "ok") {
   console.error("FAIL readiness: Worker up but a dependency is degraded (see above)");
   failed = true;
