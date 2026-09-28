@@ -9,8 +9,12 @@ import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
  * table automatically packs fewer rows per statement.
  */
 
-/** D1 allows at most 100 bound parameters per query (see D1 platform limits). */
-const D1_MAX_BINDS = 100;
+/**
+ * D1 allows at most 100 bound parameters per query (see D1 platform limits).
+ * Exported (TOG-6552) so read-path chunking can prove its margin by
+ * construction instead of hardcoding a second copy of the cap.
+ */
+export const D1_MAX_BINDS = 100;
 
 const CUST_NCOLS = 14;
 export const CUST_R_PER_STMT = Math.min(7, Math.floor(D1_MAX_BINDS / CUST_NCOLS));
