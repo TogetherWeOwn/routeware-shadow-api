@@ -41,7 +41,10 @@ function createMockBucket() {
     }
   };
 
-  const bucket: Pick<R2Bucket, "put" | "createMultipartUpload"> = {
+  const bucket: Pick<R2Bucket, "put" | "get" | "createMultipartUpload"> = {
+    async get() {
+      return null;
+    },
     async put(key, value) {
       let size = 0;
       if (value === null) {
@@ -193,10 +196,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
       }
     );
 
-    // Assert — D1 saw the full CSV, R2 got one put, success was logged.
+    // Assert — D1 saw the full CSV, R2 got the CSV put plus the manifest
+    // sidecar put (TOG-8881), success was logged.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe("CustomerID\n1,,Acme");
-    expect(putCalls).toHaveLength(1);
+    expect(putCalls).toHaveLength(2);
+    expect(putCalls[0].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
     expect(logged.some((l) => l.startsWith("R2 snapshot stored:"))).toBe(true);
   });
 
