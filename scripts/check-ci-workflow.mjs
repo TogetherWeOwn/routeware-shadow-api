@@ -63,6 +63,14 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
+// workflow so deploy verification runs on a schedule. Pin it present: the
+// cron, the skip-safe npm script, and the read-only GET-only probe paths.
+const probeWorkflow = await readFile(new URL("../.github/workflows/post-deploy-probe.yml", import.meta.url), "utf8");
+assert.match(probeWorkflow, /- cron: "30 7 \* \* \*"/, "post-deploy-probe workflow must run on its daily schedule (TOG-8365)");
+assert.match(probeWorkflow, /run: npm run probe:post-deploy:scheduled/, "post-deploy-probe workflow must use the skip-safe scheduled script (TOG-8365)");
+assert.doesNotMatch(probeWorkflow, /\b(POST|PUT|PATCH|DELETE)\b/, "post-deploy-probe workflow must stay read-only (TOG-8365)");
+
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");
 // The optional staging probe already has a fail-closed CF_TOKEN gate. Allow only

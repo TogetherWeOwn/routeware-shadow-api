@@ -16,6 +16,7 @@
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
+    "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",
     "dev:remote": "wrangler dev --remote",
     "db:migrate:local": "wrangler d1 migrations apply routeware-customer-snapshot --local",
