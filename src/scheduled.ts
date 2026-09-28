@@ -93,7 +93,15 @@ export function resolveChainedBase(raw: unknown): string | null {
 
 /** Copies the per-table counts through, including `deleted` when present (TOG-7391). */
 function tableCounts(t: TableResult): CronSyncTableCounts {
-  return t ? { ...t } : null;
+  // Explicit pick, never spread (TOG-7378): the result objects flow straight
+  // into the `data-snapshot-sync` log line, so an extra property carrying row
+  // data (company name, phone, …) would leave the Worker in the cron log.
+  if (!t) {
+    return null;
+  }
+  return t.deleted === undefined
+    ? { upserted: t.upserted, rowCount: t.rowCount }
+    : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
 }
 
 function summarizeTable(name: string, t: CronSyncTableCounts): string {
