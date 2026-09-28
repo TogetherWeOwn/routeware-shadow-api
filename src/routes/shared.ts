@@ -451,3 +451,30 @@ export const snapshotListResponse = z
     total: z.number().int()
   })
   .openapi("CustomerSnapshotList");
+
+/**
+ * Worked 200 result for the snapshot import/sync responses (TOG-8360).
+ *
+ * Byte-identical to the bodies pinned by `test/syncSummaryContract.test.ts`
+ * (`{upserted: 2, rowCount: 2, deleted: 0}`), so the Scalar "try it" panel
+ * shows the exact shape a real 200 returns. Applied via zod
+ * `.openapi({ example })` metadata — schema-level only, no runtime validator
+ * is installed.
+ */
+export const snapshotWriteResultExample = {
+  upserted: 2,
+  rowCount: 2,
+  deleted: 0
+};
+
+/**
+ * Worked 200 result for `POST /api/v1/data-snapshot/sync` (TOG-8360): one
+ * `{upserted, rowCount}` pair per table, matching the combined-shape contract
+ * in `test/syncSummaryContract.test.ts` (no `deleted` leak, `null` when a
+ * table is skipped).
+ */
+export const dataSnapshotSyncResultExample = {
+  customer: { upserted: 2, rowCount: 2 },
+  address: { upserted: 2, rowCount: 2 },
+  container: { upserted: 2, rowCount: 2 }
+};

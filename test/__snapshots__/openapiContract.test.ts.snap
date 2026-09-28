@@ -800,7 +800,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/import": {
       "post": {
-        "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires bearer secret.",
+        "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.
+
+**Try it in \`/docs\`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like \`{upserted: 2, rowCount: 2, deleted: 0}\` — imports never delete, so \`deleted\` is always 0. Run this before the address/container imports so their foreign keys resolve.",
         "requestBody": {
           "content": {
             "text/csv": {
@@ -817,6 +819,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -851,11 +858,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/sync": {
       "post": {
-        "description": "Same logic as the daily cron. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\` and either \`CUSTOMER_REPORT_EXPORT_PATH\` (static path) or \`CUSTOMER_REPORT_QUERY_ID\` (Routeware query id for the async report pipeline).",
+        "description": "Same logic as the daily cron. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\` and either \`CUSTOMER_REPORT_EXPORT_PATH\` (static path) or \`CUSTOMER_REPORT_QUERY_ID\` (Routeware query id for the async report pipeline).
+
+**Try it in \`/docs\`:** paste the sync secret once into the \`bearerAuth\` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: \`{upserted, rowCount, deleted}\` (\`skipped: true\` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
         "responses": {
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -937,11 +951,27 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data-snapshot/sync": {
       "post": {
-        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Same bearer as other snapshot sync routes. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.",
+        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.
+
+**Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
         "responses": {
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "address": {
+                    "rowCount": 2,
+                    "upserted": 2,
+                  },
+                  "container": {
+                    "rowCount": 2,
+                    "upserted": 2,
+                  },
+                  "customer": {
+                    "rowCount": 2,
+                    "upserted": 2,
+                  },
+                },
                 "schema": {
                   "$ref": "#/components/schemas/DataSnapshotSyncResult",
                 },

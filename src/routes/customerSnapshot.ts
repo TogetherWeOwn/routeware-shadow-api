@@ -16,7 +16,8 @@ import {
   createRouteModule,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse
+  snapshotListResponse,
+  snapshotWriteResultExample
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -151,7 +152,8 @@ const customerSnapshotSyncRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Fetch Routeware report CSV and upsert D1",
   description:
-    "Same logic as the daily cron. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>` and either `CUSTOMER_REPORT_EXPORT_PATH` (static path) or `CUSTOMER_REPORT_QUERY_ID` (Routeware query id for the async report pipeline).",
+    "Same logic as the daily cron. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>` and either `CUSTOMER_REPORT_EXPORT_PATH` (static path) or `CUSTOMER_REPORT_QUERY_ID` (Routeware query id for the async report pipeline).\n\n" +
+    "**Try it in `/docs`:** paste the sync secret once into the `bearerAuth` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: `{upserted, rowCount, deleted}` (`skipped: true` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
   responses: {
     200: {
       description: "Sync result",
@@ -162,7 +164,8 @@ const customerSnapshotSyncRoute = createRoute({
             rowCount: z.number().int(),
             deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
-          })
+          }),
+          example: snapshotWriteResultExample
         }
       }
     },
@@ -199,7 +202,8 @@ const customerSnapshotImportRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Import CSV body into D1",
   description:
-    "Raw CSV bytes (same format as the Routeware export). `Content-Type: text/csv` or `application/octet-stream`. Requires bearer secret.",
+    "Raw CSV bytes (same format as the Routeware export). `Content-Type: text/csv` or `application/octet-stream`. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.\n\n" +
+    "**Try it in `/docs`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like `{upserted: 2, rowCount: 2, deleted: 0}` — imports never delete, so `deleted` is always 0. Run this before the address/container imports so their foreign keys resolve.",
   request: {
     body: {
       description: "Routeware customer CSV (header + data rows — see example)",
@@ -219,7 +223,8 @@ const customerSnapshotImportRoute = createRoute({
       description: "Import result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() }),
+          example: snapshotWriteResultExample
         }
       }
     },
