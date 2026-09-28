@@ -11,6 +11,7 @@ import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
 import { reconcileCustomerChildren } from "./snapshot/upsert";
 import { forwardToUpstream } from "./upstreamForward";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
 export type GetCustomerDetailFullJson = {
@@ -243,11 +244,14 @@ export async function fetchGetCustomerDetailFull(
     });
 
   let session = await readSessionState(sessionStub);
-  let resp = await forwardToUpstream(makeReq(), url, session, buf);
+  // Interactive budget honoring UPSTREAM_TIMEOUT_MS (TOG-8359): the forwarder
+  // default alone would ignore the per-deploy override.
+  const timeoutMs = readUpstreamTimeoutMs(env);
+  let resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   if (resp.status !== 200 || isLoginRedirect(resp)) {
     await establishSession(env, sessionStub, env.LOGIN_URL);
     session = await readSessionState(sessionStub);
-    resp = await forwardToUpstream(makeReq(), url, session, buf);
+    resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   }
   if (!resp.ok) {
     // The body is upstream-controlled HTML/JSON and may carry customer PII —
