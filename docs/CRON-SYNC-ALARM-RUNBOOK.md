@@ -107,7 +107,10 @@ upstream (gitignored, never commit).
 
 ```bash
 # Terminal A — blanked report vars: deterministic `unconfigured`, no tenant touched.
+# The SHADOW_API_PUBLIC_BASE blank is load-bearing: `--var` overrides win over
+# `.dev.vars`, and a base leaked from there would flip this run into chained-http.
 npx wrangler dev --port 18788 --test-scheduled \
+  --var "SHADOW_API_PUBLIC_BASE: " \
   --var "CUSTOMER_REPORT_EXPORT_PATH: " --var "CUSTOMER_REPORT_QUERY_ID: " \
   --var "ADDRESS_REPORT_EXPORT_PATH: " --var "ADDRESS_REPORT_QUERY_ID: " \
   --var "CONTAINER_REPORT_EXPORT_PATH: " --var "CONTAINER_REPORT_QUERY_ID: "
@@ -118,11 +121,16 @@ curl -s http://localhost:18788/__scheduled
 ```
 
 Fire a second server for the `failed` key — chained mode with no sync secret
-throws (`CUSTOMER_SNAPSHOT_SYNC_SECRET is not set`) before touching anything:
+throws (`CUSTOMER_SNAPSHOT_SYNC_SECRET is not set`) before touching anything.
+The secret blank is load-bearing: `--var` overrides win over `.dev.vars`, and a
+secret leaked from there would run chained instead of throwing — flipping the
+expected `failed` into `unconfigured` (any `.dev.vars` value, real or dummy,
+breaks the drill either way):
 
 ```bash
 npx wrangler dev --port 18789 --test-scheduled \
   --var "SHADOW_API_PUBLIC_BASE: http://localhost:18789" \
+  --var "CUSTOMER_SNAPSHOT_SYNC_SECRET: " \
   --var "CUSTOMER_REPORT_EXPORT_PATH: " --var "CUSTOMER_REPORT_QUERY_ID: " \
   --var "ADDRESS_REPORT_EXPORT_PATH: " --var "ADDRESS_REPORT_QUERY_ID: " \
   --var "CONTAINER_REPORT_EXPORT_PATH: " --var "CONTAINER_REPORT_QUERY_ID: "
