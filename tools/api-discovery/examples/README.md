@@ -5,7 +5,7 @@ These files are **starting points** for `route-map.json` and curl export. Your t
 - **`customers-read.post.example.json`** — non-empty `filter` (avoids “You need to filter.”).
 - **`get-customer-detail-full.post.example.json`** — set `CustomerID` to a real id.
 - **`app-settings-get.post.example.json`** — common `appSettingsGet` body.
-- **`save-customer-long-form.post.example.urlencoded`** — Ext.NET/MVC **create or update** (`SaveCustomerLongForm`). The Worker normally **injects** `__RequestVerificationToken` using the Routeware session (omit the field or use a placeholder). `CustomerID=0` for create; set `CustomerID` for update. Use `Enabled=false` to disable instead of delete. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to require a real token from the client.
+- **`save-customer-long-form.post.example.urlencoded`** — Ext.NET/MVC **create or update** (`SaveCustomerLongForm`). **Omit** `__RequestVerificationToken`: the Worker auto-injects it using the Routeware session (`CUSTOMER_SAVE_AUTO_TOKEN`, default on). `CustomerID=0` for create; set `CustomerID` for update. Use `Enabled=false` to disable instead of delete. Set `CUSTOMER_SAVE_AUTO_TOKEN=false` to require a real client token.
 - **`customer-types-read.post.example.urlencoded`** — `EnabledOnly=true` for customer type dropdowns.
 
 ## After recording
