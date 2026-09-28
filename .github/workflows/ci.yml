@@ -123,6 +123,13 @@ jobs:
         # .dev.vars.example mentions (active or commented `# KEY=`), failing
         # on divergence in either direction. Keys only, never values.
         run: npm run check:vars-parity
+      - name: Prod dependency audit (TOG-8904)
+        # Credential-free: `npm audit --omit=dev` against the public registry;
+        # fails on unallowlisted high/critical advisories. The allowlist (with
+        # reasons + remediation paths) lives in scripts/lib/depsAuditCheck.mjs;
+        # stale entries fail the gate so Dependabot fixes clean up after
+        # themselves. Process: docs/DEPENDENCY-AUDIT.md.
+        run: npm run check:deps-audit
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),

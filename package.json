@@ -15,6 +15,7 @@
     "check:d1-drift": "node scripts/check-d1-drift.mjs",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
+    "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
     "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
