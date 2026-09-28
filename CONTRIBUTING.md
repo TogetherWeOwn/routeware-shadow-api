@@ -26,6 +26,7 @@ nvm use                             # Node 20+
 npm install                         # add --include=dev if your shell omits devDependencies
 cp .dev.vars.example .dev.vars      # then fill in values (never commit this file)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
+npm run verify:config               # one-command config preflight (devvars + vars-parity + local d1-drift)
 npm run dev                         # http://localhost:8787 (runs check:devvars first)
 ```
 
