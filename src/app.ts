@@ -4,6 +4,10 @@ import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import {
+  concurrentRefreshTimeoutProblem,
+  isConcurrentRefreshTimeout
+} from "./lib/sessionRefreshLock";
 import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
@@ -199,6 +203,15 @@ app.onError((err, c) => {
   if (isUpstreamTimeout(err)) {
     console.error("UPSTREAM TIMEOUT", err.message);
     return upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
+  }
+  // A waiter that gave up on a hung concurrent refresh (TOG-6526): surface
+  // it as 502 problem+json, not a 500. The message is a fixed string (no
+  // cookie/URL/body/PII). Session-retry routes map this themselves before it
+  // reaches here; this is the backstop for direct `establishSession` callers
+  // (snapshot sync routes, detail-full sync internals).
+  if (isConcurrentRefreshTimeout(err)) {
+    console.error("CONCURRENT REFRESH TIMEOUT", err.message);
+    return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
   }
   // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
   // it as 503 problem+json, not a 500. The detail names the received value

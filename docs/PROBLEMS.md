@@ -97,3 +97,11 @@ the login redirect (provably safe); a timeout is never retried, so worst case
 is 2x one attempt. Override per deploy with the optional `UPSTREAM_TIMEOUT_MS`
 / `UPSTREAM_REPORT_TIMEOUT_MS` bindings (absent/invalid falls back to the
 defaults).
+
+## Session refresh timeouts (`bad-gateway`, title "Session refresh timed out")
+
+Only one login runs at a time per `AuthSession` instance (the refresh lock).
+A request that arrives while another request is refreshing waits up to 20s
+for the fresh session; if the holder never publishes (hung login), the waiter
+answers as 502 problem+json — never by forwarding with the expired cookie,
+which would surface upstream login HTML as a 200.

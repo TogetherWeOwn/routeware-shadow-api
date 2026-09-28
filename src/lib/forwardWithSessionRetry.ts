@@ -1,4 +1,8 @@
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
+import {
+  concurrentRefreshTimeoutProblem,
+  isConcurrentRefreshTimeout
+} from "./sessionRefreshLock";
 import { forwardToUpstream } from "./upstreamForward";
 import { readSessionState, type SessionState } from "./sessionState";
 import {
@@ -52,9 +56,17 @@ export async function forwardWithSessionRetry(
 
   // Proactive refresh: if the stored session is absent or about to expire
   // (SESSION_TTL_SECONDS), re-establish before spending the request on a
-  // predictable login redirect.
+  // predictable login redirect. A waiter that gives up on a hung refresh
+  // fails closed to 502 (TOG-6526) — never forward with the expired cookie.
   if (sessionNeedsRefresh(session)) {
-    await establishSession(env, sessionStub, env.LOGIN_URL);
+    try {
+      await establishSession(env, sessionStub, env.LOGIN_URL);
+    } catch (err) {
+      if (isConcurrentRefreshTimeout(err)) {
+        return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+      }
+      throw err;
+    }
     session = await readSessionState(sessionStub);
   }
 
@@ -89,8 +101,17 @@ export async function forwardWithSessionRetry(
   }
 
   // Reactive refresh: the session was rejected upstream despite the freshness
-  // check (e.g. server-side invalidation). Re-establish and retry once.
-  await establishSession(env, sessionStub, env.LOGIN_URL);
+  // check (e.g. server-side invalidation). Re-establish and retry once. A
+  // waiter that gives up on a hung refresh fails closed to 502 (TOG-6526) —
+  // never retry with the expired cookie (which would surface login HTML).
+  try {
+    await establishSession(env, sessionStub, env.LOGIN_URL);
+  } catch (err) {
+    if (isConcurrentRefreshTimeout(err)) {
+      return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+    }
+    throw err;
+  }
 
   session = await readSessionState(sessionStub);
 
