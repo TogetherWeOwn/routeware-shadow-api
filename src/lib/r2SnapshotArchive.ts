@@ -17,6 +17,75 @@ export function snapshotR2ObjectKey(
 }
 
 /**
+ * Sidecar integrity manifest for one UTC date's archive (TOG-8881).
+ *
+ * Key: `snapshots/YYYY-MM-DD.manifest.json` — a sibling of the date's CSV
+ * "directory" (R2 has no real directories, so the manifest sits next to it,
+ * not inside it). Content is hashes, sizes and keys only — never row data —
+ * so it is safe to log, print and commit as a fixture.
+ */
+export const SNAPSHOT_MANIFEST_VERSION = 1;
+
+export type SnapshotManifestFileEntry = {
+  /** Full R2 key, e.g. `snapshots/2026-09-28/customer.csv`. */
+  key: string;
+  /** Lowercase hex sha256 of the exact bytes stored at `key`. */
+  sha256: string;
+  /** Byte length of the stored object. */
+  bytes: number;
+};
+
+export type SnapshotManifest = {
+  version: 1;
+  /** UTC date the archive belongs to, `YYYY-MM-DD`. */
+  date: string;
+  /** CSV basename (`customer.csv`) → entry. Only archived tables are listed. */
+  files: Record<string, SnapshotManifestFileEntry>;
+};
+
+export function snapshotR2ManifestObjectKey(date = new Date()): string {
+  const d = date.toISOString().slice(0, 10);
+  return `snapshots/${d}.manifest.json`;
+}
+
+/** sha256 of `data` as lowercase hex (Worker `crypto.subtle`; no row data logged). */
+export async function sha256HexBytes(data: Uint8Array): Promise<string> {
+  // `digest` wants `Uint8Array<ArrayBuffer>`; a generic `Uint8Array` may view
+  // a `SharedArrayBuffer`, so narrow the buffer kind here. Runtime bytes are
+  // unchanged — this only reads them.
+  const digest = await crypto.subtle.digest("SHA-256", data as Uint8Array<ArrayBuffer>);
+  return [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/** Render a manifest deterministically (sorted basenames, trailing newline). */
+export function renderSnapshotManifest(manifest: SnapshotManifest): string {
+  const files: Record<string, SnapshotManifestFileEntry> = {};
+  for (const name of Object.keys(manifest.files).sort()) {
+    files[name] = manifest.files[name];
+  }
+  return `${JSON.stringify({ ...manifest, files }, null, 2)}\n`;
+}
+
+/** Type-guard for a parsed manifest: version, date shape, and per-file entry shape. */
+export function isSnapshotManifest(value: unknown): value is SnapshotManifest {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  if (v.version !== SNAPSHOT_MANIFEST_VERSION) return false;
+  if (typeof v.date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v.date)) return false;
+  if (typeof v.files !== "object" || v.files === null) return false;
+  for (const entry of Object.values(v.files as Record<string, unknown>)) {
+    if (typeof entry !== "object" || entry === null) return false;
+    const e = entry as Record<string, unknown>;
+    if (typeof e.key !== "string") return false;
+    if (typeof e.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.sha256)) return false;
+    if (typeof e.bytes !== "number" || !Number.isInteger(e.bytes) || e.bytes < 0) return false;
+  }
+  return true;
+}
+
+/**
  * Why the R2 archive is off, or `null` when it is on. Kept as a reason (not a
  * boolean) so the disabled path can log *why* nothing was archived — an absent
  * archive must be distinguishable from a failed one when the cron is green.
@@ -142,7 +211,11 @@ export async function archiveReportCsvToR2AfterD1<T>(
     );
     return sync(body);
   }
-  const key = snapshotR2ObjectKey(table);
+  // One clock read: the CSV and its manifest entry must land on the same UTC
+  // date even if the sync straddles midnight.
+  const now = new Date();
+  const key = snapshotR2ObjectKey(table, now);
+  const manifestKey = snapshotR2ManifestObjectKey(now);
 
   // Drain the source once; both legs consume identical in-memory copies.
   const reader = body.getReader();
@@ -168,9 +241,87 @@ export async function archiveReportCsvToR2AfterD1<T>(
     });
     console.log(`R2 snapshot stored: ${key}`);
   } catch (e) {
+    // No CSV, no manifest entry: recording a hash for bytes that never
+    // landed would make the manifest a lie. D1 already succeeded, so this
+    // stays best-effort (logged, not thrown) like every other R2 failure.
     console.error(`R2 snapshot put failed for ${key}`, e);
+    return result;
+  }
+  try {
+    await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
+      [csvBasename(table)]: {
+        key,
+        sha256: await sha256HexBytes(concatChunks(chunks)),
+        bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
+      }
+    });
+    console.log(`R2 snapshot manifest updated: ${manifestKey}`);
+  } catch (e) {
+    console.error(`R2 snapshot manifest put failed for ${manifestKey}`, e);
   }
   return result;
+}
+
+/** `customer` → `customer.csv`: the manifest's per-file map key. */
+export function csvBasename(table: SnapshotArchiveTable): string {
+  return `${table}.csv`;
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.byteLength;
+  }
+  return out;
+}
+
+/**
+ * Read-modify-write one table's entry into the date's sidecar manifest
+ * (TOG-8881). Creates the manifest when absent; a corrupt existing manifest
+ * is replaced (warned) so one bad sidecar cannot wedge future archives —
+ * `verify-r2-manifest` then reports the other tables as missing, loudly.
+ *
+ * Sequential-cron caveat: two same-date writers racing (not the case for the
+ * sequential chained/single-invocation syncs) can clobber each other's entry
+ * via last-writer-wins. That surfaces as `missing` at verify time, never as
+ * a silent pass.
+ */
+export async function updateSnapshotManifest(
+  bucket: R2Bucket,
+  manifestKey: string,
+  entries: Record<string, SnapshotManifestFileEntry>
+): Promise<void> {
+  const dateMatch = /snapshots\/(\d{4}-\d{2}-\d{2})\.manifest\.json$/.exec(manifestKey);
+  const date = dateMatch?.[1] ?? new Date().toISOString().slice(0, 10);
+  let manifest: SnapshotManifest = { version: 1, date, files: {} };
+  const existing = await bucket.get(manifestKey);
+  if (existing !== null) {
+    try {
+      const parsed: unknown = JSON.parse(await existing.text());
+      if (isSnapshotManifest(parsed)) {
+        manifest = parsed;
+      } else {
+        console.warn(
+          `R2 snapshot manifest at ${manifestKey} failed validation; replacing`
+        );
+      }
+    } catch {
+      console.warn(
+        `R2 snapshot manifest at ${manifestKey} is not JSON; replacing`
+      );
+    }
+  }
+  manifest = {
+    ...manifest,
+    date,
+    files: { ...manifest.files, ...entries }
+  };
+  await bucket.put(manifestKey, renderSnapshotManifest(manifest), {
+    httpMetadata: { contentType: "application/json; charset=utf-8" }
+  });
 }
 
 function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {

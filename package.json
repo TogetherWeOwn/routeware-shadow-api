@@ -20,6 +20,7 @@
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
     "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",
+    "verify:r2-manifest": "node scripts/verify-r2-manifest.mjs",
     "dev:remote": "wrangler dev --remote",
     "db:migrate:local": "wrangler d1 migrations apply routeware-customer-snapshot --local",
     "db:migrate:remote": "wrangler d1 migrations apply routeware-customer-snapshot --remote",

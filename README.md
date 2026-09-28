@@ -120,6 +120,7 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
+| `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
 ## Deploy
