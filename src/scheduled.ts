@@ -91,7 +91,7 @@ export function resolveChainedBase(raw: unknown): string | null {
   return trimmed;
 }
 
-/** Spread preserves runtime extras (e.g. `deleted`) the narrow type drops. */
+/** Copies the per-table counts through, including `deleted` when present (TOG-7391). */
 function tableCounts(t: TableResult): CronSyncTableCounts {
   return t ? { ...t } : null;
 }
