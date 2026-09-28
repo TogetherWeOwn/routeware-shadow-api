@@ -54,6 +54,16 @@ assert.match(
   "hygiene must run the OpenAPI drift check (TOG-6282)"
 );
 
+// The vars parity check compares wrangler.toml [vars] keys against
+// .dev.vars.example mentions (active or commented), credential-free. Pin it
+// present so a var can never land in one file but not the other without the
+// hygiene gate failing (TOG-8367, gap G20).
+assert.match(
+  hygiene,
+  /^        run: npm run check:vars-parity$/m,
+  "hygiene must run the vars parity check (TOG-8367)"
+);
+
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
 // never land without the hygiene gate (TOG-6291).
