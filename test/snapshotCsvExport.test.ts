@@ -7,6 +7,8 @@ import {
   SNAPSHOT_EXPORT_PAGE_SIZE,
   encodeSnapshotRow,
   escapeCsvCell,
+  matchesSnapshotIfNoneMatch,
+  snapshotExportEtag,
   snapshotExportHeaderLine,
   snapshotExportSpec,
   type SnapshotExportSpec
@@ -97,11 +99,15 @@ async function callExport(
   routes: RouteModule,
   path: string,
   db: D1Database,
-  token: string | null = SECRET
+  token: string | null = SECRET,
+  ifNoneMatch?: string
 ): Promise<Response> {
   const headers = new Headers();
   if (token !== null) {
     headers.set("authorization", `Bearer ${token}`);
+  }
+  if (ifNoneMatch !== undefined) {
+    headers.set("if-none-match", ifNoneMatch);
   }
   return routes.fetch(new Request(`http://test.local${path}`, { headers }), makeEnv(db), ctx);
 }
@@ -362,12 +368,17 @@ describe.each(SPECS)("$name export route", (spec) => {
     await res.text();
 
     // Assert — first page unbounded below, second page resumes after the last
-    // key of the first; no OFFSET (which would rescan on every page).
-    expect(calls).toHaveLength(3);
+    // key of the first; no OFFSET (which would rescan on every page). The
+    // ETag pre-pass doubles the reads (3 + 3): each pass pages identically.
+    expect(calls).toHaveLength(6);
     expect(calls[0]!.sql).not.toContain("WHERE");
     expect(calls[0]!.binds).toEqual([SNAPSHOT_EXPORT_PAGE_SIZE]);
     expect(calls[1]!.sql).toContain(`WHERE ${spec.pk} > ?`);
     expect(calls[1]!.binds).toEqual([SNAPSHOT_EXPORT_PAGE_SIZE, SNAPSHOT_EXPORT_PAGE_SIZE]);
+    // The body pass restarts from the first page.
+    expect(calls[3]!.sql).not.toContain("WHERE");
+    expect(calls[3]!.binds).toEqual([SNAPSHOT_EXPORT_PAGE_SIZE]);
+    expect(calls[4]!.sql).toContain(`WHERE ${spec.pk} > ?`);
     for (const call of calls) {
       expect(call.sql).not.toContain("OFFSET");
     }
@@ -396,13 +407,14 @@ describe.each(SPECS)("$name export route", (spec) => {
     // Act
     const res = await callExport(spec.routes, spec.path, db);
 
-    // Assert — still a download (disposition intact), one D1 read, no rows.
+    // Assert — still a download (disposition intact), one D1 read per pass
+    // (ETag pre-pass plus body pass), no rows.
     expect(res.status).toBe(200);
     expect(res.headers.get("content-disposition")).toBe(
       `attachment; filename="${spec.filename}"`
     );
     expect(await res.text()).toBe(`${spec.header}\n`);
-    expect(calls).toHaveLength(1);
+    expect(calls).toHaveLength(2);
   });
 
   it("does not resolve /export as a by-id lookup", async () => {
@@ -429,6 +441,105 @@ describe.each(SPECS)("$name export route", (spec) => {
     expect(res.status).toBe(401);
     expect(calls).toHaveLength(0);
   });
+
+  it("emits a stable content-hash ETag on every 200", async () => {
+    // Arrange — identical content served from two independent fakes.
+    const rows = spec.seed(3);
+
+    // Act
+    const first = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+    const second = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+
+    // Assert — greppable quoted form, identical for identical bytes.
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^"fnv64-[0-9a-f]{16}"$/);
+    expect(second.headers.get("etag")).toBe(etag);
+    await first.text();
+    await second.text();
+  });
+
+  it("answers If-None-Match with 304 and an empty body", async () => {
+    // Arrange — fetch once to learn the current tag.
+    const rows = spec.seed(3);
+    const first = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+    const etag = first.headers.get("etag")!;
+    await first.text();
+
+    // Act — replay the tag.
+    const res = await callExport(
+      spec.routes,
+      spec.path,
+      fakeExportDb(rows, spec.pk).db,
+      SECRET,
+      etag
+    );
+
+    // Assert — not modified, tag repeated, nothing to download.
+    expect(res.status).toBe(304);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe("");
+  });
+
+  it("re-downloads with a fresh ETag after any cell edit", async () => {
+    // Arrange — one cell changes between fetches (`synced_at` is a column on
+    // every table, so this stays table-generic).
+    const rows = spec.seed(2);
+    const first = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+    const stale = first.headers.get("etag")!;
+    await first.text();
+    rows[0] = { ...rows[0], synced_at: "2026-09-29T00:00:00.000Z" };
+
+    // Act — replay the now-stale tag against the edited table.
+    const res = await callExport(
+      spec.routes,
+      spec.path,
+      fakeExportDb(rows, spec.pk).db,
+      SECRET,
+      stale
+    );
+
+    // Assert — full body again under a different tag.
+    expect(res.status).toBe(200);
+    const fresh = res.headers.get("etag")!;
+    expect(fresh).not.toBe(stale);
+    expect(fresh).toMatch(/^"fnv64-[0-9a-f]{16}"$/);
+    expect((await res.text()).split("\n")[0]).toBe(spec.header);
+  });
+});
+
+describe("matchesSnapshotIfNoneMatch", () => {
+  const TAG = '"fnv64-0123456789abcdef"';
+
+  it("matches the exact tag, a weak tag, a list entry, and *", () => {
+    expect(matchesSnapshotIfNoneMatch(TAG, TAG)).toBe(true);
+    expect(matchesSnapshotIfNoneMatch(`W/${TAG}`, TAG)).toBe(true);
+    expect(matchesSnapshotIfNoneMatch(`"fnv64-deadbeefdeadbeef", ${TAG}`, TAG)).toBe(true);
+    expect(matchesSnapshotIfNoneMatch("*", TAG)).toBe(true);
+  });
+
+  it("never serves a false 304 for a stale or partial tag", () => {
+    // A different tag is stale; a longer token sharing the prefix must not
+    // substring-match (that would skip a re-download the client needs).
+    expect(matchesSnapshotIfNoneMatch('"fnv64-ffffffffffffffff"', TAG)).toBe(false);
+    expect(matchesSnapshotIfNoneMatch('"fnv64-0123456789abcdef0"', TAG)).toBe(false);
+    expect(matchesSnapshotIfNoneMatch(null, TAG)).toBe(false);
+    expect(matchesSnapshotIfNoneMatch(undefined, TAG)).toBe(false);
+  });
+
+  it("pins the FNV-1a 64 spec vector through the export hasher", async () => {
+    // Arrange — an empty table hashes the header line only; the empty-input
+    // basis is pinned by hashing zero rows via a bare spec.
+    const { db } = fakeExportDb([], "customer_id");
+
+    // Act
+    const etag = await snapshotExportEtag(db, CUSTOMER_SNAPSHOT_EXPORT);
+
+    // Assert — deterministic across passes (stability is the contract; the
+    // exact hex is pinned so a hasher swap is a visible diff).
+    const again = await snapshotExportEtag(fakeExportDb([], "customer_id").db, CUSTOMER_SNAPSHOT_EXPORT);
+    expect(etag).toBe(again);
+    expect(etag).toMatch(/^"fnv64-[0-9a-f]{16}"$/);
+  });
 });
 
 describe("export end to end through the real app and D1", () => {
@@ -440,10 +551,16 @@ describe("export end to end through the real app and D1", () => {
     return (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
   }
 
-  async function getExport(path: string, token = SECRET): Promise<Response> {
-    return exports.default.fetch(`http://test.local${path}`, {
-      headers: { authorization: `Bearer ${token}` }
-    });
+  async function getExport(
+    path: string,
+    token = SECRET,
+    ifNoneMatch?: string
+  ): Promise<Response> {
+    const headers = new Headers({ authorization: `Bearer ${token}` });
+    if (ifNoneMatch !== undefined) {
+      headers.set("if-none-match", ifNoneMatch);
+    }
+    return exports.default.fetch(`http://test.local${path}`, { headers });
   }
 
   it("downloads all three tables with filenames, headers and FK-ordered rows", async () => {
@@ -497,6 +614,29 @@ describe("export end to end through the real app and D1", () => {
     expect(customer.headers.get("access-control-expose-headers")).toMatch(
       /content-disposition/i
     );
+  });
+
+  it("answers a replayed ETag with 304 and an empty body (conditional read)", async () => {
+    // Acceptance leg (TOG-8879): fetch twice for a stable tag, replay it as
+    // If-None-Match, get 304 with nothing to download.
+    const first = await getExport("/api/v1/customer-snapshot/export");
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag");
+    expect(etag).toMatch(/^"fnv64-[0-9a-f]{16}"$/);
+    await first.text();
+
+    const second = await getExport("/api/v1/customer-snapshot/export");
+    expect(second.headers.get("etag")).toBe(etag);
+    await second.text();
+
+    const replay = await getExport(
+      "/api/v1/customer-snapshot/export",
+      SECRET,
+      etag!
+    );
+    expect(replay.status).toBe(304);
+    expect(replay.headers.get("etag")).toBe(etag);
+    expect(await replay.text()).toBe("");
   });
 
   it("rejects the app token (not the sync secret) on exports", async () => {

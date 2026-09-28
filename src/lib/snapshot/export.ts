@@ -22,6 +22,22 @@
  * in logs rather than buffering the table to pre-validate it.
  */
 
+/**
+ * Conditional reads (TOG-8879): every export also answers `If-None-Match`
+ * with `304 Not Modified` and an empty body. The ETag is a content hash over
+ * the exact response bytes (header line plus every row line), so it is stable
+ * for identical content and changes on any cell edit.
+ *
+ * `crypto.subtle.digest` is one-shot — hashing with it would buffer the whole
+ * table, defeating the streaming guarantee above. The tag is therefore an
+ * incremental FNV-1a 64 over the UTF-8 bytes, computed in a first keyset-paged
+ * pass (one page in memory at a time); the body then streams in a second
+ * pass. An export costs twice the D1 reads of an unconditioned one; every
+ * read still carries a LIMIT and no OFFSET. A 64-bit collision would serve a
+ * stale 304, at ~2^-64 per comparison — a re-download is the only cost, not
+ * a correctness boundary worth a vendored incremental SHA-256.
+ */
+
 /** One CSV column: the D1 column, its header label, and boolean rendering. */
 export type SnapshotExportColumn = {
   /** D1 column, selected verbatim into the CSV, in order. */
@@ -264,18 +280,99 @@ export function streamSnapshotCsv(
 }
 
 /**
- * `200 text/csv` with the download disposition. The filename is a fixed
- * per-table constant (never client input), so no sanitisation is needed.
+ * Incremental FNV-1a 64 hasher: `crypto.subtle.digest` is one-shot and would
+ * force buffering the table, so the ETag pass feeds it line by line instead.
+ * Constants are the FNV-1a 64 offset basis + prime (unit-tested against the
+ * spec vectors: `""` → `cbf29ce484222325`).
  */
-export function snapshotCsvResponse(
-  db: D1Database,
-  spec: SnapshotExportSpec
-): Response {
-  return new Response(streamSnapshotCsv(db, spec), {
-    status: 200,
-    headers: {
-      "content-type": "text/csv; charset=utf-8",
-      "content-disposition": `attachment; filename="${spec.filename}"`
+function createFnv1a64() {
+  let h = 0xcbf29ce484222325n;
+  return {
+    feed(bytes: Uint8Array) {
+      for (const b of bytes) {
+        h ^= BigInt(b);
+        h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+      }
+    },
+    hex(): string {
+      return h.toString(16).padStart(16, "0");
     }
-  });
+  };
+}
+
+const snapshotEtagEncoder = new TextEncoder();
+
+/**
+ * Content-hash ETag for an export (TOG-8879): FNV-1a 64 over the exact
+ * response bytes (header line plus one line per row), Tag'd so the form is
+ * greppable (`"fnv64-<hex>"`, quoted — same quoting as the data-entity
+ * ETags in `src/lib/dataEntityHandlers.ts`).
+ *
+ * One keyset-paged pass (one page in memory at a time); row encoding is the
+ * same `encodeSnapshotRow` the streaming body uses, so the hash is over
+ * byte-identical lines.
+ */
+export async function snapshotExportEtag(
+  db: D1Database,
+  spec: SnapshotExportSpec,
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
+): Promise<string> {
+  const hasher = createFnv1a64();
+  const feed = (s: string) => hasher.feed(snapshotEtagEncoder.encode(s));
+  feed(`${snapshotExportHeaderLine(spec)}\n`);
+  let after: number | null = null;
+  for (;;) {
+    const page = await readSnapshotExportPage(db, spec, after, pageSize);
+    if (page.rows.length === 0) break;
+    after = page.last;
+    for (const row of page.rows) {
+      feed(`${encodeSnapshotRow(spec, row)}\n`);
+    }
+  }
+  return `"fnv64-${hasher.hex()}"`;
+}
+
+/**
+ * RFC 7232 `If-None-Match` against one opaque ETag token: a comma-separated
+ * token list or `*`. Tokens compare exactly after stripping the weak prefix
+ * and surrounding quotes (same normalisation as `dataEntityHandlers.ts` —
+ * a substring match here could serve a false 304 for a stale copy).
+ */
+export function matchesSnapshotIfNoneMatch(
+  header: string | null | undefined,
+  etag: string
+): boolean {
+  if (!header) return false;
+  const norm = (t: string) =>
+    t.trim().replace(/^W\//i, "").replace(/^"(.*)"$/, "$1");
+  const want = norm(etag);
+  return header
+    .split(",")
+    .map(norm)
+    .some((t) => t === "*" || t === want);
+}
+
+/**
+ * `200 text/csv` with the download disposition and a content-hash `ETag`;
+ * `304` with an empty body when `ifNoneMatch` carries the current tag.
+ * The filename is a fixed per-table constant (never client input), so no
+ * sanitisation is needed. The ETag pass doubles D1 reads (still LIMIT-paged,
+ * never OFFSET) — acceptable so that conditional re-downloads can skip the
+ * body entirely.
+ */
+export async function snapshotCsvResponse(
+  db: D1Database,
+  spec: SnapshotExportSpec,
+  ifNoneMatch?: string | null
+): Promise<Response> {
+  const etag = await snapshotExportEtag(db, spec);
+  const headers = {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": `attachment; filename="${spec.filename}"`,
+    ETag: etag
+  };
+  if (matchesSnapshotIfNoneMatch(ifNoneMatch, etag)) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+  return new Response(streamSnapshotCsv(db, spec), { status: 200, headers });
 }

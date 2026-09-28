@@ -135,12 +135,13 @@ const containerSnapshotExportRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "Download container snapshot as CSV",
   description:
-    "Streams every `container_snapshot` row as CSV (`Content-Disposition: attachment`, filename `container-snapshot.csv`) in `container_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
+    "Streams every `container_snapshot` row as CSV (`Content-Disposition: attachment`, filename `container-snapshot.csv`) in `container_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash `ETag`; replay it as `If-None-Match` for a `304` with an empty body. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
       content: { "text/csv": { schema: z.string() } }
     },
+    304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
   }
 });
@@ -151,7 +152,11 @@ const containerSnapshotExportRoute = createRoute({
 containerSnapshotRoutes.openapi(containerSnapshotExportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return snapshotCsvResponse(c.env.CUSTOMER_DB, CONTAINER_SNAPSHOT_EXPORT);
+  return snapshotCsvResponse(
+    c.env.CUSTOMER_DB,
+    CONTAINER_SNAPSHOT_EXPORT,
+    c.req.header("if-none-match")
+  );
 });
 
 const containerSnapshotByIdRoute = createRoute({
