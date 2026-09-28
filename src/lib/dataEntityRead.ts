@@ -1,3 +1,11 @@
+/**
+ * TOG-6552: addresses per container `IN (...)` read. Must stay strictly below
+ * D1's 100-bind cap (`D1_MAX_BINDS` in `src/lib/snapshot/tableSql.ts`) — the
+ * previous value equalled the cap exactly, so a ~100-address customer risked
+ * a bind-limit 500. Exported so tests can prove the margin.
+ */
+export const CONTAINER_READ_CHUNK_SIZE = 50;
+
 export type CustomerBundle = {
   customer: Record<string, unknown> | null;
   addresses: Array<Record<string, unknown> & { containers: Record<string, unknown>[] }>;
@@ -53,11 +61,14 @@ export async function getCustomerBundleFromD1(
   const addressIds = rows.map((a) => a.pickup_address_id as number);
 
   // Fetch all containers for this customer's addresses in batched IN(...) queries
-  // (chunked to stay under D1's 100-bind cap) instead of one query per address.
+  // instead of one query per address.
+  //
+  // TOG-6552: chunked to stay well under D1's 100-bind cap (`D1_MAX_BINDS` in
+  // `src/lib/snapshot/tableSql.ts`). The previous value equalled the cap
+  // exactly, so a ~100-address customer risked a bind-limit 500.
   const containersByAddress = new Map<number, Record<string, unknown>[]>();
-  const BIND_CHUNK = 100;
-  for (let i = 0; i < addressIds.length; i += BIND_CHUNK) {
-    const chunk = addressIds.slice(i, i + BIND_CHUNK);
+  for (let i = 0; i < addressIds.length; i += CONTAINER_READ_CHUNK_SIZE) {
+    const chunk = addressIds.slice(i, i + CONTAINER_READ_CHUNK_SIZE);
     const placeholders = chunk.map(() => "?").join(", ");
     const cr = await db
       .prepare(
