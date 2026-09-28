@@ -184,3 +184,32 @@ function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
     }
   });
 }
+
+/**
+ * Read one archived snapshot CSV back from R2 as a stream (TOG-7394).
+ *
+ * Inverse of the R2 leg in `archiveReportCsvToR2AfterD1`: returns the stored
+ * bytes for `snapshots/YYYY-MM-DD/{table}.csv` so the caller can re-sync them
+ * into D1 (via `sync*SnapshotFromStream`) or serve them elsewhere. `null`
+ * when no object exists at that key — an absent archive, not an error.
+ * Throws when the archive is disabled (same reasons as the write path),
+ * because a restore without a bound bucket cannot proceed.
+ */
+export async function restoreSnapshotCsvFromR2(
+  env: Env,
+  table: SnapshotArchiveTable,
+  date = new Date()
+): Promise<ReadableStream<Uint8Array> | null> {
+  const disabledReason = r2DisabledReason(env);
+  if (disabledReason !== null) {
+    throw new Error(
+      `R2 snapshot restore unavailable for ${table}: ${disabledReason}`
+    );
+  }
+  const key = snapshotR2ObjectKey(table, date);
+  const obj = await env.SNAPSHOTS.get(key);
+  if (obj === null) {
+    return null;
+  }
+  return obj.body;
+}
