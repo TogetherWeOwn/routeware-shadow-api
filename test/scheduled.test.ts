@@ -331,8 +331,44 @@ describe("scheduled structured outcome", () => {
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
+    // Assert — outcome plus the exact summary wording: every table names its
+    // skipped state so the line can never read as a pass.
+    const line = loggedLine();
+    expect(line.outcome).toBe("unconfigured");
+    expect(line.outcome).not.toBe("success");
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe(
+      "customer: skipped (no report path configured); " +
+        "address: skipped (no report path configured); " +
+        "container: skipped (no report path configured)"
+    );
+    expect(line.error).toBeUndefined();
+    // Unconfigured is a stdout line like success — never the stderr failure path.
+    expect(errors).toEqual([]);
+  });
+
+  it("reports unconfigured on the single-invocation path when nothing was configured (TOG-7397)", async () => {
+    // Arrange — blanked report vars with no public base: the runbook §5 drill
+    // shape. Same config state, fallback mode.
+    behavior.result = { customer: null, address: null, container: null };
+
+    // Act
+    await runScheduled(envWith());
+
     // Assert
-    expect(loggedLine().outcome).toBe("unconfigured");
+    expect(calls.single).toBe(1);
+    const line = loggedLine();
+    expect(line.outcome).toBe("unconfigured");
+    expect(line.mode).toBe("single-invocation");
+    expect(line.configSource).toBe("fallback-single-invocation");
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe(
+      "customer: skipped (no report path configured); " +
+        "address: skipped (no report path configured); " +
+        "container: skipped (no report path configured)"
+    );
+    expect(line.error).toBeUndefined();
+    expect(errors).toEqual([]);
   });
 
   it("falls back to unknown scheduling metadata on a bare controller", async () => {
