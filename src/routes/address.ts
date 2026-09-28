@@ -24,7 +24,7 @@ const addressSaveAddressFormRoute = createRoute({
     ...addressSaveFormDocs.responses,
     400: {
       description:
-        "Bad Request (application/problem+json). Create (`PickupAddressID` 0 / absent) without `CustomerID` in the POST body."
+        "Bad Request (application/problem+json). Empty body where save fields are required, or create (`PickupAddressID` 0 / absent) without `CustomerID` in the POST body."
     },
     502: {
       description:
@@ -34,8 +34,19 @@ const addressSaveAddressFormRoute = createRoute({
 });
 
 addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
+  const rawBody = c.var.bodyBuffer;
+  if (!rawBody || rawBody.byteLength === 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveAddressForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
   const session = await readSessionState(c.var.sessionStub);
-  let bodyBuffer = c.var.bodyBuffer;
+  let bodyBuffer: ArrayBuffer | null = rawBody;
   try {
     bodyBuffer = await prepareSaveAddressFormBody(
       c.env,
