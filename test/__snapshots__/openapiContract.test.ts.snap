@@ -240,7 +240,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -474,7 +474,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -686,7 +686,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
           },
           "400": {
-            "description": "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",

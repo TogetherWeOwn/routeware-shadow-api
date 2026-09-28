@@ -38,7 +38,7 @@ const addressSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/json, not problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
