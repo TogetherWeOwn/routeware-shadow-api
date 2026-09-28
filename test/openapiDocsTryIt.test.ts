@@ -1,5 +1,5 @@
 import { exports } from "cloudflare:workers";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import app from "../src/app";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
