@@ -42,19 +42,39 @@ export type AuthThrottleVerdict = {
 type HeaderReader = { header: (name: string) => string | undefined };
 
 /**
- * Best-effort client IP for throttle bucketing. `CF-Connecting-IP` is
- * authoritative (Cloudflare overwrites it, clients cannot spoof it);
- * `X-Forwarded-For` is a fallback for local dev/test only. Absent both, all
- * callers share the `"unknown"` bucket.
+ * Whether the throttle may trust `X-Forwarded-For` for bucketing. Explicit
+ * opt-in only (`THROTTLE_TRUST_XFF === "true"`, set in `[env.test.vars]` and
+ * local `.dev.vars`): production leaves it absent/`"false"`, so an
+ * attacker-controlled XFF value can neither evade the throttle by rotation
+ * nor burn a victim's budget (TOG-8888; probes in
+ * test/authThrottleXffProbe.test.ts).
  */
-export function clientIpFromRequest(req: HeaderReader): string {
+function throttleTrustsXff(env: { THROTTLE_TRUST_XFF?: unknown } | undefined): boolean {
+  return env?.THROTTLE_TRUST_XFF === "true";
+}
+
+/**
+ * Best-effort client IP for throttle bucketing. `CF-Connecting-IP` is
+ * authoritative (Cloudflare overwrites it, clients cannot spoof it).
+ * `X-Forwarded-For` is honored only when `THROTTLE_TRUST_XFF="true"`
+ * (dev/test): in production XFF-only callers share the `"unknown"` bucket,
+ * so rotating XFF cannot evade the throttle and no victim bucket can be
+ * framed. Absent both (or XFF without the flag), all callers share
+ * `"unknown"`.
+ */
+export function clientIpFromRequest(
+  req: HeaderReader,
+  env?: { THROTTLE_TRUST_XFF?: unknown }
+): string {
   const cfIp = req.header("CF-Connecting-IP")?.trim();
   if (cfIp) {
     return cfIp;
   }
-  const forwarded = req.header("X-Forwarded-For")?.split(",")[0]?.trim();
-  if (forwarded) {
-    return forwarded;
+  if (throttleTrustsXff(env)) {
+    const forwarded = req.header("X-Forwarded-For")?.split(",")[0]?.trim();
+    if (forwarded) {
+      return forwarded;
+    }
   }
   return "unknown";
 }
@@ -124,7 +144,7 @@ export async function recordAuthFailure(
   const open: AuthThrottleVerdict = { blocked: false, retryAfterSec: 0 };
   try {
     const stub = env.AUTH_SESSION.get(
-      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req)))
+      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
     );
     const res = await stub.fetch("https://throttle.local/throttle/failure", {
       method: "POST"
@@ -154,7 +174,7 @@ export async function recordAuthFailure(
 export async function clearAuthFailures(env: Env, req: HeaderReader): Promise<void> {
   try {
     const stub = env.AUTH_SESSION.get(
-      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req)))
+      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
     );
     await stub.fetch("https://throttle.local/throttle/clear", { method: "POST" });
   } catch {

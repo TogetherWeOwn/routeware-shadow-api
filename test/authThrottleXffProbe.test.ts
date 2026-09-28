@@ -1,30 +1,35 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTH_THROTTLE_MAX_FAILURES } from "../src/lib/authThrottle";
+import app from "../src/app";
+import {
+  AUTH_THROTTLE_MAX_FAILURES,
+  throttleRecordFailure,
+  type AuthThrottleState
+} from "../src/lib/authThrottle";
 
 // TOG-8886 (R3-10): adversarial QA probe — X-Forwarded-For throttle evasion.
+// TOG-8888 (R3-12): the fallback is now gated behind `THROTTLE_TRUST_XFF`.
 //
-// `clientIpFromRequest` (src/lib/authThrottle.ts) trusts `X-Forwarded-For`
-// whenever `CF-Connecting-IP` is absent. The comment claims the fallback is
-// "for local dev/test only", but nothing enforces that: in any environment
-// without the CF header the throttle bucket key is fully attacker-controlled,
-// and rotating it evades the brute-force throttle entirely (B1). Worse, an
-// attacker can pile failures into ANY bucket name, burning a victim's budget
-// remotely (B2).
+// `clientIpFromRequest` (src/lib/authThrottle.ts) honors `X-Forwarded-For`
+// only when `THROTTLE_TRUST_XFF === "true"` (dev/test). Production (flag
+// absent or `"false"`) buckets XFF-only callers as `"unknown"`, so rotating
+// XFF cannot evade the throttle and no victim bucket can be framed.
 //
-// ## Red-then-green recipe for the reviewer
-// 1. `npx vitest run test/authThrottleXffProbe.test.ts` → green, with the two
-//    adversarial probes reported as expected failures (`it.fails`). The
-//    expected-failure markers ARE the pinned bugs: each proves a bypass.
-// 2. Temporarily change `it.fails` to `it` on the two probes → they go RED
-//    (bypass demonstrated live), the two controls stay green.
-// 3. Land the fix, keep step-2 state → all four go GREEN. The fix card then
-//    owns these probes (re-bucket if XFF stops keying, fold into
-//    test/authThrottle.test.ts if desired).
+// The self-fetch suites below run under `[env.test.vars]`, which opts in
+// (`THROTTLE_TRUST_XFF="true"` — dev-like). B1/B2 therefore still demonstrate
+// the bypass as expected-failures (`it.fails`): with the flag ON, trusting
+// XFF is the documented dev-only tradeoff, not a prod bug. The prod-like
+// behavior (flag off: XFF ignored, throttle still triggers) is pinned by
+// "XFF gate pins (TOG-8888)" at the bottom of this file via direct
+// `app.fetch` with synthetic envs and a stateful in-memory throttle stub —
+// hermetic, no DO buckets involved.
 //
-// Post-fix maintenance note: if the fix stops keying XFF-only callers by
-// their XFF value (e.g. a shared bucket), the B1/B2 requests will share one
-// bucket and trip it early. The fix card re-partitions these probes then.
+// ## Reviewer recipe
+// 1. `npx vitest run test/authThrottleXffProbe.test.ts` → green: B1/B2 report
+//    as expected failures (bypass demonstrable with the dev-only flag on),
+//    both controls and all six gate pins pass.
+// 2. Temporarily change `it.fails` to `it` on B1/B2 → they go RED (bypass
+//    demonstrated live under the opted-in test env).
 //
 // TEST-NET allocation (fresh — never used by authThrottle, throttleBurst,
 // authGateSweep, throttleResetIsolation, dualSecretMatrix or problemAnchors
@@ -125,5 +130,191 @@ describe("XFF throttle-evasion probes (TOG-8886)", () => {
       expect((await probe({ token: `cf-${i}`, cfIp: CF_IP })).status).toBe(401);
     }
     expect((await probe({ token: "cf-final", cfIp: CF_IP })).status).toBe(429);
+  });
+});
+
+// TOG-8888 (R3-12) gate pins: prod-like env (flag off) ignores XFF, dev env
+// still honors it. Driven via direct `app.fetch` with synthetic envs (the
+// `test/authModeValidation.test.ts` seam — the self-fetch suite above always
+// runs under `[env.test.vars]`, which opts the flag IN) and a stateful
+// in-memory throttle stub, so these pins are hermetic and never touch the
+// real DO buckets (fresh "unknown" keys per test, never leaked between
+// tests or files).
+
+const GATE_CTX = {
+  waitUntil() {},
+  passThroughOnException() {}
+} as unknown as ExecutionContext;
+
+const GATE_TOKEN = "test-api-token";
+
+function gateProbeEnv(trustXff: unknown): Env {
+  // One stateful bucket per "auth-throttle:<ip>" name: the prod "unknown"
+  // bucket (and each dev XFF bucket) persists across calls inside one test
+  // so the 20-failure budget trips. `idFromName` receives the throttle
+  // object name; the stub routes on its ip suffix.
+  const buckets = new Map<string, AuthThrottleState | null>();
+  const AUTH_SESSION = {
+    idFromName: (name: string) => name,
+    get: (name: string) => {
+      const ip = String(name).replace(/^auth-throttle:/, "");
+      return {
+        fetch: async (input: RequestInfo | URL): Promise<Response> => {
+          const url = new URL(typeof input === "string" ? input : String(input));
+          if (url.pathname === "/throttle/clear") {
+            buckets.delete(ip);
+            return new Response("OK");
+          }
+          const out = throttleRecordFailure(buckets.get(ip) ?? null, Date.now());
+          buckets.set(ip, out.next);
+          return Response.json(out.verdict);
+        }
+      };
+    }
+  };
+  return {
+    // Bearer secret for the gate pins: the valid-token probe must pass the
+    // outer gate (then 404 on an unknown path), proving a blocked shared
+    // bucket never locks out legitimate traffic.
+    SHADOW_API_TOKEN: GATE_TOKEN,
+    THROTTLE_TRUST_XFF: trustXff,
+    AUTH_SESSION
+  } as unknown as Env;
+}
+
+async function gateCall(
+  env: Env,
+  opts: { token?: string; xff?: string; path?: string }
+): Promise<Response> {
+  const headers = new Headers();
+  headers.set("authorization", `Bearer ${opts.token ?? "wrong-token"}`);
+  if (opts.xff !== undefined) {
+    headers.set("X-Forwarded-For", opts.xff);
+  }
+  // No CF-Connecting-IP: forces the XFF-or-unknown path under test.
+  // Valid-token probes use an unknown path (→ 404 past the gate); the real
+  // route would reach for upstream, which is mocked to throw here.
+  return app.fetch(
+    new Request(`http://test.local${opts.path ?? "/api/v1/routeware/home/index"}`, {
+      headers
+    }),
+    env,
+    GATE_CTX
+  );
+}
+
+describe("XFF gate pins (TOG-8888)", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    // Gated requests never reach upstream: 401s/429s stop at the gate.
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("Unexpected upstream fetch in XFF gate-pin test");
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("prod-like env (flag absent): 20 XFF-rotated failures share one bucket and trip 429", async () => {
+    // Arrange — no THROTTLE_TRUST_XFF key at all (missing binding behaves as off).
+    const env = gateProbeEnv(undefined);
+    delete (env as unknown as Record<string, unknown>).THROTTLE_TRUST_XFF;
+
+    // Act — rotating XFF across 20 identities must NOT evade the throttle:
+    // every request lands in the shared "unknown" bucket.
+    let last: Response | null = null;
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+      last = await gateCall(env, { token: `gate-rot-${i}`, xff: `198.51.100.${101 + i}` });
+      if (i < AUTH_THROTTLE_MAX_FAILURES - 1) {
+        expect(last.status).toBe(401);
+      }
+    }
+
+    // Assert — the 20th rotated failure trips the shared bucket.
+    expect(last?.status).toBe(429);
+  });
+
+  it('prod-like env (flag "false"): XFF is ignored, one fixed XFF identity trips at exactly 20', async () => {
+    // Arrange
+    const env = gateProbeEnv("false");
+    const XFF = "198.51.100.244";
+
+    // Act / Assert — 19× 401, 20th 429: the throttle still triggers even
+    // though the (ignored) XFF value is constant.
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {
+      expect((await gateCall(env, { token: `gate-fixed-${i}`, xff: XFF })).status).toBe(401);
+    }
+    expect((await gateCall(env, { token: "gate-fixed-final", xff: XFF })).status).toBe(429);
+  });
+
+  it('prod-like env: attacker failures into a victim XFF cannot burn the victim (shared "unknown" bucket)', async () => {
+    // Arrange — fresh env so this test owns its "unknown" bucket alone.
+    const env = gateProbeEnv("false");
+    const VICTIM_XFF = "198.51.100.245";
+
+    // Act — attacker piles failures under the victim's XFF value; XFF is
+    // ignored, so they land in "unknown". One more failure with a DIFFERENT
+    // XFF would share that same bucket — the victim is indistinguishable
+    // from any other XFF-only caller there, which is the documented tradeoff
+    // (fail-closed: no framable per-value bucket), not a per-victim burn.
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {
+      expect((await gateCall(env, { token: `gate-frame-${i}`, xff: VICTIM_XFF })).status).toBe(401);
+    }
+
+    // Assert — the 20th failure on the shared bucket trips, whatever XFF it carries.
+    expect((await gateCall(env, { token: "gate-frame-final", xff: "198.51.100.246" })).status).toBe(
+      429
+    );
+  });
+
+  it('dev env (flag "true"): XFF is honored — one fixed identity trips at exactly 20, rotation evades', async () => {
+    // Arrange — dev-like env honors XFF (documented dev-only tradeoff).
+    const devEnv = gateProbeEnv("true");
+    const FIXED_XFF = "198.51.100.247";
+
+    // Act / Assert — fixed dev XFF buckets consistently.
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {
+      expect((await gateCall(devEnv, { token: `dev-fixed-${i}`, xff: FIXED_XFF })).status).toBe(
+        401
+      );
+    }
+    expect((await gateCall(devEnv, { token: "dev-fixed-final", xff: FIXED_XFF })).status).toBe(429);
+  });
+
+  it('non-"true" flag values ("0", "yes", "") behave as off', async () => {
+    // Arrange — only the exact literal "true" opts in.
+    for (const flag of ["0", "yes", ""]) {
+      const env = gateProbeEnv(flag);
+      const XFF = "198.51.100.248";
+
+      // Act / Assert — first failure is a 401 in the shared bucket; a second
+      // XFF value on a FRESH env shares it too (each loop iteration owns its
+      // env/bucket, so two failures never trip — the pins below prove
+      // bucketing, not the budget).
+      expect((await gateCall(env, { token: "pin-a", xff: XFF })).status).toBe(401);
+      expect((await gateCall(env, { token: "pin-b", xff: "198.51.100.249" })).status).toBe(401);
+    }
+  });
+
+  it("a valid token on the shared bucket passes (fail-closed never locks out legit traffic)", async () => {
+    // Arrange — burn the shared "unknown" bucket to the block with XFF-only failures.
+    const env = gateProbeEnv("false");
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+      await gateCall(env, { token: `burn-${i}`, xff: `198.51.100.${150 + i}` });
+    }
+    expect((await gateCall(env, { token: "burn-final", xff: "198.51.100.199" })).status).toBe(429);
+
+    // Act — the valid token passes the gate (unknown path → 404, not 429/401)
+    // even from the blocked shared bucket, and resets it.
+    const legit = await gateCall(env, {
+      token: GATE_TOKEN,
+      xff: "198.51.100.150",
+      path: "/api/v1/does-not-exist"
+    });
+
+    // Assert
+    expect(legit.status).toBe(404);
   });
 });
