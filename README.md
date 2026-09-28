@@ -194,6 +194,12 @@ Example mappings from a typical harvest (SPA + ExtJS):
 ## Project rules
 
 - Conventions, invariants and the verification loop: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) — read before any change.
+- How to contribute: [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, PR checks, conventional commits.
+- Code of conduct: [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
+
+## License
+
+[MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
 
 ## Layout
 
