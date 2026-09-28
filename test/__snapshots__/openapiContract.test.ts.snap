@@ -7,6 +7,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     "schemas": {
       "CustomerSnapshotList": {
         "properties": {
+          "nextCursor": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
           "rows": {
             "items": {
               "additionalProperties": {},
@@ -21,6 +27,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "required": [
           "rows",
           "total",
+          "nextCursor",
         ],
         "type": "object",
       },
@@ -247,7 +254,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "paths": {
     "/api/v1/address-snapshot": {
       "get": {
-        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`.",
+        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
@@ -313,6 +320,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "schema": {
               "default": 0,
               "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Last pickup_address_id from the previous page's nextCursor; takes precedence over offset",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Last pickup_address_id from the previous page's nextCursor; takes precedence over offset",
               "type": [
                 "integer",
                 "null",
@@ -477,7 +497,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot": {
       "get": {
-        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`.",
+        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
@@ -554,6 +574,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "schema": {
               "default": 0,
               "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Last container_id from the previous page's nextCursor; takes precedence over offset",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Last container_id from the previous page's nextCursor; takes precedence over offset",
               "type": [
                 "integer",
                 "null",
@@ -718,7 +751,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
@@ -773,6 +806,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "schema": {
               "default": 0,
               "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "description": "Last customer_id from the previous page's nextCursor; takes precedence over offset",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "description": "Last customer_id from the previous page's nextCursor; takes precedence over offset",
               "type": [
                 "integer",
                 "null",

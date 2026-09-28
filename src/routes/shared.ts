@@ -444,10 +444,16 @@ export const containerSaveFormDocs: RouteDocs = {
  * Shared by the customer, address and container snapshot list routes. Keep this
  * a single instance — the `.openapi()` name registers one reusable component,
  * and three separate instances would register it three times.
+ *
+ * `nextCursor` is the last row's primary key when the page came back full
+ * (there may be more rows), or `null` at the end of the result set — set on
+ * every list response, not just cursor-driven ones, so an offset caller can
+ * switch to cursor pagination once OFFSET gets expensive (TOG-5810).
  */
 export const snapshotListResponse = z
   .object({
     rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int()
+    total: z.number().int(),
+    nextCursor: z.number().int().nullable()
   })
   .openapi("CustomerSnapshotList");
