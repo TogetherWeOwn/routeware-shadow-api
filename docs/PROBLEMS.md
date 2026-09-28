@@ -125,14 +125,44 @@ traffic through a distinct egress IP.
 
 ## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
 
-Every Routeware fetch runs under a bounded per-attempt budget: 15s for
-interactive forwards (API passthrough, anti-forgery modals, login), 60s for
-report-CSV downloads. A hung upstream host answers as 502 problem+json, never
-a 500 and never a hang to the 300s CPU limit. The single retry is reserved for
-the login redirect (provably safe); a timeout is never retried, so worst case
-is 2x one attempt. Override per deploy with the optional `UPSTREAM_TIMEOUT_MS`
-/ `UPSTREAM_REPORT_TIMEOUT_MS` bindings (absent/invalid falls back to the
-defaults).
+Every Routeware fetch runs under a bounded per-attempt budget
+(`src/lib/upstreamTimeout.ts`, TOG-5835). Before the bound existed, a hung
+upstream host held the Worker until the 300s CPU limit mid-sync. Now each
+fetch races a timer covering time-to-headers only (the `fetch` promise): the
+timer is cleared once headers arrive, so a large report CSV that starts
+quickly is never cut off mid-stream. A timeout fails fast to 502
+problem+json — never a 500, never a hang — with a fixed PII-free detail (no
+URL, no body). A caller abort (client disconnect) with the timer unfired
+rethrows verbatim and is never misreported as a 502.
+
+Per-step budgets (single-retry max, so a forwarded step costs at most 2x one
+attempt):
+
+| Step (code) | Budget / attempt | Worst case | Retry rule |
+|---|---|---|---|
+| Interactive forwards (`forwardWithSessionRetry`: API passthrough, modals, saves) | 15s (`DEFAULT_UPSTREAM_TIMEOUT_MS`) | 30s | retried once only for the login redirect / 200-with-login-form; timeouts never retried |
+| Sessionless login-page probe (`forwardToUpstream` direct, no retry wrapper) | 15s (default) | 15s | single attempt, no retry |
+| HTTP login (`httpAuth.httpLogin`: login-page GET, ext.NET init GET, login POST) | 15s per fetch | 45s for the three fetches | no retry inside; the caller owns the single login-redirect retry |
+| Report-CSV downloads (`routewareQueryReportCsv`, `snapshot/reportFetch`) | 60s (`REPORT_UPSTREAM_TIMEOUT_MS`) | 120s | one re-login + retry; timeouts never retried |
+| Query-report poll (`pollQueryRequestIsComplete`: 2.5s × 24 attempts ≈ 60s) | ≈60s poll + 60s download | fits in one Worker invocation | poll loop, not a fetch retry |
+
+Why timeouts are never retried: the single retry is reserved for the login
+redirect (provably safe — `forwardWithSessionRetry` retries only that), while
+retrying a timeout could double-execute a non-idempotent POST. Pinned by
+`test/upstreamTimeout.test.ts` (hung upstream → exactly one attempt, then 502)
+and `docs/TEST-INVARIANTS.md` § `upstreamTimeout.ts`.
+
+Tuning guidance (all overrides are optional per-deploy bindings — no
+`wrangler.toml` change; absent/invalid falls back to the defaults):
+
+- `UPSTREAM_TIMEOUT_MS`: raise if 502s cluster on a slow-but-healthy upstream
+  whose time-to-headers p99 approaches 15s; lower to fail faster under load.
+  Keep worst case (2x) well under the 300s CPU limit.
+- `UPSTREAM_REPORT_TIMEOUT_MS`: raise only if report *headers* are slow — the
+  streaming body is not counted, so large-but-fast-starting CSVs need no bump.
+- `REPORT_QUERY_POLL_INTERVAL_MS` / `REPORT_QUERY_POLL_MAX_ATTEMPTS`: raise
+  max attempts for slow async query builds; note the poll and the download
+  share one Worker invocation.
 
 ## Oversized snapshot import (`payload-too-large`)
 
