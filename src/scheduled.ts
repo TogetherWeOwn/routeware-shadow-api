@@ -3,6 +3,7 @@ import {
   runDataSnapshotSyncChainedHttp,
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
+import { recordCronRun } from "./lib/cronSyncState";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
 export type CronSyncOutcome = "success" | "unconfigured" | "failed";
@@ -155,24 +156,63 @@ export async function scheduled(
           summarizeTable("address", tables.address),
           summarizeTable("container", tables.container),
         ].join("; ");
+        const endedAt = Date.now();
+        const outcome = (configured > 0 ? "success" : "unconfigured") as CronSyncOutcome;
+        // Persist the run before logging it so the readiness timestamp lands
+        // even if the Worker dies mid-log. Best-effort: a D1 failure here
+        // keeps the log line as the record, never turns a good sync red.
+        try {
+          await recordCronRun((env as Partial<Env>).CUSTOMER_DB, {
+            outcome,
+            mode: base.mode,
+            tables,
+            ranAt: new Date().toISOString(),
+            durationMs: endedAt - start,
+          });
+        } catch (persistErr) {
+          console.error(
+            `data-snapshot-sync persist failed: ${
+              persistErr instanceof Error ? persistErr.message : String(persistErr)
+            }`
+          );
+        }
         console.log(
           `data-snapshot-sync ${JSON.stringify({
             ...base,
-            outcome: (configured > 0 ? "success" : "unconfigured") as CronSyncOutcome,
+            outcome,
             tables,
             summary,
-            durationMs: Date.now() - start,
+            durationMs: endedAt - start,
           } satisfies CronSyncLog)}`
         );
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
+        const endedAt = Date.now();
+        // A throw means no table result exists: every table row records
+        // `failed` (counts null) so the readiness staleness probe still
+        // advances and the next alarm keys on fresh evidence.
+        try {
+          await recordCronRun((env as Partial<Env>).CUSTOMER_DB, {
+            outcome: "failed",
+            mode: base.mode,
+            tables: { customer: null, address: null, container: null },
+            ranAt: new Date().toISOString(),
+            durationMs: endedAt - start,
+          });
+        } catch (persistErr) {
+          console.error(
+            `data-snapshot-sync persist failed: ${
+              persistErr instanceof Error ? persistErr.message : String(persistErr)
+            }`
+          );
+        }
         console.error(
           `data-snapshot-sync ${JSON.stringify({
             ...base,
             outcome: "failed" as CronSyncOutcome,
             tables: { customer: null, address: null, container: null },
             summary: "sync threw before any table result was recorded",
-            durationMs: Date.now() - start,
+            durationMs: endedAt - start,
             error: message,
           } satisfies CronSyncLog)}`
         );

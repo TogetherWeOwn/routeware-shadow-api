@@ -143,6 +143,174 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 ],
                 "type": "object",
               },
+              "cron": {
+                "properties": {
+                  "detail": {
+                    "type": "string",
+                  },
+                  "lastRunAt": {
+                    "type": [
+                      "string",
+                      "null",
+                    ],
+                  },
+                  "ok": {
+                    "type": "boolean",
+                  },
+                  "stale": {
+                    "type": "boolean",
+                  },
+                  "tables": {
+                    "properties": {
+                      "address": {
+                        "properties": {
+                          "deleted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "outcome": {
+                            "enum": [
+                              "success",
+                              "skipped",
+                              "failed",
+                            ],
+                            "type": "string",
+                          },
+                          "ranAt": {
+                            "type": "string",
+                          },
+                          "rowCount": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "upserted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                        },
+                        "required": [
+                          "outcome",
+                          "upserted",
+                          "rowCount",
+                          "deleted",
+                          "ranAt",
+                        ],
+                        "type": [
+                          "object",
+                          "null",
+                        ],
+                      },
+                      "container": {
+                        "properties": {
+                          "deleted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "outcome": {
+                            "enum": [
+                              "success",
+                              "skipped",
+                              "failed",
+                            ],
+                            "type": "string",
+                          },
+                          "ranAt": {
+                            "type": "string",
+                          },
+                          "rowCount": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "upserted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                        },
+                        "required": [
+                          "outcome",
+                          "upserted",
+                          "rowCount",
+                          "deleted",
+                          "ranAt",
+                        ],
+                        "type": [
+                          "object",
+                          "null",
+                        ],
+                      },
+                      "customer": {
+                        "properties": {
+                          "deleted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "outcome": {
+                            "enum": [
+                              "success",
+                              "skipped",
+                              "failed",
+                            ],
+                            "type": "string",
+                          },
+                          "ranAt": {
+                            "type": "string",
+                          },
+                          "rowCount": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                          "upserted": {
+                            "type": [
+                              "number",
+                              "null",
+                            ],
+                          },
+                        },
+                        "required": [
+                          "outcome",
+                          "upserted",
+                          "rowCount",
+                          "deleted",
+                          "ranAt",
+                        ],
+                        "type": [
+                          "object",
+                          "null",
+                        ],
+                      },
+                    },
+                    "required": [
+                      "customer",
+                      "address",
+                      "container",
+                    ],
+                    "type": "object",
+                  },
+                },
+                "required": [
+                  "ok",
+                  "stale",
+                  "lastRunAt",
+                  "tables",
+                ],
+                "type": "object",
+              },
               "d1": {
                 "properties": {
                   "detail": {
@@ -184,6 +352,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "d1",
               "r2",
               "config",
+              "cron",
             ],
             "type": "object",
           },
@@ -1450,7 +1619,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/readiness": {
       "get": {
-        "description": "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, and reports whether each snapshot report source is configured. Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
+        "description": "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
         "responses": {
           "200": {
             "content": {
