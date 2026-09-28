@@ -37,11 +37,13 @@ BASE=http://127.0.0.1:8787
 SECRET=<the CUSTOMER_SNAPSHOT_SYNC_SECRET value from .dev.vars>
 ```
 
-Use the **sync secret**, not `SHADOW_API_TOKEN`: the app-wide gate accepts either, but the in-handler check on every `.../import` route (`requireSnapshotAuth`, `src/routes/shared.ts:82-95`) matches the sync secret only — the API token gets a 401 here.
+If the default port is already taken (e.g. another checkout's dev server on a shared host — `Address already in use` while `/api/v1/health` still answers), start your own on a free port (`npx wrangler dev --port 8791`) and point `$BASE` at it. Never import through another checkout's server: its D1 binding belongs to a different worktree.
+
+Use the **sync secret**, not `SHADOW_API_TOKEN`: the app-wide gate accepts either, but the in-handler check on every `.../import` route (`requireSnapshotAuth`, `src/routes/shared.ts:81-93`) matches the sync secret only — the API token gets a 401 here.
 
 ## 2. Import order: customers → addresses → containers
 
-D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and D1 **enforces it unconditionally**: importing an address whose customer is missing (or a container whose address is missing) fails with a 400 `bad-request` naming the dangling key (e.g. `Dangling reference: address_snapshot.customer_id=999 has no row in customer_snapshot.customer_id …`). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:102-121`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
+D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and D1 **enforces it unconditionally**: importing an address whose customer is missing (or a container whose address is missing) fails with a 400 `bad-request` naming the dangling key (e.g. `Dangling reference: address_snapshot.customer_id=999 has no row in customer_snapshot.customer_id …`). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:117-136`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
 
 Prefer per-table `.../import` (raw CSV body) for backfill: unlike `.../sync` it needs no report path/query vars and never deletes (see §5). One call per table, **in this order**.
 
@@ -62,7 +64,7 @@ curl -s -X POST "$BASE/api/v1/container-snapshot/import" \
 # expect {"upserted":K,"rowCount":K,"deleted":0}
 ```
 
-Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively, or the import throws `... is not valid CSV (missing ... header)` and imports nothing:
+Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. Anything else fails with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7) and imports nothing:
 
 ```csv
 CustomerID,CompanyName,Enabled
@@ -153,7 +155,7 @@ There is no undo log — every write is an `INSERT … ON CONFLICT DO UPDATE` ke
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `... is not valid CSV (missing CustomerID / PickupAddressID / ContainerID header)` **in the Worker log** (HTTP body is a generic 500 problem+json) | First CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (check is `startsWith` on the lowercased first cell, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
+| `Snapshot import body is not valid CSV...` 400 `bad-request` (the `missing ... header` wording lives in the `InvalidSnapshotCsvError` server-side; the HTTP body intentionally carries only the generic message, `src/routes/snapshotImport.ts:57-84`) | Normalized first CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (exact match after trim, BOM-strip, lowercase and CSV unquoting — `"CustomerID"` or padded/lowercase variants pass; `firstHeaderCell`, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
 | `Dangling reference: <table>.<column>=<key> has no row in <parent>.<column> …` 400 `bad-request` (FK details also in the Worker log) | Out-of-order import or a child row pointing at a missing parent id | Only the failing batch is lost — import the parents first, then fix the CSV and re-import in order (§2) |
 | `SQLITE_CANTOPEN` / `unable to open database file` in the Worker log, every import 500s | `.wrangler/state/v3/d1` was wiped while `wrangler dev` was running (§1) | Restart `wrangler dev` |
 | `401` problem+json on import | Bearer missing/wrong, or the API token sent instead of the sync secret (`requireSnapshotAuth` matches the sync secret only) | Use the `.dev.vars` `CUSTOMER_SNAPSHOT_SYNC_SECRET` value for `$SECRET`; restart `wrangler dev` after editing `.dev.vars` |
