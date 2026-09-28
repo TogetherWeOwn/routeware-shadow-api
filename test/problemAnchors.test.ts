@@ -26,6 +26,7 @@ import { validationFailureHook } from "../src/routes/shared";
  * | `DELETE /api/v1/routeware/customer` | — | outer gate | | anchored | shared | | | shared |
  * | Snapshot lists (customer/address/container) | hook 400 (query) | outer gate | | | shared | | | shared |
  * | Snapshot by-id (×3) | hook 400 (params) | outer gate | anchored (missing row) | | shared | | | shared |
+ * | Snapshot export CSV (×3) | — (no schema) | outer + inner 401 | | | shared | | | shared |
  * | Snapshot sync (×3) | — | outer + inner 401 | | | shared | | secret-unset / report-source-unset | shared |
  * | Snapshot import (×3) | empty body | outer + inner 401 | | | shared | | | shared |
  * | `POST /api/v1/data-snapshot/sync` | — | outer + inner 401 | | | shared | | secret-unset | shared |

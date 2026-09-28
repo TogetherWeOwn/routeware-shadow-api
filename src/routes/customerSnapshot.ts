@@ -11,6 +11,10 @@ import {
   SNAPSHOT_IMPORT_MAX_BYTES,
   isSnapshotTooLarge
 } from "../lib/snapshot/streamSync";
+import {
+  CUSTOMER_SNAPSHOT_EXPORT,
+  snapshotCsvResponse
+} from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
@@ -84,6 +88,31 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     .bind(...binds, p.limit, p.offset)
     .all();
   return c.json({ rows: results ?? [], total });
+});
+
+const customerSnapshotExportRoute = createRoute({
+  method: "get",
+  path: "/api/v1/customer-snapshot/export",
+  tags: ["customer-snapshot"],
+  summary: "Download customer snapshot as CSV",
+  description:
+    "Streams every `customer_snapshot` row as CSV (`Content-Disposition: attachment`, filename `customer-snapshot.csv`) in `customer_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
+  responses: {
+    200: {
+      description: "CSV download (header line plus one line per row)",
+      content: { "text/csv": { schema: z.string() } }
+    },
+    401: { description: "Unauthorized" }
+  }
+});
+
+// Registered BEFORE the by-id route below: Hono matches in registration
+// order, so a param route registered first would swallow `/export` as an id.
+// (Pinned by `test/snapshotCsvExport.test.ts`.)
+customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  return snapshotCsvResponse(c.env.CUSTOMER_DB, CUSTOMER_SNAPSHOT_EXPORT);
 });
 
 const customerSnapshotByIdRoute = createRoute({

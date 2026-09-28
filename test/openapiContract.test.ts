@@ -44,10 +44,13 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"
 const EXPECTED_OPERATIONS = [
   "DELETE /api/v1/routeware/customer",
   "GET /api/v1/address-snapshot",
+  "GET /api/v1/address-snapshot/export",
   "GET /api/v1/address-snapshot/{pickupAddressId}",
   "GET /api/v1/container-snapshot",
+  "GET /api/v1/container-snapshot/export",
   "GET /api/v1/container-snapshot/{containerId}",
   "GET /api/v1/customer-snapshot",
+  "GET /api/v1/customer-snapshot/export",
   "GET /api/v1/customer-snapshot/{customerId}",
   "GET /api/v1/data/address",
   "GET /api/v1/data/container",
