@@ -112,6 +112,32 @@ npx wrangler d1 execute routeware-customer-snapshot --remote --json \
   --command "SELECT table_name, outcome, ran_at FROM cron_sync_state"
 ```
 
+## Archive integrity manifest and verify
+
+Each successful archive also upserts one entry per CSV into a sidecar
+`snapshots/<UTC-date>.manifest.json` — a sibling of the date's CSV "directory",
+carrying `{ version, date, files: { "<table>.csv": { key, sha256, bytes } } }`
+(`src/lib/r2SnapshotArchive.ts`). Hashes and keys only, never row data, so the
+manifest is safe to log and print. A failed CSV put writes no entry; a corrupt
+existing sidecar is replaced (warned), and verify then reports the other tables
+as missing, loudly.
+
+Check one date's archive without credentials (local Miniflare R2 under a
+`--persist-to` dir) or read-only against remote (needs `CLOUDFLARE_API_TOKEN` in
+the environment, never a flag):
+
+```bash
+npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir>
+```
+
+Exit 0 when every entry verifies; exit 1 on any mismatch, missing object, or
+unreadable manifest; exit 2 on flag/usage errors. A tampered CSV fails by name
+with both hashes, e.g. `FAIL customer.csv (snapshots/2026-09-28/customer.csv):
+sha256 mismatch (manifest <old>, r2 <new>; ...)`. Reviewer acceptance path —
+fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
+the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
+lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
+
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
 All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`**.
