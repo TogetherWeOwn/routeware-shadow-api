@@ -28,6 +28,7 @@ nvm use                             # Node 20+, per .nvmrc (engines: >=20)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
 cp .dev.vars.example .dev.vars      # then fill in values (see below)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
+npm run db:seed                     # load the synthetic customer→address→container fixture (idempotent, local D1 only)
 npm run dev                         # http://localhost:8787 (runs check:devvars first)
 ```
 
@@ -115,6 +116,7 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run dev` | `wrangler dev` — local Worker + Miniflare (runs `check:devvars` first). With `AUTH_MODE=auto`/`http`, HTTP login needs no Browser Rendering, so this works **without** `--remote` |
 | `npm run dev:remote` | `wrangler dev --remote` — use to exercise the Browser Rendering / Puppeteer login fallback |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
+| `npm run db:seed` | Load the synthetic customer→address→container fixture into the **local** D1 (idempotent UPSERTs — safe to re-run; never touches remote) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
 | `npm run types` | Regenerate [`worker-configuration.d.ts`](./worker-configuration.d.ts) from Wrangler |
 | `npm run typecheck` | `tsc --noEmit` |
