@@ -453,12 +453,39 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect("deleted" in (result.customer as object)).toBe(false);
   });
 
-  it("throws with the step, status and truncated body when a subrequest fails", async () => {
-    // Arrange
+  it("throws a fixed-shape error with zero upstream bytes when a subrequest fails (TOG-9205)", async () => {
+    // Arrange — the body is upstream-controlled HTML and lands verbatim in
+    // the APP ERROR log and the cron `failed` line via this message, so the
+    // message carries table/step/status only (R4-04/B1).
     stubFetch();
     behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
       status: 500,
-      body: "X".repeat(2000)
+      body: `<html><body>UPSTREAM-MARKER-${"X".repeat(2000)}</body></html>`
+    });
+
+    // Act
+    const error = (await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({
+        CUSTOMER_REPORT_QUERY_ID: "23",
+        CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret"
+      })
+    ).catch((e: unknown) => e)) as Error;
+
+    // Assert — fixed shape, and not one byte of the subrequest body survives.
+    expect(error.message).toBe(
+      "[chained customer] POST /api/v1/customer-snapshot/sync → 500"
+    );
+    expect(error.message).not.toContain("UPSTREAM-MARKER");
+  });
+
+  it("throws the same fixed shape, not a SyntaxError quoting input, on a 200 with a non-JSON body (TOG-9205)", async () => {
+    // Arrange — V8's SyntaxError message quotes the offending input bytes,
+    // which would ride the same log lines as the old body slice.
+    stubFetch();
+    behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
+      status: 200,
+      body: "<html>UPSTREAM-MARKER not json at all</html>"
     });
 
     // Act
@@ -472,8 +499,9 @@ describe("runDataSnapshotSyncChainedHttp", () => {
 
     // Assert
     expect(error.message).toBe(
-      `[chained customer] POST /api/v1/customer-snapshot/sync → 500: ${"X".repeat(1200)}`
+      "[chained customer] POST /api/v1/customer-snapshot/sync → 200: invalid JSON"
     );
+    expect(error.message).not.toContain("UPSTREAM-MARKER");
   });
 
   it("does not post the tables the plan skipped", async () => {

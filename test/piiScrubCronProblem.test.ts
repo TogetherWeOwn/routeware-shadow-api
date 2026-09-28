@@ -10,11 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * - site 1: `src/scheduled.ts` copies per-table results into the
  *   `data-snapshot-sync` log line. A spread there would carry any extra
  *   property (company name, phone, …) straight into the cron log.
- * - site 11: `runDataSnapshotSyncChainedHttp` embeds a 1200-char slice of each
- *   per-table subrequest body in its throw, which lands in the cron `error`
- *   field. Those bodies are our own sync routes (counts / fixed
- *   problem+json), never upstream CSV — pinned below by feeding PII-shaped
- *   extras through both and proving only counts survive.
+ * - site 11: `runDataSnapshotSyncChainedHttp` used to embed a 1200-char slice
+ *   of each per-table subrequest body in its throw, which landed in the cron
+ *   `error` field. FIXED by TOG-9205 (R4-04/B1): the throw carries step tag +
+ *   status only, zero body bytes — pinned below by feeding PII-shaped extras
+ *   through both and proving only counts (success) or the fixed shape
+ *   (failure) survive.
  *
  * - problem+json `detail`/`instance`: every route builds them from numeric
  *   ids, fixed strings and pathnames. Query strings here can carry customer
@@ -321,17 +322,19 @@ describe("chained runner carries counts, never row data (site 11)", () => {
     expectNoPii(JSON.stringify(result));
   });
 
-  it("failure slice of a real-shaped problem body carries no row data", async () => {
-    // Arrange — the subrequest answers the fixed problem+json shape the sync
-    // routes emit (integer keys and fixed strings only, pinned below).
+  it("failure carries zero subrequest body bytes, even for a PII-shaped problem body (TOG-9205)", async () => {
+    // Arrange — the subrequest answers a problem+json body smuggling
+    // PII-shaped row fields alongside the fixed shape. The thrown message
+    // lands verbatim in the cron `failed` line, so it carries step tag +
+    // status only — the body is consumed and discarded (R4-04/B1).
     chainedBehavior.status = 500;
     chainedBehavior.body = JSON.stringify({
       type: "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",
       title: "Service Unavailable",
       status: 503,
-      detail:
-        "Set CUSTOMER_REPORT_EXPORT_PATH or CUSTOMER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
-      instance: "/api/v1/customer-snapshot/sync"
+      detail: `Row for ${PII_NAME} ${PII_PHONE} failed. ${PII_COOKIE}`,
+      instance: "/api/v1/customer-snapshot/sync",
+      company_name: PII_COMPANY
     });
 
     // Act
@@ -340,10 +343,11 @@ describe("chained runner carries counts, never row data (site 11)", () => {
       chainedEnv()
     ).catch((e: unknown) => e)) as Error;
 
-    // Assert — step tag + status + slice preserved for diagnosis, row data absent.
+    // Assert — fixed shape, exact match: no slice, no body bytes.
     expect(error).toBeInstanceOf(Error);
-    expect(error.message.startsWith("[chained customer] POST ")).toBe(true);
-    expect(error.message).toContain("→ 500: ");
+    expect(error.message).toBe(
+      "[chained customer] POST /api/v1/customer-snapshot/sync → 500"
+    );
     expectNoPii(error.message);
   });
 });
