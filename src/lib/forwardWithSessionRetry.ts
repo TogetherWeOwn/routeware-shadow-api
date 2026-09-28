@@ -1,5 +1,5 @@
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
-import { forwardToUpstream } from "./upstreamForward";
+import { forwardToUpstream, type ForwardOptions } from "./upstreamForward";
 import { readSessionState, type SessionState } from "./sessionState";
 import {
   isUpstreamTimeout,
@@ -7,11 +7,26 @@ import {
   upstreamTimeoutProblem
 } from "./upstreamTimeout";
 
-type EstablishSession = (
+export type EstablishSession = (
   env: Env,
   stub: DurableObjectStub,
   bootstrapUrl: string
 ) => Promise<void>;
+
+/**
+ * TOG-6462 retry context for the anti-forgery modal GET. When BOTH fields are
+ * present the modal fetch runs through `forwardWithSessionRetry` (single
+ * re-establish + retry, `internalMarker` preserved) instead of bare
+ * `forwardToUpstream`, so an expired stored session (modal answers 302 →
+ * login, or HTTP-200 login page) heals instead of surfacing a 502 the next
+ * save would hit again. Absent keeps the direct forward.
+ */
+export type ModalRetryContext = {
+  /** AuthSession DO stub the retry reads and refreshes. */
+  sessionStub?: DurableObjectStub;
+  /** Real `establishSession` — the single re-login budget. */
+  establishSession?: EstablishSession;
+};
 
 /** Refresh this far before the stored session's recorded expiry. */
 const EXPIRY_SKEW_MS = 60_000;
@@ -41,12 +56,21 @@ export async function forwardWithSessionRetry(
   incoming: Request,
   upstreamUrl: URL,
   bodyBuffer: ArrayBuffer | null,
-  establishSession: EstablishSession
+  establishSession: EstablishSession,
+  options: ForwardOptions = {}
 ): Promise<Response> {
   // Bounded per-attempt budget (TOG-5835), honoring an optional
   // `UPSTREAM_TIMEOUT_MS` binding. Worst case is 2x this (one retry max).
+  // TOG-6462: the anti-forgery modal fetch passes `internalMarker` through
+  // so the retry forward keeps the trusted-server-side header (`upstreamForward`
+  // sets it from `options` only — client requests can never spoof it).
   const timeoutMs = readUpstreamTimeoutMs(env);
-  const forwardOpts = { timeoutMs };
+  const forwardOpts: ForwardOptions = {
+    timeoutMs,
+    ...(options.internalMarker !== undefined
+      ? { internalMarker: options.internalMarker }
+      : {})
+  };
 
   let session: SessionState = await readSessionState(sessionStub);
 
