@@ -47,15 +47,18 @@ async function call(
   return exports.default.fetch(`http://test.local${path}`, { method, headers });
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 13 share the canonical inner 401 body. */
+/** Every route guarded by the narrower snapshot-secret check. All 16 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
   { method: "POST", path: "/api/v1/customer-snapshot/import" },
+  { method: "GET", path: "/api/v1/customer-snapshot/export" },
   { method: "POST", path: "/api/v1/data-snapshot/sync" },
   { method: "POST", path: "/api/v1/address-snapshot/sync" },
   { method: "POST", path: "/api/v1/address-snapshot/import" },
+  { method: "GET", path: "/api/v1/address-snapshot/export" },
   { method: "POST", path: "/api/v1/container-snapshot/sync" },
   { method: "POST", path: "/api/v1/container-snapshot/import" },
+  { method: "GET", path: "/api/v1/container-snapshot/export" },
   { method: "GET", path: "/api/v1/data/customer?id=1" },
   { method: "GET", path: "/api/v1/data/address?id=1" },
   { method: "GET", path: "/api/v1/data/container?id=1" },
@@ -111,7 +114,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(13);
+    expect(GUARDED_ROUTES).toHaveLength(16);
   });
 
   for (const route of GUARDED_ROUTES) {

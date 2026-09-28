@@ -54,7 +54,9 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   // The data-entity GETs version with ETag; expose it so browser clients can
   // do conditional reads. Retry-After is exposed so browser clients can honor
   // the auth-throttle 429 backoff (TOG-7380) instead of retry-spinning blind.
-  headers.set("Access-Control-Expose-Headers", "ETag, Retry-After");
+  // Content-Disposition is exposed so a fetch-based CSV download
+  // (`GET ...-snapshot/export`, TOG-8361) can read the attachment filename.
+  headers.set("Access-Control-Expose-Headers", "ETag, Retry-After, Content-Disposition");
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Referrer-Policy", "no-referrer");

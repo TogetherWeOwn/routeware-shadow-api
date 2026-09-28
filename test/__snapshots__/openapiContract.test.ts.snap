@@ -338,6 +338,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/address-snapshot/export": {
+      "get": {
+        "description": "Streams every \`address_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`address-snapshot.csv\`) in \`pickup_address_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "CSV download (header line plus one line per row)",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Download address snapshot as CSV",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
     "/api/v1/address-snapshot/import": {
       "post": {
         "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys.",
@@ -579,6 +603,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/container-snapshot/export": {
+      "get": {
+        "description": "Streams every \`container_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`container-snapshot.csv\`) in \`container_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "CSV download (header line plus one line per row)",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Download container snapshot as CSV",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
     "/api/v1/container-snapshot/import": {
       "post": {
         "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys.",
@@ -793,6 +841,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "summary": "List customer snapshot rows (D1)",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/export": {
+      "get": {
+        "description": "Streams every \`customer_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`customer-snapshot.csv\`) in \`customer_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "CSV download (header line plus one line per row)",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Download customer snapshot as CSV",
         "tags": [
           "customer-snapshot",
         ],
