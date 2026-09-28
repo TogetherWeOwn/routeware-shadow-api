@@ -109,6 +109,67 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expectHardened(response);
   });
 
+  it("strips non-allowlisted request headers from the preflight grant (TOG-8368)", async () => {
+    const response = await call(
+      "/api/v1/routeware/customer/customers-read",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: FOREIGN_ORIGIN,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers":
+            "authorization, content-type, x-custom-evil, X-Another-Nope"
+        }
+      },
+      null
+    );
+    expect(response.status).toBe(204);
+    const allowHeaders =
+      response.headers.get("access-control-allow-headers") ?? "";
+    expect(allowHeaders).toMatch(/authorization/i);
+    expect(allowHeaders).toMatch(/content-type/i);
+    expect(allowHeaders.toLowerCase()).not.toContain("x-custom-evil");
+    expect(allowHeaders.toLowerCase()).not.toContain("x-another-nope");
+  });
+
+  it("permits If-None-Match for conditional reads of the ETag cache (TOG-8368)", async () => {
+    const response = await call(
+      "/api/v1/data/customer",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: FOREIGN_ORIGIN,
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "authorization, if-none-match"
+        }
+      },
+      null
+    );
+    expect(response.status).toBe(204);
+    expect(
+      response.headers.get("access-control-allow-headers")
+    ).toMatch(/if-none-match/i);
+  });
+
+  it("falls back to the default pair when nothing allowlisted is requested (TOG-8368)", async () => {
+    const response = await call(
+      "/api/v1/routeware/customer/customers-read",
+      {
+        method: "OPTIONS",
+        headers: {
+          Origin: FOREIGN_ORIGIN,
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "x-only-junk"
+        }
+      },
+      null
+    );
+    expect(response.status).toBe(204);
+    expect(response.headers.get("access-control-allow-headers")).toBe(
+      "Authorization, Content-Type"
+    );
+  });
+
   it("does not set Access-Control-Allow-Credentials (bearer auth, no cookies)", async () => {
     const response = await call(
       "/api/v1/health",

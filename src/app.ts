@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
-import { corsPreflightResponse, withCors } from "./lib/cors";
+import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
@@ -178,30 +178,40 @@ app.route("/", dataEntityRoutes);
 
 app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
-    return problemJsonResponse({
-      type: problemType("forbidden"),
-      title: "Not Found",
-      status: 404,
-      detail:
-        "OpenAPI spec is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
-      instance: new URL(c.req.url).pathname
-    });
+    return withSecurityHeaders(
+      problemJsonResponse({
+        type: problemType("forbidden"),
+        title: "Not Found",
+        status: 404,
+        detail:
+          "OpenAPI spec is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
+        instance: new URL(c.req.url).pathname
+      })
+    );
   }
-  return c.json(app.getOpenAPI31Document(openApiDocumentConfig));
+  return withSecurityHeaders(
+    c.json(app.getOpenAPI31Document(openApiDocumentConfig))
+  );
 });
 
 app.use("/docs", async (c, next) => {
   if (!openapiDocsEnabled(c.env)) {
-    return problemJsonResponse({
-      type: problemType("forbidden"),
-      title: "Not Found",
-      status: 404,
-      detail:
-        "OpenAPI UI is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
-      instance: new URL(c.req.url).pathname
-    });
+    return withSecurityHeaders(
+      problemJsonResponse({
+        type: problemType("forbidden"),
+        title: "Not Found",
+        status: 404,
+        detail:
+          "OpenAPI UI is disabled (set OPENAPI_DOCS_ENABLED=true to enable). See docs/PROBLEMS.md#forbidden.",
+        instance: new URL(c.req.url).pathname
+      })
+    );
   }
-  return next();
+  await next();
+  // Scalar renders the docs HTML downstream: stamp hardening headers on it
+  // (TOG-8368 audit — /docs previously carried none).
+  c.res = withSecurityHeaders(c.res);
+  return;
 });
 
 // Scalar UI config (TOG-8360): preselect the `bearerAuth` scheme so the
