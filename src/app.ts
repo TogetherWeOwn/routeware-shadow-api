@@ -204,11 +204,19 @@ app.use("/docs", async (c, next) => {
   return next();
 });
 
+// Scalar UI config (TOG-8360): preselect the `bearerAuth` scheme so the
+// Authorize dialog opens on the right scheme, keep the token across reloads,
+// and default code samples to curl. No token value is embedded here — the
+// reviewer pastes `CUSTOMER_SNAPSHOT_SYNC_SECRET` once; `persistAuth` keeps
+// it for every try-it call (import/sync) in that browser.
 app.use(
   "/docs",
   Scalar({
     pageTitle: "Routeware Shadow API",
-    url: "/openapi.json"
+    url: "/openapi.json",
+    authentication: { preferredSecurityScheme: "bearerAuth" },
+    persistAuth: true,
+    defaultHttpClient: { targetKey: "shell", clientKey: "curl" }
   })
 );
 
