@@ -88,6 +88,30 @@ npx wrangler d1 migrations apply routeware-customer-snapshot --local
 npx wrangler d1 migrations apply routeware-customer-snapshot --remote
 ```
 
+## Readiness: cron staleness
+
+Every scheduled run (`src/scheduled.ts`, `0 7 * * *` UTC) upserts one row per
+table into `cron_sync_state` (`migrations/d1/0004_cron_sync_state.sql`) before
+emitting its `data-snapshot-sync` log line, and `GET /api/v1/readiness`
+reports it back as an advisory `cron` check: `lastRunAt` (newest row),
+per-table `outcome` (`success` / `skipped` / `failed`) with counts and
+timestamps, and `stale` (true when no row exists or the newest row is older
+than 48h — one missed daily firing tolerated, two page). Only
+outcome/mode/counts/timestamps are stored — never row data or error text, so
+no PII by column construction (CONVENTIONS.md §5).
+
+Advisory means advisory: `cron.ok` mirrors `stale` but never flips the
+overall readiness status, so a never-yet-run staging Worker still deploys —
+the cron's own `success`/`failed` log line remains the alarm source (see
+`docs/CRON-SYNC-ALARM-RUNBOOK.md`). Reviewer check: fire a local scheduled
+run (`curl http://localhost:8787/__scheduled` under `wrangler dev
+--test-scheduled`), then read readiness and confirm the fresh timestamp.
+
+```bash
+npx wrangler d1 execute routeware-customer-snapshot --remote --json \
+  --command "SELECT table_name, outcome, ran_at FROM cron_sync_state"
+```
+
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
 All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`**.

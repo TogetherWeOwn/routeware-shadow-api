@@ -52,6 +52,41 @@ export const readinessResponseSchema = z
         address: z.boolean(),
         container: z.boolean(),
         detail: z.string().optional()
+      }),
+      cron: z.object({
+        ok: z.boolean(),
+        stale: z.boolean(),
+        lastRunAt: z.string().nullable(),
+        tables: z.object({
+          customer: z
+            .object({
+              outcome: z.enum(["success", "skipped", "failed"]),
+              upserted: z.number().nullable(),
+              rowCount: z.number().nullable(),
+              deleted: z.number().nullable(),
+              ranAt: z.string()
+            })
+            .nullable(),
+          address: z
+            .object({
+              outcome: z.enum(["success", "skipped", "failed"]),
+              upserted: z.number().nullable(),
+              rowCount: z.number().nullable(),
+              deleted: z.number().nullable(),
+              ranAt: z.string()
+            })
+            .nullable(),
+          container: z
+            .object({
+              outcome: z.enum(["success", "skipped", "failed"]),
+              upserted: z.number().nullable(),
+              rowCount: z.number().nullable(),
+              deleted: z.number().nullable(),
+              ranAt: z.string()
+            })
+            .nullable()
+        }),
+        detail: z.string().optional()
       })
     })
   })
@@ -63,7 +98,7 @@ const readinessRoute = createRoute({
   tags: ["meta"],
   summary: "Deep readiness probe (D1, R2, report config)",
   description:
-    "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, and reports whether each snapshot report source is configured. Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
+    "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
   responses: {
     200: {
       description: "All dependencies ready",
