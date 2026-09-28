@@ -57,6 +57,7 @@ if (!ok) {
 
 console.log(
   "OK: effective dev vars define LOGIN_USERNAME, LOGIN_PASSWORD, SESSION_TTL_SECONDS, " +
-    "TARGET_ORIGIN, LOGIN_URL, a valid AUTH_MODE, and a client auth token (values not shown)."
+    "TARGET_ORIGIN, LOGIN_URL, a valid AUTH_MODE, valid REPORT_QUERY_* dates/ids/poll " +
+    "overrides, a well-shaped SHADOW_API_PUBLIC_BASE, and a client auth token (values not shown)."
 );
 console.log("Restart `wrangler dev` after editing .dev.vars.");
