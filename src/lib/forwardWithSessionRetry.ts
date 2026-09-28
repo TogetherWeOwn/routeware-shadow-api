@@ -1,6 +1,6 @@
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { forwardToUpstream, type ForwardOptions } from "./upstreamForward";
-import { readSessionState, type SessionState } from "./sessionState";
+import { readSessionState, readSessionTtlMs, type SessionState } from "./sessionState";
 import {
   isUpstreamTimeout,
   readUpstreamTimeoutMs,
@@ -32,20 +32,44 @@ export type ModalRetryContext = {
 const EXPIRY_SKEW_MS = 60_000;
 
 /**
- * True when a session we *have* is at/near its recorded TTL expiry.
+ * True when a session we *have* is at/near its recorded TTL expiry, or when
+ * the stored expiry outlives the *current* `SESSION_TTL_SECONDS` (TOG-6528).
  *
  * A missing session returns false on purpose: it is handled reactively (the
  * first forward gets a login redirect, then re-establishes), which avoids
  * launching the browser for a request a cookieless upstream would serve anyway.
  * The proactive path exists specifically to skip a predictable redirect when the
  * stored session is known to be expiring (making SESSION_TTL_SECONDS effective).
+ *
+ * The second clause is the TTL-lowering containment: `expiresAtMs` is written
+ * once at login, so lowering the TTL after the fact never moves it — without
+ * this check the far-future expiry keeps a possibly-leaked cookie in use. When
+ * the remaining lifetime exceeds the current TTL, the TTL was lowered since
+ * login (or the stored value is otherwise bogus), so the session is treated as
+ * expired and re-established. A literal `min(stored, now + TTL)` clamp would
+ * NOT work here: `now + TTL` is always a full TTL away, so the check would
+ * slide forward forever and never fire.
+ *
+ * When `env` is omitted or the TTL is unparseable, only the stored expiry is
+ * consulted (the pre-TOG-6528 behavior); the next login still fails loudly via
+ * `sessionExpiryMs`, so a bad value cannot silently wedge traffic.
  */
-export function sessionNeedsRefresh(session: SessionState, nowMs = Date.now()): boolean {
+export function sessionNeedsRefresh(
+  session: SessionState,
+  nowMs = Date.now(),
+  env?: Pick<Env, "SESSION_TTL_SECONDS">
+): boolean {
   if (!session.cookieHeader) {
     return false;
   }
   if (session.expiresAtMs !== null && nowMs >= session.expiresAtMs - EXPIRY_SKEW_MS) {
     return true;
+  }
+  if (session.expiresAtMs !== null && env) {
+    const ttlMs = readSessionTtlMs(env);
+    if (ttlMs !== null && session.expiresAtMs - nowMs > ttlMs) {
+      return true;
+    }
   }
   return false;
 }
@@ -76,8 +100,10 @@ export async function forwardWithSessionRetry(
 
   // Proactive refresh: if the stored session is absent or about to expire
   // (SESSION_TTL_SECONDS), re-establish before spending the request on a
-  // predictable login redirect.
-  if (sessionNeedsRefresh(session)) {
+  // predictable login redirect. Passing `env` also clamps the stored expiry
+  // to the current TTL (TOG-6528): a TTL lowered after login forces a refresh
+  // of the far-future stored session.
+  if (sessionNeedsRefresh(session, Date.now(), env)) {
     await establishSession(env, sessionStub, env.LOGIN_URL);
     session = await readSessionState(sessionStub);
   }

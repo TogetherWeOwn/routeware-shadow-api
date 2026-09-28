@@ -128,6 +128,45 @@ describe("sessionNeedsRefresh", () => {
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 1000, refreshing: false }, now)).toBe(true);
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now - 1, refreshing: false }, now)).toBe(true);
   });
+  it("refreshes when the stored expiry outlives the current TTL (TOG-6528)", () => {
+    // Arrange — logged in under a 30-minute TTL, then the operator lowers the
+    // TTL to 5 minutes to contain a suspected leaked session. The stored
+    // absolute expiry never moves, so without this check the far-future expiry
+    // would keep the possibly-dead cookie in use.
+    const session = { cookieHeader: "c=1", expiresAtMs: now + 30 * 60_000, refreshing: false };
+    const lowered = { SESSION_TTL_SECONDS: 300 } as unknown as Env;
+
+    // Act / Assert
+    expect(sessionNeedsRefresh(session, now, lowered)).toBe(true);
+  });
+  it("does not refresh when the stored expiry fits within the current TTL", () => {
+    // Arrange — remaining lifetime (10 min) under the current TTL (30 min):
+    // the TTL was not lowered since login.
+    const session = { cookieHeader: "c=1", expiresAtMs: now + 10 * 60_000, refreshing: false };
+    const current = { SESSION_TTL_SECONDS: 1800 } as unknown as Env;
+
+    // Act / Assert
+    expect(sessionNeedsRefresh(session, now, current)).toBe(false);
+  });
+  it("falls back to the stored expiry alone when the TTL is unparseable", () => {
+    // Arrange — a bad TTL must never hard-fail traffic on the read path; the
+    // next login still fails loudly via sessionExpiryMs.
+    const bad = { SESSION_TTL_SECONDS: "soon" } as unknown as Env;
+
+    // Act / Assert
+    expect(
+      sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 600_000, refreshing: false }, now, bad)
+    ).toBe(false);
+    expect(
+      sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now - 1, refreshing: false }, now, bad)
+    ).toBe(true);
+  });
+  it("keeps the legacy two-arg behavior when no env is passed", () => {
+    // Arrange — callers that do not know the TTL get the stored-expiry check only.
+    expect(
+      sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 30 * 60_000, refreshing: false }, now)
+    ).toBe(false);
+  });
 });
 
 describe("forwardWithSessionRetry", () => {
@@ -156,6 +195,37 @@ describe("forwardWithSessionRetry", () => {
       establish
     );
 
+    expect(establish).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+  });
+
+  it("proactively refreshes when the TTL was lowered below the stored expiry (TOG-6528)", async () => {
+    // Arrange — acceptance: logged in under a long TTL, then the reviewer
+    // lowers the TTL. The stored far-future expiry must trigger a proactive
+    // refresh instead of reusing the possibly-dead cookie.
+    const holder = {
+      value: { cookieHeader: "old", expiresAtMs: Date.now() + 30 * 60_000, refreshing: false } as SessionState
+    };
+    const stub = makeStub(holder);
+    const loweredEnv = { ...env, SESSION_TTL_SECONDS: 300 } as unknown as Env;
+    const establish = vi.fn(async () => {
+      holder.value = { cookieHeader: "fresh", expiresAtMs: Date.now() + 300_000, refreshing: false };
+    });
+    const fetchMock = vi.fn(async () => new Response("ok", { status: 200 }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    // Act
+    const res = await forwardWithSessionRetry(
+      loweredEnv,
+      stub,
+      new Request("http://shadow/x"),
+      UPSTREAM,
+      null,
+      establish
+    );
+
+    // Assert — one proactive refresh, one forward with the fresh cookie.
     expect(establish).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(res.status).toBe(200);
