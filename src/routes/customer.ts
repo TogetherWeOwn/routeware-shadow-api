@@ -78,7 +78,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:
@@ -129,7 +129,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:
@@ -179,7 +179,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
   }
   if (up.status >= 200 && up.status < 300) {
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:
@@ -215,7 +215,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   const rawBody = c.var.bodyBuffer;
   if (!rawBody || rawBody.byteLength === 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -238,7 +238,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     console.error("prepareSaveCustomerLongFormBody", err);
     const msg = err instanceof Error ? err.message : String(err);
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail: `Anti-forgery token preparation failed: ${msg} See docs/PROBLEMS.md#bad-gateway.`,
@@ -277,7 +277,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     // save refetches via one modal GET instead of 502-looping.
     evictAntiForgeryTokenCacheForBody(bodyBuffer);
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail:
@@ -350,7 +350,7 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
   const customerId = raw === "" ? Number.NaN : Number(raw);
   if (!Number.isInteger(customerId) || customerId <= 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -392,7 +392,7 @@ const customerDeleteNotSupportedRoute = createRoute({
 
 customerRoutes.openapi(customerDeleteNotSupportedRoute, (c) =>
   problemJsonResponse({
-    type: problemType("method-not-allowed"),
+    type: problemType("method-not-allowed", c.env),
     title: "Method Not Allowed",
     status: 405,
     detail:

@@ -37,9 +37,13 @@ export function isConcurrentRefreshTimeout(err: unknown): err is ConcurrentRefre
 }
 
 /** 502 problem+json for a waiter that gave up on a hung refresh. No cookie, URL, body, or PII. */
-export function concurrentRefreshTimeoutProblem(timeoutMs: number, instance?: string): Response {
+export function concurrentRefreshTimeoutProblem(
+  timeoutMs: number,
+  instance?: string,
+  env?: Env
+): Response {
   return problemJsonResponse({
-    type: problemType("bad-gateway"),
+    type: problemType("bad-gateway", env),
     title: "Session refresh timed out",
     status: 502,
     detail:

@@ -142,7 +142,7 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
   const bundle = await getCustomerBundleFromD1(c.env.CUSTOMER_DB, customerId);
   if (!bundle) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
       detail: `No snapshot data for customer_id=${customerId} (import/sync first). See docs/PROBLEMS.md#not-found.`,
@@ -191,7 +191,7 @@ export async function handleGetDataAddress(
   const bundle = await getAddressBundleFromD1(c.env.CUSTOMER_DB, pickupAddressId);
   if (!bundle || !bundle.address) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
       detail: `No snapshot for pickup_address_id=${pickupAddressId}. See docs/PROBLEMS.md#not-found.`,
@@ -240,7 +240,7 @@ export async function handleGetDataContainer(
   const bundle = await getContainerBundleFromD1(c.env.CUSTOMER_DB, containerId);
   if (!bundle || !bundle.container) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
       detail: `No snapshot for container_id=${containerId}. See docs/PROBLEMS.md#not-found.`,
@@ -272,7 +272,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -294,7 +294,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
@@ -303,7 +303,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -385,7 +385,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -408,7 +408,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "New address requires CustomerID in POST body") {
       return problemJsonResponse({
-        type: problemType("bad-request"),
+        type: problemType("bad-request", c.env),
         title: "Bad Request",
         status: 400,
         detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
@@ -416,7 +416,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       });
     }
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
@@ -425,7 +425,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -508,7 +508,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   const buf = c.var.bodyBuffer;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -531,7 +531,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     const msg = e instanceof Error ? e.message : String(e);
     if (msg === "New container requires PickupAddressID in POST body") {
       return problemJsonResponse({
-        type: problemType("bad-request"),
+        type: problemType("bad-request", c.env),
         title: "Bad Request",
         status: 400,
         detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
@@ -539,7 +539,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       });
     }
     return problemJsonResponse({
-      type: problemType("bad-gateway"),
+      type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
       status: 502,
       detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
@@ -548,7 +548,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   }
   if (!bodyBuffer) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:

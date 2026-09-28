@@ -114,7 +114,7 @@ export async function forwardWithSessionRetry(
       await establishSession(env, sessionStub, env.LOGIN_URL);
     } catch (err) {
       if (isConcurrentRefreshTimeout(err)) {
-        return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+        return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
       }
       throw err;
     }
@@ -136,7 +136,7 @@ export async function forwardWithSessionRetry(
     );
   } catch (err) {
     if (isUpstreamTimeout(err)) {
-      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
     }
     throw err;
   }
@@ -159,7 +159,7 @@ export async function forwardWithSessionRetry(
     await establishSession(env, sessionStub, env.LOGIN_URL);
   } catch (err) {
     if (isConcurrentRefreshTimeout(err)) {
-      return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+      return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
     }
     throw err;
   }
@@ -170,7 +170,7 @@ export async function forwardWithSessionRetry(
     return await forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer, forwardOpts);
   } catch (err) {
     if (isUpstreamTimeout(err)) {
-      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+      return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
     }
     throw err;
   }

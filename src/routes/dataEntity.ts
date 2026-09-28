@@ -51,7 +51,7 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   const id = q.id ?? q.customerId;
   if (id === undefined) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -88,7 +88,7 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -125,7 +125,7 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const id = Number(c.req.query("id"));
   if (!Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:

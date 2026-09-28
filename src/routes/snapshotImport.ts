@@ -24,7 +24,8 @@ export type SnapshotImportGuardInput = {
  */
 export function rejectOversizedSnapshotImport(
   input: SnapshotImportGuardInput,
-  maxBytes: number
+  maxBytes: number,
+  env?: Env
 ): Response | null {
   const declared = input.contentLength;
   if (declared === null) {
@@ -38,7 +39,7 @@ export function rejectOversizedSnapshotImport(
     return null;
   }
   return problemJsonResponse({
-    type: problemType("payload-too-large"),
+    type: problemType("payload-too-large", env),
     title: "Payload Too Large",
     status: 413,
     detail: `Snapshot import body declares ${declared} bytes, over the ${maxBytes} byte limit. See docs/PROBLEMS.md#payload-too-large.`,
@@ -58,11 +59,12 @@ export function mapSnapshotImportError(
   url: string,
   e: unknown,
   isTooLarge: (err: unknown) => boolean,
-  isInvalidCsv: (err: unknown) => boolean
+  isInvalidCsv: (err: unknown) => boolean,
+  env?: Env
 ): Response | null {
   if (isTooLarge(e)) {
     return problemJsonResponse({
-      type: problemType("payload-too-large"),
+      type: problemType("payload-too-large", env),
       title: "Payload Too Large",
       status: 413,
       detail:
@@ -72,7 +74,7 @@ export function mapSnapshotImportError(
   }
   if (isInvalidCsv(e)) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", env),
       title: "Bad Request",
       status: 400,
       detail:
