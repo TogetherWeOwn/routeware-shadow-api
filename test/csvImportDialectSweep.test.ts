@@ -233,13 +233,27 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
     }
   });
 
-  it("pins current stray-quote behavior: rows after the bad row are silently dropped (BUG, see child card)", async () => {
+  it("is chunk-invariant at every split point of a mid-field stray-quote file", async () => {
+    // Arrange — the TOG-8536 shape: a stray inch mark mid-field. The defer
+    // guard (trailing `"` inside quotes waits for more data) must not change
+    // the outcome at any boundary, and the stray `"` must never open a merge.
+    const full = 'h1,h2\n1,5" widget\n2,ok\n';
+    const one = await collectLines(stringToUint8Stream(full));
+
+    // Act / Assert — no split point may change the logical lines.
+    for (let cut = 1; cut < full.length; cut++) {
+      const two = await collectLines(
+        chunkedStream([full.slice(0, cut), full.slice(cut)])
+      );
+      expect(two, `split at byte ${cut}`).toEqual(one);
+    }
+    expect(one).toEqual(["h1,h2", '1,5" widget', "2,ok"]);
+  });
+
+  it("treats a mid-field stray quote as a literal: all rows land (TOG-8536)", async () => {
     // Arrange — row 2 carries a stray inch mark (`5" widget`), rows 3-4 are
-    // well-formed. BUG (TOG-8363 child card): the scanner treats the stray
-    // quote as opening a quoted field, so rows 3+ merge into one unterminated
-    // logical line that parses without a numeric id and is skipped — a 200
-    // with silent data loss. Pins current behavior; flip to rowCount 4 (or a
-    // 400) when the bug is fixed.
+    // well-formed. Fixed by TOG-8536: the scanner only opens a quoted field
+    // at field start, so the stray `"` is a literal and no rows are lost.
     const { db, batches } = recordingDb();
     const csv = [
       CUSTOMER_HEADER,
@@ -255,13 +269,12 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
       stringToUint8Stream(csv)
     );
 
-    // Assert — only ids 1-2 land today.
-    expect(r).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
-    const ids = batches
-      .flat()
-      .flatMap((s) => s.binds)
-      .filter((_, i) => i % 14 === 0);
-    expect(ids).toEqual([1, 2]);
+    // Assert — all four rows land, stray mark preserved verbatim.
+    expect(r).toEqual({ upserted: 4, rowCount: 4, deleted: 0 });
+    const flat = batches.flat().flatMap((s) => s.binds);
+    const ids = flat.filter((_, i) => i % 14 === 0);
+    expect(ids).toEqual([1, 2, 3, 4]);
+    expect(flat[14 + 2]).toBe('5" widget');
   });
 
   it("yields the remainder when the file ends inside an unclosed quote (documented EOF behavior)", async () => {
@@ -405,9 +418,9 @@ describe("CSV dialect sweep, HTTP level (TOG-8363)", () => {
     expect(res.headers.get("content-type")).toContain("problem+json");
   });
 
-  it("pins current stray-quote HTTP behavior: 200 with only pre-bad rows landed (BUG, see child card)", async () => {
-    // Arrange — same BUG as the stream-level pin: rows after the stray quote
-    // never land, but the import reports success.
+  it("imports every row through a mid-file stray quote with 200 (TOG-8536)", async () => {
+    // Arrange — fixed by TOG-8536: the stray `"` in row 74102 is a literal,
+    // so all four well-formed rows land with success reported.
     const csv = [
       CUSTOMER_HEADER,
       ROW(74101),
@@ -419,14 +432,17 @@ describe("CSV dialect sweep, HTTP level (TOG-8363)", () => {
     // Act
     const res = await postImport(csv);
 
-    // Assert — pins current behavior; flip when the bug is fixed.
+    // Assert
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ upserted: 2, rowCount: 2 });
-    const n = await custDb()
+    expect(await res.json()).toMatchObject({ upserted: 4, rowCount: 4 });
+    const rows = await custDb()
       .prepare(
-        "SELECT COUNT(*) as n FROM customer_snapshot WHERE customer_id IN (74101,74102,74103,74104)"
+        "SELECT customer_id, company_name FROM customer_snapshot WHERE customer_id IN (74101,74102,74103,74104) ORDER BY customer_id"
       )
-      .first<{ n: number }>();
-    expect(n?.n).toBe(2);
+      .all<{ customer_id: number; company_name: string }>();
+    expect(rows.results?.map((r) => r.customer_id)).toEqual([
+      74101, 74102, 74103, 74104
+    ]);
+    expect(rows.results?.[1]?.company_name).toBe('5" widget');
   });
 });

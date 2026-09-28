@@ -5,23 +5,43 @@ export function parseCsvLine(line: string): string[] {
   const out: string[] = [];
   let cur = "";
   let inQuotes = false;
+  // Whether the current position starts a field: a `"` only opens a quoted
+  // field here (cf. `scanForLineBreak` in csvStream.ts). A mid-field `"` is a
+  // literal stray (inch mark) — otherwise one bad cell silently swallows every
+  // following row (TOG-8536).
+  let fieldStart = true;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     if (ch === '"') {
-      if (inQuotes && s[i + 1] === '"') {
-        cur += '"';
-        i += 1;
+      if (inQuotes) {
+        if (s[i + 1] === '"') {
+          cur += '"';
+          i += 1;
+          continue;
+        }
+        inQuotes = false;
+        fieldStart = false;
         continue;
       }
-      inQuotes = !inQuotes;
+      if (fieldStart) {
+        inQuotes = true;
+        fieldStart = false;
+        continue;
+      }
+      cur += ch;
+      fieldStart = false;
       continue;
     }
     if (!inQuotes && ch === ",") {
       out.push(cur);
       cur = "";
+      fieldStart = true;
       continue;
     }
     cur += ch;
+    if (!inQuotes && ch !== " " && ch !== "\t") {
+      fieldStart = false;
+    }
   }
   out.push(cur);
   return out;
