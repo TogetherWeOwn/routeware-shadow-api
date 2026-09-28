@@ -10,6 +10,30 @@ function credential(value: string | undefined): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/**
+ * Single source of truth for the WebRW login-page contract the Browser
+ * Rendering login depends on. Every entry is asserted against saved login
+ * markup in `test/browserAuth.test.ts` (fixture:
+ * `test/browserLoginPageFixture.ts`), so upstream markup drift fails CI
+ * instead of failing syncs silently (HTML-200). Refresh the selectors and
+ * the fixture together — see `docs/BROWSER-LOGIN-DRIFT.md`.
+ */
+export const BROWSER_LOGIN = {
+  /** URL fragment gating the login-form branch (the ExtJS app serves it here). */
+  loginPathFragment: "/Account/Login",
+  /** ExtJS login field ids (typed into) and submit control id (clicked). */
+  usernameSelector: "#UserName-inputEl",
+  passwordSelector: "#Password-inputEl",
+  submitSelector: "#button-1012",
+  /** Session cookies proving the headless login succeeded. */
+  requiredCookies: [".WebRW", "RCCApi", "RCCApiRefresh"]
+} as const;
+
+/** True when the cookie names from the headless page prove a live session. */
+export function hasRouteWareSessionCookies(cookieNames: readonly string[]): boolean {
+  return BROWSER_LOGIN.requiredCookies.every((name) => cookieNames.includes(name));
+}
+
 export async function establishSessionWithBrowser(
   env: Env,
   stub: DurableObjectStub,
@@ -35,14 +59,14 @@ export async function establishSessionWithBrowser(
 
     await page.goto(bootstrapUrl, { waitUntil: "networkidle0" });
 
-    if (page.url().includes("/Account/Login")) {
-      await page.waitForSelector("#UserName-inputEl", { timeout: 15000 });
-      await page.waitForSelector("#Password-inputEl", { timeout: 15000 });
+    if (page.url().includes(BROWSER_LOGIN.loginPathFragment)) {
+      await page.waitForSelector(BROWSER_LOGIN.usernameSelector, { timeout: 15000 });
+      await page.waitForSelector(BROWSER_LOGIN.passwordSelector, { timeout: 15000 });
 
-      await page.type("#UserName-inputEl", username, { delay: 30 });
-      await page.type("#Password-inputEl", password, { delay: 30 });
+      await page.type(BROWSER_LOGIN.usernameSelector, username, { delay: 30 });
+      await page.type(BROWSER_LOGIN.passwordSelector, password, { delay: 30 });
 
-      await page.click("#button-1012");
+      await page.click(BROWSER_LOGIN.submitSelector);
 
       try {
         await page.waitForNavigation({ timeout: 15000 });
@@ -55,10 +79,7 @@ export async function establishSessionWithBrowser(
 
     const cookies = await page.cookies();
     const cookieNames = cookies.map((c) => c.name);
-    const hasRouteWareAuth =
-      cookieNames.includes(".WebRW") &&
-      cookieNames.includes("RCCApi") &&
-      cookieNames.includes("RCCApiRefresh");
+    const hasRouteWareAuth = hasRouteWareSessionCookies(cookieNames);
 
     if (!hasRouteWareAuth) {
       throw new Error(
