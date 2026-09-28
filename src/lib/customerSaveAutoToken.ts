@@ -135,6 +135,55 @@ export function clearAntiForgeryTokenCache(): void {
   antiForgeryTokenCache.clear();
 }
 
+/**
+ * TOG-8149: drop every cache entry holding a save-rejected token.
+ *
+ * Keyed by value, not by session + modal URL, on purpose: after a modal heal
+ * `resolveSaveCustomerLongFormToken` stores the entry under the FRESH session
+ * while the route still holds the stale one, so a session-keyed evict from the
+ * route would miss. The rejected token is known (it is in the forwarded save
+ * body), and evicting by value leaves other sessions' tokens — and a cached
+ * token a client-supplied explicit token bypassed — untouched. Over-evicting
+ * is the safe direction anyway: worst case the next save pays one modal GET.
+ *
+ * Returns true when at least one entry was dropped.
+ */
+export function evictAntiForgeryTokenCacheByToken(rejectedToken: string): boolean {
+  let evicted = false;
+  for (const [key, entry] of antiForgeryTokenCache) {
+    if (entry.token === rejectedToken) {
+      antiForgeryTokenCache.delete(key);
+      evicted = true;
+    }
+  }
+  return evicted;
+}
+
+/**
+ * TOG-8149: `evictAntiForgeryTokenCacheByToken` for a forwarded save body.
+ * Parses `__RequestVerificationToken` (last occurrence wins, same as the
+ * inject path) and evicts entries holding it. Returns false when the body
+ * carries no token — nothing cached could have been replayed. Never throws:
+ * a silent-failure branch must stay a 502, never become a 500.
+ */
+export function evictAntiForgeryTokenCacheForBody(
+  bodyBuffer: ArrayBuffer | null
+): boolean {
+  try {
+    if (!bodyBuffer || bodyBuffer.byteLength === 0) {
+      return false;
+    }
+    const raw = new TextDecoder("utf-8", { fatal: false }).decode(bodyBuffer);
+    const token = lastUrlEncodedValue(raw, "__RequestVerificationToken");
+    if (!token) {
+      return false;
+    }
+    return evictAntiForgeryTokenCacheByToken(token);
+  } catch {
+    return false;
+  }
+}
+
 export type PrepareSaveBodyOptions = ModalRetryContext & {
   /** Skip the cache entry even when fresh (stale-token recovery). */
   forceRefresh?: boolean;

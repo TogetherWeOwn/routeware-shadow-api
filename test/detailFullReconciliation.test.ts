@@ -20,7 +20,10 @@ vi.mock("../src/lib/upstreamForward", () => ({
   }
 }));
 vi.mock("../src/lib/customerSaveAutoToken", () => ({
-  prepareSaveCustomerLongFormBody: async (_env: Env, _session: unknown, _req: Request, body: ArrayBuffer) => body
+  prepareSaveCustomerLongFormBody: async (_env: Env, _session: unknown, _req: Request, body: ArrayBuffer) => body,
+  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // path; this double carries no cache, so the evict is a no-op.
+  evictAntiForgeryTokenCacheForBody: () => false
 }));
 vi.mock("../src/lib/forwardWithSessionRetry", () => ({
   forwardWithSessionRetry: async () => new Response("true")

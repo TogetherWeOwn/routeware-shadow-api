@@ -1,5 +1,6 @@
 import { establishSessionWithBrowser } from "./browserAuth";
 import { establishSessionViaHttp } from "./httpAuth";
+import { isLoginPageUnavailableError } from "./loginPageError";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
@@ -105,7 +106,11 @@ async function login(
     await establishSessionViaHttp(env, stub);
     return;
   } catch (err) {
-    if (mode === "http") {
+    // A blocked login page (TOG-6536) is never a browser case: the token is
+    // missing because upstream answered 403/500, not because the markup
+    // changed. Re-run the browser there would burn Browser Rendering budget
+    // on a page that has no form at all.
+    if (mode === "http" || isLoginPageUnavailableError(err)) {
       throw err;
     }
     console.warn(
