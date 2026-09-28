@@ -148,7 +148,7 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
   const customerId = Number(c.req.param("customerId"));
   if (!Number.isFinite(customerId)) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -165,7 +165,7 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
     .first<Record<string, unknown>>();
   if (!row) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
       detail: `No snapshot row for customer_id=${customerId}. See docs/PROBLEMS.md#not-found.`,
@@ -210,7 +210,7 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: problemType("misconfigured"),
+      type: problemType("misconfigured", c.env),
       title: "Service Unavailable",
       status: 503,
       detail:
@@ -266,13 +266,14 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
   if (denied) return denied;
   const oversized = rejectOversizedSnapshotImport(
     { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
-    SNAPSHOT_IMPORT_MAX_BYTES
+    SNAPSHOT_IMPORT_MAX_BYTES,
+    c.env
   );
   if (oversized) return oversized;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -294,7 +295,8 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
       c.req.url,
       e,
       isSnapshotTooLarge,
-      (err) => err instanceof InvalidSnapshotCsvError
+      (err) => err instanceof InvalidSnapshotCsvError,
+      c.env
     );
     if (mapped) return mapped;
     throw e;

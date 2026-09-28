@@ -43,3 +43,7 @@ OPENAPI_DOCS_ENABLED=true
 # REPORT_QUERY_START_DATE=1900-01-01
 # REPORT_QUERY_END_DATE=1900-01-01
 # SHADOW_API_PUBLIC_BASE=
+# Base for problem+json `type` URIs (TOG-8357). Defaults to the committed docs
+# URL when empty/unset; set it at transfer time to the new owner's repo, e.g.
+# PROBLEM_TYPE_BASE=https://github.com/<new-owner>/routeware-shadow-api/blob/main/docs/PROBLEMS.md#
+# PROBLEM_TYPE_BASE=

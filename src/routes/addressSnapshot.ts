@@ -149,7 +149,7 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
   const id = Number(c.req.param("pickupAddressId"));
   if (!Number.isFinite(id)) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -166,7 +166,7 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
     .first<Record<string, unknown>>();
   if (!row) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
       detail: `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`,
@@ -209,7 +209,7 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: problemType("misconfigured"),
+      type: problemType("misconfigured", c.env),
       title: "Service Unavailable",
       status: 503,
       detail:
@@ -224,7 +224,7 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
     }
     return c.json(r, 200);
   } catch (e) {
-    const fk = foreignKeyProblem(e);
+    const fk = foreignKeyProblem(e, c.env);
     if (fk) return fk;
     throw e;
   }
@@ -268,13 +268,14 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
   if (denied) return denied;
   const oversized = rejectOversizedSnapshotImport(
     { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
-    SNAPSHOT_IMPORT_MAX_BYTES
+    SNAPSHOT_IMPORT_MAX_BYTES,
+    c.env
   );
   if (oversized) return oversized;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
@@ -296,10 +297,11 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       c.req.url,
       e,
       isSnapshotTooLarge,
-      (err) => err instanceof InvalidSnapshotCsvError
+      (err) => err instanceof InvalidSnapshotCsvError,
+      c.env
     );
     if (mapped) return mapped;
-    const fk = foreignKeyProblem(e);
+    const fk = foreignKeyProblem(e, c.env);
     if (fk) return fk;
     throw e;
   }

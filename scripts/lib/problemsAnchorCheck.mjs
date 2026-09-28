@@ -23,8 +23,15 @@ export const CHECK_NAME = "problems-anchor-coverage";
  * @typedef {{ ok: boolean, unknown: string[], unreferenced: string[], dynamicUsages: DynamicUsage[] }} AnchorResult
  */
 
-/** `problemType("bad-request")` — double- or single-quoted string literal. */
-const CODE_SLUG_RE = /problemType\(\s*["']([A-Za-z0-9_-]+)["']\s*\)/g;
+/**
+ * `problemType("bad-request")` — double- or single-quoted string literal,
+ * with an optional second arg (TOG-8357 threads the `PROBLEM_TYPE_BASE`
+ * override as `problemType("bad-request", env)`). The slug stays the first
+ * arg, so the coverage rule is unchanged: literal first arg extracts,
+ * anything else (`problemType(slug)`, ``problemType(`tpl`)``) still flags
+ * dynamic.
+ */
+const CODE_SLUG_RE = /problemType\(\s*["']([A-Za-z0-9_-]+)["']\s*(?:,[^)]*)?\)/g;
 /** Any `problemType(` call site, literal or not. */
 const CODE_CALL_RE = /problemType\(/g;
 /** Line prefix ending in the `function` keyword: the declaration, not a call. */
@@ -47,7 +54,7 @@ function sortedUnique(values) {
 }
 
 /**
- * Scan source texts for `problemType("<slug>")` literals.
+ * Scan source texts for `problemType("<slug>"[, env])` literals.
  *
  * Those would otherwise slip past the literal scan silently, so they fail
  * the check instead.
