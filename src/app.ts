@@ -239,7 +239,10 @@ app.onError((err, c) => {
   // (snapshot sync routes, detail-full sync internals).
   if (isConcurrentRefreshTimeout(err)) {
     console.error("CONCURRENT REFRESH TIMEOUT", err.message);
-    return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname);
+    return withCors(
+      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
+      c.req.raw
+    );
   }
   // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
   // it as 503 problem+json, not a 500. The detail names the received value

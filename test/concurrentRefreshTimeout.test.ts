@@ -358,6 +358,10 @@ describe("app end-to-end on refresh timeout (TOG-6526)", () => {
       expect(body.type).toBe(`${PROBLEM_TYPE_BASE}bad-gateway`);
       expect(body.title).toBe("Session refresh timed out");
       expect(body.status).toBe(502);
+      // onError runs outside the /api/v1/* middleware chain, so the 502 must
+      // carry its own CORS stamp (no Origin on this request → wildcard) —
+      // otherwise a browser sees a CORS error instead of the real 502.
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
