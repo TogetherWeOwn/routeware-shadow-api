@@ -71,7 +71,9 @@ export async function establishSession(
   const holdsLock = await acquireRefreshLock(stub);
   if (!holdsLock) {
     // Another request is already refreshing. Wait for it rather than logging in
-    // again (the lock auto-expires if that refresh dies).
+    // again (the lock auto-expires if that refresh dies). On deadline the wait
+    // throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it propagates so the
+    // caller fails closed to 502 instead of forwarding with the expired cookie.
     await waitForConcurrentRefresh(stub);
     return;
   }

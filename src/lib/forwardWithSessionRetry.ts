@@ -1,5 +1,9 @@
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { forwardToUpstream, type ForwardOptions } from "./upstreamForward";
+import {
+  concurrentRefreshTimeoutProblem,
+  isConcurrentRefreshTimeout
+} from "./sessionRefreshLock";
 import { readSessionState, readSessionTtlMs, type SessionState } from "./sessionState";
 import {
   isUpstreamTimeout,
@@ -102,9 +106,18 @@ export async function forwardWithSessionRetry(
   // (SESSION_TTL_SECONDS), re-establish before spending the request on a
   // predictable login redirect. Passing `env` also clamps the stored expiry
   // to the current TTL (TOG-6528): a TTL lowered after login forces a refresh
-  // of the far-future stored session.
+  // of the far-future stored session. A waiter that gives up on a hung
+  // refresh fails closed to 502 (TOG-6526) — never forward with the expired
+  // cookie.
   if (sessionNeedsRefresh(session, Date.now(), env)) {
-    await establishSession(env, sessionStub, env.LOGIN_URL);
+    try {
+      await establishSession(env, sessionStub, env.LOGIN_URL);
+    } catch (err) {
+      if (isConcurrentRefreshTimeout(err)) {
+        return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+      }
+      throw err;
+    }
     session = await readSessionState(sessionStub);
   }
 
@@ -139,8 +152,17 @@ export async function forwardWithSessionRetry(
   }
 
   // Reactive refresh: the session was rejected upstream despite the freshness
-  // check (e.g. server-side invalidation). Re-establish and retry once.
-  await establishSession(env, sessionStub, env.LOGIN_URL);
+  // check (e.g. server-side invalidation). Re-establish and retry once. A
+  // waiter that gives up on a hung refresh fails closed to 502 (TOG-6526) —
+  // never retry with the expired cookie (which would surface login HTML).
+  try {
+    await establishSession(env, sessionStub, env.LOGIN_URL);
+  } catch (err) {
+    if (isConcurrentRefreshTimeout(err)) {
+      return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname);
+    }
+    throw err;
+  }
 
   session = await readSessionState(sessionStub);
 
