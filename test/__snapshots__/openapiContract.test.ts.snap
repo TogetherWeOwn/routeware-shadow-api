@@ -1363,12 +1363,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "application/x-www-form-urlencoded": {
               "example": {
                 "Address": "1 Main St",
-                "CustomerID": "5",
+                "City": "Killeen",
+                "CustomerID": "345734",
                 "PickupAddressID": "0",
+                "State": "TX",
+                "Zip": "76541",
               },
               "schema": {
                 "properties": {
                   "Address": {
+                    "type": "string",
+                  },
+                  "City": {
                     "type": "string",
                   },
                   "CustomerID": {
@@ -1377,7 +1383,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "PickupAddressID": {
                     "type": "string",
                   },
-                  "__RequestVerificationToken": {
+                  "State": {
+                    "type": "string",
+                  },
+                  "Zip": {
                     "type": "string",
                   },
                 },
@@ -1385,13 +1394,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "description": "PickupAddress form body — token injected server-side when omitted (see example)",
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side. \`PickupAddressID=0\` with \`CustomerID\` creates; set it to update.",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1425,6 +1444,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "example": {
                 "ContainerID": "0",
                 "PickupAddressID": "10",
+                "SerialNumber": "C-100-A",
               },
               "schema": {
                 "properties": {
@@ -1434,7 +1454,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "PickupAddressID": {
                     "type": "string",
                   },
-                  "__RequestVerificationToken": {
+                  "SerialNumber": {
                     "type": "string",
                   },
                 },
@@ -1442,13 +1462,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "description": "Container form body — token injected server-side when omitted (see example)",
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side. \`ContainerID=0\` with \`PickupAddressID\` creates; set it to update.",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1535,13 +1565,39 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "description": "Picker filter body (see example)",
+          "description": "Dropdown filter (application/x-www-form-urlencoded). Request body is not validated here so the Worker can forward the raw body.",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "data": [
+                    {
+                      "CustomerType": "Commercial",
+                      "CustomerTypeID": 1,
+                    },
+                  ],
+                  "success": true,
+                  "total": 1,
+                },
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1589,6 +1645,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "schema": {
                 "properties": {
                   "filter": {
+                    "items": {
+                      "type": "object",
+                    },
                     "type": "array",
                   },
                   "group": {
@@ -1611,13 +1670,41 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "description": "Ext.NET store read body (see example)",
+          "description": "Ext.NET store read body (JSON). A non-empty \`filter\` avoids the upstream “You need to filter.” error.",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "data": [
+                    {
+                      "CompanyName": "ExampleCo",
+                      "CustomerID": 345734,
+                      "Enabled": true,
+                      "Phone1": "555-0100",
+                    },
+                  ],
+                  "success": true,
+                  "total": 1,
+                },
+                "schema": {
+                  "properties": {
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "success": {
+                      "type": "boolean",
+                    },
+                    "total": {
+                      "type": "integer",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1657,17 +1744,64 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                     "type": "integer",
                   },
                 },
+                "required": [
+                  "CustomerID",
+                ],
                 "type": "object",
               },
             },
           },
-          "description": "Detail lookup body (see example — set CustomerID to a real id)",
+          "description": "Customer id to load (JSON).",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "currentCustomer": {
+                    "CompanyName": "ExampleCo",
+                    "CustomerID": 345734,
+                    "CustomerNumber": "C-1001",
+                    "CustomerTypeID": 2,
+                    "Enabled": true,
+                    "NameFirst": "Jane",
+                    "NameLast": "Doe",
+                    "NameMI": "",
+                    "Phone1": "555-0100",
+                  },
+                  "data": [
+                    {
+                      "Address": "1 Main St",
+                      "City": "Killeen",
+                      "Containers": [
+                        {
+                          "ContainerID": 100,
+                          "PickupAddressID": 10,
+                          "SerialNumber": "C-100-A",
+                        },
+                      ],
+                      "CustomerID": 345734,
+                      "Enabled": true,
+                      "PickupAddressID": 10,
+                      "State": "TX",
+                      "Zip": "76541",
+                    },
+                  ],
+                },
+                "schema": {
+                  "properties": {
+                    "currentCustomer": {
+                      "type": "object",
+                    },
+                    "data": {
+                      "items": {
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {
@@ -1768,21 +1902,28 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "LastName": {
                     "type": "string",
                   },
-                  "__RequestVerificationToken": {
-                    "type": "string",
-                  },
                 },
                 "type": "object",
               },
             },
           },
-          "description": "Ext.NET/MVC customer form body — token injected server-side when omitted (see example)",
+          "description": "Save fields (application/x-www-form-urlencoded). Omit \`__RequestVerificationToken\` — the Worker fills it server-side from the Routeware modal. \`CustomerID=0\` creates; set it to update; \`Enabled=false\` disables.",
         },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {},
+                "example": {
+                  "success": true,
+                },
+                "schema": {
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                    },
+                  },
+                  "type": "object",
+                },
               },
               "text/html": {
                 "schema": {

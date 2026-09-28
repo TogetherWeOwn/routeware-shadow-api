@@ -1,4 +1,5 @@
 import { OpenAPIHono, z } from "@hono/zod-openapi";
+import type { RouteConfig } from "@hono/zod-openapi";
 import { bearerMatches } from "../lib/auth";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { findForeignKeyError } from "../lib/snapshot/upsert";
@@ -140,6 +141,35 @@ export function foreignKeyProblem(err: unknown): Response | null {
   });
 }
 
+/**
+ * Docs-only request/response payload pairs for the Scalar UI. Every schema
+ * here is a raw OpenAPI object (never a zod schema), so
+ * `@hono/zod-openapi` renders it into `/openapi.json` verbatim while its
+ * `isZod` check skips validator installation — the Worker keeps forwarding
+ * raw bodies untouched, exactly as the route descriptions promise.
+ *
+ * Request bodies are keyed to what the SPA actually sends (mirrored from
+ * `tools/api-discovery/examples/`); response `example` values are the
+ * documented upstream shapes (`{ success, total, data }` Ext.NET store reads,
+ * `currentCustomer` + `data` detail payloads, `{ success }` saves).
+ *
+ * Each docs object is typed as `Pick<RouteConfig, "request" | "responses">`:
+ * the contextual type keeps the raw-schema literals (`type: "object"`)
+ * narrow so they satisfy `SchemaObject`, without any zod wrapper — which is
+ * exactly what keeps `OpenAPIHono` from installing runtime validators for
+ * these bodies (its `isZod` check skips non-zod schemas, so the Worker keeps
+ * forwarding raw bodies untouched).
+ */
+type RouteDocs = Pick<RouteConfig, "request" | "responses">;
+
+/**
+ * One response entry (`ResponseConfig | ReferenceObject`). Annotating the
+ * envelope helpers with this keeps raw-schema literals narrow in place —
+ * contextual typing flows into the function body, which a bare annotation on
+ * the outer docs const cannot do once the helper return type is inferred
+ * (widened `type: string` then fails `SchemaObject` at the use site).
+ */
+type RouteResponse = RouteDocs["responses"][string];
 /** Response shape for routes that stream an upstream Routeware body through. */
 export const upstreamPassthrough200 = {
   200: {
@@ -152,6 +182,263 @@ export const upstreamPassthrough200 = {
     }
   }
 } as const;
+
+/** Ext.NET store read envelope: `{ success, total, data[] }`. */
+function storeReadResponse(exampleData: unknown[]): RouteResponse {
+  return {
+    description:
+      "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+    content: {
+      "application/json": {
+        schema: {
+          type: "object",
+          properties: {
+            success: { type: "boolean" },
+            total: { type: "integer" },
+            data: { type: "array", items: { type: "object" } }
+          }
+        },
+        example: { success: true, total: exampleData.length, data: exampleData }
+      },
+      "text/plain": { schema: { type: "string" } },
+      "text/html": { schema: { type: "string" } }
+    }
+  };
+}
+
+/** `GetCustomerDetailFull` envelope: `currentCustomer` + `data` addresses. */
+function detailFullResponse(): RouteResponse {
+  const currentCustomer = {
+    CustomerID: 345734,
+    CustomerTypeID: 2,
+    CompanyName: "ExampleCo",
+    NameFirst: "Jane",
+    NameMI: "",
+    NameLast: "Doe",
+    CustomerNumber: "C-1001",
+    Phone1: "555-0100",
+    Enabled: true
+  };
+  const data = [
+    {
+      PickupAddressID: 10,
+      CustomerID: 345734,
+      Address: "1 Main St",
+      City: "Killeen",
+      State: "TX",
+      Zip: "76541",
+      Enabled: true,
+      Containers: [{ ContainerID: 100, PickupAddressID: 10, SerialNumber: "C-100-A" }]
+    }
+  ];
+  return {
+    description:
+      "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+    content: {
+      "application/json": {
+        schema: {
+          type: "object",
+          properties: {
+            currentCustomer: { type: "object" },
+            data: { type: "array", items: { type: "object" } }
+          }
+        },
+        example: { currentCustomer, data }
+      },
+      "text/plain": { schema: { type: "string" } },
+      "text/html": { schema: { type: "string" } }
+    }
+  };
+}
+
+/** Save-form success envelope: Routeware `{ success }` JSON. */
+function saveFormResponse(): RouteResponse {
+  return {
+    description:
+      "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+    content: {
+      "application/json": {
+        schema: { type: "object", properties: { success: { type: "boolean" } } },
+        example: { success: true }
+      },
+      "text/plain": { schema: { type: "string" } },
+      "text/html": { schema: { type: "string" } }
+    }
+  };
+}
+
+/** Customer `CustomersRead` docs: store-read request + response examples. */
+export const customersReadDocs: RouteDocs = {
+  request: {
+    body: {
+      description:
+        "Ext.NET store read body (JSON). A non-empty `filter` avoids the upstream “You need to filter.” error.",
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: {
+              filter: { type: "array", items: { type: "object" } },
+              page: { type: "integer" },
+              start: { type: "integer" },
+              limit: { type: "integer" },
+              group: { type: "string" },
+              sort: { type: "string" }
+            }
+          },
+          example: {
+            filter: [{ property: "CustomerID", operator: ">", value: 0 }],
+            page: 1,
+            start: 0,
+            limit: 50,
+            group: "[]",
+            sort: '[{"property":"CustomerID","direction":"ASC"}]'
+          }
+        }
+      }
+    }
+  },
+  responses: {
+    200: storeReadResponse([
+      { CustomerID: 345734, CompanyName: "ExampleCo", Phone1: "555-0100", Enabled: true }
+    ])
+  }
+};
+
+/** Customer `GetCustomerDetailFull` docs: id request + detail response. */
+export const customerDetailFullDocs: RouteDocs = {
+  request: {
+    body: {
+      description: "Customer id to load (JSON).",
+      content: {
+        "application/json": {
+          schema: {
+            type: "object",
+            properties: { CustomerID: { type: "integer" } },
+            required: ["CustomerID"]
+          },
+          example: { CustomerID: 345734 }
+        }
+      }
+    }
+  },
+  responses: { 200: detailFullResponse() }
+};
+
+/** Customer `CustomerTypesRead` docs: urlencoded filter + store response. */
+export const customerTypesReadDocs: RouteDocs = {
+  request: {
+    body: {
+      description:
+        "Dropdown filter (application/x-www-form-urlencoded). Request body is not validated here so the Worker can forward the raw body.",
+      content: {
+        "application/x-www-form-urlencoded": {
+          schema: { type: "object", properties: { EnabledOnly: { type: "string" } } },
+          example: { EnabledOnly: "true" }
+        }
+      }
+    }
+  },
+  responses: {
+    200: storeReadResponse([{ CustomerTypeID: 1, CustomerType: "Commercial" }])
+  }
+};
+
+/** Customer `SaveCustomerLongForm` docs: urlencoded save + success response. */
+export const customerSaveLongFormDocs: RouteDocs = {
+  request: {
+    body: {
+      description:
+        "Save fields (application/x-www-form-urlencoded). Omit `__RequestVerificationToken` — the Worker fills it server-side from the Routeware modal. `CustomerID=0` creates; set it to update; `Enabled=false` disables.",
+      content: {
+        "application/x-www-form-urlencoded": {
+          schema: {
+            type: "object",
+            properties: {
+              CustomerID: { type: "string" },
+              CustomerTypeID: { type: "string" },
+              CompanyName: { type: "string" },
+              FirstName: { type: "string" },
+              LastName: { type: "string" },
+              Enabled: { type: "string" }
+            }
+          },
+          example: {
+            CustomerTypeID: "1",
+            CompanyName: "ExampleCo",
+            FirstName: "Jane",
+            LastName: "Doe",
+            Enabled: "true",
+            CustomerID: "0"
+          }
+        }
+      }
+    }
+  },
+  responses: { 200: saveFormResponse() }
+};
+
+/** Address `SaveAddressForm` docs: urlencoded save + success response. */
+export const addressSaveFormDocs: RouteDocs = {
+  request: {
+    body: {
+      description:
+        "Save fields (application/x-www-form-urlencoded). Omit `__RequestVerificationToken` — the Worker fills it server-side. `PickupAddressID=0` with `CustomerID` creates; set it to update.",
+      content: {
+        "application/x-www-form-urlencoded": {
+          schema: {
+            type: "object",
+            properties: {
+              PickupAddressID: { type: "string" },
+              CustomerID: { type: "string" },
+              Address: { type: "string" },
+              City: { type: "string" },
+              State: { type: "string" },
+              Zip: { type: "string" }
+            }
+          },
+          example: {
+            PickupAddressID: "0",
+            CustomerID: "345734",
+            Address: "1 Main St",
+            City: "Killeen",
+            State: "TX",
+            Zip: "76541"
+          }
+        }
+      }
+    }
+  },
+  responses: { 200: saveFormResponse() }
+};
+
+/** Container `SaveContainerForm` docs: urlencoded save + success response. */
+export const containerSaveFormDocs: RouteDocs = {
+  request: {
+    body: {
+      description:
+        "Save fields (application/x-www-form-urlencoded). Omit `__RequestVerificationToken` — the Worker fills it server-side. `ContainerID=0` with `PickupAddressID` creates; set it to update.",
+      content: {
+        "application/x-www-form-urlencoded": {
+          schema: {
+            type: "object",
+            properties: {
+              ContainerID: { type: "string" },
+              PickupAddressID: { type: "string" },
+              SerialNumber: { type: "string" }
+            }
+          },
+          example: {
+            ContainerID: "0",
+            PickupAddressID: "10",
+            SerialNumber: "C-100-A"
+          }
+        }
+      }
+    }
+  },
+  responses: { 200: saveFormResponse() }
+};
 
 /**
  * Shared by the customer, address and container snapshot list routes. Keep this
