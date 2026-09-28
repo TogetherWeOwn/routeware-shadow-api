@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   checkDevVarsValues,
+  isValidChainedBase,
+  isValidReportQueryDate,
   mergeEffectiveVars,
   parseDevVarsText,
   parseWranglerVarsSection
@@ -164,6 +166,168 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
     expect(result.ok).toBe(false);
     expect(result.errors.some((e) => e.includes("LOGIN_USERNAME"))).toBe(true);
     expect(result.errors.some((e) => e.includes("LOGIN_PASSWORD"))).toBe(true);
+  });
+
+  describe("operational key families (TOG-9212, gap O2)", () => {
+    it("fails fast on a bogus REPORT_QUERY_START_DATE (acceptance: before any sync)", () => {
+      const result = checkDevVarsValues(validEffective({ REPORT_QUERY_START_DATE: "bogus" }));
+      expect(result.ok).toBe(false);
+      expect(result.errors.some((e) => e.includes("REPORT_QUERY_START_DATE"))).toBe(true);
+    });
+
+    it("rejects malformed and impossible REPORT_QUERY_* dates but accepts real ones", () => {
+      for (const bad of ["2026-13-01", "2026-02-30", "2026-02-29", "06/01/2026", "20260601"]) {
+        const result = checkDevVarsValues(validEffective({ REPORT_QUERY_END_DATE: bad }));
+        expect(result.ok).toBe(false);
+        expect(result.errors.some((e) => e.includes("REPORT_QUERY_END_DATE"))).toBe(true);
+      }
+      // Leap-year Feb 29 is a real calendar date.
+      expect(
+        checkDevVarsValues(
+          validEffective({
+            REPORT_QUERY_START_DATE: "2024-02-29",
+            REPORT_QUERY_END_DATE: "2024-03-01"
+          })
+        ).ok
+      ).toBe(true);
+      expect(
+        checkDevVarsValues(
+          validEffective({
+            REPORT_QUERY_START_DATE: "1900-01-01",
+            REPORT_QUERY_END_DATE: "1900-01-01"
+          })
+        ).ok
+      ).toBe(true);
+    });
+
+    it("rejects START_DATE after END_DATE", () => {
+      const result = checkDevVarsValues(
+        validEffective({
+          REPORT_QUERY_START_DATE: "2026-06-10",
+          REPORT_QUERY_END_DATE: "2026-06-01"
+        })
+      );
+      expect(result.ok).toBe(false);
+      expect(
+        result.errors.some(
+          (e) =>
+            e.includes("REPORT_QUERY_START_DATE") && e.includes("REPORT_QUERY_END_DATE")
+        )
+      ).toBe(true);
+    });
+
+    it("treats absent or empty REPORT_QUERY_* dates as unset (runtime placeholder fallback)", () => {
+      const missing = validEffective();
+      delete missing.REPORT_QUERY_START_DATE;
+      delete missing.REPORT_QUERY_END_DATE;
+      expect(checkDevVarsValues(missing).ok).toBe(true);
+      expect(
+        checkDevVarsValues(
+          validEffective({ REPORT_QUERY_START_DATE: "", REPORT_QUERY_END_DATE: "   " })
+        ).ok
+      ).toBe(true);
+    });
+
+    it("rejects non-numeric *_REPORT_QUERY_ID values but allows unset ones (EXPORT_PATH alternative)", () => {
+      for (const key of [
+        "CUSTOMER_REPORT_QUERY_ID",
+        "ADDRESS_REPORT_QUERY_ID",
+        "CONTAINER_REPORT_QUERY_ID"
+      ]) {
+        const result = checkDevVarsValues(validEffective({ [key]: "abc" }));
+        expect(result.ok).toBe(false);
+        expect(result.errors.some((e) => e.includes(key))).toBe(true);
+      }
+      expect(checkDevVarsValues(validEffective({ CUSTOMER_REPORT_QUERY_ID: "23" })).ok).toBe(
+        true
+      );
+      const unset = validEffective();
+      delete unset.CUSTOMER_REPORT_QUERY_ID;
+      delete unset.ADDRESS_REPORT_QUERY_ID;
+      delete unset.CONTAINER_REPORT_QUERY_ID;
+      expect(checkDevVarsValues(unset).ok).toBe(true);
+      expect(
+        checkDevVarsValues(validEffective({ CUSTOMER_REPORT_QUERY_ID: "  " })).ok
+      ).toBe(true);
+    });
+
+    it("rejects non-positive REPORT_QUERY_POLL_* overrides but allows unset ones (compiled defaults)", () => {
+      for (const key of ["REPORT_QUERY_POLL_INTERVAL_MS", "REPORT_QUERY_POLL_MAX_ATTEMPTS"]) {
+        for (const bad of ["soon", "0", "-5"]) {
+          const result = checkDevVarsValues(validEffective({ [key]: bad }));
+          expect(result.ok).toBe(false);
+          expect(result.errors.some((e) => e.includes(key))).toBe(true);
+        }
+      }
+      expect(
+        checkDevVarsValues(
+          validEffective({
+            REPORT_QUERY_POLL_INTERVAL_MS: "2500",
+            REPORT_QUERY_POLL_MAX_ATTEMPTS: "24"
+          })
+        ).ok
+      ).toBe(true);
+      const unset = validEffective({
+        REPORT_QUERY_POLL_INTERVAL_MS: "",
+        REPORT_QUERY_POLL_MAX_ATTEMPTS: ""
+      });
+      delete unset.REPORT_QUERY_POLL_INTERVAL_MS;
+      delete unset.REPORT_QUERY_POLL_MAX_ATTEMPTS;
+      expect(checkDevVarsValues(unset).ok).toBe(true);
+    });
+
+    it("rejects a malformed SHADOW_API_PUBLIC_BASE but allows empty/absent (single-invocation fallback)", () => {
+      for (const bad of [
+        "not a url",
+        "ftp://api.example.test",
+        "https://api.example.test/worker",
+        "https://api.example.test?x=1",
+        "https://api.example.test#frag",
+        "https://user:pass@api.example.test"
+      ]) {
+        const result = checkDevVarsValues(validEffective({ SHADOW_API_PUBLIC_BASE: bad }));
+        expect(result.ok).toBe(false);
+        expect(result.errors.some((e) => e.includes("SHADOW_API_PUBLIC_BASE"))).toBe(true);
+      }
+      expect(
+        checkDevVarsValues(validEffective({ SHADOW_API_PUBLIC_BASE: "https://api.example.test" }))
+          .ok
+      ).toBe(true);
+      expect(checkDevVarsValues(validEffective({ SHADOW_API_PUBLIC_BASE: "" })).ok).toBe(true);
+      const unset = validEffective();
+      delete unset.SHADOW_API_PUBLIC_BASE;
+      expect(checkDevVarsValues(unset).ok).toBe(true);
+    });
+
+    it("isValidReportQueryDate rejects impossible dates without echoing the value", () => {
+      expect(isValidReportQueryDate("bogus")).toBe(false);
+      expect(isValidReportQueryDate("2026-13-40")).toBe(false);
+      expect(isValidReportQueryDate("2026-02-29")).toBe(false);
+      expect(isValidReportQueryDate("2024-02-29")).toBe(true);
+      expect(isValidReportQueryDate("1900-01-01")).toBe(true);
+    });
+
+    it("isValidChainedBase mirrors resolveChainedBase (bare origin only)", () => {
+      expect(isValidChainedBase("https://api.example.test")).toBe(true);
+      expect(isValidChainedBase("http://localhost:8787")).toBe(true);
+      expect(isValidChainedBase("https://api.example.test/worker")).toBe(false);
+      expect(isValidChainedBase("not a url")).toBe(false);
+      expect(isValidChainedBase("")).toBe(false);
+    });
+
+    it("never echoes operational values in findings (keys only)", () => {
+      const result = checkDevVarsValues(
+        validEffective({
+          REPORT_QUERY_START_DATE: "not-a-real-date-value",
+          SHADOW_API_PUBLIC_BASE: "https://bad.example.test/worker"
+        })
+      );
+      expect(result.ok).toBe(false);
+      for (const error of result.errors) {
+        expect(error).not.toContain("not-a-real-date-value");
+        expect(error).not.toContain("https://bad.example.test/worker");
+      }
+    });
   });
 
   it("never echoes values in findings (keys only)", () => {
