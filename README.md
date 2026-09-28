@@ -201,6 +201,7 @@ Example mappings from a typical harvest (SPA + ExtJS):
 
 - Conventions, invariants and the verification loop: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) — read before any change.
 - How to contribute: [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, PR checks, conventional commits.
+- Security policy: [`SECURITY.md`](./SECURITY.md) — how to report a vulnerability privately (report channel, scope, response SLA, safe harbor).
 - Code of conduct: [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
 
 ## License
