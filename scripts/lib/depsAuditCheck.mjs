@@ -174,11 +174,17 @@ export function extractAdvisories(auditJson) {
 }
 
 /**
+ * A flattened advisory record (one per distinct GHSA id).
+ *
+ * @typedef {{ id: string, package: string, severity: string, title: string }} AdvisoryRecord
+ */
+
+/**
  * Evaluate parsed audit output against the allowlist.
  *
  * @param {unknown} auditJson parsed `npm audit --json` output
  * @param {Array<{ id: string }>} [allowlist] defaults to AUDIT_ALLOWLIST
- * @returns {{ ok: boolean, blocking: Array<object>, stale: Array<object>, scanned: number, allowlisted: number, belowThreshold: number }}
+ * @returns {{ ok: boolean, blocking: AdvisoryRecord[], stale: Array<{ id: string }>, scanned: number, allowlisted: number, belowThreshold: number }}
  */
 export function evaluateAudit(auditJson, allowlist = AUDIT_ALLOWLIST) {
   const advisories = extractAdvisories(auditJson);
