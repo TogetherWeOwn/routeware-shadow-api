@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
+import { LOCK_TTL_MS } from "../src/authSession.do";
 import { forwardWithSessionRetry } from "../src/lib/forwardWithSessionRetry";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 import {
   ConcurrentRefreshTimeoutError,
   concurrentRefreshTimeoutProblem,
   isConcurrentRefreshTimeout,
+  WAIT_TIMEOUT_MS,
   waitForConcurrentRefresh
 } from "../src/lib/sessionRefreshLock";
 import type { SessionState } from "../src/lib/sessionState";
@@ -29,6 +31,10 @@ import type { SessionState } from "../src/lib/sessionState";
  *    ever forwarding the stale cookie. (`app.onError` carries the same 502
  *    mapping as a backstop for direct `establishSession` callers such as the
  *    snapshot sync routes.)
+ * 4. TOG-6527: the waiter budget is derived from the lock TTL
+ *    (`WAIT_TIMEOUT_MS = LOCK_TTL_MS - 30s`), covering a worst-case ~47s
+ *    browser login — cold-start waiters previously timed out at 20s while
+ *    the login was still running.
  *
  * Fixture hygiene: the only "cookies" are `.WebRW=FAKE-…` stand-ins and
  * structural login-form HTML — no credentials, no customer PII
@@ -92,7 +98,7 @@ describe("waitForConcurrentRefresh deadline (TOG-6526)", () => {
     // Arrange — a holder that never publishes: every poll still refreshing.
     const stub = hungStub();
 
-    // Act — stubbed 200ms budget so the suite never waits the real 20s.
+    // Act — stubbed 200ms budget so the suite never waits the real 90s.
     const failure = await waitForConcurrentRefresh(stub, 200, 25).then(
       () => null,
       (err: unknown) => err
@@ -126,6 +132,54 @@ describe("waitForConcurrentRefresh deadline (TOG-6526)", () => {
 
     // Act / Assert — returns void (no throw) once a cookie is visible.
     await expect(waitForConcurrentRefresh(stub, 5_000, 10)).resolves.toBeUndefined();
+  });
+});
+
+describe("waiter budget derivation (TOG-6527)", () => {
+  it("WAIT_TIMEOUT_MS is derived from LOCK_TTL_MS with margin on both sides", () => {
+    // The browser path costs ~47s (two 15s selector waits + 15s navigation +
+    // 2s settle in `browserAuth.ts`); the old fixed 20s budget timed every
+    // cold-start waiter out while the login was still running. The budget
+    // must cover that path with margin while failing before the lock can go
+    // stale and admit a duplicate login.
+    expect(WAIT_TIMEOUT_MS).toBe(LOCK_TTL_MS - 30_000);
+    expect(WAIT_TIMEOUT_MS).toBeGreaterThan(47_000);
+    expect(WAIT_TIMEOUT_MS).toBeLessThan(LOCK_TTL_MS);
+  });
+
+  it("a waiter survives a 50s browser login (cold start, TOG-6527)", async () => {
+    // Arrange — the holder publishes 50s in: past the old 20s deadline (this
+    // test rejects under the old budget), inside the new 90s budget. Fake
+    // timers drive the poll loop deterministically.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+      const holder = {
+        value: { cookieHeader: null, expiresAtMs: null, refreshing: true } as SessionState
+      };
+      const stub = forwardStub(holder);
+      setTimeout(() => {
+        holder.value = {
+          cookieHeader: ".WebRW=FAKE-PUBLISHED",
+          expiresAtMs: Date.now() + 600_000,
+          refreshing: false
+        };
+      }, 50_000);
+
+      // Act — the waiter is still polling at 50s and resolves on publish.
+      const pending = waitForConcurrentRefresh(stub);
+      const settled = pending.then(
+        () => "resolved",
+        (err: unknown) => err
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      const outcome = await settled;
+
+      // Assert — resolved (never the fail-closed throw) on the default budget.
+      expect(outcome).toBe("resolved");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -281,7 +335,7 @@ describe("app end-to-end on refresh timeout (TOG-6526)", () => {
   it("GET /api/v1/routeware/home/index answers 502 without forwarding the stale cookie", async () => {
     // Arrange — the REAL `establishSession` + waiter against a hung holder:
     // `/lock` stays held, `/get` shows a stale cookie that never refreshes.
-    // Fake timers drive the 20s waiter deterministically (same shape as the
+    // Fake timers drive the 90s waiter deterministically (same shape as the
     // stalled-holder test in `establishSession.test.ts`).
     vi.useFakeTimers();
     try {
@@ -335,7 +389,7 @@ describe("app end-to-end on refresh timeout (TOG-6526)", () => {
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
       // Act — authorized request; the stale session takes the proactive leg,
-      // the waiter polls past its 20s deadline while the lock stays held.
+      // the waiter polls past its 90s deadline while the lock stays held.
       const pending = app.fetch(
         new Request("http://test.local/api/v1/routeware/home/index", {
           headers: { authorization: "Bearer test-api-token" }
@@ -343,7 +397,7 @@ describe("app end-to-end on refresh timeout (TOG-6526)", () => {
         env,
         ctx
       );
-      await vi.advanceTimersByTimeAsync(25_000);
+      await vi.advanceTimersByTimeAsync(95_000);
       const res = await pending;
 
       // Assert — acceptance shape: 502 problem+json (never the upstream 200

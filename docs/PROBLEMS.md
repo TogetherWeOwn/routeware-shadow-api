@@ -307,8 +307,10 @@ Pinned by `test/problemAnchors.test.ts` (the 405 shape) and
 ## Session refresh timeouts (`bad-gateway`, title "Session refresh timed out")
 
 Only one login runs at a time per `AuthSession` instance (the refresh lock).
-A request that arrives while another request is refreshing waits up to 20s
-for the fresh session; if the holder never publishes (hung login), the waiter
+A request that arrives while another request is refreshing waits up to 90s
+for the fresh session — the waiter budget is derived from the 120s lock TTL
+so it covers a worst-case ~47s browser login (TOG-6527); if the holder never
+publishes (hung login), the waiter
 answers as 502 problem+json — never by forwarding with the expired cookie,
 which would surface upstream login HTML as a 200.
 
