@@ -54,6 +54,17 @@ assert.match(
   "hygiene must run the OpenAPI drift check (TOG-6282)"
 );
 
+// The vars parity check compares wrangler.toml [vars] keys against
+// .dev.vars.example mentions (active or commented), credential-free. Pin it
+// present so a var can never land in one file but not the other without the
+// hygiene gate failing (TOG-8367, gap G20).
+assert.match(
+  hygiene,
+  /^        run: npm run check:vars-parity$/m,
+  "hygiene must run the vars parity check (TOG-8367)"
+);
+
+
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
 // never land without the hygiene gate (TOG-6291).
@@ -61,6 +72,26 @@ assert.match(
   hygiene,
   /npm run check:source-file-size/,
   "hygiene must run the source-file-size guard (TOG-6291)"
+);
+
+// The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
+// workflow so deploy verification runs on a schedule. Pin it present: the
+// cron, the skip-safe npm script, and the read-only GET-only probe paths.
+const probeWorkflow = await readFile(new URL("../.github/workflows/post-deploy-probe.yml", import.meta.url), "utf8");
+assert.match(
+  probeWorkflow,
+  /- cron: "30 7 \* \* \*"/,
+  "post-deploy-probe workflow must run on its daily schedule (TOG-8365)"
+);
+assert.match(
+  probeWorkflow,
+  /run: npm run probe:post-deploy:scheduled/,
+  "post-deploy-probe workflow must use the skip-safe scheduled script (TOG-8365)"
+);
+assert.doesNotMatch(
+  probeWorkflow,
+  /\b(POST|PUT|PATCH|DELETE)\b/,
+  "post-deploy-probe workflow must stay read-only (TOG-8365)"
 );
 
 const deploy = jobBlock("deploy");

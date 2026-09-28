@@ -398,6 +398,15 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "New address requires CustomerID in POST body") {
+      return problemJsonResponse({
+        type: problemType("bad-request"),
+        title: "Bad Request",
+        status: 400,
+        detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
+        instance: new URL(c.req.raw.url).pathname
+      });
+    }
     return problemJsonResponse({
       type: problemType("bad-gateway"),
       title: "Bad Gateway",
@@ -512,6 +521,15 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "New container requires PickupAddressID in POST body") {
+      return problemJsonResponse({
+        type: problemType("bad-request"),
+        title: "Bad Request",
+        status: 400,
+        detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
+        instance: new URL(c.req.raw.url).pathname
+      });
+    }
     return problemJsonResponse({
       type: problemType("bad-gateway"),
       title: "Bad Gateway",

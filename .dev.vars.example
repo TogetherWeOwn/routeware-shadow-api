@@ -26,3 +26,20 @@ OPENAPI_DOCS_ENABLED=true
 
 # Optional: skip writing report CSVs to R2 (wrangler.toml / dashboard R2 binding)
 # SNAPSHOTS_R2_ENABLED=false
+
+# Non-secret Worker defaults (wrangler.toml [vars]). `wrangler dev` overlays
+# `.dev.vars` on those defaults, so these stay commented unless you need a
+# local override. Every wrangler [vars] key must be mentioned here (active or
+# commented) — enforced by `npm run check:vars-parity` (TOG-8367, gap G20).
+# SESSION_TTL_SECONDS=1800
+# TARGET_BASE_PATH=/WebRW
+# LOGIN_URL=https://killeen.routeware.com/WebRW/Account/Login
+# CUSTOMER_REPORT_EXPORT_PATH=
+# CUSTOMER_REPORT_QUERY_ID=23
+# ADDRESS_REPORT_EXPORT_PATH=
+# ADDRESS_REPORT_QUERY_ID=24
+# CONTAINER_REPORT_EXPORT_PATH=
+# CONTAINER_REPORT_QUERY_ID=25
+# REPORT_QUERY_START_DATE=1900-01-01
+# REPORT_QUERY_END_DATE=1900-01-01
+# SHADOW_API_PUBLIC_BASE=
