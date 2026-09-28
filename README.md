@@ -52,6 +52,12 @@ Expect `{"status":"ok",...}` and HTTP 200 from each. A 401 on the second call me
 `CUSTOMER_SNAPSHOT_SYNC_SECRET`); re-check it with `npm run check:devvars` and restart
 `wrangler dev` after editing.
 
+For the full five-rung ladder with copy-paste commands and exact expected
+bodies — health → bearer-gate 401 → token load from `.dev.vars` →
+shadow/health → readiness — see
+[`docs/CONSUMER-QUICKSTART.md`](./docs/CONSUMER-QUICKSTART.md#smoke-ladder-five-copy-paste-commands-fresh-clone--green)
+(it runs verbatim on a fresh clone).
+
 `npm run dev` runs `check:devvars` first and fails fast if `.dev.vars` is missing a
 required key. Local dev uses the browser-free HTTP login, so **no `--remote` is needed**;
 use `npm run dev:remote` only to exercise the Browser Rendering fallback.
