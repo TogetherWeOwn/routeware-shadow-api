@@ -67,7 +67,18 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId`. Single rows:
+also accept `customerId` / `pickupAddressId`. Every list response includes
+`nextCursor` (the last row's primary key, or `null` on the last page); pass it
+back as `&cursor=` instead of `offset` to page deep result sets by primary-key
+seek — `offset` re-scans everything before it, `cursor` does not:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?limit=500&cursor=50000"
+# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor, or null at the end
+```
+
+Single rows:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \

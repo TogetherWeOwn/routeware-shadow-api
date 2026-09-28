@@ -236,7 +236,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       // Assert — WHERE degenerates to the always-true seed, and the only binds
       // are the default limit/offset.
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2 });
+      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2, nextCursor: null });
       expect(calls).toHaveLength(2);
       expect(calls[0].sql).toContain("WHERE 1 = 1");
       expect(calls[0].binds).toEqual([]);
@@ -359,6 +359,47 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ? OFFSET ?`);
     });
 
+    it("seeks past cursor with LIMIT only, dropping OFFSET, when cursor is supplied", async () => {
+      // Arrange
+      const { db, calls } = readDb({ total: 0, rows: [] });
+
+      // Act — offset is present but must be ignored once cursor takes over.
+      await call(spec.routes, `${spec.base}?cursor=42&limit=5&offset=10`, makeEnv(db));
+
+      // Assert — WHERE gains the seek predicate on both count and select, and
+      // pagination drops to a single LIMIT bind (no OFFSET placeholder at all).
+      const seekFilter = `${spec.prefix}${spec.idColumn} > ?`;
+      expect(calls[0].sql).toContain(seekFilter);
+      expect(calls[0].binds).toEqual([42]);
+      expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ?`);
+      expect(calls[1].sql).not.toContain("OFFSET");
+      expect(calls[1].binds).toEqual([42, 5]);
+    });
+
+    it("returns the last row's id as nextCursor when the page is full", async () => {
+      // Arrange
+      const rows = [{ [spec.idColumn]: 10 }, { [spec.idColumn]: 20 }];
+      const { db } = readDb({ total: 2, rows });
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=2`, makeEnv(db));
+
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 2, nextCursor: 20 });
+    });
+
+    it("returns nextCursor null when the page is short of the limit", async () => {
+      // Arrange — fewer rows than the limit means this is the last page.
+      const rows = [{ [spec.idColumn]: 10 }];
+      const { db } = readDb({ total: 1, rows });
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=5`, makeEnv(db));
+
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 1, nextCursor: null });
+    });
+
     it("reports total 0 when the count query returns no row", async () => {
       // Arrange
       const { db } = readDb({ total: null, rows: [] });
@@ -367,7 +408,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("returns an empty rows array when the select yields no results field", async () => {
@@ -379,7 +420,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("rejects a limit above the 500 ceiling", async () => {

@@ -37,7 +37,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
@@ -45,7 +45,12 @@ const addressSnapshotListRoute = createRoute({
       q: z.string().optional().describe("Address line substring (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: z.coerce
+        .number()
+        .int()
+        .optional()
+        .describe("Last pickup_address_id from the previous page's nextCursor; takes precedence over offset")
     })
   },
   responses: {
@@ -79,21 +84,35 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.enabled === "false") {
     where.push("enabled = 0");
   }
+  if (p.cursor !== undefined) {
+    where.push("pickup_address_id > ?");
+    binds.push(p.cursor);
+  }
   const whereSql = where.join(" AND ");
   const totalRow = await db
     .prepare(`SELECT COUNT(*) as n FROM address_snapshot WHERE ${whereSql}`)
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  const pageSql =
+    p.cursor !== undefined
+      ? "ORDER BY pickup_address_id LIMIT ?"
+      : "ORDER BY pickup_address_id LIMIT ? OFFSET ?";
+  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
               extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-       FROM address_snapshot WHERE ${whereSql} ORDER BY pickup_address_id LIMIT ? OFFSET ?`
+       FROM address_snapshot WHERE ${whereSql} ${pageSql}`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...binds, ...pageBinds)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = results ?? [];
+  const nextCursor =
+    rows.length === p.limit
+      ? Number((rows[rows.length - 1] as Record<string, unknown>).pickup_address_id)
+      : null;
+  return c.json({ rows, total, nextCursor });
 });
 
 const addressSnapshotExportRoute = createRoute({

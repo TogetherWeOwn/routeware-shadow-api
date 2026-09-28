@@ -37,7 +37,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
@@ -46,7 +46,12 @@ const containerSnapshotListRoute = createRoute({
       q: z.string().optional().describe("Substring on location or serial (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: z.coerce
+        .number()
+        .int()
+        .optional()
+        .describe("Last container_id from the previous page's nextCursor; takes precedence over offset")
     })
   },
   responses: {
@@ -91,6 +96,10 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.enabled === "false") {
     where.push("c.enabled = 0");
   }
+  if (p.cursor !== undefined) {
+    where.push("c.container_id > ?");
+    binds.push(p.cursor);
+  }
   const whereSql = where.join(" AND ");
   const totalRow = await db
     .prepare(
@@ -99,17 +108,25 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  const pageSql =
+    p.cursor !== undefined
+      ? "ORDER BY c.container_id LIMIT ?"
+      : "ORDER BY c.container_id LIMIT ? OFFSET ?";
+  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
               c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
               c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
               c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
-       ${fromJoin} WHERE ${whereSql} ORDER BY c.container_id LIMIT ? OFFSET ?`
+       ${fromJoin} WHERE ${whereSql} ${pageSql}`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...binds, ...pageBinds)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = results ?? [];
+  const nextCursor =
+    rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).container_id) : null;
+  return c.json({ rows, total, nextCursor });
 });
 
 const containerSnapshotExportRoute = createRoute({

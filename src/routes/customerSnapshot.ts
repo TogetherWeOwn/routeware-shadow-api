@@ -37,14 +37,19 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
       q: z.string().optional().describe("Company name substring (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: z.coerce
+        .number()
+        .int()
+        .optional()
+        .describe("Last customer_id from the previous page's nextCursor; takes precedence over offset")
     })
   },
   responses: {
@@ -74,21 +79,36 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.enabled === "false") {
     where.push("enabled = 0");
   }
+  if (p.cursor !== undefined) {
+    where.push("customer_id > ?");
+    binds.push(p.cursor);
+  }
   const whereSql = where.join(" AND ");
   const totalRow = await db
     .prepare(`SELECT COUNT(*) as n FROM customer_snapshot WHERE ${whereSql}`)
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  // A cursor seeks from `customer_id > ?` and never needs OFFSET; keeping the
+  // OFFSET-less form off the cursor path is what avoids the scan-past-N-rows
+  // cost this route exists to remove (TOG-5810).
+  const pageSql =
+    p.cursor !== undefined
+      ? "ORDER BY customer_id LIMIT ?"
+      : "ORDER BY customer_id LIMIT ? OFFSET ?";
+  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
               name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-       FROM customer_snapshot WHERE ${whereSql} ORDER BY customer_id LIMIT ? OFFSET ?`
+       FROM customer_snapshot WHERE ${whereSql} ${pageSql}`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...binds, ...pageBinds)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = results ?? [];
+  const nextCursor =
+    rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
+  return c.json({ rows, total, nextCursor });
 });
 
 const customerSnapshotExportRoute = createRoute({
