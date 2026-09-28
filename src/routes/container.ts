@@ -41,6 +41,10 @@ const containerSaveContainerFormRoute = createRoute({
   },
   responses: {
     ...upstreamPassthrough200,
+    400: {
+      description:
+        "Bad Request (application/problem+json). Create (`ContainerID` 0 / absent) without `PickupAddressID` in the POST body."
+    },
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
@@ -63,6 +67,15 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
   } catch (err) {
     console.error("prepareSaveContainerFormBody", err);
     const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "New container requires PickupAddressID in POST body") {
+      return problemJsonResponse({
+        type: problemType("bad-request"),
+        title: "Bad Request",
+        status: 400,
+        detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
+        instance: new URL(c.req.url).pathname
+      });
+    }
     return problemJsonResponse({
       type: problemType("bad-gateway"),
       title: "Bad Gateway",

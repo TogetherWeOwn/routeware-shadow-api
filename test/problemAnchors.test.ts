@@ -22,7 +22,7 @@ import { validationFailureHook } from "../src/routes/shared";
  * | `GET /api/v1/shadow/health` | — | outer gate | | | shared | | | shared |
  * | Routeware passthroughs (customers-read, detail-full, customer-types-read, add-new-long, load-long-modal, app-settings-get, home/index, login-page, query-request-is-complete) | — (no schemas) | outer gate | | | shared | | | shared; upstream status/body streams through verbatim (R2) |
  * | `POST …/save-long-form` | — | outer gate | | | shared | token-prep + HTML-200 silent failure | | shared |
- * | `POST …/save-address-form`, `…/save-container-form` | — | outer gate | | | shared | token-prep | | shared |
+ * | `POST …/save-address-form`, `…/save-container-form` | create w/o parent id (TOG-8148) | outer gate | | | shared | token-prep | | shared |
  * | `DELETE /api/v1/routeware/customer` | — | outer gate | | anchored | shared | | | shared |
  * | Snapshot lists (customer/address/container) | hook 400 (query) | outer gate | | | shared | | | shared |
  * | Snapshot by-id (×3) | hook 400 (params) | outer gate | anchored (missing row) | | shared | | | shared |
