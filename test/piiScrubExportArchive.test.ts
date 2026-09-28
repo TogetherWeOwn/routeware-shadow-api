@@ -119,16 +119,14 @@ beforeEach(() => {
 });
 
 describe("static-path report-fetch throw carries status only (site 1 / LEAK-1)", () => {
-  // Filed as its own bug card per the G13 acceptance (LEAK-1): the static-path
-  // door interpolates upstream `statusText` into the thrown Error while the
-  // query-id door (`QueryExecuteDownload failed: HTTP <status>`, pinned by
+  // TOG-9324: the static-path door used to interpolate upstream `statusText`
+  // into the thrown Error while the query-id door
+  // (`QueryExecuteDownload failed: HTTP <status>`, pinned by
   // `test/piiScrub.test.ts`) is status-only. `statusText` is an
   // upstream-controlled free-text field — Routeware may echo request context
   // there — and this message propagates via the `[step]` wrap into the cron
-  // `error` log field. `it.fails` keeps the suite green while documenting the
-  // leak: the moment the fix lands, this test passes unexpectedly and fails
-  // loudly, forcing its conversion to a plain pin.
-  it.fails("excludes upstream statusText from the throw", async () => {
+  // `error` log field. Pinned status-only.
+  it("excludes upstream statusText from the throw", async () => {
     // Arrange — both attempts fail with a PII-shaped body AND PII-shaped
     // status text. The body is already excluded (TOG-5821); the status text
     // is the unpinned channel.
