@@ -18,6 +18,19 @@ export default defineConfig({
      */
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    /**
+     * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
+     * spawns a worker per core per CI job, and several CI jobs share each
+     * self-hosted runner; under istanbul instrumentation the workers-pool
+     * tests then stall past the 30s timeout (red main 3657b4f, run
+     * 36357586974: 7 files, every failure a timeout; PR #85 the same).
+     * Capping at 2 workers cleared it with no test, assertion or timeout
+     * change (PR #89: the unrestricted run timed out 2 throttle tests, the
+     * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
+     * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
+     * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+     */
+    maxWorkers: process.env.CI ? 2 : undefined,
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
