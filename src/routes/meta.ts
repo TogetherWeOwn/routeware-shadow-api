@@ -1,9 +1,26 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { APP_VERSION } from "../lib/version";
 import { checkReadiness } from "../lib/readiness";
 import { createRouteModule } from "./shared";
 
 /** Unauthenticated liveness probe — the one route the `/api/v1/*` gate allows. */
 export const metaRoutes = createRouteModule();
+
+/**
+ * Health response schema (TOG-8880).
+ *
+ * `version` is the release version single-sourced from `package.json#version`
+ * via `src/lib/version.ts` (TOG-5840 pattern) — the handler below sends
+ * `APP_VERSION`, so bumping `package.json` moves the health version with no
+ * other edit.
+ */
+export const healthResponseSchema = z
+  .object({
+    status: z.literal("ok"),
+    service: z.string(),
+    version: z.string()
+  })
+  .openapi("HealthResponse");
 
 const healthRoute = createRoute({
   method: "get",
@@ -18,12 +35,7 @@ const healthRoute = createRoute({
       description: "Worker is running",
       content: {
         "application/json": {
-          schema: z
-            .object({
-              status: z.literal("ok"),
-              service: z.string()
-            })
-            .openapi("HealthResponse")
+          schema: healthResponseSchema
         }
       }
     }
@@ -31,7 +43,10 @@ const healthRoute = createRoute({
 });
 
 metaRoutes.openapi(healthRoute, (c) =>
-  c.json({ status: "ok" as const, service: "routeware-shadow-api" }, 200)
+  c.json(
+    { status: "ok" as const, service: "routeware-shadow-api", version: APP_VERSION },
+    200
+  )
 );
 
 export const readinessResponseSchema = z
