@@ -513,7 +513,7 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     const { db } = fakeExportDb([piiCustomerRow(7)], "customer_id");
 
     // Act
-    const res = snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
+    const res = await snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
 
     // Assert — the download contract: attachment disposition, CSV type, and
     // the row bytes verbatim. Scrubbing here would corrupt the operator's

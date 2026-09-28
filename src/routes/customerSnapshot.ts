@@ -121,12 +121,13 @@ const customerSnapshotExportRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Download customer snapshot as CSV",
   description:
-    "Streams every `customer_snapshot` row as CSV (`Content-Disposition: attachment`, filename `customer-snapshot.csv`) in `customer_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
+    "Streams every `customer_snapshot` row as CSV (`Content-Disposition: attachment`, filename `customer-snapshot.csv`) in `customer_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash `ETag`; replay it as `If-None-Match` for a `304` with an empty body. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
       content: { "text/csv": { schema: z.string() } }
     },
+    304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
   }
 });
@@ -137,7 +138,11 @@ const customerSnapshotExportRoute = createRoute({
 customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return snapshotCsvResponse(c.env.CUSTOMER_DB, CUSTOMER_SNAPSHOT_EXPORT);
+  return snapshotCsvResponse(
+    c.env.CUSTOMER_DB,
+    CUSTOMER_SNAPSHOT_EXPORT,
+    c.req.header("if-none-match")
+  );
 });
 
 const customerSnapshotByIdRoute = createRoute({
