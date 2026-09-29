@@ -78,19 +78,32 @@ vi.mock("../src/lib/snapshot/reportFetch", () => ({
   }
 }));
 
-vi.mock("../src/lib/r2SnapshotArchive", () => ({
-  archiveReportCsvToR2AfterD1: async (
-    _env: unknown,
-    _kind: string,
-    body: ReadableStream<Uint8Array>,
-    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>
-  ) => {
-    // `return await`, not `return`: returning the inner promise makes this
-    // frame adopt it, and workerd reports the intermediate rejected promise
-    // as unhandled even though the caller catches the one it awaits.
-    return await run(body);
-  }
-}));
+vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
+  // Keep every other export (notably the `isR2ArchiveDetail` guard
+  // `src/scheduled.ts` validates `r2` through) live: a factory that replaces
+  // the whole module would leave them `undefined` and turn every success
+  // line into a `TypeError` failure line.
+  const actual = await importOriginal<typeof import("../src/lib/r2SnapshotArchive")>();
+  return {
+    ...actual,
+    archiveReportCsvToR2AfterD1: async (
+      _env: unknown,
+      _kind: string,
+      body: ReadableStream<Uint8Array>,
+      run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
+      onArchive?: (detail: { status: string }) => void
+    ) => {
+      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // path, so a healthy table reads `stored` instead of the unreported
+      // fallback. Same passthrough as `test/snapshotOrchestration.test.ts`.
+      onArchive?.({ status: "stored" });
+      // `return await`, not `return`: returning the inner promise makes this
+      // frame adopt it, and workerd reports the intermediate rejected promise
+      // as unhandled even though the caller catches the one it awaits.
+      return await run(body);
+    }
+  };
+});
 
 import { env } from "cloudflare:workers";
 import { checkReadiness } from "../src/lib/readiness";
@@ -422,9 +435,9 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
     const line = successLine();
     expect(line.outcome).toBe("success");
     expect(line.tables).toEqual({
-      customer: { upserted: 2, rowCount: 2, deleted: 0 },
-      address: { upserted: 2, rowCount: 2, deleted: 0 },
-      container: { upserted: 2, rowCount: 2, deleted: 0 }
+      customer: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } },
+      container: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } }
     });
     expect(captured.errors).toHaveLength(1);
     expect(captured.errors[0]).toContain("data-snapshot-sync persist failed");

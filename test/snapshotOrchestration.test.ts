@@ -52,20 +52,32 @@ vi.mock("../src/lib/routewareQueryReportCsv", () => ({
   }
 }));
 
-vi.mock("../src/lib/r2SnapshotArchive", () => ({
-  archiveReportCsvToR2AfterD1: async (
-    _env: unknown,
-    kind: string,
-    body: ReadableStream<Uint8Array>,
-    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>
-  ) => {
-    calls.archived.push(kind);
-    // `return await`, not `return`: returning the inner promise makes this
-    // frame adopt it, and workerd reports the intermediate rejected promise as
-    // unhandled even though runDataSnapshotSync catches the one it awaits.
-    return await run(body);
-  }
-}));
+vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
+  // Keep the real `isR2ArchiveDetail` guard live: the chained path's
+  // `syncJsonToResult` validates `r2` through it, and a hand-rolled copy
+  // would rot the next time the status set changes.
+  const actual = await importOriginal<typeof import("../src/lib/r2SnapshotArchive")>();
+  return {
+    ...actual,
+    archiveReportCsvToR2AfterD1: async (
+      _env: unknown,
+      kind: string,
+      body: ReadableStream<Uint8Array>,
+      run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
+      onArchive?: (detail: { status: string }) => void
+    ) => {
+      calls.archived.push(kind);
+      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // path, so the orchestration stamps `r2` onto the counts. A stored marker
+      // here keeps these tests on the D1 assertions they were written for.
+      onArchive?.({ status: "stored" });
+      // `return await`, not `return`: returning the inner promise makes this
+      // frame adopt it, and workerd reports the intermediate rejected promise as
+      // unhandled even though runDataSnapshotSync catches the one it awaits.
+      return await run(body);
+    }
+  };
+});
 
 /** Records which table, batch size and reconcile flag each stream sync got. */
 function recordSync(table: string) {
@@ -245,7 +257,15 @@ describe("runCustomerSnapshotSync", () => {
     // Assert
     expect(calls.archived).toEqual(["customer"]);
     expect(calls.syncs).toEqual([{ table: "customer", batchSize: 80, reconcile: true }]);
-    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0 });
+    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } });
+  });
+
+  it("stamps the R2 archive outcome onto the counts (TOG-6549)", async () => {
+    // Arrange / Act — the mock archive reports stored, so the counts carry it.
+    const result = await runCustomerSnapshotSync(envWith({ CUSTOMER_REPORT_QUERY_ID: "23" }));
+
+    // Assert — only the status travels (message/key are log strings, not counts).
+    expect(result).toMatchObject({ r2: { status: "stored" } });
   });
 
   it("throws when the report response carries no body", async () => {
@@ -278,9 +298,9 @@ describe("runDataSnapshotSync", () => {
     // Assert
     expect(calls.syncs.map((s) => s.table)).toEqual(["customer", "address", "container"]);
     expect(result).toEqual({
-      customer: { upserted: 3, rowCount: 3, deleted: 0 },
-      address: { upserted: 3, rowCount: 3, deleted: 0 },
-      container: { upserted: 3, rowCount: 3, deleted: 0 }
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      container: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } }
     });
   });
 
@@ -462,6 +482,56 @@ describe("runDataSnapshotSyncChainedHttp", () => {
       address: { upserted: 3, rowCount: 3, deleted: 2 },
       container: { upserted: 3, rowCount: 3, deleted: 3 }
     });
+  });
+
+  it("carries a validated R2 outcome from each subrequest (TOG-6549)", async () => {
+    // Arrange — each per-table route stamps the flat `r2` outcome the
+    // single-invocation leg produced; the chained runner must surface it so a
+    // failed archive cannot hide behind a D1 `outcome:success`.
+    stubFetch();
+    behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
+      status: 200,
+      body: JSON.stringify({
+        upserted: 3,
+        rowCount: 3,
+        deleted: 1,
+        r2: { status: "failed", reason: "R2 boom" }
+      })
+    });
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert — failed travels; the default stub's tables carry no `r2`.
+    expect(result.customer).toEqual({
+      upserted: 3,
+      rowCount: 3,
+      deleted: 1,
+      r2: { status: "failed", reason: "R2 boom" }
+    });
+    expect("r2" in (result.address as object)).toBe(false);
+  });
+
+  it("drops a malformed R2 outcome from a subrequest instead of trusting it (TOG-6549)", async () => {
+    // Arrange — subrequest JSON crosses a trust boundary: a non-detail `r2`
+    // (wrong shape, unknown status) must not reach the cron line.
+    stubFetch();
+    behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
+      status: 200,
+      body: JSON.stringify({ upserted: 3, rowCount: 3, r2: { status: "archived-maybe" } })
+    });
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert
+    expect(result.customer).toEqual({ upserted: 3, rowCount: 3 });
   });
 
   it("leaves deleted absent when the subrequest did not report it", async () => {
