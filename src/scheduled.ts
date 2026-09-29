@@ -6,7 +6,11 @@ import {
 import { recordCronRun } from "./lib/cronSyncState";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
-export type CronSyncOutcome = "success" | "unconfigured" | "failed";
+export type CronSyncOutcome =
+  | "success"
+  | "unconfigured"
+  | "failed"
+  | "skipped-overlap";
 
 export type CronSyncTableCounts = {
   upserted: number;
@@ -20,8 +24,10 @@ export type CronSyncTableCounts = {
  * dashboard while the remainder parses as JSON.
  *
  * `outcome` is what an alarm keys on: `success` (at least one table ran),
- * `unconfigured` (no report paths — a config state, not a pass), or `failed`
- * (the sync threw). A silent failure can no longer look like an empty config.
+ * `unconfigured` (no report paths — a config state, not a pass), `failed`
+ * (the sync threw), or `skipped-overlap` (a previous run was still in-flight;
+ * this firing did no work). A silent failure can no longer look like an empty
+ * config.
  */
 export type CronSyncLog = {
   event: "data-snapshot-sync";
@@ -114,6 +120,26 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}`;
 }
 
+/**
+ * Overlap guard (TOG-9216, gap B4): at most one sync body runs at a time per
+ * isolate. A second firing while the first is still in-flight skips with a
+ * fixed-shape `skipped-overlap` log line instead of doubling upstream load
+ * and racing the first run's D1 writes.
+ *
+ * Skip-with-log (not bounded-wait): cron firings are minutes apart and a slow
+ * run already holds the full D1 budget, so queuing behind it risks a second
+ * timeout cascade. The skip deliberately does NOT call `recordCronRun` — the
+ * persisted `cron_sync_state` rows stay the last run that actually moved rows,
+ * so the readiness staleness probe (`src/lib/readiness.ts`) keeps reporting
+ * ground truth instead of a fresh timestamp for work that never happened.
+ *
+ * Scope: this flag serializes firings on one isolate. A platform double-fire
+ * routed to two isolates can still overlap; that residual case is visible as
+ * two `success` lines for adjacent `scheduledTime`s (see
+ * `docs/CRON-SYNC-ALARM-RUNBOOK.md` §1).
+ */
+let syncInFlight = false;
+
 export async function scheduled(
   controller: ScheduledController,
   env: Env,
@@ -138,6 +164,22 @@ export async function scheduled(
             ? new Date(controller.scheduledTime).toISOString()
             : "unknown",
       };
+      if (syncInFlight) {
+        // Fixed-shape skip: no counts, no error text, no scheduledTime delta —
+        // nothing here can carry row data or credentials. `tables` stays the
+        // all-null shape so downstream JSON consumers see the same fields.
+        console.log(
+          `data-snapshot-sync ${JSON.stringify({
+            ...base,
+            outcome: "skipped-overlap" as CronSyncOutcome,
+            tables: { customer: null, address: null, container: null },
+            summary: "skipped: previous sync still in-flight",
+            durationMs: Date.now() - start,
+          } satisfies CronSyncLog)}`
+        );
+        return;
+      }
+      syncInFlight = true;
       try {
         let r: DataSnapshotResult;
         if (publicBase) {
@@ -224,6 +266,10 @@ export async function scheduled(
             error: message,
           } satisfies CronSyncLog)}`
         );
+      } finally {
+        // Always release: a throw leaves the flag set otherwise, and every
+        // later firing would skip forever with no error to explain it.
+        syncInFlight = false;
       }
     })()
   );

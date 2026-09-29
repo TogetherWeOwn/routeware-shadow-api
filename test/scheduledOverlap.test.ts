@@ -1,35 +1,49 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Cron double-fire / overlap pin (TOG-9210, gaps QA2 + B4).
+ * Cron overlap guard (TOG-9216, gap B4).
  *
- * `src/scheduled.ts` has NO overlap guard: two concurrent cron invocations
- * both run the sync to completion, and each emits exactly one structured
- * `data-snapshot-sync {...}` log line. That is the behavior pinned here —
- * not tribal knowledge, asserted.
+ * `src/scheduled.ts` serializes syncs per isolate with a module-level
+ * in-flight flag: a second firing while the first is still in-flight skips
+ * with a fixed-shape `skipped-overlap` log line instead of doubling upstream
+ * load and racing the first run's D1 writes. The skip deliberately does NOT
+ * call `recordCronRun`, so the persisted `cron_sync_state` rows stay the last
+ * run that actually moved rows.
  *
- * If an overlap guard ever lands (the R4-15 follow-up: second run waits,
- * skips, or fails safe), THIS TEST MUST FAIL AND BE UPDATED in the same
- * change: the blocked-until-second-entry gate below times out when the
- * second run no longer enters the sync while the first is in-flight, and the
- * log-count assertions break when the second run stops emitting its own
- * success line. A green suite after a guard lands means the pin was updated,
- * not that the guard slipped past it.
+ * History: this file used to pin the OLD no-guard behavior (TOG-9210, gaps
+ * QA2 + B4) — both overlapping invocations ran to completion. That pin's own
+ * header required it to fail and be updated when a guard landed; the guard
+ * did exactly that (the old gate timed out because the second run no longer
+ * enters the sync). This file is that update.
+ *
+ * Scope note: the flag serializes firings on one isolate. A platform
+ * double-fire routed to two isolates can still overlap — that residual case
+ * is out of scope here (see `docs/CRON-SYNC-ALARM-RUNBOOK.md` §1).
  */
 
-const entered: string[] = [];
-let gate: Promise<void> = Promise.resolve();
-let releaseGate: () => void = () => {};
+const state: {
+  entered: string[];
+  gate: Promise<void> | null;
+  releaseGate: () => void;
+  error: string | null;
+} = {
+  entered: [],
+  gate: null,
+  releaseGate: () => {},
+  error: null,
+};
 
 vi.mock("../src/lib/d1SnapshotSync", () => ({
   runDataSnapshotSyncChainedHttp: async (publicBase: string) => {
-    entered.push(publicBase);
-    if (entered.length === 1) {
-      // First entrant parks here until the second run has entered the sync,
-      // proving true overlap rather than two sequential runs.
-      await gate;
-    } else {
-      releaseGate();
+    state.entered.push(publicBase);
+    // A set gate parks the first entrant so the test can fire the second run
+    // into a guaranteed in-flight window. Runs fired with no gate set proceed
+    // straight through.
+    if (state.gate) {
+      await state.gate;
+    }
+    if (state.error) {
+      throw new Error(state.error);
     }
     return {
       customer: { upserted: 1, rowCount: 1 },
@@ -38,7 +52,16 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
     };
   },
   runDataSnapshotSync: async () => {
-    throw new Error("overlap pin drives the chained path only");
+    throw new Error("overlap guard tests drive the chained path only");
+  }
+}));
+
+const persistCalls: unknown[][] = [];
+
+vi.mock("../src/lib/cronSyncState", () => ({
+  recordCronRun: async (...args: unknown[]) => {
+    persistCalls.push(args);
+    return "recorded";
   }
 }));
 
@@ -74,26 +97,34 @@ function startRun(scheduledTime: string): Promise<void> {
   })();
 }
 
+function parseLines(): Record<string, unknown>[] {
+  return logs.map((l) => {
+    expect(l.startsWith("data-snapshot-sync ")).toBe(true);
+    return JSON.parse(l.slice("data-snapshot-sync ".length)) as Record<
+      string,
+      unknown
+    >;
+  });
+}
+
 async function waitFor(what: string, cond: () => boolean): Promise<void> {
   const deadline = Date.now() + 2000;
   while (!cond()) {
     if (Date.now() > deadline) {
-      throw new Error(
-        `timed out waiting for ${what} — the overlap path changed; ` +
-          `update this pin alongside the guard (TOG-9210)`
-      );
+      throw new Error(`timed out waiting for ${what}`);
     }
     await new Promise((r) => setTimeout(r, 5));
   }
 }
 
 beforeEach(() => {
-  entered.length = 0;
+  state.entered = [];
+  state.gate = null;
+  state.releaseGate = () => {};
+  state.error = null;
+  persistCalls.length = 0;
   logs.length = 0;
   errors.length = 0;
-  gate = new Promise<void>((resolve) => {
-    releaseGate = resolve;
-  });
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   };
@@ -106,54 +137,104 @@ afterEach(() => {
   console.log = real.log;
   console.error = real.error;
   // Never leave a parked first run dangling on failure paths.
-  releaseGate();
+  state.releaseGate();
 });
 
-describe("scheduled cron overlap (double-fire)", () => {
-  it("runs both overlapping invocations to completion with one log line each", async () => {
-    // Arrange — start the first run and wait until it is inside the sync.
+describe("scheduled cron overlap guard", () => {
+  it("runs exactly one sync when two firings overlap; the other logs a fixed-shape skip", async () => {
+    // Arrange — park the first run inside the sync.
+    state.gate = new Promise<void>((resolve) => {
+      state.releaseGate = resolve;
+    });
     const run1 = startRun("2026-09-27T07:00:00.000Z");
-    await waitFor("the first run to enter the sync", () => entered.length >= 1);
+    await waitFor("the first run to enter the sync", () => state.entered.length >= 1);
 
-    // Act — fire the second run while the first is still in-flight, then
-    // release both. try/finally so a failed assertion cannot park run1.
+    // Act — fire the second run into the in-flight window, then release both.
+    // try/finally so a failed assertion cannot park run1.
     const run2 = startRun("2026-09-27T07:00:01.000Z");
     try {
-      await waitFor(
-        "the second run to enter the sync while the first is in-flight",
-        () => entered.length >= 2
-      );
+      await run2;
     } finally {
-      releaseGate();
+      state.releaseGate();
     }
     await run1;
+
+    // Assert — the sync body executed exactly once.
+    expect(state.entered).toEqual(["https://api.example.test"]);
+    expect(errors).toEqual([]);
+
+    // Two log lines: one success (run1), one skip (run2).
+    expect(logs).toHaveLength(2);
+    const lines = parseLines();
+    const successLines = lines.filter((l) => l.outcome === "success");
+    const skipLines = lines.filter((l) => l.outcome === "skipped-overlap");
+    expect(successLines).toHaveLength(1);
+    expect(skipLines).toHaveLength(1);
+
+    const success = successLines[0];
+    expect(success.scheduledTime).toBe("2026-09-27T07:00:00.000Z");
+
+    // The skip line is fixed-shape: literal summary, all-null tables, its own
+    // firing's scheduledTime — and nothing that can carry row data,
+    // credentials, or error text (no `error` key at all).
+    const skip = skipLines[0];
+    expect(skip).toEqual({
+      event: "data-snapshot-sync",
+      outcome: "skipped-overlap",
+      mode: "chained-http",
+      configSource: "SHADOW_API_PUBLIC_BASE",
+      d1LimitRisk: false,
+      tables: { customer: null, address: null, container: null },
+      summary: "skipped: previous sync still in-flight",
+      durationMs: expect.any(Number),
+      cron: "0 7 * * *",
+      scheduledTime: "2026-09-27T07:00:01.000Z"
+    });
+    expect(logs.join("\n")).not.toContain("api.example.test");
+
+    // The skip persisted nothing: exactly one recordCronRun call, from the
+    // run that actually moved rows.
+    expect(persistCalls).toHaveLength(1);
+    expect(persistCalls[0][1]).toMatchObject({ outcome: "success" });
+  });
+
+  it("releases the flag after completion so the next firing syncs normally", async () => {
+    const run1 = startRun("2026-09-27T07:00:00.000Z");
+    await run1;
+    const run2 = startRun("2026-09-27T07:05:00.000Z");
     await run2;
 
-    // Assert — no guard skipped, serialized, or failed the second run: the
-    // sync body executed twice and neither invocation rejected (a rejection
-    // above would already have failed the test; this names the property).
-    expect(entered).toEqual([
-      "https://api.example.test",
-      "https://api.example.test"
-    ]);
+    expect(state.entered).toHaveLength(2);
     expect(errors).toEqual([]);
-    expect(logs).toHaveLength(2);
-    const lines = logs.map((l) => {
-      expect(l.startsWith("data-snapshot-sync ")).toBe(true);
-      return JSON.parse(l.slice("data-snapshot-sync ".length)) as Record<
-        string,
-        unknown
-      >;
-    });
+    const lines = parseLines();
+    expect(lines).toHaveLength(2);
     for (const line of lines) {
       expect(line.outcome).toBe("success");
-      expect(line.mode).toBe("chained-http");
     }
-    // Two separate invocations logged — distinct fire times, not one line
-    // duplicated.
-    expect(lines.map((l) => l.scheduledTime).sort()).toEqual([
-      "2026-09-27T07:00:00.000Z",
-      "2026-09-27T07:00:01.000Z"
-    ]);
+    expect(persistCalls).toHaveLength(2);
+  });
+
+  it("releases the flag after a throw so the next firing is not skipped forever", async () => {
+    // Arrange — the first run throws inside the sync body.
+    state.error = "[customer snapshot] boom";
+    const run1 = startRun("2026-09-27T07:00:00.000Z");
+    await run1;
+
+    // Act — the next firing must proceed, not skip behind a stuck flag.
+    state.error = null;
+    const run2 = startRun("2026-09-27T07:05:00.000Z");
+    await run2;
+
+    // Assert — run1 logged failed (via console.error), run2 logged success:
+    // the flag was released by the finally, not left set by the throw.
+    expect(state.entered).toHaveLength(2);
+    expect(errors).toHaveLength(1);
+    expect(String(errors[0][0]).startsWith("data-snapshot-sync ")).toBe(true);
+    const failedLine = JSON.parse(
+      String(errors[0][0]).slice("data-snapshot-sync ".length)
+    ) as Record<string, unknown>;
+    expect(failedLine.outcome).toBe("failed");
+    const lines = parseLines();
+    expect(lines.map((l) => l.outcome)).toEqual(["success"]);
   });
 });

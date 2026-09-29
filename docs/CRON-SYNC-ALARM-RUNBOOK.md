@@ -8,7 +8,7 @@ changes. Every check below uses observability this repo already has: Workers Log
 (`[triggers]` in `wrangler.toml`), handler `src/scheduled.ts`, tests `test/scheduled.test.ts`.
 **Why:** a silent cron failure used to look identical to "no report paths configured"
 (both were free-text log lines). Every run now emits exactly one structured line whose
-`outcome` is `success`, `unconfigured`, or `failed` — the alarm keys on that field,
+`outcome` is `success`, `unconfigured`, `failed`, or `skipped-overlap` — the alarm keys on that field,
 and on the *absence* of any line.
 
 ## 0. The signal: one `data-snapshot-sync` JSON line per run
@@ -27,6 +27,7 @@ data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"cha
 | `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
 | `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
 | `failed` | The sync threw before any table result was recorded. `error` carries the step tag (e.g. `[customer snapshot] …`, `[chained address] …`) with the message only — never row data. | Triage per §4. |
+| `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (guard TOG-9216). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
 
 Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
@@ -54,7 +55,10 @@ npx wrangler tail --format json 2>&1 | grep 'data-snapshot-sync'
 
 Parse the JSON after the prefix and read `outcome`, `tables`, `durationMs`, and
 `error`. One line per run: if you see two lines for one `scheduledTime`, the second
-is a platform retry — read the latest.
+is a platform retry — read the latest. Note the guard (TOG-9216) serializes
+firings per isolate only: two `success` lines for adjacent `scheduledTime`s mean
+a platform double-fire landed on two isolates and both ran — expected residual,
+not a guard failure.
 
 ## 2. Ground truth: did rows actually move? (catches missed runs)
 
