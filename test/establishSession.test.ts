@@ -194,7 +194,7 @@ describe("establishSession refresh-lock serialization", () => {
     // the whole wait, so the waiter must time out without logging in itself —
     // a duplicate login here is exactly the thundering-herd the lock exists
     // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
-    // deterministically (20s default timeout).
+    // deterministically (90s default timeout, TOG-6527).
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -205,7 +205,7 @@ describe("establishSession refresh-lock serialization", () => {
       };
       const stub = fakeStub(state);
 
-      // Act — waiter arrives, polls past its 20s timeout while the lock stays fresh
+      // Act — waiter arrives, polls past its 90s timeout while the lock stays fresh
       const pending = establishSession(
         envWith("http"),
         stub,
@@ -217,16 +217,16 @@ describe("establishSession refresh-lock serialization", () => {
         () => null,
         (err: unknown) => err
       );
-      await vi.advanceTimersByTimeAsync(25_000);
+      await vi.advanceTimersByTimeAsync(95_000);
       const failure = await settled;
 
       // Assert — the waiter threw a PII-free timeout (never a silent return
       // that would forward with the expired cookie); no second login ran and
       // the unexpired lock was not taken over.
       expect(isConcurrentRefreshTimeout(failure)).toBe(true);
-      expect((failure as ConcurrentRefreshTimeoutError).timeoutMs).toBe(20_000);
+      expect((failure as ConcurrentRefreshTimeoutError).timeoutMs).toBe(90_000);
       expect((failure as Error).message).toBe(
-        "Concurrent session refresh timed out after 20000ms"
+        "Concurrent session refresh timed out after 90000ms"
       );
       expect(httpLoginCalls.count).toBe(0);
       expect(setCalls.count).toBe(0);
