@@ -91,6 +91,16 @@ assert.match(
   "the baked-secrets gate must fail closed when worker-configuration.d.ts is absent (TOG-8373)",
 );
 
+// The changelog gate diffs the PR against origin/main and fails when a
+// consumer-visible contract path changed without a TOG-1234 bullet under
+// CHANGELOG.md ## [Unreleased]. Pin it present so a contract change can
+// never land with an empty [Unreleased] (TOG-8385, gap G9).
+assert.match(
+  hygiene,
+  /^        run: npm run check:changelog$/m,
+  "hygiene must run the changelog gate (TOG-8385)"
+);
+
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
 // never land without the hygiene gate (TOG-6291).

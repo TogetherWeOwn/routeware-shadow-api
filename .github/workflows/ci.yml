@@ -138,6 +138,13 @@ jobs:
         # .dev.vars.example mentions (active or commented `# KEY=`), failing
         # on divergence in either direction. Keys only, never values.
         run: npm run check:vars-parity
+      - name: Changelog gate (TOG-8385)
+        # Credential-free: diffs the PR against origin/main and fails when a
+        # consumer-visible contract path (routes, response shapes, wrangler
+        # routes/vars, D1 schema) changed without a TOG-1234 bullet under
+        # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
+        # skip the gate.
+        run: npm run check:changelog
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),

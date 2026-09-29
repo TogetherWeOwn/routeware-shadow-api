@@ -11,6 +11,7 @@ Keep the card ID out of the title; put it on the Refs line below.
 ## Changes
 
 -
+<!-- Consumer-visible contract change (routes, response shapes, wrangler routes/vars, D1 schema)? Add a `- TOG-…:` bullet under `CHANGELOG.md ## [Unreleased]` — enforced by `npm run check:changelog`. Docs/test/scripts/CI-only changes skip the gate. -->
 
 ## Testing
 
