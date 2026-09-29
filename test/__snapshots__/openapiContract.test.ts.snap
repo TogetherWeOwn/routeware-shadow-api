@@ -556,7 +556,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/import": {
       "post": {
-        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys.",
+        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "text/csv": {
@@ -610,7 +626,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/sync": {
       "post": {
-        "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied.",
+        "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -840,7 +872,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/import": {
       "post": {
-        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys.",
+        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "text/csv": {
@@ -894,7 +942,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/sync": {
       "post": {
-        "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first.",
+        "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1102,9 +1166,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/import": {
       "post": {
-        "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.
+        "description": "Raw CSV bytes (same format as the Routeware export). \`Content-Type: text/csv\` or \`application/octet-stream\`. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.
 
 **Try it in \`/docs\`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like \`{upserted: 2, rowCount: 2, deleted: 0}\` — imports never delete, so \`deleted\` is always 0. Run this before the address/container imports so their foreign keys resolve.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "text/csv": {
@@ -1163,9 +1243,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/sync": {
       "post": {
-        "description": "Same logic as the daily cron. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\` and either \`CUSTOMER_REPORT_EXPORT_PATH\` (static path) or \`CUSTOMER_REPORT_QUERY_ID\` (Routeware query id for the async report pipeline).
+        "description": "Same logic as the daily cron. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\` and either \`CUSTOMER_REPORT_EXPORT_PATH\` (static path) or \`CUSTOMER_REPORT_QUERY_ID\` (Routeware query id for the async report pipeline). Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).
 
 **Try it in \`/docs\`:** paste the sync secret once into the \`bearerAuth\` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: \`{upserted, rowCount, deleted}\` (\`skipped: true\` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -1256,9 +1352,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data-snapshot/sync": {
       "post": {
-        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`.
+        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`. Pass \`?dryRun=true\` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes.
 
 **Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2430,6 +2542,65 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "summary": "Shadow API liveness probe (versioned, staging slice)",
         "tags": [
           "shadow",
+        ],
+      },
+    },
+    "/api/v1/snapshots/{table}/{date}": {
+      "get": {
+        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh \`...-snapshot/export\` to verify an archive before recovery.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "enum": [
+                "customer",
+                "address",
+                "container",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "description": "UTC archive date (YYYY-MM-DD)",
+            "in": "path",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "description": "UTC archive date (YYYY-MM-DD)",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Archived CSV bytes (header line plus one line per row)",
+          },
+          "400": {
+            "description": "Invalid table or date (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum or not shaped \`YYYY-MM-DD\` before any R2 read runs.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "No archive for that table and date (application/problem+json)",
+          },
+          "503": {
+            "description": "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound.",
+          },
+        },
+        "summary": "Download an archived snapshot CSV from R2",
+        "tags": [
+          "data-snapshot",
         ],
       },
     },

@@ -28,8 +28,19 @@ export type DataSnapshotResult = {
   container: SnapshotTableResult;
 };
 
+/**
+ * Dry-run switch for the per-table sync runners (TOG-9203): parse and count
+ * the report CSV as usual, but write nothing — no D1 upserts, no reconcile
+ * deletes, and no R2 archive. The second positional is optional so existing
+ * callers (cron, tests) keep compiling unchanged.
+ */
+export type SnapshotSyncRunOptions = {
+  dryRun?: boolean;
+};
+
 export async function runCustomerSnapshotSync(
-  env: Env
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
 ): Promise<SnapshotSyncCounts | null> {
   const path = env.CUSTOMER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CUSTOMER_REPORT_QUERY_ID?.trim();
@@ -39,22 +50,29 @@ export async function runCustomerSnapshotSync(
   }
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
+  const dryRun = opts.dryRun === true;
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "customer", resp.body, (s) =>
+  const run = (s: ReadableStream<Uint8Array>) =>
     syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CUST, {
       reconcile: true,
-      syncedAt
-    })
-  );
+      syncedAt,
+      dryRun
+    });
+  if (dryRun) {
+    console.log("Customer snapshot dry run: validating without writing D1 or R2");
+    return run(resp.body);
+  }
+  return archiveReportCsvToR2AfterD1(env, "customer", resp.body, run);
 }
 
 export async function runAddressSnapshotSync(
-  env: Env
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
 ): Promise<SnapshotSyncCounts | null> {
   const path = env.ADDRESS_REPORT_EXPORT_PATH?.trim();
   const queryId = env.ADDRESS_REPORT_QUERY_ID?.trim();
@@ -64,22 +82,29 @@ export async function runAddressSnapshotSync(
   }
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
+  const dryRun = opts.dryRun === true;
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "address", resp.body, (s) =>
+  const run = (s: ReadableStream<Uint8Array>) =>
     syncAddressSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_ADDR, {
       reconcile: true,
-      syncedAt
-    })
-  );
+      syncedAt,
+      dryRun
+    });
+  if (dryRun) {
+    console.log("Address snapshot dry run: validating without writing D1 or R2");
+    return run(resp.body);
+  }
+  return archiveReportCsvToR2AfterD1(env, "address", resp.body, run);
 }
 
 export async function runContainerSnapshotSync(
-  env: Env
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
 ): Promise<SnapshotSyncCounts | null> {
   const path = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CONTAINER_REPORT_QUERY_ID?.trim();
@@ -91,18 +116,24 @@ export async function runContainerSnapshotSync(
   }
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
+  const dryRun = opts.dryRun === true;
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
   if (!resp.body) {
     throw new Error("Report response has no body");
   }
-  return archiveReportCsvToR2AfterD1(env, "container", resp.body, (s) =>
+  const run = (s: ReadableStream<Uint8Array>) =>
     syncContainerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CONT, {
       reconcile: true,
-      syncedAt
-    })
-  );
+      syncedAt,
+      dryRun
+    });
+  if (dryRun) {
+    console.log("Container snapshot dry run: validating without writing D1 or R2");
+    return run(resp.body);
+  }
+  return archiveReportCsvToR2AfterD1(env, "container", resp.body, run);
 }
 
 function rethrowWithSnapshotContext(step: string, err: unknown): never {
@@ -162,7 +193,8 @@ function syncJsonToResult(j: PerTableJson): SnapshotTableResult {
  */
 export async function runDataSnapshotSyncChainedHttp(
   publicBaseUrl: string,
-  env: Env
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
 ): Promise<DataSnapshotResult> {
   const bearer = env.CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim();
   if (!bearer) {
@@ -180,11 +212,14 @@ export async function runDataSnapshotSyncChainedHttp(
     container: null
   };
 
+  // TOG-9203: a combined dry run must dry-run every table — a real write
+  // hiding behind one subrequest would defeat the no-write guarantee.
+  const drySuffix = opts.dryRun === true ? "?dryRun=true" : "";
   async function post(
     path: string,
     step: string
   ): Promise<PerTableJson> {
-    const u = `${base}${path}`;
+    const u = `${base}${path}${drySuffix}`;
     const resp = await fetch(u, { method: "POST", headers: h });
     // Consumed then discarded: drains the body so the connection can be
     // reused, but zero upstream bytes ever reach the thrown error below

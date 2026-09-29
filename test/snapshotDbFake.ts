@@ -29,6 +29,13 @@ export type RecordingDbOptions = {
   failAll?: boolean;
   /** `meta.changes` for `run()`. Omit to return `meta` with no `changes` key. */
   changes?: number;
+  /**
+   * Rows with a numeric `n` for the `countWouldDeleteStale` dry-run counts in
+   * `upsert.ts` (TOG-9203), consumed in call order — one entry per
+   * `SELECT COUNT` (total-stale first, then one per 99-key IN chunk).
+   * Omit to answer every count with `{ n: 0 }`.
+   */
+  firstCounts?: number[];
 };
 
 export function recordingDb(opts: RecordingDbOptions = {}): RecordingDb {
@@ -36,6 +43,7 @@ export function recordingDb(opts: RecordingDbOptions = {}): RecordingDb {
   const runs: Recorded[] = [];
   const selects: Recorded[] = [];
   let batchCalls = 0;
+  let firstCalls = 0;
 
   const db = {
     prepare(sql: string) {
@@ -44,6 +52,14 @@ export function recordingDb(opts: RecordingDbOptions = {}): RecordingDb {
           const rec: Recorded = { sql, binds };
           return {
             rec,
+            async first() {
+              // Dry-run `SELECT COUNT` probe in `upsert.ts` (TOG-9203).
+              // Recorded in `selects` alongside the FK `all()` lookups so
+              // tests can assert the read-only count shape.
+              selects.push(rec);
+              const counts = opts.firstCounts ?? [];
+              return { n: counts[firstCalls++] ?? 0 };
+            },
             async run() {
               runs.push(rec);
               return { meta: opts.changes === undefined ? {} : { changes: opts.changes } };

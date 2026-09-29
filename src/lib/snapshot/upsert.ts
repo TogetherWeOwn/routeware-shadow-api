@@ -173,6 +173,70 @@ export async function reconcileDeleteStale(
   return res.meta.changes ?? 0;
 }
 
+/**
+ * Read-only stale-row count for dry runs (TOG-9203): the rows
+ * `reconcileDeleteStale` would delete (synced_at predates this run), counted
+ * without deleting them. Same literal-union constraint as
+ * `reconcileDeleteStale`: `table` interpolates directly into the SQL, so only
+ * ever call with a literal, never caller-controlled text.
+ */
+export async function countStaleRows(
+  db: D1Database,
+  table: "customer_snapshot" | "address_snapshot" | "container_snapshot",
+  syncedAt: string
+): Promise<number> {
+  const row = await db
+    .prepare(`SELECT COUNT(*) as n FROM ${table} WHERE synced_at < ?`)
+    .bind(syncedAt)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Exact would-be delete count for a dry run (TOG-9203): stale rows whose
+ * primary key was NOT seen in the parsed CSV — i.e. what `reconcileDeleteStale`
+ * would remove after the real upserts refreshed every seen row. Rows present
+ * in the CSV are excluded even though their stored `synced_at` is still old
+ * (the real run would have restamped them), so a re-sync of unchanged data
+ * correctly reports `deleted: 0` instead of the whole table.
+ *
+ * Computed as total stale rows minus stale rows whose key WAS seen (one
+ * `IN` count per 99-key chunk, staying under D1's 100-variable ceiling).
+ * Summing per-chunk `NOT IN` counts instead would overcount whenever the key
+ * set spans more than one chunk — each chunk's query counts the stale rows
+ * excluded only from that chunk.
+ *
+ * Read-only (`SELECT COUNT` only). `table` and `pkColumn` interpolate directly
+ * into the SQL and are constrained to literal unions — only ever call with
+ * literals, never caller-controlled text.
+ */
+export async function countWouldDeleteStale(
+  db: D1Database,
+  table: "customer_snapshot" | "address_snapshot" | "container_snapshot",
+  pkColumn: "customer_id" | "pickup_address_id" | "container_id",
+  syncedAt: string,
+  seenKeys: number[]
+): Promise<number> {
+  const totalStale = await countStaleRows(db, table, syncedAt);
+  const distinct = [...new Set(seenKeys)];
+  if (distinct.length === 0) {
+    return totalStale;
+  }
+  let refreshed = 0;
+  for (let i = 0; i < distinct.length; i += 99) {
+    const chunk = distinct.slice(i, i + 99);
+    const placeholders = chunk.map(() => "?").join(", ");
+    const row = await db
+      .prepare(
+        `SELECT COUNT(*) as n FROM ${table} WHERE synced_at < ? AND ${pkColumn} IN (${placeholders})`
+      )
+      .bind(syncedAt, ...chunk)
+      .first<{ n: number }>();
+    refreshed += row?.n ?? 0;
+  }
+  return totalStale - refreshed;
+}
+
 /** Reconcile one complete customer graph, including containers of removed addresses. */
 export async function reconcileCustomerChildren(
   db: D1Database,
@@ -206,6 +270,14 @@ export type SnapshotSyncCounts = {
 export type StreamSyncOptions = {
   /** Delete rows not seen in this run (report sync). Off for partial imports. */
   reconcile?: boolean;
+  /**
+   * Dry run (TOG-9203): run the full parse/validate path but write nothing
+   * (no upserts, no reconcile deletes). The caller reports would-be counts.
+   * FK validation is also skipped — would-be parent rows are not visible to
+   * later tables, so checking dangling references against current D1 would
+   * false-fail the customer → address → container flow.
+   */
+  dryRun?: boolean;
   /** Observation boundary captured before fetching the report, not after download. */
   syncedAt?: string;
   /**

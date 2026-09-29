@@ -41,7 +41,11 @@ export {
   syncCustomerSnapshotFromStream
 } from "./snapshot/streamSync";
 
-export type { DataSnapshotResult, SnapshotTableResult } from "./snapshot/orchestration";
+export type {
+  DataSnapshotResult,
+  SnapshotSyncRunOptions,
+  SnapshotTableResult
+} from "./snapshot/orchestration";
 export {
   getDataSnapshotPlan,
   runAddressSnapshotSync,

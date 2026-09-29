@@ -112,6 +112,27 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
 }
 
 /**
+ * `?dryRun=true` query flag for the snapshot sync/import routes (TOG-9203).
+ * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
+ * string (including `"false"`) to `true`, which would turn a cautious
+ * `?dryRun=false` probe into a real write. Only the exact string `"true"`
+ * dry-runs; anything else is rejected with the anchored 400 below.
+ */
+export const dryRunQuery = z.object({
+  dryRun: z
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      "Dry run: validate the CSV and return the would-be counts without writing D1 or R2"
+    )
+});
+
+/** True only for `?dryRun=true` — absent or `?dryRun=false` runs for real. */
+export function isDryRunRequested(query: { dryRun?: string }): boolean {
+  return query.dryRun === "true";
+}
+
+/**
  * Map a dangling-FK snapshot failure to 400 `bad-request` problem+json, or
  * `null` when the error is not an FK violation. Lists up to 20 missing integer
  * keys, then `+N more` — integer keys only, no PII, no secrets.

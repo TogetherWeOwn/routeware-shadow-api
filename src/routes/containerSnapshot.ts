@@ -18,7 +18,9 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  dryRunQuery,
   foreignKeyProblem,
+  isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse
@@ -221,7 +223,10 @@ const containerSnapshotSyncRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "Fetch container report CSV and upsert D1",
   description:
-    "Same bearer. Requires `CONTAINER_REPORT_EXPORT_PATH` or `CONTAINER_REPORT_QUERY_ID`. Address rows for each `pickup_address_id` should exist in D1 first.",
+    "Same bearer. Requires `CONTAINER_REPORT_EXPORT_PATH` or `CONTAINER_REPORT_QUERY_ID`. Address rows for each `pickup_address_id` should exist in D1 first. Pass `?dryRun=true` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
+  request: {
+    query: dryRunQuery
+  },
   responses: {
     200: {
       description: "Result",
@@ -257,7 +262,11 @@ containerSnapshotRoutes.openapi(containerSnapshotSyncRoute, async (c) => {
     });
   }
   try {
-    const r = await runContainerSnapshotSync(c.env);
+    // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+    // the would-be counts while writing nothing (no D1, no R2).
+    const r = await runContainerSnapshotSync(c.env, {
+      dryRun: isDryRunRequested(c.req.valid("query"))
+    });
     if (!r) {
       return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
     }
@@ -274,8 +283,9 @@ const containerSnapshotImportRoute = createRoute({
   path: "/api/v1/container-snapshot/import",
   tags: ["container-snapshot"],
   summary: "Import container CSV into D1",
-  description: "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys.",
+  description: "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "Routeware Container Details CSV (header + data rows — see example)",
       content: {
@@ -331,7 +341,9 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
     // not forward extra args anyway.
     const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
-      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES
+      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
+      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      dryRun: isDryRunRequested(c.req.valid("query"))
     });
     return c.json(r, 200);
   } catch (e) {
