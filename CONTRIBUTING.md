@@ -57,6 +57,10 @@ Hard rules (enforced by tests or CI — see `docs/CONVENTIONS.md` §§ 3–4):
 - No test may reach the network — mock upstream `fetch`, throw on unexpected URLs.
 - No hand-written source file over 800 lines — split the module instead.
 - Route modules must be `OpenAPIHono` via `createRouteModule()`, never plain `Hono`.
+- Consumer-visible contract changes (routes, response shapes, wrangler
+  routes/vars, D1 schema) need a `TOG-…` bullet under `CHANGELOG.md`
+  `## [Unreleased]` — enforced by `npm run check:changelog`. Docs-only,
+  test-only, script-only and CI-only changes skip the gate.
 - Never run `npm run deploy` / `wrangler deploy` / remote migrations as ordinary
   development — deploys target production and are separately gated.
 
