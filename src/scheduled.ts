@@ -105,6 +105,37 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
     : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
 }
 
+/**
+ * Extracts per-table results from a `PartialDataSnapshotSyncError` (TOG-6546).
+ * Structural, not `instanceof`: the sync module may be stubbed (tests) or the
+ * error may cross a module boundary, and the handler must still report the
+ * partial instead of all-null. Returns null for any other rejection, which
+ * keeps the previous "threw before any result" line.
+ */
+function partialTables(e: unknown): DataSnapshotResult | null {
+  if (typeof e !== "object" || e === null || !("partial" in e)) {
+    return null;
+  }
+  const p = (e as { partial: unknown }).partial;
+  if (typeof p !== "object" || p === null) {
+    return null;
+  }
+  const t = p as Record<string, unknown>;
+  if (!("customer" in t && "address" in t && "container" in t)) {
+    return null;
+  }
+  return p as DataSnapshotResult;
+}
+
+/** Names the failed table on a partial error, or null when unknown. */
+function failedTableName(e: unknown): string | null {
+  if (typeof e !== "object" || e === null || !("failedTable" in e)) {
+    return null;
+  }
+  const f = (e as { failedTable: unknown }).failedTable;
+  return typeof f === "string" ? f : null;
+}
+
 function summarizeTable(name: string, t: CronSyncTableCounts): string {
   if (!t) {
     return `${name}: skipped (no report path configured)`;
@@ -196,14 +227,34 @@ export async function scheduled(
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         const endedAt = Date.now();
-        // A throw means no table result exists: every table row records
-        // `failed` (counts null) so the readiness staleness probe still
-        // advances and the next alarm keys on fresh evidence.
+        // TOG-6546: a table failure carries the tables that already
+        // succeeded — report and persist them instead of all-null so the log
+        // line and the readiness probe show what actually ran. Tables never
+        // attempted stay null.
+        const partial = partialTables(e);
+        const tables = partial
+          ? {
+              customer: tableCounts(partial.customer),
+              address: tableCounts(partial.address),
+              container: tableCounts(partial.container),
+            }
+          : { customer: null, address: null, container: null };
+        const failed = failedTableName(e);
+        const summary = partial
+          ? [
+              summarizeTable("customer", tables.customer),
+              summarizeTable("address", tables.address),
+              summarizeTable("container", tables.container),
+            ].join("; ") + (failed ? `; failed: ${failed}` : "")
+          : "sync threw before any table result was recorded";
+        // Persist the run before logging it so the readiness timestamp lands
+        // even if the Worker dies mid-log. Best-effort: a D1 failure here
+        // keeps the log line as the record, never turns a good sync red.
         try {
           await recordCronRun((env as Partial<Env>).CUSTOMER_DB, {
             outcome: "failed",
             mode: base.mode,
-            tables: { customer: null, address: null, container: null },
+            tables,
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
@@ -218,8 +269,8 @@ export async function scheduled(
           `data-snapshot-sync ${JSON.stringify({
             ...base,
             outcome: "failed" as CronSyncOutcome,
-            tables: { customer: null, address: null, container: null },
-            summary: "sync threw before any table result was recorded",
+            tables,
+            summary,
             durationMs: endedAt - start,
             error: message,
           } satisfies CronSyncLog)}`

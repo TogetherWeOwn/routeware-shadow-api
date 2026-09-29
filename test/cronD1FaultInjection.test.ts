@@ -268,17 +268,18 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCustomerBatch)));
 
-    // Assert — the step tag names the table; counts are null; nothing synced.
-    // The message carries the upsert layer's batch context around the driver
-    // error, so the assertions pin tag + table + driver text, not the exact
-    // string.
+    // Assert — the step tag names the table; nothing synced, so no table has
+    // counts to keep: the all-null line still applies when the FIRST table
+    // fails. The message carries the upsert layer's batch context around the
+    // driver error, so the assertions pin tag + table + driver text, not the
+    // exact string.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[customer snapshot]");
     expect(String(line.error)).toContain("customer_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
-    expect(line.summary).toBe("sync threw before any table result was recorded");
+    expect(line.summary).toContain("failed: customer");
     expect(typeof line.durationMs).toBe("number");
     expect(await rowCount("customer_snapshot")).toBe(0);
     expect(await rowCount("address_snapshot")).toBe(0);
@@ -286,33 +287,58 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     expectNoPii(allCaptured(), "customer fault");
   });
 
-  it("address batch failure names address, keeps the synced customer rows, skips container", async () => {
+  it("address batch failure names address, keeps customer counts, skips container", async () => {
     // Arrange / Act
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — orchestration stops after the failed step: customer rows from
-    // this run are present, container never ran.
+    // this run are present, container never ran. TOG-6546: the failed line
+    // keeps the customer counts instead of all-null, and names the table.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[address snapshot]");
     expect(String(line.error)).toContain("address_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
+    expect((line.tables as Record<string, unknown>).customer).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+    });
+    expect((line.tables as Record<string, unknown>).address).toBeNull();
+    expect((line.tables as Record<string, unknown>).container).toBeNull();
+    expect(String(line.summary)).toContain("customer: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("failed: address");
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(0);
     expect(await rowCount("container_snapshot")).toBe(0);
     expectNoPii(allCaptured(), "address fault");
   });
 
-  it("container batch failure names container, keeps customer + address rows", async () => {
+  it("container batch failure names container, keeps customer + address counts", async () => {
     // Arrange / Act
     await runScheduled(cronEnv(faultDb(failContainerBatch)));
 
-    // Assert
+    // Assert — TOG-6546: both succeeded tables keep their counts on the
+    // failed line; only the failed table is null.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[container snapshot]");
     expect(String(line.error)).toContain("container_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
+    expect((line.tables as Record<string, unknown>).customer).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+    });
+    expect((line.tables as Record<string, unknown>).address).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+    });
+    expect((line.tables as Record<string, unknown>).container).toBeNull();
+    expect(String(line.summary)).toContain("customer: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("address: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("failed: container");
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(2);
     expect(await rowCount("container_snapshot")).toBe(0);
@@ -332,21 +358,35 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     expectNoPii(allCaptured(), "reconcile fault");
   });
 
-  it("failed runs persist failed rows with null counts and no error text", async () => {
-    // Arrange / Act
+  it("failed runs persist per-table results: succeeded tables keep counts, the failed table is null", async () => {
+    // Arrange / Act — address fails after customer synced (TOG-6546).
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — the readiness staleness probe still advances on fresh
     // evidence, and the persisted rows carry no error text (PII-free by
-    // column construction, pinned here behaviorally).
+    // column construction, pinned here behaviorally). The succeeded table
+    // keeps its counts; the failed and never-attempted tables record null.
     const rows = await readCronState(realDb());
     expect(rows).toHaveLength(3);
-    for (const r of rows ?? []) {
-      expect(r.outcome).toBe("failed");
-      expect(r.upserted).toBeNull();
-      expect(r.rowCount).toBeNull();
-      expect(r.deleted).toBeNull();
-    }
+    const byTable = Object.fromEntries((rows ?? []).map((r) => [r.tableName, r]));
+    expect(byTable.customer).toMatchObject({
+      outcome: "failed",
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+    });
+    expect(byTable.address).toMatchObject({
+      outcome: "failed",
+      upserted: null,
+      rowCount: null,
+      deleted: null,
+    });
+    expect(byTable.container).toMatchObject({
+      outcome: "failed",
+      upserted: null,
+      rowCount: null,
+      deleted: null,
+    });
     expect(JSON.stringify(rows)).not.toContain("database is locked");
     expectNoPii(JSON.stringify(rows), "persisted failed rows");
   });

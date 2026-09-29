@@ -105,9 +105,52 @@ export async function runContainerSnapshotSync(
   );
 }
 
-function rethrowWithSnapshotContext(step: string, err: unknown): never {
+export type SnapshotTableName = "customer" | "address" | "container";
+
+function rethrowWithSnapshotContext(
+  step: string,
+  failedTable: SnapshotTableName,
+  err: unknown,
+  partial: DataSnapshotResult
+): never {
   const m = err instanceof Error ? err.message : String(err);
-  throw new Error(`[${step}] ${m}`, { cause: err });
+  // A chained subrequest already carries its `[chained <table>]` tag from
+  // `post()` — re-prefixing would double it.
+  const message = m.startsWith(`[${step}]`) ? m : `[${step}] ${m}`;
+  throw new PartialDataSnapshotSyncError(step, failedTable, message, {
+    ...partial
+  }, { cause: err });
+}
+
+/**
+ * Thrown when a table sync fails after earlier tables may have completed
+ * (TOG-6546). Carries the per-table results collected so far so the cron log
+ * can report partial progress instead of all-null: tables that succeeded keep
+ * their counts, the failed table is named by `failedTable`, and tables never
+ * attempted stay null.
+ *
+ * The message keeps the established `[step]` prefix and `cause` so existing
+ * triage (runbook §4, `test/snapshotOrchestration.test.ts`) is unchanged.
+ * Only counts travel here — never row data (CONVENTIONS.md fact 2).
+ */
+export class PartialDataSnapshotSyncError extends Error {
+  readonly step: string;
+  readonly failedTable: SnapshotTableName;
+  readonly partial: DataSnapshotResult;
+
+  constructor(
+    step: string,
+    failedTable: SnapshotTableName,
+    message: string,
+    partial: DataSnapshotResult,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
+    this.name = "PartialDataSnapshotSyncError";
+    this.step = step;
+    this.failedTable = failedTable;
+    this.partial = partial;
+  }
 }
 
 /**
@@ -196,16 +239,24 @@ export async function runDataSnapshotSyncChainedHttp(
   }
 
   if (plan.runCustomer) {
-    out.customer = syncJsonToResult(
-      await post("/api/v1/customer-snapshot/sync", "customer")
-    );
+    try {
+      out.customer = syncJsonToResult(
+        await post("/api/v1/customer-snapshot/sync", "customer")
+      );
+    } catch (e) {
+      rethrowWithSnapshotContext("chained customer", "customer", e, out);
+    }
   } else {
     console.log("No customer path or query ID; not syncing customers");
   }
   if (plan.runAddress) {
-    out.address = syncJsonToResult(
-      await post("/api/v1/address-snapshot/sync", "address")
-    );
+    try {
+      out.address = syncJsonToResult(
+        await post("/api/v1/address-snapshot/sync", "address")
+      );
+    } catch (e) {
+      rethrowWithSnapshotContext("chained address", "address", e, out);
+    }
   } else {
     if (env.ADDRESS_REPORT_EXPORT_PATH?.trim() || env.ADDRESS_REPORT_QUERY_ID?.trim()) {
       console.log(
@@ -216,9 +267,13 @@ export async function runDataSnapshotSyncChainedHttp(
     }
   }
   if (plan.runContainer) {
-    out.container = syncJsonToResult(
-      await post("/api/v1/container-snapshot/sync", "container")
-    );
+    try {
+      out.container = syncJsonToResult(
+        await post("/api/v1/container-snapshot/sync", "container")
+      );
+    } catch (e) {
+      rethrowWithSnapshotContext("chained container", "container", e, out);
+    }
   } else {
     const tP = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
     const tQ = env.CONTAINER_REPORT_QUERY_ID?.trim();
@@ -249,7 +304,7 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     try {
       out.customer = await runCustomerSnapshotSync(env);
     } catch (e) {
-      rethrowWithSnapshotContext("customer snapshot", e);
+      rethrowWithSnapshotContext("customer snapshot", "customer", e, out);
     }
   } else {
     console.log("No customer path or query ID; not syncing customers");
@@ -258,7 +313,7 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     try {
       out.address = await runAddressSnapshotSync(env);
     } catch (e) {
-      rethrowWithSnapshotContext("address snapshot", e);
+      rethrowWithSnapshotContext("address snapshot", "address", e, out);
     }
   } else {
     if (env.ADDRESS_REPORT_EXPORT_PATH?.trim() || env.ADDRESS_REPORT_QUERY_ID?.trim()) {
@@ -273,7 +328,7 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     try {
       out.container = await runContainerSnapshotSync(env);
     } catch (e) {
-      rethrowWithSnapshotContext("container snapshot", e);
+      rethrowWithSnapshotContext("container snapshot", "container", e, out);
     }
   } else {
     const tP = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
