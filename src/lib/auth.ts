@@ -10,9 +10,16 @@
  * The expected token is `SHADOW_API_TOKEN` when set, otherwise it falls back to
  * `CUSTOMER_SNAPSHOT_SYNC_SECRET` so a deployment can run with a single secret.
  * Privileged snapshot/data routes additionally check the sync secret directly.
+ *
+ * Read-only role (TOG-8878): `SHADOW_API_READ_TOKEN`, when set, grants
+ * GET-only access to non-privileged reads. It passes the outer gate on GET
+ * requests; writes/sync/import (non-GET) never pass with it, and privileged
+ * routes reject it at their inner sync-secret check.
  */
 
 type EnvWithApiToken = Env & { SHADOW_API_TOKEN?: string };
+
+type EnvWithReadToken = Env & { SHADOW_API_READ_TOKEN?: string };
 
 type HeaderReader = { header: (name: string) => string | undefined };
 
@@ -76,4 +83,21 @@ export function isApiAuthorized(env: Env, req: HeaderReader): boolean {
     bearerMatches(req, apiAccessToken(env)) ||
     bearerMatches(req, env.CUSTOMER_SNAPSHOT_SYNC_SECRET)
   );
+}
+
+/** The read-only token (`SHADOW_API_READ_TOKEN`), or undefined when unset. */
+export function readAccessToken(env: Env): string | undefined {
+  const raw = (env as EnvWithReadToken).SHADOW_API_READ_TOKEN?.trim();
+  return raw || undefined;
+}
+
+/**
+ * True when the request carries the read-only bearer on a GET request
+ * (TOG-8878). The read token never authorizes non-GET methods — writes, sync
+ * and import stay on the full token — and it never clears the privileged
+ * inner check (`requireSnapshotAuth` only accepts the sync secret), so no
+ * privileged route accepts it. Unset/blank means unconfigured: fail closed.
+ */
+export function isReadAuthorized(env: Env, req: HeaderReader, method: string): boolean {
+  return method === "GET" && bearerMatches(req, readAccessToken(env));
 }

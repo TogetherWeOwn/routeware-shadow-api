@@ -26,6 +26,7 @@ declare namespace Cloudflare {
 		REPORT_QUERY_END_DATE: "1900-01-01";
 		CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-sync-secret";
 		SHADOW_API_TOKEN: "test-api-token";
+		SHADOW_API_READ_TOKEN: "test-read-token";
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
 		AUTH_MODE: "auto";
@@ -55,6 +56,7 @@ declare namespace Cloudflare {
 		REPORT_QUERY_END_DATE: "1900-01-01";
 		CUSTOMER_SNAPSHOT_SYNC_SECRET?: "test-sync-secret";
 		SHADOW_API_TOKEN?: "test-api-token";
+		SHADOW_API_READ_TOKEN?: "test-read-token";
 		SHADOW_API_PUBLIC_BASE: "";
 		SNAPSHOTS_R2_ENABLED: "true";
 		AUTH_MODE: "auto";
