@@ -34,6 +34,23 @@ land. Fix: import the parents first (customers, then addresses, then
 containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 — integer keys only, never PII.
 
+## Blocked customer erasure (`bad-request`)
+
+`DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
+customer row (GDPR-style erasure for the stored extract — upstream Routeware
+is untouched; see `method-not-allowed`). The same FK chain refuses a delete
+while address rows still reference the customer, mapped to 400 (never an
+orphan, never a cascade):
+
+```
+Cannot delete customer_id=42: 2 address row(s) still reference it
+(pickup_address_id=10, 11). Delete the addresses first.
+See docs/PROBLEMS.md#bad-request.
+```
+
+Fix: delete the listed addresses first, then retry. The `detail` names up to
+20 blocking integer keys — integer keys only, never PII.
+
 ## Authentication (`unauthorized`)
 
 All `/api/v1/*` endpoints **except** `GET /api/v1/health` require a bearer token:

@@ -1323,6 +1323,56 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       },
     },
     "/api/v1/customer-snapshot/{customerId}": {
+      "delete": {
+        "description": "Hard-deletes one \`customer_snapshot\` row by \`customerId\` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no row exists. Refuses with 400 \`bad-request\` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "customerId",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "customerId": {
+                      "type": "integer",
+                    },
+                    "deleted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "customerId",
+                    "deleted",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Deleted row id and count",
+          },
+          "400": {
+            "description": "Invalid customer id, or address rows still reference it (application/problem+json)",
+          },
+          "404": {
+            "description": "Not found (application/problem+json)",
+          },
+        },
+        "summary": "Delete one customer snapshot row",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
       "get": {
         "description": "Reads one row from the daily snapshot DB by \`customerId\`. Bearer-gated like every \`/api/v1/*\` route except \`GET /api/v1/health\`. Returns 404 when no row exists for that id.",
         "parameters": [
