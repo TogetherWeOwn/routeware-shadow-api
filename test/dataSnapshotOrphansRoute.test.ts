@@ -141,7 +141,7 @@ describe("GET /api/v1/data-snapshot/orphans", () => {
     expect(body.type).toBe(UNAUTHORIZED_TYPE);
     expect(body.title).toBe("Unauthorized");
     expect(body.detail).toBe(
-      "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
+      "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized."
     );
     expect(orphanCalls).toHaveLength(0);
   });

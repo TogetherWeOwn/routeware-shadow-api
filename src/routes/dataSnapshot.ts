@@ -124,7 +124,7 @@ const dataSnapshotOrphansRoute = createRoute({
 });
 
 dataSnapshotRoutes.openapi(dataSnapshotOrphansRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const q = c.req.valid("query");
   const report = await getSnapshotOrphans(c.env.CUSTOMER_DB, q.sampleLimit);
