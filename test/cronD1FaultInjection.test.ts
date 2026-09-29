@@ -78,19 +78,32 @@ vi.mock("../src/lib/snapshot/reportFetch", () => ({
   }
 }));
 
-vi.mock("../src/lib/r2SnapshotArchive", () => ({
-  archiveReportCsvToR2AfterD1: async (
-    _env: unknown,
-    _kind: string,
-    body: ReadableStream<Uint8Array>,
-    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>
-  ) => {
-    // `return await`, not `return`: returning the inner promise makes this
-    // frame adopt it, and workerd reports the intermediate rejected promise
-    // as unhandled even though the caller catches the one it awaits.
-    return await run(body);
-  }
-}));
+vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
+  // Keep every other export (notably the `isR2ArchiveDetail` guard
+  // `src/scheduled.ts` validates `r2` through) live: a factory that replaces
+  // the whole module would leave them `undefined` and turn every success
+  // line into a `TypeError` failure line.
+  const actual = await importOriginal<typeof import("../src/lib/r2SnapshotArchive")>();
+  return {
+    ...actual,
+    archiveReportCsvToR2AfterD1: async (
+      _env: unknown,
+      _kind: string,
+      body: ReadableStream<Uint8Array>,
+      run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
+      onArchive?: (detail: { status: string }) => void
+    ) => {
+      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // path, so a healthy table reads `stored` instead of the unreported
+      // fallback. Same passthrough as `test/snapshotOrchestration.test.ts`.
+      onArchive?.({ status: "stored" });
+      // `return await`, not `return`: returning the inner promise makes this
+      // frame adopt it, and workerd reports the intermediate rejected promise
+      // as unhandled even though the caller catches the one it awaits.
+      return await run(body);
+    }
+  };
+});
 
 import { env } from "cloudflare:workers";
 import { checkReadiness } from "../src/lib/readiness";
@@ -268,17 +281,18 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCustomerBatch)));
 
-    // Assert — the step tag names the table; counts are null; nothing synced.
-    // The message carries the upsert layer's batch context around the driver
-    // error, so the assertions pin tag + table + driver text, not the exact
-    // string.
+    // Assert — the step tag names the table; nothing synced, so no table has
+    // counts to keep: the all-null line still applies when the FIRST table
+    // fails. The message carries the upsert layer's batch context around the
+    // driver error, so the assertions pin tag + table + driver text, not the
+    // exact string.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[customer snapshot]");
     expect(String(line.error)).toContain("customer_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
-    expect(line.summary).toBe("sync threw before any table result was recorded");
+    expect(line.summary).toContain("failed: customer");
     expect(typeof line.durationMs).toBe("number");
     expect(await rowCount("customer_snapshot")).toBe(0);
     expect(await rowCount("address_snapshot")).toBe(0);
@@ -286,33 +300,65 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     expectNoPii(allCaptured(), "customer fault");
   });
 
-  it("address batch failure names address, keeps the synced customer rows, skips container", async () => {
+  it("address batch failure names address, keeps customer counts, skips container", async () => {
     // Arrange / Act
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — orchestration stops after the failed step: customer rows from
-    // this run are present, container never ran.
+    // this run are present, container never ran. TOG-6546: the failed line
+    // keeps the customer counts instead of all-null, and names the table.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[address snapshot]");
     expect(String(line.error)).toContain("address_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
+    expect((line.tables as Record<string, unknown>).customer).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+      // TOG-6549: the succeeded table's archive stored, so its R2 outcome
+      // rides the partial counts onto the failed line.
+      r2: { status: "stored" },
+    });
+    expect((line.tables as Record<string, unknown>).address).toBeNull();
+    expect((line.tables as Record<string, unknown>).container).toBeNull();
+    expect(String(line.summary)).toContain("customer: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("failed: address");
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(0);
     expect(await rowCount("container_snapshot")).toBe(0);
     expectNoPii(allCaptured(), "address fault");
   });
 
-  it("container batch failure names container, keeps customer + address rows", async () => {
+  it("container batch failure names container, keeps customer + address counts", async () => {
     // Arrange / Act
     await runScheduled(cronEnv(faultDb(failContainerBatch)));
 
-    // Assert
+    // Assert — TOG-6546: both succeeded tables keep their counts on the
+    // failed line; only the failed table is null.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
     expect(String(line.error)).toContain("[container snapshot]");
     expect(String(line.error)).toContain("container_snapshot");
     expect(String(line.error)).toContain(D1_LOCKED);
+    expect((line.tables as Record<string, unknown>).customer).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+      // TOG-6549: both succeeded tables archived cleanly before the
+      // container leg failed, so the failed line carries their R2 outcomes.
+      r2: { status: "stored" },
+    });
+    expect((line.tables as Record<string, unknown>).address).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+      r2: { status: "stored" },
+    });
+    expect((line.tables as Record<string, unknown>).container).toBeNull();
+    expect(String(line.summary)).toContain("customer: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("address: 2 upserted, 2 rows");
+    expect(String(line.summary)).toContain("failed: container");
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(2);
     expect(await rowCount("container_snapshot")).toBe(0);
@@ -332,21 +378,35 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     expectNoPii(allCaptured(), "reconcile fault");
   });
 
-  it("failed runs persist failed rows with null counts and no error text", async () => {
-    // Arrange / Act
+  it("failed runs persist per-table results: succeeded tables keep counts, the failed table is null", async () => {
+    // Arrange / Act — address fails after customer synced (TOG-6546).
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — the readiness staleness probe still advances on fresh
     // evidence, and the persisted rows carry no error text (PII-free by
-    // column construction, pinned here behaviorally).
+    // column construction, pinned here behaviorally). The succeeded table
+    // keeps its counts; the failed and never-attempted tables record null.
     const rows = await readCronState(realDb());
     expect(rows).toHaveLength(3);
-    for (const r of rows ?? []) {
-      expect(r.outcome).toBe("failed");
-      expect(r.upserted).toBeNull();
-      expect(r.rowCount).toBeNull();
-      expect(r.deleted).toBeNull();
-    }
+    const byTable = Object.fromEntries((rows ?? []).map((r) => [r.tableName, r]));
+    expect(byTable.customer).toMatchObject({
+      outcome: "failed",
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+    });
+    expect(byTable.address).toMatchObject({
+      outcome: "failed",
+      upserted: null,
+      rowCount: null,
+      deleted: null,
+    });
+    expect(byTable.container).toMatchObject({
+      outcome: "failed",
+      upserted: null,
+      rowCount: null,
+      deleted: null,
+    });
     expect(JSON.stringify(rows)).not.toContain("database is locked");
     expectNoPii(JSON.stringify(rows), "persisted failed rows");
   });
@@ -382,9 +442,9 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
     const line = successLine();
     expect(line.outcome).toBe("success");
     expect(line.tables).toEqual({
-      customer: { upserted: 2, rowCount: 2, deleted: 0 },
-      address: { upserted: 2, rowCount: 2, deleted: 0 },
-      container: { upserted: 2, rowCount: 2, deleted: 0 }
+      customer: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } },
+      container: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } }
     });
     expect(captured.errors).toHaveLength(1);
     expect(captured.errors[0]).toContain("data-snapshot-sync persist failed");

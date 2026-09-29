@@ -1,6 +1,8 @@
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { metaRoutes, readinessResponseSchema } from "../src/routes/meta";
+import packageJson from "../package.json";
+import { APP_VERSION } from "../src/lib/version";
+import { healthResponseSchema, metaRoutes, readinessResponseSchema } from "../src/routes/meta";
 
 /**
  * Dedicated route tests for `src/routes/meta.ts`.
@@ -60,15 +62,23 @@ async function callMeta(path: string, env: Env): Promise<Response> {
 }
 
 describe("GET /api/v1/health route", () => {
-  it("answers 200 with status/service without reading env", async () => {
+  it("answers 200 with status/service/version without reading env", async () => {
     // Arrange — an empty env proves the liveness probe touches no binding.
     // Act
     const res = await callMeta("/api/v1/health", {} as unknown as Env);
 
-    // Assert
+    // Assert — version is single-sourced from package.json via APP_VERSION
+    // (TOG-5840 pattern, TOG-8880): the literal pins the wire shape, the
+    // package.json comparison pins the single-sourcing.
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
-    expect(await res.json()).toEqual({ status: "ok", service: "routeware-shadow-api" });
+    const body: unknown = await res.json();
+    expect(body).toEqual({
+      status: "ok",
+      service: "routeware-shadow-api",
+      version: packageJson.version
+    });
+    expect(healthResponseSchema.safeParse(body).success).toBe(true);
   });
 
   it("is public through the app gate (no token)", async () => {
@@ -77,9 +87,11 @@ describe("GET /api/v1/health route", () => {
 
     // Assert
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status: string; service: string };
+    const body = (await res.json()) as { status: string; service: string; version: string };
     expect(body.status).toBe("ok");
     expect(body.service).toBe("routeware-shadow-api");
+    expect(body.version).toBe(APP_VERSION);
+    expect(body.version).toBe(packageJson.version);
   });
 });
 

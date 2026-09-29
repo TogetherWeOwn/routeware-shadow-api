@@ -17,7 +17,7 @@ both gated by `OPENAPI_DOCS_ENABLED`).
 
 ```bash
 curl http://localhost:8787/api/v1/health
-# {"status":"ok","service":"routeware-shadow-api"} — HTTP 200
+# {"status":"ok","service":"routeware-shadow-api","version":"1.0.0"} — HTTP 200
 ```
 
 Anything else means the Worker is not running (`npm run dev`).
@@ -209,7 +209,7 @@ current `origin/main` — match the bodies and the `HTTP` footers exactly.
 ```bash
 # 1. Liveness — no token. Proves the Worker is up.
 curl -s -w '\nHTTP %{http_code}\n' http://localhost:8787/api/v1/health
-# {"status":"ok","service":"routeware-shadow-api"}
+# {"status":"ok","service":"routeware-shadow-api","version":"1.0.0"}
 # HTTP 200
 ```
 

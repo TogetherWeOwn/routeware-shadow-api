@@ -106,10 +106,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             ],
             "type": "string",
           },
+          "version": {
+            "type": "string",
+          },
         },
         "required": [
           "status",
           "service",
+          "version",
         ],
         "type": "object",
       },
@@ -532,7 +536,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/export": {
       "get": {
-        "description": "Streams every \`address_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`address-snapshot.csv\`) in \`pickup_address_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "description": "Streams every \`address_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`address-snapshot.csv\`) in \`pickup_address_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash \`ETag\`; replay it as \`If-None-Match\` for a \`304\` with an empty body. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
         "responses": {
           "200": {
             "content": {
@@ -543,6 +547,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "CSV download (header line plus one line per row)",
+          },
+          "304": {
+            "description": "Not modified (If-None-Match carries the current ETag)",
           },
           "401": {
             "description": "Unauthorized",
@@ -816,7 +823,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/export": {
       "get": {
-        "description": "Streams every \`container_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`container-snapshot.csv\`) in \`container_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "description": "Streams every \`container_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`container-snapshot.csv\`) in \`container_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash \`ETag\`; replay it as \`If-None-Match\` for a \`304\` with an empty body. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
         "responses": {
           "200": {
             "content": {
@@ -827,6 +834,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "CSV download (header line plus one line per row)",
+          },
+          "304": {
+            "description": "Not modified (If-None-Match carries the current ETag)",
           },
           "401": {
             "description": "Unauthorized",
@@ -1078,7 +1088,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/export": {
       "get": {
-        "description": "Streams every \`customer_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`customer-snapshot.csv\`) in \`customer_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
+        "description": "Streams every \`customer_snapshot\` row as CSV (\`Content-Disposition: attachment\`, filename \`customer-snapshot.csv\`) in \`customer_id\` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash \`ETag\`; replay it as \`If-None-Match\` for a \`304\` with an empty body. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`.",
         "responses": {
           "200": {
             "content": {
@@ -1089,6 +1099,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "CSV download (header line plus one line per row)",
+          },
+          "304": {
+            "description": "Not modified (If-None-Match carries the current ETag)",
           },
           "401": {
             "description": "Unauthorized",

@@ -29,8 +29,10 @@ const calls: {
 const behavior: {
   bodyless: boolean;
   syncError: string | null;
+  /** When set, only this table's stream sync throws (TOG-6546). */
+  syncErrorTable: string | null;
   httpResponses: Map<string, { status: number; body: string }>;
-} = { bodyless: false, syncError: null, httpResponses: new Map() };
+} = { bodyless: false, syncError: null, syncErrorTable: null, httpResponses: new Map() };
 
 function reportResponse(): Response {
   return new Response(behavior.bodyless ? null : "CustomerID\n1,,Acme", { status: 200 });
@@ -50,20 +52,32 @@ vi.mock("../src/lib/routewareQueryReportCsv", () => ({
   }
 }));
 
-vi.mock("../src/lib/r2SnapshotArchive", () => ({
-  archiveReportCsvToR2AfterD1: async (
-    _env: unknown,
-    kind: string,
-    body: ReadableStream<Uint8Array>,
-    run: (s: ReadableStream<Uint8Array>) => Promise<unknown>
-  ) => {
-    calls.archived.push(kind);
-    // `return await`, not `return`: returning the inner promise makes this
-    // frame adopt it, and workerd reports the intermediate rejected promise as
-    // unhandled even though runDataSnapshotSync catches the one it awaits.
-    return await run(body);
-  }
-}));
+vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
+  // Keep the real `isR2ArchiveDetail` guard live: the chained path's
+  // `syncJsonToResult` validates `r2` through it, and a hand-rolled copy
+  // would rot the next time the status set changes.
+  const actual = await importOriginal<typeof import("../src/lib/r2SnapshotArchive")>();
+  return {
+    ...actual,
+    archiveReportCsvToR2AfterD1: async (
+      _env: unknown,
+      kind: string,
+      body: ReadableStream<Uint8Array>,
+      run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
+      onArchive?: (detail: { status: string }) => void
+    ) => {
+      calls.archived.push(kind);
+      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // path, so the orchestration stamps `r2` onto the counts. A stored marker
+      // here keeps these tests on the D1 assertions they were written for.
+      onArchive?.({ status: "stored" });
+      // `return await`, not `return`: returning the inner promise makes this
+      // frame adopt it, and workerd reports the intermediate rejected promise as
+      // unhandled even though runDataSnapshotSync catches the one it awaits.
+      return await run(body);
+    }
+  };
+});
 
 /** Records which table, batch size and reconcile flag each stream sync got. */
 function recordSync(table: string) {
@@ -74,7 +88,7 @@ function recordSync(table: string) {
     options: { reconcile?: boolean } = {}
   ) => {
     calls.syncs.push({ table, batchSize, reconcile: options.reconcile });
-    if (behavior.syncError) {
+    if (behavior.syncError && (behavior.syncErrorTable === null || behavior.syncErrorTable === table)) {
       throw new Error(behavior.syncError);
     }
     return { upserted: 3, rowCount: 3, deleted: 0 };
@@ -119,6 +133,7 @@ beforeEach(() => {
   calls.fetches = [];
   behavior.bodyless = false;
   behavior.syncError = null;
+  behavior.syncErrorTable = null;
   behavior.httpResponses = new Map();
   console.log = () => {};
 });
@@ -242,7 +257,15 @@ describe("runCustomerSnapshotSync", () => {
     // Assert
     expect(calls.archived).toEqual(["customer"]);
     expect(calls.syncs).toEqual([{ table: "customer", batchSize: 80, reconcile: true }]);
-    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0 });
+    expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } });
+  });
+
+  it("stamps the R2 archive outcome onto the counts (TOG-6549)", async () => {
+    // Arrange / Act — the mock archive reports stored, so the counts carry it.
+    const result = await runCustomerSnapshotSync(envWith({ CUSTOMER_REPORT_QUERY_ID: "23" }));
+
+    // Assert — only the status travels (message/key are log strings, not counts).
+    expect(result).toMatchObject({ r2: { status: "stored" } });
   });
 
   it("throws when the report response carries no body", async () => {
@@ -275,9 +298,9 @@ describe("runDataSnapshotSync", () => {
     // Assert
     expect(calls.syncs.map((s) => s.table)).toEqual(["customer", "address", "container"]);
     expect(result).toEqual({
-      customer: { upserted: 3, rowCount: 3, deleted: 0 },
-      address: { upserted: 3, rowCount: 3, deleted: 0 },
-      container: { upserted: 3, rowCount: 3, deleted: 0 }
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      container: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } }
     });
   });
 
@@ -303,6 +326,36 @@ describe("runDataSnapshotSync", () => {
 
     // Assert
     expect(error.message).toBe("[customer snapshot] D1_ERROR: database is locked");
+    expect(error.cause).toBeInstanceOf(Error);
+  });
+
+  it("carries the partial results and failed table on the thrown error (TOG-6546)", async () => {
+    // Arrange — the acceptance case: container fails after customer and
+    // address succeeded. Both tables were attempted (three sync calls) and
+    // the error keeps the two successes. Only counts travel — never row data.
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+    behavior.syncError = "D1_ERROR: database is locked";
+    behavior.syncErrorTable = "container";
+
+    // Act
+    const error = (await runDataSnapshotSync(envWith(ALL_CONFIGURED)).catch(
+      (e: unknown) => e
+    )) as InstanceType<typeof PartialDataSnapshotSyncError> & { cause?: unknown };
+
+    // Assert
+    expect(calls.syncs.map((s) => s.table)).toEqual(["customer", "address", "container"]);
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("container");
+    expect(error.partial).toEqual({
+      // TOG-6549: the mock archive reports stored, so the succeeded tables
+      // carry their R2 outcome into the partial error.
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      container: null,
+    });
+    expect(error.message).toBe("[container snapshot] D1_ERROR: database is locked");
     expect(error.cause).toBeInstanceOf(Error);
   });
 
@@ -433,6 +486,56 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     });
   });
 
+  it("carries a validated R2 outcome from each subrequest (TOG-6549)", async () => {
+    // Arrange — each per-table route stamps the flat `r2` outcome the
+    // single-invocation leg produced; the chained runner must surface it so a
+    // failed archive cannot hide behind a D1 `outcome:success`.
+    stubFetch();
+    behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
+      status: 200,
+      body: JSON.stringify({
+        upserted: 3,
+        rowCount: 3,
+        deleted: 1,
+        r2: { status: "failed", reason: "R2 boom" }
+      })
+    });
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert — failed travels; the default stub's tables carry no `r2`.
+    expect(result.customer).toEqual({
+      upserted: 3,
+      rowCount: 3,
+      deleted: 1,
+      r2: { status: "failed", reason: "R2 boom" }
+    });
+    expect("r2" in (result.address as object)).toBe(false);
+  });
+
+  it("drops a malformed R2 outcome from a subrequest instead of trusting it (TOG-6549)", async () => {
+    // Arrange — subrequest JSON crosses a trust boundary: a non-detail `r2`
+    // (wrong shape, unknown status) must not reach the cron line.
+    stubFetch();
+    behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
+      status: 200,
+      body: JSON.stringify({ upserted: 3, rowCount: 3, r2: { status: "archived-maybe" } })
+    });
+
+    // Act
+    const result = await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    );
+
+    // Assert
+    expect(result.customer).toEqual({ upserted: 3, rowCount: 3 });
+  });
+
   it("leaves deleted absent when the subrequest did not report it", async () => {
     // Arrange — default stub returns {upserted, rowCount} with no `deleted`;
     // the runner must not invent a phantom `deleted: 0`.
@@ -474,6 +577,36 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(error.message).toBe(
       `[chained customer] POST /api/v1/customer-snapshot/sync → 500: ${"X".repeat(1200)}`
     );
+  });
+
+  it("carries succeeded tables on the error when a later subrequest fails (TOG-6546)", async () => {
+    // Arrange — container subrequest fails after customer/address succeeded.
+    stubFetch();
+    const { PartialDataSnapshotSyncError } = await import(
+      "../src/lib/snapshot/orchestration"
+    );
+    behavior.httpResponses.set("/api/v1/container-snapshot/sync", {
+      status: 500,
+      body: "D1 limit",
+    });
+
+    // Act
+    const error = (await runDataSnapshotSyncChainedHttp(
+      "https://api.example.test",
+      envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
+    ).catch((e: unknown) => e)) as InstanceType<typeof PartialDataSnapshotSyncError>;
+
+    // Assert — all three attempted, the two successes kept, failed table named.
+    expect(calls.fetches.map((f) => f.url)).toEqual([
+      "https://api.example.test/api/v1/customer-snapshot/sync",
+      "https://api.example.test/api/v1/address-snapshot/sync",
+      "https://api.example.test/api/v1/container-snapshot/sync",
+    ]);
+    expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
+    expect(error.failedTable).toBe("container");
+    expect(error.partial.customer).toEqual({ upserted: 3, rowCount: 3 });
+    expect(error.partial.address).toEqual({ upserted: 3, rowCount: 3 });
+    expect(error.partial.container).toBeNull();
   });
 
   it("does not post the tables the plan skipped", async () => {

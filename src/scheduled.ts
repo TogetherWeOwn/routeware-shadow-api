@@ -4,6 +4,7 @@ import {
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
 import { recordCronRun } from "./lib/cronSyncState";
+import { isR2ArchiveDetail, type R2ArchiveDetail } from "./lib/r2SnapshotArchive";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
 export type CronSyncOutcome = "success" | "unconfigured" | "failed";
@@ -12,6 +13,8 @@ export type CronSyncTableCounts = {
   upserted: number;
   rowCount: number;
   deleted?: number;
+  /** R2 archive outcome for this table's CSV leg (TOG-6549). Absent only when the producer predates the instrumentation. */
+  r2?: R2ArchiveDetail;
 } | null;
 
 /**
@@ -97,12 +100,50 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
   // Explicit pick, never spread (TOG-7378): the result objects flow straight
   // into the `data-snapshot-sync` log line, so an extra property carrying row
   // data (company name, phone, …) would leave the Worker in the cron log.
+  // The TOG-6549 exception is `r2`, and it travels only through the
+  // `isR2ArchiveDetail` guard (status discriminant only) — never blind.
   if (!t) {
     return null;
   }
-  return t.deleted === undefined
-    ? { upserted: t.upserted, rowCount: t.rowCount }
-    : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
+  const out: Exclude<CronSyncTableCounts, null> =
+    t.deleted === undefined
+      ? { upserted: t.upserted, rowCount: t.rowCount }
+      : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
+  if (isR2ArchiveDetail(t.r2)) {
+    out.r2 = t.r2;
+  }
+  return out;
+}
+
+/**
+ * Extracts per-table results from a `PartialDataSnapshotSyncError` (TOG-6546).
+ * Structural, not `instanceof`: the sync module may be stubbed (tests) or the
+ * error may cross a module boundary, and the handler must still report the
+ * partial instead of all-null. Returns null for any other rejection, which
+ * keeps the previous "threw before any result" line.
+ */
+function partialTables(e: unknown): DataSnapshotResult | null {
+  if (typeof e !== "object" || e === null || !("partial" in e)) {
+    return null;
+  }
+  const p = (e as { partial: unknown }).partial;
+  if (typeof p !== "object" || p === null) {
+    return null;
+  }
+  const t = p as Record<string, unknown>;
+  if (!("customer" in t && "address" in t && "container" in t)) {
+    return null;
+  }
+  return p as DataSnapshotResult;
+}
+
+/** Names the failed table on a partial error, or null when unknown. */
+function failedTableName(e: unknown): string | null {
+  if (typeof e !== "object" || e === null || !("failedTable" in e)) {
+    return null;
+  }
+  const f = (e as { failedTable: unknown }).failedTable;
+  return typeof f === "string" ? f : null;
 }
 
 function summarizeTable(name: string, t: CronSyncTableCounts): string {
@@ -111,7 +152,13 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   }
   const deleted =
     t.deleted === undefined ? "" : `, ${t.deleted} deleted`;
-  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}`;
+  // TOG-6549: the R2 archive state rides in the summary so a missing archive
+  // is visible in the human-readable line, not just the JSON. `unknown` covers
+  // counts produced before the instrumentation (e.g. older route callers, or a
+  // test double that omitted the field).
+  const r2 = t.r2?.status ?? "unknown";
+  const archive = r2 === "stored" ? "" : `, r2: ${r2}`;
+  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}${archive}`;
 }
 
 export async function scheduled(
@@ -196,14 +243,34 @@ export async function scheduled(
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         const endedAt = Date.now();
-        // A throw means no table result exists: every table row records
-        // `failed` (counts null) so the readiness staleness probe still
-        // advances and the next alarm keys on fresh evidence.
+        // TOG-6546: a table failure carries the tables that already
+        // succeeded — report and persist them instead of all-null so the log
+        // line and the readiness probe show what actually ran. Tables never
+        // attempted stay null.
+        const partial = partialTables(e);
+        const tables = partial
+          ? {
+              customer: tableCounts(partial.customer),
+              address: tableCounts(partial.address),
+              container: tableCounts(partial.container),
+            }
+          : { customer: null, address: null, container: null };
+        const failed = failedTableName(e);
+        const summary = partial
+          ? [
+              summarizeTable("customer", tables.customer),
+              summarizeTable("address", tables.address),
+              summarizeTable("container", tables.container),
+            ].join("; ") + (failed ? `; failed: ${failed}` : "")
+          : "sync threw before any table result was recorded";
+        // Persist the run before logging it so the readiness timestamp lands
+        // even if the Worker dies mid-log. Best-effort: a D1 failure here
+        // keeps the log line as the record, never turns a good sync red.
         try {
           await recordCronRun((env as Partial<Env>).CUSTOMER_DB, {
             outcome: "failed",
             mode: base.mode,
-            tables: { customer: null, address: null, container: null },
+            tables,
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
@@ -218,8 +285,8 @@ export async function scheduled(
           `data-snapshot-sync ${JSON.stringify({
             ...base,
             outcome: "failed" as CronSyncOutcome,
-            tables: { customer: null, address: null, container: null },
-            summary: "sync threw before any table result was recorded",
+            tables,
+            summary,
             durationMs: endedAt - start,
             error: message,
           } satisfies CronSyncLog)}`

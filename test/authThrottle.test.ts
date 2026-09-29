@@ -59,22 +59,40 @@ async function call(path: string, opts: CallOpts = {}): Promise<Response> {
 }
 
 describe("clientIpFromRequest", () => {
+  // TOG-8888: XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
+  // opt-in (dev/test). Production (flag absent/"false") ignores XFF so an
+  // attacker value can neither evade the throttle nor frame a victim bucket.
+  const TRUST_XFF = { THROTTLE_TRUST_XFF: "true" };
+  const PROD = { THROTTLE_TRUST_XFF: "false" };
+
   it("prefers CF-Connecting-IP (authoritative, set by Cloudflare)", () => {
     expect(
       clientIpFromRequest(
-        reqWith({ "CF-Connecting-IP": "203.0.113.1", "X-Forwarded-For": "198.51.100.1" })
+        reqWith({ "CF-Connecting-IP": "203.0.113.1", "X-Forwarded-For": "198.51.100.1" }),
+        TRUST_XFF
       )
     ).toBe("203.0.113.1");
   });
 
-  it("falls back to the first X-Forwarded-For entry", () => {
+  it("honors the first X-Forwarded-For entry when THROTTLE_TRUST_XFF=true", () => {
     expect(
-      clientIpFromRequest(reqWith({ "X-Forwarded-For": "198.51.100.1, 70.41.3.18" }))
+      clientIpFromRequest(
+        reqWith({ "X-Forwarded-For": "198.51.100.1, 70.41.3.18" }),
+        TRUST_XFF
+      )
     ).toBe("198.51.100.1");
   });
 
+  it("ignores XFF without the flag: prod-like envs bucket XFF-only callers as unknown", () => {
+    for (const env of [undefined, {}, PROD, { THROTTLE_TRUST_XFF: "" }]) {
+      expect(
+        clientIpFromRequest(reqWith({ "X-Forwarded-For": "198.51.100.1" }), env)
+      ).toBe("unknown");
+    }
+  });
+
   it("buckets headerless callers as unknown", () => {
-    expect(clientIpFromRequest(reqWith({}))).toBe("unknown");
+    expect(clientIpFromRequest(reqWith({}), TRUST_XFF)).toBe("unknown");
   });
 
   it("namespaces DO instances per IP", () => {

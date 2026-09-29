@@ -216,13 +216,22 @@ function recordingBucket(): {
 } {
   const puts: Array<{ key: string; bytes: string }> = [];
   const bucket = {
-    async put(key: string, value: ArrayBuffer | ArrayBufferView) {
+    async put(key: string, value: ArrayBuffer | ArrayBufferView | string) {
       const bytes =
-        value instanceof ArrayBuffer
-          ? dec.decode(value)
-          : dec.decode(value as ArrayBufferView);
+        typeof value === "string"
+          ? value
+          : value instanceof ArrayBuffer
+            ? dec.decode(value)
+            : dec.decode(value as ArrayBufferView);
       puts.push({ key, bytes });
       return {} as R2Object;
+    },
+    async get() {
+      // Fresh-bucket read: no pre-existing manifest sidecar, matching the
+      // `null` the real binding returns for an absent key. The stored-manifest
+      // merge path is pinned by `createMapBucket` in
+      // `test/r2SnapshotManifest.test.ts`.
+      return null;
     },
     async createMultipartUpload() {
       throw new Error("multipart not exercised in this file");
@@ -253,17 +262,28 @@ describe("R2 archive success log carries the key only (site 2)", () => {
       }
     );
 
-    // Assert — passthrough result, byte-identical legs, and the single log
-    // line names the key shape with no row data anywhere near it.
+    // Assert — passthrough result, byte-identical legs, and the log lines
+    // name the key shapes with no row data anywhere near them. The second
+    // `put` is the manifest sidecar from `updateSnapshotManifest`
+    // (fresh bucket, so `get` returned null and the manifest was created).
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe(PII_CSV);
-    expect(puts).toHaveLength(1);
+    expect(puts).toHaveLength(2);
     expect(puts[0]!.bytes).toBe(PII_CSV);
     expect(puts[0]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(r2Logs).toHaveLength(1);
+    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    const manifest = JSON.parse(puts[1]!.bytes) as {
+      version: number;
+      files: Record<string, { key: string }>;
+    };
+    expect(manifest.version).toBe(1);
+    expect(manifest.files["customer.csv"]?.key).toBe(puts[0]!.key);
+    expect(r2Logs).toHaveLength(2);
     expect(r2Logs[0]).toBe(`R2 snapshot stored: ${puts[0]!.key}`);
+    expect(r2Logs[1]).toBe(`R2 snapshot manifest updated: ${puts[1]!.key}`);
     expect(r2Errors).toEqual([]);
     expectNoPii(r2Logs.join("\n"));
+    expectNoPii(puts[1]!.bytes);
   });
 });
 
@@ -493,7 +513,7 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     const { db } = fakeExportDb([piiCustomerRow(7)], "customer_id");
 
     // Act
-    const res = snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
+    const res = await snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
 
     // Assert — the download contract: attachment disposition, CSV type, and
     // the row bytes verbatim. Scrubbing here would corrupt the operator's
