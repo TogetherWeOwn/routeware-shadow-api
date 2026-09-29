@@ -7,6 +7,7 @@ import {
   DEFAULT_BASE,
   PUBLIC_PROBE_PATH,
   SKIP_FLAG,
+  evalCronFreshness,
   formatSkipLine,
   planProbes,
   resolveBase,
@@ -58,6 +59,40 @@ describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
       expect(path.startsWith("/api/v1/")).toBe(true);
     }
     expect(ALL_PROBE_PATHS).toHaveLength(3);
+  });
+
+  it("flags cron.stale=true as stale so the probe fails (TOG-9225)", () => {
+    // Reviewer fixture path: point the probe at a readiness body whose cron
+    // timestamp is older than CRON_STALE_AFTER_MS (48h) and assert it fires.
+    const staleCron = {
+      ok: false,
+      stale: true,
+      lastRunAt: "2026-09-20T07:00:00.000Z",
+      tables: { customer: null, address: null, container: null },
+      detail: "Last cron run is older than 48h (or unreadable)"
+    };
+    expect(evalCronFreshness({ cron: staleCron })).toEqual({
+      verdict: "stale",
+      lastRunAt: "2026-09-20T07:00:00.000Z",
+      detail: "Last cron run is older than 48h (or unreadable)"
+    });
+  });
+
+  it("passes a fresh cron verdict through", () => {
+    const freshCron = {
+      ok: true,
+      stale: false,
+      lastRunAt: new Date().toISOString(),
+      tables: { customer: null, address: null, container: null }
+    };
+    expect(evalCronFreshness({ cron: freshCron }).verdict).toBe("fresh");
+    expect(evalCronFreshness({ cron: freshCron }).lastRunAt).toBe(freshCron.lastRunAt);
+  });
+
+  it("stays advisory on readiness bodies without a cron object (older deploy)", () => {
+    expect(evalCronFreshness({})).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
+    expect(evalCronFreshness({ cron: null })).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
+    expect(evalCronFreshness({ cron: undefined })).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
   });
 
   it("formats a skip line naming the path and the token remediation", () => {
