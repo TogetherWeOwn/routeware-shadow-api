@@ -27,15 +27,26 @@ const behavior: {
   result: { customer: Result; address: Result; container: Result };
   error: string | null;
   rawThrow: boolean;
+  /** When set, the sync throws a partial-failure shaped rejection (TOG-6546). */
+  partial: { failedTable: string; partial: { customer: Result; address: Result; container: Result }; message: string } | null;
 } = {
   result: { customer: null, address: null, container: null },
   error: null,
-  rawThrow: false
+  rawThrow: false,
+  partial: null,
 };
 
 vi.mock("../src/lib/d1SnapshotSync", () => ({
   runDataSnapshotSyncChainedHttp: async (publicBase: string) => {
     calls.chained.push(publicBase);
+    if (behavior.partial) {
+      const p = behavior.partial;
+      throw Object.assign(new Error(p.message), {
+        name: "PartialDataSnapshotSyncError",
+        failedTable: p.failedTable,
+        partial: p.partial,
+      });
+    }
     if (behavior.error) {
       // `rawThrow` covers the non-Error rejection branch in the handler.
       throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
@@ -44,6 +55,14 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
   },
   runDataSnapshotSync: async () => {
     calls.single += 1;
+    if (behavior.partial) {
+      const p = behavior.partial;
+      throw Object.assign(new Error(p.message), {
+        name: "PartialDataSnapshotSyncError",
+        failedTable: p.failedTable,
+        partial: p.partial,
+      });
+    }
     if (behavior.error) {
       throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
     }
@@ -121,6 +140,7 @@ beforeEach(() => {
   behavior.result = { customer: null, address: null, container: null };
   behavior.error = null;
   behavior.rawThrow = false;
+  behavior.partial = null;
   logs.length = 0;
   errors.length = 0;
   warns.length = 0;
@@ -419,6 +439,52 @@ describe("scheduled failure handling", () => {
 
     // Assert
     expect(errorLine().error).toBe("raw string failure");
+  });
+
+  it("reports partial per-table progress when a later table fails (TOG-6546)", async () => {
+    // Arrange — the acceptance case: container throws after customer and
+    // address already succeeded. The log must keep their counts instead of
+    // all-null, and name the failed table.
+    behavior.partial = {
+      failedTable: "container",
+      partial: {
+        customer: { upserted: 3, rowCount: 4 },
+        address: { upserted: 5, rowCount: 6 },
+        container: null,
+      },
+      message: "[container snapshot] D1_ERROR: database is locked",
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    expect(logs).toEqual([]);
+    const line = errorLine();
+    expect(line.outcome).toBe("failed");
+    expect(line.tables).toEqual({
+      customer: { upserted: 3, rowCount: 4 },
+      address: { upserted: 5, rowCount: 6 },
+      container: null,
+    });
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows");
+    expect(line.summary).toContain("address: 5 upserted, 6 rows");
+    expect(line.summary).toContain("failed: container");
+    expect(line.error).toBe("[container snapshot] D1_ERROR: database is locked");
+  });
+
+  it("keeps the all-null line for rejections with no partial attached", async () => {
+    // Arrange — a plain throw (not a partial error) means nothing ran, so the
+    // previous all-null + 'threw before any result' line still applies.
+    behavior.error = "[customer snapshot] D1_ERROR: database is locked";
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = errorLine();
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe("sync threw before any table result was recorded");
   });
 
   it("catches a failure on the single-invocation path too", async () => {
