@@ -43,6 +43,7 @@ export {
 
 export type {
   DataSnapshotResult,
+  SnapshotSyncRunOptions,
   SnapshotTableName,
   SnapshotTableResult
 } from "./snapshot/orchestration";

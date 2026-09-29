@@ -8,6 +8,7 @@ import { mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
+  countWouldDeleteStale,
   reconcileDeleteStale,
   upsertAddressSnapshotRows,
   upsertContainerSnapshotRows,
@@ -107,11 +108,37 @@ export async function syncCustomerSnapshotFromStream(
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
   const syncedAt = options.syncedAt ?? new Date().toISOString();
+  const dryRun = options.dryRun === true;
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: CustomerSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
+  // Dry runs keep every seen primary key so the would-be delete count can
+  // exclude rows the CSV would refresh (TOG-9203). Only populated in
+  // dry-run mode, so real syncs keep their streaming memory profile.
+  const dryRunKeys: number[] = [];
+
+  /**
+   * Flush one full batch. A dry run counts the rows without touching D1 —
+   * would-be parent rows are invisible to later tables, so dangling-FK
+   * validation against current D1 is skipped too (the stream parser already
+   * validated shape).
+   */
+  async function flush(): Promise<void> {
+    if (dryRun) {
+      upserted += batch.length;
+    } else {
+      const { upserted: n } = await upsertCustomerSnapshotRows(
+        db,
+        batch,
+        batchSize,
+        syncedAt
+      );
+      upserted += n;
+    }
+    batch.length = 0;
+  }
 
   for await (const line of cappedLines(body, options.maxBytes)) {
     if (lineNo++ === 0) {
@@ -130,26 +157,16 @@ export async function syncCustomerSnapshotFromStream(
     if (r) {
       dataRows += 1;
       batch.push(r);
+      if (dryRun) {
+        dryRunKeys.push(r.customerId);
+      }
       if (batch.length >= batchSize) {
-        const { upserted: n } = await upsertCustomerSnapshotRows(
-          db,
-          batch,
-          batchSize,
-          syncedAt
-        );
-        upserted += n;
-        batch.length = 0;
+        await flush();
       }
     }
   }
   if (batch.length) {
-    const { upserted: n } = await upsertCustomerSnapshotRows(
-      db,
-      batch,
-      batchSize,
-      syncedAt
-    );
-    upserted += n;
+    await flush();
   }
   if (lineNo === 0) {
     if (options.requireDataRows) {
@@ -166,7 +183,15 @@ export async function syncCustomerSnapshotFromStream(
   }
   const deleted =
     options.reconcile && cols && dataRows > 0
-      ? await reconcileDeleteStale(db, "customer_snapshot", syncedAt)
+      ? dryRun
+        ? await countWouldDeleteStale(
+            db,
+            "customer_snapshot",
+            "customer_id",
+            syncedAt,
+            dryRunKeys
+          )
+        : await reconcileDeleteStale(db, "customer_snapshot", syncedAt)
       : 0;
   return { upserted, rowCount: dataRows, deleted };
 }
@@ -178,11 +203,36 @@ export async function syncAddressSnapshotFromStream(
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
   const syncedAt = options.syncedAt ?? new Date().toISOString();
+  const dryRun = options.dryRun === true;
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: AddressSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
+  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // without touching D1, keep seen keys for the would-be delete count.
+  const dryRunKeys: number[] = [];
+
+  /**
+   * Flush one full batch. A dry run counts the rows without touching D1 —
+   * would-be parent rows are invisible to later tables, so dangling-FK
+   * validation against current D1 is skipped too (the stream parser already
+   * validated shape).
+   */
+  async function flush(): Promise<void> {
+    if (dryRun) {
+      upserted += batch.length;
+    } else {
+      const { upserted: n } = await upsertAddressSnapshotRows(
+        db,
+        batch,
+        batchSize,
+        syncedAt
+      );
+      upserted += n;
+    }
+    batch.length = 0;
+  }
 
   for await (const line of cappedLines(body, options.maxBytes)) {
     if (lineNo++ === 0) {
@@ -201,26 +251,16 @@ export async function syncAddressSnapshotFromStream(
     if (r) {
       dataRows += 1;
       batch.push(r);
+      if (dryRun) {
+        dryRunKeys.push(r.pickupAddressId);
+      }
       if (batch.length >= batchSize) {
-        const { upserted: n } = await upsertAddressSnapshotRows(
-          db,
-          batch,
-          batchSize,
-          syncedAt
-        );
-        upserted += n;
-        batch.length = 0;
+        await flush();
       }
     }
   }
   if (batch.length) {
-    const { upserted: n } = await upsertAddressSnapshotRows(
-      db,
-      batch,
-      batchSize,
-      syncedAt
-    );
-    upserted += n;
+    await flush();
   }
   if (lineNo === 0) {
     if (options.requireDataRows) {
@@ -237,7 +277,15 @@ export async function syncAddressSnapshotFromStream(
   }
   const deleted =
     options.reconcile && cols && dataRows > 0
-      ? await reconcileDeleteStale(db, "address_snapshot", syncedAt)
+      ? dryRun
+        ? await countWouldDeleteStale(
+            db,
+            "address_snapshot",
+            "pickup_address_id",
+            syncedAt,
+            dryRunKeys
+          )
+        : await reconcileDeleteStale(db, "address_snapshot", syncedAt)
       : 0;
   return { upserted, rowCount: dataRows, deleted };
 }
@@ -249,11 +297,36 @@ export async function syncContainerSnapshotFromStream(
   options: StreamSyncOptions = {}
 ): Promise<SnapshotSyncCounts> {
   const syncedAt = options.syncedAt ?? new Date().toISOString();
+  const dryRun = options.dryRun === true;
   let lineNo = 0;
   let cols: Record<string, number> | null = null;
   const batch: ContainerSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
+  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // without touching D1, keep seen keys for the would-be delete count.
+  const dryRunKeys: number[] = [];
+
+  /**
+   * Flush one full batch. A dry run counts the rows without touching D1 —
+   * would-be parent rows are invisible to later tables, so dangling-FK
+   * validation against current D1 is skipped too (the stream parser already
+   * validated shape).
+   */
+  async function flush(): Promise<void> {
+    if (dryRun) {
+      upserted += batch.length;
+    } else {
+      const { upserted: n } = await upsertContainerSnapshotRows(
+        db,
+        batch,
+        batchSize,
+        syncedAt
+      );
+      upserted += n;
+    }
+    batch.length = 0;
+  }
 
   for await (const line of cappedLines(body, options.maxBytes)) {
     if (lineNo++ === 0) {
@@ -272,26 +345,16 @@ export async function syncContainerSnapshotFromStream(
     if (r) {
       dataRows += 1;
       batch.push(r);
+      if (dryRun) {
+        dryRunKeys.push(r.containerId);
+      }
       if (batch.length >= batchSize) {
-        const { upserted: n } = await upsertContainerSnapshotRows(
-          db,
-          batch,
-          batchSize,
-          syncedAt
-        );
-        upserted += n;
-        batch.length = 0;
+        await flush();
       }
     }
   }
   if (batch.length) {
-    const { upserted: n } = await upsertContainerSnapshotRows(
-      db,
-      batch,
-      batchSize,
-      syncedAt
-    );
-    upserted += n;
+    await flush();
   }
   if (lineNo === 0) {
     if (options.requireDataRows) {
@@ -308,7 +371,15 @@ export async function syncContainerSnapshotFromStream(
   }
   const deleted =
     options.reconcile && cols && dataRows > 0
-      ? await reconcileDeleteStale(db, "container_snapshot", syncedAt)
+      ? dryRun
+        ? await countWouldDeleteStale(
+            db,
+            "container_snapshot",
+            "container_id",
+            syncedAt,
+            dryRunKeys
+          )
+        : await reconcileDeleteStale(db, "container_snapshot", syncedAt)
       : 0;
   return { upserted, rowCount: dataRows, deleted };
 }

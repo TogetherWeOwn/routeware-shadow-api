@@ -18,6 +18,8 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  dryRunQuery,
+  isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
@@ -210,8 +212,11 @@ const customerSnapshotSyncRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Fetch Routeware report CSV and upsert D1",
   description:
-    "Same logic as the daily cron. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>` and either `CUSTOMER_REPORT_EXPORT_PATH` (static path) or `CUSTOMER_REPORT_QUERY_ID` (Routeware query id for the async report pipeline).\n\n" +
+    "Same logic as the daily cron. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>` and either `CUSTOMER_REPORT_EXPORT_PATH` (static path) or `CUSTOMER_REPORT_QUERY_ID` (Routeware query id for the async report pipeline). Pass `?dryRun=true` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).\n\n" +
     "**Try it in `/docs`:** paste the sync secret once into the `bearerAuth` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: `{upserted, rowCount, deleted}` (`skipped: true` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
+  request: {
+    query: dryRunQuery
+  },
   responses: {
     200: {
       description: "Sync result",
@@ -247,7 +252,11 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const r = await runCustomerSnapshotSync(c.env);
+  // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+  // the would-be counts while writing nothing (no D1, no R2).
+  const r = await runCustomerSnapshotSync(c.env, {
+    dryRun: isDryRunRequested(c.req.valid("query"))
+  });
   if (!r) {
     return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
   }
@@ -260,9 +269,10 @@ const customerSnapshotImportRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Import CSV body into D1",
   description:
-    "Raw CSV bytes (same format as the Routeware export). `Content-Type: text/csv` or `application/octet-stream`. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.\n\n" +
+    "Raw CSV bytes (same format as the Routeware export). `Content-Type: text/csv` or `application/octet-stream`. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.\n\n" +
     "**Try it in `/docs`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like `{upserted: 2, rowCount: 2, deleted: 0}` — imports never delete, so `deleted` is always 0. Run this before the address/container imports so their foreign keys resolve.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "Routeware customer CSV (header + data rows — see example)",
       content: {
@@ -320,7 +330,9 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
     // not forward extra args anyway.
     const r = await syncCustomerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
-      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES
+      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
+      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      dryRun: isDryRunRequested(c.req.valid("query"))
     });
     return c.json(r, 200);
   } catch (e) {
