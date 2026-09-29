@@ -26,6 +26,7 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 ```bash
 nvm use                             # Node 20+, per .nvmrc (engines: >=20)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
+npm run types                       # generate worker-configuration.d.ts (gitignored, TOG-8373) — rerun after any wrangler.toml binding/key change
 cp .dev.vars.example .dev.vars      # then fill in values (see below)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
 npm run dev                         # http://localhost:8787 (runs check:devvars first)
@@ -116,7 +117,7 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run dev:remote` | `wrangler dev --remote` — use to exercise the Browser Rendering / Puppeteer login fallback |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
-| `npm run types` | Regenerate [`worker-configuration.d.ts`](./worker-configuration.d.ts) from Wrangler |
+| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run once after cloning, and after any `wrangler.toml` binding/key change) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
