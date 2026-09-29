@@ -5,6 +5,11 @@ import {
   type SnapshotArchiveTable
 } from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
+import {
+  fetchWithUpstreamTimeout,
+  isUpstreamTimeout,
+  readChainedSyncTimeoutMs
+} from "../upstreamTimeout";
 import { fetchReportCsvForPath } from "./reportFetch";
 import type { SnapshotSyncCounts } from "./upsert";
 import {
@@ -314,6 +319,14 @@ export async function runDataSnapshotSyncChainedHttp(
     address: null,
     container: null
   };
+  // Bounded per-table budget (TOG-6547): a hung subrequest threw nothing
+  // before, holding the cron invocation to the platform timeout and starving
+  // the tables behind it. The timer covers time-to-headers (the `fetch`
+  // promise) — the per-table route sends no headers until its report
+  // download + D1 import + R2 archive finish — and the small JSON body that
+  // follows needs no separate bound. A non-abort-aware stubbed hang is still
+  // bounded: the helper races the timer, not just the abort.
+  const timeoutMs = readChainedSyncTimeoutMs(env);
 
   // TOG-9203: a combined dry run must dry-run every table — a real write
   // hiding behind one subrequest would defeat the no-write guarantee.
@@ -323,7 +336,17 @@ export async function runDataSnapshotSyncChainedHttp(
     step: string
   ): Promise<PerTableJson> {
     const u = `${base}${path}${drySuffix}`;
-    const resp = await fetch(u, { method: "POST", headers: h });
+    let resp: Response;
+    try {
+      resp = await fetchWithUpstreamTimeout(u, { method: "POST", headers: h }, timeoutMs);
+    } catch (e) {
+      if (isUpstreamTimeout(e)) {
+        throw new Error(
+          `[chained ${step}] POST ${path} timed out after ${e.timeoutMs}ms`
+        );
+      }
+      throw e;
+    }
     const text = await resp.text();
     if (!resp.ok) {
       throw new Error(
