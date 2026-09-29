@@ -93,7 +93,13 @@ const CSV_BY_QID: Record<string, string> = {
   [CONTAINER_QID]: CONTAINER_CSV
 };
 
-type SyncResult = { upserted: number; rowCount: number; deleted?: number };
+type SyncResult = {
+  upserted: number;
+  rowCount: number;
+  deleted?: number;
+  /** R2 archive outcome (TOG-6549): always `disabled` in this file. */
+  r2?: { status: string; reason?: string; key?: string };
+};
 
 type CombinedSummary = {
   customer: { upserted: number; rowCount: number } | null;
@@ -226,7 +232,12 @@ describe("sync routes with R2 archiving disabled", () => {
 
     // Assert — exact reconciling body, rows landed, R2 untouched, reason logged.
     expect(customer.status).toBe(200);
-    expect(customer.body).toEqual({ upserted: 2, rowCount: 2, deleted: 1 });
+    expect(customer.body).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 1,
+      r2: { status: "disabled", reason: "SNAPSHOTS_R2_ENABLED=false" }
+    });
     const customers = await db()
       .prepare("SELECT customer_id, company_name FROM customer_snapshot ORDER BY customer_id")
       .all<{ customer_id: number; company_name: string }>();
@@ -242,7 +253,12 @@ describe("sync routes with R2 archiving disabled", () => {
 
     // Assert
     expect(address.status).toBe(200);
-    expect(address.body).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(address.body).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+      r2: { status: "disabled", reason: "SNAPSHOTS_R2_ENABLED=false" }
+    });
     const addresses = await db()
       .prepare(
         "SELECT pickup_address_id, customer_id, address FROM address_snapshot ORDER BY pickup_address_id"
@@ -260,7 +276,12 @@ describe("sync routes with R2 archiving disabled", () => {
 
     // Assert
     expect(container.status).toBe(200);
-    expect(container.body).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(container.body).toEqual({
+      upserted: 2,
+      rowCount: 2,
+      deleted: 0,
+      r2: { status: "disabled", reason: "SNAPSHOTS_R2_ENABLED=false" }
+    });
     const containers = await db()
       .prepare(
         `SELECT c.container_id, c.pickup_address_id, c.serial_number, a.customer_id

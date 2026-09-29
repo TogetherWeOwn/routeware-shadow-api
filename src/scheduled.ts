@@ -4,6 +4,7 @@ import {
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
 import { recordCronRun } from "./lib/cronSyncState";
+import { isR2ArchiveDetail, type R2ArchiveDetail } from "./lib/r2SnapshotArchive";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
 export type CronSyncOutcome = "success" | "unconfigured" | "failed";
@@ -12,6 +13,8 @@ export type CronSyncTableCounts = {
   upserted: number;
   rowCount: number;
   deleted?: number;
+  /** R2 archive outcome for this table's CSV leg (TOG-6549). Absent only when the producer predates the instrumentation. */
+  r2?: R2ArchiveDetail;
 } | null;
 
 /**
@@ -97,12 +100,19 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
   // Explicit pick, never spread (TOG-7378): the result objects flow straight
   // into the `data-snapshot-sync` log line, so an extra property carrying row
   // data (company name, phone, …) would leave the Worker in the cron log.
+  // The TOG-6549 exception is `r2`, and it travels only through the
+  // `isR2ArchiveDetail` guard (status discriminant only) — never blind.
   if (!t) {
     return null;
   }
-  return t.deleted === undefined
-    ? { upserted: t.upserted, rowCount: t.rowCount }
-    : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
+  const out: Exclude<CronSyncTableCounts, null> =
+    t.deleted === undefined
+      ? { upserted: t.upserted, rowCount: t.rowCount }
+      : { upserted: t.upserted, rowCount: t.rowCount, deleted: t.deleted };
+  if (isR2ArchiveDetail(t.r2)) {
+    out.r2 = t.r2;
+  }
+  return out;
 }
 
 /**
@@ -142,7 +152,13 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   }
   const deleted =
     t.deleted === undefined ? "" : `, ${t.deleted} deleted`;
-  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}`;
+  // TOG-6549: the R2 archive state rides in the summary so a missing archive
+  // is visible in the human-readable line, not just the JSON. `unknown` covers
+  // counts produced before the instrumentation (e.g. older route callers, or a
+  // test double that omitted the field).
+  const r2 = t.r2?.status ?? "unknown";
+  const archive = r2 === "stored" ? "" : `, r2: ${r2}`;
+  return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}${archive}`;
 }
 
 export async function scheduled(

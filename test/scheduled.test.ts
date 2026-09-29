@@ -19,7 +19,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * `docs/CRON-SYNC-ALARM-RUNBOOK.md` keys on.
  */
 
-type Result = { upserted: number; rowCount: number; deleted?: number } | null;
+type R2Detail = { status: "stored" | "disabled" | "failed"; reason?: string; key?: string };
+
+type Result =
+  | { upserted: number; rowCount: number; deleted?: number; r2?: R2Detail }
+  | null;
 
 const calls: { chained: string[]; single: number } = { chained: [], single: 0 };
 
@@ -305,11 +309,12 @@ describe("scheduled structured outcome", () => {
 
   it("reports deleted for every synced table in the cron summary (TOG-7391)", async () => {
     // Arrange — the chained path now carries per-table `deleted`; the cron
-    // line must show it for address/container, not just customer.
+    // line must show it for address/container, not just customer. Stored
+    // archives stay silent in the summary (TOG-6549).
     behavior.result = {
-      customer: { upserted: 3, rowCount: 4, deleted: 1 },
-      address: { upserted: 5, rowCount: 6, deleted: 2 },
-      container: { upserted: 7, rowCount: 8, deleted: 0 }
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "stored" } },
+      address: { upserted: 5, rowCount: 6, deleted: 2, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, deleted: 0, r2: { status: "stored" } }
     };
 
     // Act
@@ -318,15 +323,55 @@ describe("scheduled structured outcome", () => {
     // Assert
     const line = loggedLine();
     expect(line.tables).toEqual({
-      customer: { upserted: 3, rowCount: 4, deleted: 1 },
-      address: { upserted: 5, rowCount: 6, deleted: 2 },
-      container: { upserted: 7, rowCount: 8, deleted: 0 }
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "stored" } },
+      address: { upserted: 5, rowCount: 6, deleted: 2, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, deleted: 0, r2: { status: "stored" } }
     });
     expect(line.summary).toBe(
       "customer: 3 upserted, 4 rows, 1 deleted; " +
         "address: 5 upserted, 6 rows, 2 deleted; " +
         "container: 7 upserted, 8 rows, 0 deleted"
     );
+  });
+
+  it("surfaces a failed R2 archive in the structured line (TOG-6549)", async () => {
+    // Arrange — the acceptance case: D1 succeeded (outcome stays success) but
+    // the customer archive leg failed. Only the status travels — no row data.
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "failed", reason: "R2 boom" } },
+      address: { upserted: 5, rowCount: 6, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, r2: { status: "disabled", reason: "SNAPSHOTS binding unbound" } },
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert — the failure is explicit in both the JSON (alarm source) and the
+    // human summary; stored archives stay silent in the summary.
+    const line = loggedLine();
+    expect(line.outcome).toBe("success");
+    expect((line.tables as Record<string, { r2?: R2Detail }>).customer?.r2?.status).toBe("failed");
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows, 1 deleted, r2: failed");
+    expect(line.summary).toContain("address: 5 upserted, 6 rows");
+    expect(line.summary).not.toContain("address: 5 upserted, 6 rows, r2");
+    expect(line.summary).toContain("container: 7 upserted, 8 rows, r2: disabled");
+  });
+
+  it("marks pre-instrumentation counts as r2 unknown instead of inventing success (TOG-6549)", async () => {
+    // Arrange — a table result with no `r2` (older route caller) must not read
+    // as archived; the summary says unknown.
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = loggedLine();
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows, r2: unknown");
   });
 
   it("marks skipped tables explicitly instead of omitting them", async () => {
