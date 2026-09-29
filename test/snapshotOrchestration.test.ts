@@ -349,8 +349,10 @@ describe("runDataSnapshotSync", () => {
     expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
     expect(error.failedTable).toBe("container");
     expect(error.partial).toEqual({
-      customer: { upserted: 3, rowCount: 3, deleted: 0 },
-      address: { upserted: 3, rowCount: 3, deleted: 0 },
+      // TOG-6549: the mock archive reports stored, so the succeeded tables
+      // carry their R2 outcome into the partial error.
+      customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
+      address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
       container: null,
     });
     expect(error.message).toBe("[container snapshot] D1_ERROR: database is locked");

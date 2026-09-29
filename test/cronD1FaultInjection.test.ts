@@ -316,6 +316,9 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
       upserted: 2,
       rowCount: 2,
       deleted: 0,
+      // TOG-6549: the succeeded table's archive stored, so its R2 outcome
+      // rides the partial counts onto the failed line.
+      r2: { status: "stored" },
     });
     expect((line.tables as Record<string, unknown>).address).toBeNull();
     expect((line.tables as Record<string, unknown>).container).toBeNull();
@@ -342,11 +345,15 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
       upserted: 2,
       rowCount: 2,
       deleted: 0,
+      // TOG-6549: both succeeded tables archived cleanly before the
+      // container leg failed, so the failed line carries their R2 outcomes.
+      r2: { status: "stored" },
     });
     expect((line.tables as Record<string, unknown>).address).toEqual({
       upserted: 2,
       rowCount: 2,
       deleted: 0,
+      r2: { status: "stored" },
     });
     expect((line.tables as Record<string, unknown>).container).toBeNull();
     expect(String(line.summary)).toContain("customer: 2 upserted, 2 rows");
