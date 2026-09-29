@@ -42,6 +42,7 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"
 
 /** Every operation the Worker publishes, as `METHOD path`. */
 const EXPECTED_OPERATIONS = [
+  "DELETE /api/v1/customer-snapshot/{customerId}",
   "DELETE /api/v1/routeware/customer",
   "GET /api/v1/address-snapshot",
   "GET /api/v1/address-snapshot/export",

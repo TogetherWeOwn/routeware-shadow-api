@@ -47,8 +47,18 @@ async function call(
   return exports.default.fetch(`http://test.local${path}`, { method, headers });
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 16 share the canonical inner 401 body. */
+/**
+ * Probe a guarded route with a concrete path: entries keep router
+ * (Hono `:param`) syntax for the registration check, but a literal
+ * `:customerId` would 400 at param validation before reaching the handler.
+ */
+function probePath(path: string): string {
+  return path.replace(/:customerId/, "1");
+}
+
+/** Every route guarded by the narrower snapshot-secret check. All 17 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
+  { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
   { method: "POST", path: "/api/v1/customer-snapshot/import" },
   { method: "GET", path: "/api/v1/customer-snapshot/export" },
@@ -114,13 +124,13 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(16);
+    expect(GUARDED_ROUTES).toHaveLength(17);
   });
 
   for (const route of GUARDED_ROUTES) {
     it(`rejects the API token on ${route.method} ${route.path} with problem+json 401`, async () => {
       // Arrange / Act — a valid app token that is NOT the sync secret.
-      const response = await call(route.method, route.path);
+      const response = await call(route.method, probePath(route.path));
 
       // Assert — the canonical inner 401: same detail on every route, plus
       // the request path as instance.
@@ -131,7 +141,7 @@ describe("snapshot-secret auth gate", () => {
       expect(body.title).toBe("Unauthorized");
       expect(body.status).toBe(401);
       expect(body.detail).toBe(INNER_DETAIL);
-      expect(body.instance).toBe(route.path.split("?")[0]);
+      expect(body.instance).toBe(probePath(route.path).split("?")[0]);
     });
   }
 

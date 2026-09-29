@@ -15,7 +15,9 @@ import {
   CUSTOMER_SNAPSHOT_EXPORT,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
+import { invalidateDataEntity } from "../lib/entityDataCache";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { isForeignKeyConstraintFailure } from "../lib/snapshot/upsert";
 import {
   createRouteModule,
   requireSnapshotAuth,
@@ -189,12 +191,13 @@ const customerSnapshotExportRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Download customer snapshot as CSV",
   description:
-    "Streams every `customer_snapshot` row as CSV (`Content-Disposition: attachment`, filename `customer-snapshot.csv`) in `customer_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
+    "Streams every `customer_snapshot` row as CSV (`Content-Disposition: attachment`, filename `customer-snapshot.csv`) in `customer_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash `ETag`; replay it as `If-None-Match` for a `304` with an empty body. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
       content: { "text/csv": { schema: z.string() } }
     },
+    304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
   }
 });
@@ -395,4 +398,127 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
     if (mapped) return mapped;
     throw e;
   }
+});
+
+/**
+ * Customer-row erasure (TOG-8876): hard-deletes one `customer_snapshot` row.
+ *
+ * This erases the cached report extract only — it never touches upstream
+ * Routeware (which exposes no customer hard delete; see
+ * `docs/PROBLEMS.md#method-not-allowed`). FK-safe by refusal, not by cascade:
+ * D1 enforces the snapshot FK chain unconditionally, so deleting a customer
+ * that still has address rows fails closed and is mapped to 400 naming the
+ * blocking children — an orphan is never written. Exactly one row is ever
+ * removed (`deleted` is always 1 on a 200).
+ */
+const customerSnapshotDeleteRoute = createRoute({
+  method: "delete",
+  path: "/api/v1/customer-snapshot/{customerId}",
+  tags: ["customer-snapshot"],
+  summary: "Delete one customer snapshot row",
+  description:
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
+  request: {
+    params: z.object({ customerId: z.coerce.number().int() })
+  },
+  responses: {
+    200: {
+      description: "Deleted row id and count",
+      content: {
+        "application/json": {
+          schema: z.object({ customerId: z.number().int(), deleted: z.number().int() })
+        }
+      }
+    },
+    400: {
+      description: "Invalid customer id, or address rows still reference it (application/problem+json)"
+    },
+    404: {
+      description: "Not found (application/problem+json)"
+    }
+  }
+});
+
+// Param route, but DELETE: Hono matches method first, so this can never shadow
+// the literal GET `/export` or `/changes` routes above regardless of order.
+// Kept last for readability next to the other writer routes.
+customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  const customerId = Number(c.req.param("customerId"));
+  if (!Number.isFinite(customerId)) {
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "customerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#customerId=${c.req.param("customerId")}`
+    });
+  }
+  const customerNotFound = () =>
+    problemJsonResponse({
+      type: problemType("not-found"),
+      title: "Not Found",
+      status: 404,
+      detail: `No snapshot row for customer_id=${customerId}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.url).pathname}#customer_id=${customerId}`
+    });
+  const db = c.env.CUSTOMER_DB;
+  const existing = await db
+    .prepare("SELECT customer_id FROM customer_snapshot WHERE customer_id = ?")
+    .bind(customerId)
+    .first<{ customer_id: number }>();
+  if (!existing) {
+    return customerNotFound();
+  }
+  try {
+    const res = await db
+      .prepare("DELETE FROM customer_snapshot WHERE customer_id = ?")
+      .bind(customerId)
+      .run();
+    if ((res.meta.changes ?? 0) === 0) {
+      // Lost a race with a concurrent delete: the row is gone, so answer absent.
+      return customerNotFound();
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!isForeignKeyConstraintFailure(msg)) {
+      throw e;
+    }
+    // The D1 FK refused: address rows still reference this customer. Name the
+    // blocking children (integer keys only, never PII) so the fix is obvious.
+    const [countRow, blockers] = await Promise.all([
+      db
+        .prepare("SELECT COUNT(*) as n FROM address_snapshot WHERE customer_id = ?")
+        .bind(customerId)
+        .first<{ n: number }>(),
+      db
+        .prepare(
+          "SELECT pickup_address_id FROM address_snapshot WHERE customer_id = ? ORDER BY pickup_address_id LIMIT 20"
+        )
+        .bind(customerId)
+        .all<{ pickup_address_id: number }>()
+    ]);
+    const n = countRow?.n ?? 0;
+    const keys = (blockers.results ?? []).map((r) => r.pickup_address_id).join(", ");
+    return problemJsonResponse({
+      type: problemType("bad-request"),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        `Cannot delete customer_id=${customerId}: ${n} address row(s) still reference it` +
+        (keys ? ` (pickup_address_id=${keys})` : "") +
+        ". Delete the addresses first. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#customer_id=${customerId}`
+    });
+  }
+  // Erasure must be immediate: the data-entity GET cache would otherwise keep
+  // serving the deleted row's PII until TTL expiry. Refuse-semantics plus the
+  // D1 FK above guarantee no address/container bundle can reference this
+  // customer (any remaining child 400s the delete), so the single customer key
+  // is the whole stale set. Propagates on failure (TOG-6533): never report
+  // success while erased PII may still serve.
+  await invalidateDataEntity("customer", customerId);
+  return c.json({ customerId, deleted: 1 }, 200);
 });
