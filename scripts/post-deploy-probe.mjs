@@ -29,6 +29,7 @@ import {
   BASE_ENV,
   DEFAULT_BASE,
   SKIP_FLAG,
+  evalCronFreshness,
   formatSkipLine,
 } from "./lib/postDeployProbe.mjs";
 
@@ -270,6 +271,24 @@ async function main() {
       } else if (status === 503 || body.status === "degraded") {
         console.error("  readiness reports degraded dependencies (see checks above) — failing the probe.");
         failures += 1;
+      }
+      // Probe 3b — cron freshness (TOG-9225, gap O4). The scheduled 07:30 UTC
+      // probe runs after the 07:00 cron, so a stale verdict here means the
+      // cron is dead (two consecutive misses past the 48h threshold) and the
+      // job must go red — that is the alert. Manual runs assert it too: a
+      // human pointing the probe at staging wants the same answer. Only
+      // timestamps/outcomes leave the server (never row data or error text).
+      const freshness = evalCronFreshness({ cron: body.checks?.cron });
+      if (freshness.verdict === "stale") {
+        console.log(
+          `FAIL cron freshness -> STALE lastRunAt=${freshness.lastRunAt ?? "none"}${freshness.detail ? ` — ${freshness.detail}` : ""}`
+        );
+        console.error("  the daily cron has not recorded a run within 48h — check the cron trigger and docs/CRON-SYNC-ALARM-RUNBOOK.md.");
+        failures += 1;
+      } else if (freshness.verdict === "fresh") {
+        console.log(`PASS cron freshness -> fresh lastRunAt=${freshness.lastRunAt ?? "none"}`);
+      } else {
+        console.log("  cron freshness: UNKNOWN (older deploy without checks.cron) — advisory only, not failing.");
       }
     } catch (error) {
       console.log(

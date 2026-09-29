@@ -58,6 +58,34 @@ export function planProbes({ hasToken, skipIfNoToken } = {}) {
   ];
 }
 
+/**
+ * Cron-freshness verdict (TOG-9225, gap O4).
+ *
+ * The server computes staleness (`GET /api/v1/readiness` →
+ * `checks.cron.stale`, threshold `CRON_STALE_AFTER_MS` in
+ * `src/lib/readiness.ts`, 48h); the probe only reads the verdict, never
+ * re-implements the threshold, so the two cannot drift apart.
+ *
+ * Returns one of:
+ * - "stale"   — `cron.stale === true`: the daily cron has not recorded a run
+ *               within the threshold. The probe must fail (that is the alert).
+ * - "fresh"   — `cron.stale === false`: the cron is running. Pass.
+ * - "unknown" — no `cron` object in the readiness body (older deploy that
+ *               predates the TOG-8883 staleness probe). Advisory only: log,
+ *               never fail, so old deploys do not page on a missing field.
+ */
+export function evalCronFreshness({ cron } = {}) {
+  if (!cron || typeof cron !== "object") {
+    return { verdict: "unknown", lastRunAt: null, detail: null };
+  }
+  const lastRunAt = cron.lastRunAt ?? null;
+  const detail = typeof cron.detail === "string" ? cron.detail : null;
+  if (cron.stale === true) {
+    return { verdict: "stale", lastRunAt, detail };
+  }
+  return { verdict: "fresh", lastRunAt, detail };
+}
+
 export function formatSkipLine({ path, reason } = {}) {
   return (
     `SKIP GET ${path} -> ${reason ?? "no bearer token"}\n` +
