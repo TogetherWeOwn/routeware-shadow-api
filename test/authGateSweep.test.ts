@@ -115,10 +115,11 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
     );
     expect(registered).toContain(`${PUBLIC_HEALTH.method} ${PUBLIC_HEALTH.path}`);
     // Pinned count: adding/removing a v1 route must update this sweep explicitly.
-    // 39 = prior 34 + GET ...-snapshot/export x3 (TOG-8361 CSV download) +
+    // 40 = prior 34 + GET ...-snapshot/export x3 (TOG-8361 CSV download) +
     // DELETE /api/v1/customer-snapshot/{customerId} (TOG-8876 erasure) +
-    // GET /api/v1/snapshots/:table/:date (TOG-9202 R2 archive readback).
-    expect(routes).toHaveLength(39);
+    // GET /api/v1/snapshots/:table/:date (TOG-9202 R2 archive readback) +
+    // GET /api/v1/customer-snapshot/changes (TOG-8877 changes feed).
+    expect(routes).toHaveLength(40);
   });
 
   it.each(gatedRoutes())("401 problem+json without a token: $method $path", async (route) => {
