@@ -5,6 +5,45 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "components": {
     "parameters": {},
     "schemas": {
+      "CustomerSnapshotChanges": {
+        "properties": {
+          "nextCursor": {
+            "properties": {
+              "since": {
+                "format": "date-time",
+                "type": "string",
+              },
+              "since_id": {
+                "type": "integer",
+              },
+            },
+            "required": [
+              "since",
+              "since_id",
+            ],
+            "type": [
+              "object",
+              "null",
+            ],
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": {},
+              "type": "object",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": "integer",
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+          "nextCursor",
+        ],
+        "type": "object",
+      },
       "CustomerSnapshotList": {
         "properties": {
           "nextCursor": {
@@ -1145,6 +1184,65 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "summary": "List customer snapshot rows (D1)",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/changes": {
+      "get": {
+        "description": "Incremental-sync feed: returns rows with \`synced_at > since\` in \`(synced_at, customer_id)\` keyset order. Omit \`since\` for the first page (equivalent to the epoch — every row is newer). A bare \`since\` replays every later run whole. To page a chunked delta, pass the previous page's \`nextCursor\` back as \`since\` + \`since_id\`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. \`limit\` caps the page at 1..500 (default 50). Rows carry only the stored snapshot columns — no fields beyond the row payload.",
+        "parameters": [
+          {
+            "description": "ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "description": "ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page.",
+              "format": "date-time",
+              "type": "string",
+            },
+          },
+          {
+            "description": "Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare \`since\`.",
+            "in": "query",
+            "name": "since_id",
+            "required": false,
+            "schema": {
+              "description": "Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare \`since\`.",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSnapshotChanges",
+                },
+              },
+            },
+            "description": "Changed rows in (synced_at, customer_id) order with nextCursor",
+          },
+        },
+        "summary": "List customer snapshot rows changed since a cursor (D1)",
         "tags": [
           "customer-snapshot",
         ],

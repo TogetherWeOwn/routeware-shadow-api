@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8877: `GET /api/v1/customer-snapshot/changes` incremental-sync feed —
+  rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. A
+  bare `since` replays every later run whole; chunked deltas page with the
+  composite `since` + `since_id` cursor pair (served by the
+  `idx_customer_snapshot_synced_at` index), so same-timestamp rows past a page
+  boundary are never skipped.
+
 ## [1.0.0] - 2026-09-27
 
 Initial release of the Routeware Shadow API (Cloudflare Worker): shadow

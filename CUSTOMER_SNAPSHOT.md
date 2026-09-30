@@ -146,6 +146,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 |--------|------|--------|
 | GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
+| GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows) |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV |

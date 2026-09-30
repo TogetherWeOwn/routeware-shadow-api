@@ -51,6 +51,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/container-snapshot/export",
   "GET /api/v1/container-snapshot/{containerId}",
   "GET /api/v1/customer-snapshot",
+  "GET /api/v1/customer-snapshot/changes",
   "GET /api/v1/customer-snapshot/export",
   "GET /api/v1/customer-snapshot/{customerId}",
   "GET /api/v1/data/address",
@@ -149,9 +150,12 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each, even though `CustomerSnapshotList` is shared by the
-    // customer, address and container snapshot list routes.
+    // Registered once each: `CustomerSnapshotList` is shared by the customer,
+    // address and container snapshot list routes, and `CustomerSnapshotChanges`
+    // (TOG-8877) carries the composite `{since, since_id}` cursor instead of
+    // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+      "CustomerSnapshotChanges",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
