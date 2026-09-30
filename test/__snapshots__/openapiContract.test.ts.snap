@@ -2608,6 +2608,65 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/snapshots/{table}/{date}": {
+      "get": {
+        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh \`...-snapshot/export\` to verify an archive before recovery.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "enum": [
+                "customer",
+                "address",
+                "container",
+              ],
+              "type": "string",
+            },
+          },
+          {
+            "description": "UTC archive date (YYYY-MM-DD)",
+            "in": "path",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "description": "UTC archive date (YYYY-MM-DD)",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Archived CSV bytes (header line plus one line per row)",
+          },
+          "400": {
+            "description": "Invalid table or date (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum or not shaped \`YYYY-MM-DD\` before any R2 read runs.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "No archive for that table and date (application/problem+json)",
+          },
+          "503": {
+            "description": "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound.",
+          },
+        },
+        "summary": "Download an archived snapshot CSV from R2",
+        "tags": [
+          "data-snapshot",
+        ],
+      },
+    },
   },
   "security": [
     {
