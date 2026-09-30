@@ -49,14 +49,17 @@ async function call(
 
 /**
  * Probe a guarded route with a concrete path: entries keep router
- * (Hono `:param`) syntax for the registration check, but a literal
- * `:customerId` would 400 at param validation before reaching the handler.
+ * (Hono `:param`) syntax for the registration check, but literal parameters
+ * would 400 at param validation before reaching the handler.
  */
 function probePath(path: string): string {
-  return path.replace(/:customerId/, "1");
+  return path
+    .replace(/:customerId/, "1")
+    .replace(":table", "customer")
+    .replace(":date", "2026-09-27");
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 17 share the canonical inner 401 body. */
+/** Every route guarded by the narrower snapshot-secret check. All 18 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
@@ -74,7 +77,10 @@ const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/api/v1/data/container?id=1" },
   { method: "POST", path: "/api/v1/data/customer" },
   { method: "POST", path: "/api/v1/data/address" },
-  { method: "POST", path: "/api/v1/data/container" }
+  { method: "POST", path: "/api/v1/data/container" },
+  // TOG-9202: R2 archive readback (sync secret only), probed with a concrete
+  // table/date by probePath just like the customer erasure route above.
+  { method: "GET", path: "/api/v1/snapshots/:table/:date" }
 ];
 
 describe("snapshot-secret auth gate", () => {
@@ -124,7 +130,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(17);
+    expect(GUARDED_ROUTES).toHaveLength(18);
   });
 
   for (const route of GUARDED_ROUTES) {
