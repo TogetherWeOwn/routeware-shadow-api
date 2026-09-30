@@ -80,8 +80,10 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  // `size`/`etag` are required on R2Object (worker-configuration.d.ts), so no
-  // presence guards: uncovered branches would sit against the coverage ratchet.
+  // `size`/`httpEtag` are required on R2Object (worker-configuration.d.ts), so
+  // no presence guards: uncovered branches would sit against the coverage
+  // ratchet. `httpEtag` (quoted, HTTP-ready) — not `etag`, R2's unquoted
+  // digest — is the valid value for the response `etag` header.
   const headers = new Headers();
   headers.set(
     "content-type",
@@ -89,6 +91,6 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   );
   headers.set("content-disposition", `attachment; filename="${table}-${date}.csv"`);
   headers.set("content-length", String(obj.size));
-  headers.set("etag", obj.etag);
+  headers.set("etag", obj.httpEtag);
   return new Response(obj.body, { status: 200, headers });
 });

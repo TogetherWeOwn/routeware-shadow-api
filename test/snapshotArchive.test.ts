@@ -90,7 +90,7 @@ describe("R2 archive readback (TOG-9202)", () => {
     const day = new Date("2026-09-27T00:00:00.000Z");
     const key = snapshotR2ObjectKey("customer", day);
     expect(key).toBe("snapshots/2026-09-27/customer.csv");
-    await bucket().put(key, ARCHIVE_CSV, {
+    const seeded = await bucket().put(key, ARCHIVE_CSV, {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
 
@@ -106,6 +106,9 @@ describe("R2 archive readback (TOG-9202)", () => {
     expect(res.headers.get("content-length")).toBe(
       String(new TextEncoder().encode(ARCHIVE_CSV).byteLength)
     );
+    // `httpEtag` is the quoted, HTTP-ready value (not R2's unquoted `etag`
+    // digest) — guards the TOG-10443 CHANGES finding.
+    expect(res.headers.get("etag")).toBe(seeded.httpEtag);
     expect(await res.text()).toBe(ARCHIVE_CSV);
   });
 
