@@ -18,7 +18,7 @@ jobs:
     name: Typecheck, test, build
     runs-on: [self-hosted, two-selfhosted]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -49,7 +49,7 @@ jobs:
     # Skipped-check allowlist: the staging probe stays visible while operator
     # credentials are gated. The gate emits the reason and links TODO TOG-135.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -69,7 +69,7 @@ jobs:
     name: Repo hygiene & secret scan
     runs-on: [self-hosted, two-selfhosted]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Full history: the blocking secret scan below covers git history, not
           # just the working tree. A shallow checkout would silently scan one commit.
@@ -176,7 +176,7 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
