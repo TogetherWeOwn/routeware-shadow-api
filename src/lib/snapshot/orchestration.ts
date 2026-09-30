@@ -347,13 +347,21 @@ export async function runDataSnapshotSyncChainedHttp(
       }
       throw e;
     }
+    // Consumed then discarded: drains the body so the connection can be
+    // reused, but zero upstream bytes ever reach the thrown error below
+    // (TOG-9205 R4-04/B1 — the message lands verbatim in the APP ERROR log
+    // and the cron `failed` line, so it carries table/step/status only).
     const text = await resp.text();
     if (!resp.ok) {
-      throw new Error(
-        `[chained ${step}] POST ${path} → ${resp.status}: ${text.slice(0, 1200)}`
-      );
+      throw new Error(`[chained ${step}] POST ${path} → ${resp.status}`);
     }
-    return JSON.parse(text) as PerTableJson;
+    // Parse failures must not surface either: V8's SyntaxError message
+    // quotes the offending input bytes, which would ride the same log lines.
+    try {
+      return JSON.parse(text) as PerTableJson;
+    } catch {
+      throw new Error(`[chained ${step}] POST ${path} → ${resp.status}: invalid JSON`);
+    }
   }
 
   if (plan.runCustomer) {

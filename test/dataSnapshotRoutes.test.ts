@@ -280,8 +280,9 @@ describe("POST /api/v1/data-snapshot/sync response shapes", () => {
   });
 
   it("surfaces a chained failure instead of answering 200", async () => {
-    // Arrange — a per-table subrequest failed inside the chain (step, status
-    // and truncated body, per the orchestration contract). The route installs
+    // Arrange — a per-table subrequest failed inside the chain (fixed-shape
+    // step + status message, zero body bytes, per the orchestration contract
+    // TOG-9205). The route installs
     // no error mapping of its own: Hono catches the rejection and answers
     // 500, and the full app's onError wraps it as `internal` problem+json.
     behavior.error = new Error(
