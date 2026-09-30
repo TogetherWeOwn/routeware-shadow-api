@@ -19,7 +19,7 @@ jobs:
     runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -50,7 +50,7 @@ jobs:
     # credentials are gated. The gate emits the reason and links TODO TOG-135.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -74,7 +74,7 @@ jobs:
           # Full history: the blocking secret scan below covers git history, not
           # just the working tree. A shallow checkout would silently scan one commit.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
@@ -177,7 +177,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
