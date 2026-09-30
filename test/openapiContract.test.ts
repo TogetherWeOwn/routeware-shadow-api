@@ -152,8 +152,8 @@ describe("published OpenAPI document", () => {
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
     // Registered once each: `CustomerSnapshotList` is shared by the customer,
     // address and container snapshot list routes, and `CustomerSnapshotChanges`
-    // (TOG-8877) carries the string `synced_at` cursor instead of the integer
-    // primary-key cursor.
+    // (TOG-8877) carries the composite `{since, since_id}` cursor instead of
+    // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "CustomerSnapshotChanges",
       "CustomerSnapshotList",
