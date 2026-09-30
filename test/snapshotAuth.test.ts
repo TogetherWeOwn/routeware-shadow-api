@@ -47,8 +47,13 @@ async function call(
   return exports.default.fetch(`http://test.local${path}`, { method, headers });
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 16 share the canonical inner 401 body. */
-const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
+/**
+ * Every route guarded by the narrower snapshot-secret check. All 17 share the
+ * canonical inner 401 body. The cross-check below compares ROUTER paths (Hono
+ * `:param` syntax); concrete probe paths are registered separately so a
+ * parametrized route is both listed and exercised.
+ */
+const GUARDED_ROUTES: Array<{ method: string; path: string; probe?: false }> = [
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
   { method: "POST", path: "/api/v1/customer-snapshot/import" },
   { method: "GET", path: "/api/v1/customer-snapshot/export" },
@@ -64,7 +69,13 @@ const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "GET", path: "/api/v1/data/container?id=1" },
   { method: "POST", path: "/api/v1/data/customer" },
   { method: "POST", path: "/api/v1/data/address" },
-  { method: "POST", path: "/api/v1/data/container" }
+  { method: "POST", path: "/api/v1/data/container" },
+  // TOG-9202: R2 archive readback (sync secret only, 404 when the key is
+  // absent). The router renders the path in Hono `:param` syntax; the
+  // list/entry comparison below strips the data-route `?id=1`, so this entry
+  // reads as the router's own path while `call()` below cannot fetch it
+  // verbatim — its dedicated cells live in `test/snapshotArchive.test.ts`.
+  { method: "GET", path: "/api/v1/snapshots/:table/:date", probe: false }
 ];
 
 describe("snapshot-secret auth gate", () => {
@@ -114,10 +125,10 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(16);
+    expect(GUARDED_ROUTES).toHaveLength(17);
   });
 
-  for (const route of GUARDED_ROUTES) {
+  for (const route of GUARDED_ROUTES.filter((r) => r.probe !== false)) {
     it(`rejects the API token on ${route.method} ${route.path} with problem+json 401`, async () => {
       // Arrange / Act — a valid app token that is NOT the sync secret.
       const response = await call(route.method, route.path);

@@ -23,6 +23,7 @@ import { dataSnapshotRoutes } from "./routes/dataSnapshot";
 import { metaRoutes } from "./routes/meta";
 import { routewareRoutes } from "./routes/routeware";
 import { shadowRoutes } from "./routes/shadow";
+import { snapshotArchiveRoutes } from "./routes/snapshotArchive";
 import type { AppEnv } from "./routes/types";
 
 const openApiDocumentConfig = {
@@ -175,6 +176,7 @@ app.route("/", dataSnapshotRoutes);
 app.route("/", addressSnapshotRoutes);
 app.route("/", containerSnapshotRoutes);
 app.route("/", dataEntityRoutes);
+app.route("/", snapshotArchiveRoutes);
 
 app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
