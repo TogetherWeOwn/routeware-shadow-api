@@ -1,0 +1,47 @@
+# Dependabot weekly bumps (TOG-8904): npm prod/dev deps plus GitHub Actions.
+# Grouped minor/patch keeps the PR count low; security updates always break
+# out into their own PRs regardless of grouping. `chore(deps)` keeps titles
+# inside the pr-lint Conventional Commits types, and the bot needs a card ref
+# in the body — it cannot know ours, so add `Refs: TOG-xxxx` when merging.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    groups:
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    groups:
+      actions-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "dependencies"

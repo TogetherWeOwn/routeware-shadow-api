@@ -101,6 +101,35 @@ assert.match(
   "hygiene must run the changelog gate (TOG-8385)"
 );
 
+// The prod dependency audit gate runs `npm audit --omit=dev` and fails on
+// unallowlisted high/critical advisories, with a documented allowlist whose
+// stale entries also fail (TOG-8904). Pin it present so a vulnerable
+// transitive dep can never land without the hygiene gate.
+assert.match(
+  hygiene,
+  /^        run: npm run check:deps-audit$/m,
+  "hygiene must run the prod dependency audit gate (TOG-8904)"
+);
+
+// Dependabot bumps npm + GitHub Actions weekly (TOG-8904). Pin the config
+// present so dependency updates can never silently stop.
+const dependabot = await readFile(new URL("../.github/dependabot.yml", import.meta.url), "utf8");
+assert.match(
+  dependabot,
+  /package-ecosystem:\s*"npm"/,
+  "dependabot must cover npm (TOG-8904)"
+);
+assert.match(
+  dependabot,
+  /package-ecosystem:\s*"github-actions"/,
+  "dependabot must cover GitHub Actions (TOG-8904)"
+);
+assert.match(
+  dependabot,
+  /interval:\s*"weekly"/,
+  "dependabot must run weekly (TOG-8904)"
+);
+
 // The 800-line source-file guard counts lines in hand-written src/ files and
 // fails on any file over the limit. Pin it present so oversize modules can
 // never land without the hygiene gate (TOG-6291).
