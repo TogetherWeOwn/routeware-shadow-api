@@ -257,15 +257,6 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
-type PerTableJson = {
-  upserted: number;
-  rowCount: number;
-  deleted?: number;
-  skipped?: boolean;
-  /** R2 outcome stamped by the per-table sync route (TOG-6549); validated, never trusted blind. */
-  r2?: unknown;
-};
-
 /**
  * Carry the per-table sync counts through, including `deleted` when the
  * subrequest reported it (TOG-7391). The chained runner previously rebuilt
@@ -274,22 +265,38 @@ type PerTableJson = {
  * route strips `deleted` back out (its `{upserted, rowCount}` shape is
  * pinned by `test/syncSummaryContract.test.ts`), so this never leaks there.
  */
-function syncJsonToResult(j: PerTableJson): SnapshotTableResult {
-  if (j.skipped) {
+function syncJsonToResult(j: unknown): SnapshotTableResult {
+  if (typeof j !== "object" || j === null || Array.isArray(j)) {
+    throw new Error("Invalid sync response: expected an object");
+  }
+  const fields = j as Record<string, unknown>;
+  if (fields.skipped !== undefined && typeof fields.skipped !== "boolean") {
+    throw new Error("Invalid sync response: skipped must be a boolean");
+  }
+  if (fields.skipped === true) {
     return null;
   }
+  const { upserted, rowCount } = fields;
+  // Counts cross an HTTP trust boundary: no coercion, missing values, or
+  // non-finite/fractional counts may masquerade as a successful table sync.
+  if (
+    typeof upserted !== "number" || !Number.isSafeInteger(upserted) || upserted < 0 ||
+    typeof rowCount !== "number" || !Number.isSafeInteger(rowCount) || rowCount < 0
+  ) {
+    throw new Error("Invalid sync response: upserted and rowCount must be non-negative safe integers");
+  }
   const base =
-    j.deleted === undefined
-      ? { upserted: j.upserted, rowCount: j.rowCount }
-      : { upserted: j.upserted, rowCount: j.rowCount, deleted: j.deleted };
+    fields.deleted === undefined
+      ? { upserted, rowCount }
+      : { upserted, rowCount, deleted: fields.deleted as number };
   // Extra count fields are dropped on the chained path by precedent (TOG-7378
   // pins the explicit pick: subrequest JSON crosses a trust boundary, so row
   // data must not ride it into the cron line); the R2 outcome is the
   // exception — without it a failed archive hides behind a D1
   // `outcome:success`. Guarded: only a well-formed detail travels (status
   // discriminant only; `reason`/`key` are log strings, never row data).
-  return isR2ArchiveDetail(j.r2)
-    ? { ...base, r2: j.r2 }
+  return isR2ArchiveDetail(fields.r2)
+    ? { ...base, r2: fields.r2 }
     : base;
 }
 
@@ -334,7 +341,7 @@ export async function runDataSnapshotSyncChainedHttp(
   async function post(
     path: string,
     step: string
-  ): Promise<PerTableJson> {
+  ): Promise<unknown> {
     const u = `${base}${path}${drySuffix}`;
     let resp: Response;
     try {
@@ -358,7 +365,7 @@ export async function runDataSnapshotSyncChainedHttp(
     // Parse failures must not surface either: V8's SyntaxError message
     // quotes the offending input bytes, which would ride the same log lines.
     try {
-      return JSON.parse(text) as PerTableJson;
+      return JSON.parse(text) as unknown;
     } catch {
       throw new Error(`[chained ${step}] POST ${path} → ${resp.status}: invalid JSON`);
     }
