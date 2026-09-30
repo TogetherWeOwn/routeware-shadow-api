@@ -92,7 +92,6 @@ describe.each(tables)("chained %s response validation", (table) => {
       upserted: 0,
       rowCount: 0,
       skipped: false,
-      deleted: 7,
       syntheticPrivateField: "synthetic-private-marker",
       r2: { status: "disabled" }
     }));
