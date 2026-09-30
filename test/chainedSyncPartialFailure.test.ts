@@ -11,17 +11,11 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  *    per-table counts — a partial 200 would read as success. The body is the
  *    generic `internal` problem+json: no per-table keys, zero upstream bytes.
  * 2. **No body leak**: no byte of the upstream HTML body reaches the response
- *    or any log line (`APP ERROR`, cron `failed` line). Today property 2 is
- *    RED: `post()` in `src/lib/snapshot/orchestration.ts` embeds a 1200-char
- *    slice of the subrequest body in the thrown error, and both log lines
- *    print it verbatim. TOG-9205 (R4-04) owns the fix; this file is its
- *    tripwire.
- *
- * ## Red-then-green recipe (house pattern, cf. test/authThrottleXffProbe.test.ts)
- * 1. `npx vitest run test/chainedSyncPartialFailure.test.ts` → green, with the
- *    leak probe reported as an expected failure (`it.fails`).
- * 2. Land TOG-9205, flip `it.fails` → `it` on the probe → all green.
- * 3. If upstream bytes ever reappear in either surface, the probe goes red.
+ *    or any log line (`APP ERROR`, cron `failed` line). Fixed by TOG-9205
+ *    (R4-04): `post()` in `src/lib/snapshot/orchestration.ts` used to embed a
+ *    1200-char slice of the subrequest body in the thrown error, and both log
+ *    lines printed it verbatim. This file is the reappearance tripwire: if
+ *    upstream bytes ever return to either surface, the probe below goes red.
  *
  * Non-goals (owned elsewhere): exact `detail` wording and any future
  * fixed-shape fields (table/step/status) belong to TOG-9205, so this file
@@ -262,18 +256,18 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     expect(requested.some((u) => u.endsWith("/container-snapshot/sync"))).toBe(false);
   });
 
-  it.fails("zero upstream bytes reach the response or any log line", async () => {
+  it("zero upstream bytes reach the response or any log line", async () => {
     // Arrange / Act — both failure surfaces: the combined HTTP route (whose
     // throw lands in the `APP ERROR` log) and the chained cron path (whose
     // throw lands in the `failed` line's `error` field).
     const res = await postCombinedSync();
     await runCronChained();
 
-    // Assert — RED today: `post()` embeds a 1200-char slice of the
-    // subrequest body in the thrown error (orchestration.ts), and both log
-    // lines print it verbatim. TOG-9205 truncates that slice to zero; flip
-    // this to `it` when it lands. The response half already passes (onError
-    // never echoes) and doubles as the reappearance tripwire.
+    // Assert — TOG-9205 (R4-04/B1): `post()` in orchestration.ts carries
+    // table/step/status only, zero subrequest body bytes. The response half
+    // already passed pre-fix (onError never echoes); both halves now double
+    // as the reappearance tripwire — if body bytes ever return to either
+    // surface, this test goes red.
     expect(res.raw).not.toContain(UPSTREAM_HTML_MARKER);
     expect(allCaptured()).not.toContain(UPSTREAM_HTML_MARKER);
   });
