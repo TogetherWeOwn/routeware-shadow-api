@@ -116,22 +116,29 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
 /**
  * Changes feed: rows touched by the syncs after a client-held cursor (TOG-8877).
  *
- * A client keeps the largest `synced_at` it has seen and replays
- * `GET /api/v1/customer-snapshot/changes?since=<ts>` to fetch only rows
- * written by later syncs — the incremental-sync counterpart to the full table
+ * A client keeps the largest `(synced_at, customer_id)` pair it has seen and
+ * replays `GET /api/v1/customer-snapshot/changes?since=<ts>&since_id=<id>` to
+ * fetch only later rows — the incremental-sync counterpart to the full table
  * list above. `synced_at` is stamped per sync run
  * (`src/lib/snapshot/streamSync.ts`), so every upserted row in run N shares
- * run N's timestamp and a client holding run N-1's timestamp sees the whole
- * run-N delta.
+ * run N's timestamp: resuming a chunked delta with the bare timestamp would
+ * skip the same-timestamp rows past the page boundary (strict `>`), which is
+ * why the resume key is the composite pair, never the timestamp alone.
  */
-// Own response schema, not `snapshotListResponse`: the changes cursor is a
-// `synced_at` timestamp string, never a primary-key integer, so sharing the
-// list schema would publish (and typecheck) the wrong `nextCursor` type.
+// Own response schema, not `snapshotListResponse`: the changes cursor is the
+// composite `(synced_at, customer_id)` pair (`since` + `since_id`), never a
+// bare timestamp or a primary-key integer, so sharing the list schema would
+// publish (and typecheck) the wrong `nextCursor` type.
 const customerSnapshotChangesResponse = z
   .object({
     rows: z.array(z.record(z.string(), z.unknown())),
     total: z.number().int(),
-    nextCursor: z.string().nullable()
+    nextCursor: z
+      .object({
+        since: z.string().datetime(),
+        since_id: z.number().int()
+      })
+      .nullable()
   })
   .openapi("CustomerSnapshotChanges");
 
@@ -141,7 +148,7 @@ const customerSnapshotChangesRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows changed since a cursor (D1)",
   description:
-    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). Pass the last row's `synced_at` back as `since` to page the delta. `limit` caps the page at 1..500 (default 50). Rows carry only the stored snapshot columns — no fields beyond the row payload.",
+    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). Rows carry only the stored snapshot columns — no fields beyond the row payload.",
   request: {
     query: z.object({
       since: z
@@ -149,7 +156,13 @@ const customerSnapshotChangesRoute = createRoute({
           (v) => (v === "" || v === undefined ? undefined : v),
           z.string().datetime().optional()
         )
-        .describe("ISO-8601 cursor; only rows with synced_at after it are returned. Omit for the first page."),
+        .describe("ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page."),
+      since_id: z.coerce
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare `since`."),
       limit: z.coerce.number().int().min(1).max(500).default(50)
     })
   },
@@ -168,20 +181,36 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
   const p = c.req.valid("query");
   const db = c.env.CUSTOMER_DB;
   // Empty/absent `since` is the epoch: every row qualifies, so the first sync
-  // sees the whole table and later replays see only newer runs.
+  // sees the whole table and later replays see only newer runs. A bare `since`
+  // (no `since_id`) stays strict-`>` — that is the whole-run-replay form. A
+  // page resume passes the previous `nextCursor`'s pair and replays rows at
+  // the boundary timestamp with a larger `customer_id`: without the tiebreak,
+  // resuming mid-run with a strict `>` would skip same-timestamp rows past the
+  // page boundary (every upserted row in run N shares run N's stamp).
   const since = p.since ?? "0000-01-01T00:00:00.000Z";
+  const where =
+    p.since_id === undefined
+      ? "synced_at > ?"
+      : "(synced_at > ? OR (synced_at = ? AND customer_id > ?))";
+  const binds: unknown[] =
+    p.since_id === undefined ? [since, p.limit] : [since, since, p.since_id, p.limit];
   const { results } = await db
     .prepare(
       `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
               name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-       FROM customer_snapshot WHERE synced_at > ? ORDER BY synced_at, customer_id LIMIT ?`
+       FROM customer_snapshot WHERE ${where} ORDER BY synced_at, customer_id LIMIT ?`
     )
-    .bind(since, p.limit)
+    .bind(...binds)
     .all();
   const rows = results ?? [];
   // Same convention as the list routes (TOG-5810): full page ⇒ maybe more.
+  // The cursor is the last row's composite pair, so resuming keeps
+  // `(synced_at, customer_id)` keyset order with no boundary skip.
+  const last = rows.length === p.limit ? (rows[rows.length - 1] as Record<string, unknown>) : null;
   const nextCursor =
-    rows.length === p.limit ? String((rows[rows.length - 1] as Record<string, unknown>).synced_at) : null;
+    last === null
+      ? null
+      : { since: String(last.synced_at), since_id: Number(last.customer_id) };
   return c.json({ rows, total: rows.length, nextCursor });
 });
 

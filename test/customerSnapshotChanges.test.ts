@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { env, exports } from "cloudflare:workers";
-import { ensureD1TestTables } from "./d1TestMigrations";
+import { ensureD1TestTables, MIGRATION_NAMES } from "./d1TestMigrations";
 import { stringToUint8Stream } from "../src/lib/csvStream";
 import { syncCustomerSnapshotFromStream } from "../src/lib/snapshot/streamSync";
 
@@ -14,13 +14,20 @@ import { syncCustomerSnapshotFromStream } from "../src/lib/snapshot/streamSync";
  * timestamp and a client holding run N-1's timestamp sees the whole run-N
  * delta on replay.
  *
+ * Two cursor forms: a bare `since` replays every later run whole (the
+ * reviewer path), while chunked paging passes the previous page's
+ * `nextCursor` back as `since` + `since_id`. The composite pair is what keeps
+ * same-timestamp rows past a page boundary from being skipped: resuming
+ * mid-run with a strict bare-`>` timestamp would drop the boundary
+ * timestamp's remaining rows.
+ *
  * These tests replay two syncs through the real `syncCustomerSnapshotFromStream`
  * against the real migrated test D1, then read the feed through the real app
  * (like `test/snapshotSyncE2E.test.ts`): empty `since` is the epoch (first
- * page sees the whole table), `since` = run-1 stamp sees only run-2 rows,
- * `limit` caps the page with a string `synced_at` `nextCursor`, and a bad
- * cursor or limit is a 400 before any D1 read. Fixtures are synthetic
- * customer ids in the 71xx range — no real PII.
+ * page sees the whole table), bare `since` = run-1 stamp sees only run-2
+ * rows, composite paging visits every row exactly once, `limit` caps the
+ * page, and a bad cursor or limit is a 400 before any D1 read. Fixtures are
+ * synthetic customer ids in the 71xx range — no real PII.
  */
 
 const SECRET = "test-sync-secret";
@@ -63,10 +70,15 @@ const ROW_COLUMNS = [
   "synced_at"
 ];
 
+type ChangesCursor = {
+  since: string;
+  since_id: number;
+};
+
 type ChangesBody = {
   rows: Array<Record<string, unknown>>;
   total: number;
-  nextCursor: string | null;
+  nextCursor: ChangesCursor | null;
 };
 
 function db(): D1Database {
@@ -93,6 +105,22 @@ describe("customer snapshot changes feed", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
     await sync(RUN_1_CSV, RUN_1_AT);
+  });
+
+  it("discovers migration 0005 and applies its feed index", async () => {
+    // Pin (TOG-8877 review): `migrations/d1/.sha256sum` pins 0005's bytes and
+    // CI's `check:d1-drift` re-verifies manifest + fresh-apply journal, but no
+    // test proved the file is discovered or that its index lands. Both halves
+    // live here with the slice that needs the migration — the sibling-owned
+    // `test/d1TestMigrations.test.ts` contiguity check passes with 0005 absent
+    // (0001..0004 is still contiguous), so only an explicit name pin catches a
+    // dropped file.
+    expect(MIGRATION_NAMES).toContain("0005_customer_changes_feed.sql");
+    const row = await db()
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+      .bind("idx_customer_snapshot_synced_at")
+      .first<{ name: string }>();
+    expect(row?.name).toBe("idx_customer_snapshot_synced_at");
   });
 
   it("returns every row in (synced_at, customer_id) order when since is omitted", async () => {
@@ -127,7 +155,7 @@ describe("customer snapshot changes feed", () => {
     // Arrange — second sync stamps its rows with the run-2 timestamp.
     await sync(RUN_2_CSV, RUN_2_AT);
 
-    // Act — reviewer path: replay with the run-1 cursor.
+    // Act — reviewer path: replay with the bare run-1 timestamp.
     const { status, body } = await getChanges(`?since=${encodeURIComponent(RUN_1_AT)}`);
 
     // Assert — 7101 (untouched, run-1 stamp) is excluded; the renamed 7102
@@ -151,46 +179,91 @@ describe("customer snapshot changes feed", () => {
     expect(body).toEqual({ rows: [], total: 0, nextCursor: null });
   });
 
-  it("caps the page at limit and resumes from the string nextCursor", async () => {
-    // Act — first page of one.
+  it("pages a chunked delta with the composite cursor and loses no rows", async () => {
+    // Arrange — table holds {7101@run-1, 7102@run-2, 7103@run-2} from the
+    // previous tests. A limit=1 walk crosses the run-1/run-2 timestamp
+    // boundary mid-delta: the regression this pins is resuming with the bare
+    // timestamp (strict `>`), which would skip the boundary timestamp's
+    // remaining rows (7103 never surfaces: page 2 ends on 7102@run-2 and the
+    // bare `since=run-2` tail is empty).
+
+    // Act — first page, no cursor.
     const first = await getChanges("?limit=1");
 
-    // Assert — full page ⇒ maybe more; the cursor is the row's `synced_at`
-    // timestamp string (never a primary-key integer).
+    // Assert — full page ⇒ maybe more; the cursor is the row's composite
+    // pair (never a bare timestamp, never a primary-key integer).
     expect(first.status).toBe(200);
     expect(first.body.total).toBe(1);
     expect(first.body.rows.map((r) => r.customer_id)).toEqual([7101]);
-    expect(typeof first.body.nextCursor).toBe("string");
-    expect(first.body.nextCursor).toBe(RUN_1_AT);
+    expect(first.body.nextCursor).toEqual({ since: RUN_1_AT, since_id: 7101 });
 
-    // Act — resume strictly after the run-1 stamp.
+    // Act — resume with the pair: rows at the run-1 stamp with a larger id
+    // would come first (none here), then the run-2 delta.
     const second = await getChanges(
-      `?since=${encodeURIComponent(first.body.nextCursor!)}&limit=1`
+      `?since=${encodeURIComponent(RUN_1_AT)}&since_id=7101&limit=1`
     );
 
-    // Assert — run-1 rows are excluded by the strict `>`; the first run-2
-    // row arrives, and the page is full again.
+    // Assert — 7101 is excluded by the tiebreak; the first run-2 row arrives.
     expect(second.status).toBe(200);
     expect(second.body.rows.map((r) => r.customer_id)).toEqual([7102]);
-    expect(second.body.nextCursor).toBe(RUN_2_AT);
+    expect(second.body.nextCursor).toEqual({ since: RUN_2_AT, since_id: 7102 });
 
-    // Act — the tail page is short.
-    const tail = await getChanges(`?since=${encodeURIComponent(RUN_2_AT)}&limit=1`);
+    // Act — resume mid-timestamp: the pair keeps 7103 visible where a bare
+    // `since=run-2` resume would return an empty page and drop it.
+    const third = await getChanges(
+      `?since=${encodeURIComponent(RUN_2_AT)}&since_id=7102&limit=1`
+    );
 
     // Assert
+    expect(third.status).toBe(200);
+    expect(third.body.rows.map((r) => r.customer_id)).toEqual([7103]);
+    expect(third.body.nextCursor).toEqual({ since: RUN_2_AT, since_id: 7103 });
+
+    // Act — the tail page is short.
+    const tail = await getChanges(
+      `?since=${encodeURIComponent(RUN_2_AT)}&since_id=7103&limit=1`
+    );
+
+    // Assert — every row visited exactly once across the four pages.
     expect(tail.status).toBe(200);
     expect(tail.body).toEqual({ rows: [], total: 0, nextCursor: null });
+    expect(
+      [
+        ...first.body.rows,
+        ...second.body.rows,
+        ...third.body.rows,
+        ...tail.body.rows
+      ].map((r) => r.customer_id)
+    ).toEqual([7101, 7102, 7103]);
   });
 
-  it("rejects a non-ISO since and an out-of-range limit as 400", async () => {
+  it("replays a bare mid-delta since strictly, without the tiebreak", async () => {
+    // Act — bare `since` (no `since_id`): the whole-run-replay form.
+    const { status, body } = await getChanges(
+      `?since=${encodeURIComponent(RUN_1_AT)}&limit=1`
+    );
+
+    // Assert — strict `>`: run-1 rows excluded, first run-2 row first.
+    expect(status).toBe(200);
+    expect(body.rows.map((r) => r.customer_id)).toEqual([7102]);
+    expect(body.nextCursor).toEqual({ since: RUN_2_AT, since_id: 7102 });
+  });
+
+  it("rejects a non-ISO since and an out-of-range limit or since_id as 400", async () => {
     // Act
     const badSince = await getChanges("?since=not-a-date");
     const bigLimit = await getChanges("?limit=501");
     const zeroLimit = await getChanges("?limit=0");
+    const negativeSinceId = await getChanges(
+      `?since=${encodeURIComponent(RUN_1_AT)}&since_id=-1`
+    );
+    const nanSinceId = await getChanges(
+      `?since=${encodeURIComponent(RUN_1_AT)}&since_id=abc`
+    );
 
     // Assert — schema rejections never reach D1; the shape is anchored
     // problem+json by the shared validation hook (wording owned elsewhere).
-    for (const res of [badSince, bigLimit, zeroLimit]) {
+    for (const res of [badSince, bigLimit, zeroLimit, negativeSinceId, nanSinceId]) {
       expect(res.status).toBe(400);
     }
   });
