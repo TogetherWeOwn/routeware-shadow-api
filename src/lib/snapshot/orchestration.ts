@@ -208,24 +208,32 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
-type PerTableJson = {
-  upserted: number;
-  rowCount: number;
-  skipped?: boolean;
-  /** R2 outcome stamped by the per-table sync route (TOG-6549); validated, never trusted blind. */
-  r2?: unknown;
-};
-
-function syncJsonToResult(j: PerTableJson): SnapshotTableResult {
-  if (j.skipped) {
+function syncJsonToResult(j: unknown): SnapshotTableResult {
+  if (typeof j !== "object" || j === null || Array.isArray(j)) {
+    throw new Error("Invalid sync response: expected an object");
+  }
+  const fields = j as Record<string, unknown>;
+  if (fields.skipped !== undefined && typeof fields.skipped !== "boolean") {
+    throw new Error("Invalid sync response: skipped must be a boolean");
+  }
+  if (fields.skipped === true) {
     return null;
   }
-  const base = { upserted: j.upserted, rowCount: j.rowCount };
+  const { upserted, rowCount } = fields;
+  // Counts cross an HTTP trust boundary: no coercion, missing values, or
+  // non-finite/fractional counts may masquerade as a successful table sync.
+  if (
+    typeof upserted !== "number" || !Number.isSafeInteger(upserted) || upserted < 0 ||
+    typeof rowCount !== "number" || !Number.isSafeInteger(rowCount) || rowCount < 0
+  ) {
+    throw new Error("Invalid sync response: upserted and rowCount must be non-negative safe integers");
+  }
+  const base = { upserted, rowCount };
   // Extra count fields (e.g. `deleted`) are dropped on the chained path by
   // precedent; the R2 outcome is the exception — without it a failed archive
   // hides behind a D1 `outcome:success`. Guarded: route JSON crosses a trust
   // boundary, so only a well-formed detail travels (status discriminant only).
-  return (isR2ArchiveDetail(j.r2) ? { ...base, r2: j.r2 } : base) as SnapshotTableResult;
+  return isR2ArchiveDetail(fields.r2) ? { ...base, r2: fields.r2 } : base;
 }
 
 /**
@@ -265,7 +273,7 @@ export async function runDataSnapshotSyncChainedHttp(
   async function post(
     path: string,
     step: string
-  ): Promise<PerTableJson> {
+  ): Promise<unknown> {
     const u = `${base}${path}`;
     let resp: Response;
     try {
@@ -281,10 +289,16 @@ export async function runDataSnapshotSyncChainedHttp(
     const text = await resp.text();
     if (!resp.ok) {
       throw new Error(
-        `[chained ${step}] POST ${path} → ${resp.status}: ${text.slice(0, 1200)}`
+        `[chained ${step}] POST ${path} → ${resp.status}`
       );
     }
-    return JSON.parse(text) as PerTableJson;
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      // Parser messages can quote the response. Neither bodies nor the raw
+      // SyntaxError cause may escape into cron logs or API error details.
+      throw new Error(`[chained ${step}] POST ${path} returned invalid JSON`);
+    }
   }
 
   if (plan.runCustomer) {

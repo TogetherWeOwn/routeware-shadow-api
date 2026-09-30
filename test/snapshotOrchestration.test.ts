@@ -453,7 +453,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(result.customer).toBeNull();
   });
 
-  it("throws with the step, status and truncated body when a subrequest fails", async () => {
+  it("throws with the step and status but no response body when a subrequest fails", async () => {
     // Arrange
     stubFetch();
     behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
@@ -472,7 +472,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
 
     // Assert
     expect(error.message).toBe(
-      `[chained customer] POST /api/v1/customer-snapshot/sync → 500: ${"X".repeat(1200)}`
+      "[chained customer] POST /api/v1/customer-snapshot/sync → 500"
     );
   });
 
