@@ -108,6 +108,19 @@ export const AUDIT_ALLOWLIST = [
     addedIn: "TOG-8904",
   },
   {
+    id: "GHSA-c475-qrg2-pj4r",
+    package: "basic-ftp",
+    reason:
+      "Transitive via the puppeteer proxy-agent chain (FTP proxy support in " +
+      "browser tooling), same chain as GHSA-rpmf-866q-6p89 above. " +
+      "Quadratic-time DoS in Client.list() directory-listing parsing needs " +
+      "an actual FTP LIST response; the Worker fetches HTTPS only and never " +
+      "parses FTP listings. Fixed upstream in basic-ftp 6.2.1, but get-uri " +
+      "pins ^5.0.2, so the fix rides the upstream proxy-agent chain — " +
+      "Dependabot proposes it.",
+    addedIn: "TOG-11682",
+  },
+  {
     id: "GHSA-88fw-hqm2-52qc",
     package: "hono",
     reason:

@@ -146,7 +146,9 @@ describe("evaluateAudit (TOG-8904)", () => {
     for (const entry of AUDIT_ALLOWLIST) {
       expect(entry.id).toMatch(/^GHSA-/);
       expect(entry.reason.length).toBeGreaterThan(20);
-      expect(entry.addedIn).toBe("TOG-8904");
+      // Entries name the card that added them (docs/DEPENDENCY-AUDIT.md);
+      // later advisories add entries under their own card, not TOG-8904.
+      expect(entry.addedIn).toMatch(/^TOG-\d+$/);
     }
   });
 
