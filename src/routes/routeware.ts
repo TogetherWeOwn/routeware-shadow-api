@@ -36,7 +36,8 @@ const loginPageRoute = createRoute({
       content: {
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 
@@ -64,7 +65,8 @@ const homeIndexRoute = createRoute({
         "application/json": { schema: z.unknown() },
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 
