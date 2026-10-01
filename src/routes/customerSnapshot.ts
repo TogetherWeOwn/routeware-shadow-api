@@ -25,7 +25,8 @@ import {
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
-  snapshotWriteResultExample
+  snapshotWriteResultExample,
+  parsePositiveIdParam
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -279,14 +280,14 @@ const customerSnapshotByIdRoute = createRoute({
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
-  const customerId = Number(c.req.param("customerId"));
-  if (!Number.isFinite(customerId)) {
+  const customerId = parsePositiveIdParam(c.req.param("customerId"));
+  if (customerId === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
-        "customerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+        "customerId must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: `${new URL(c.req.url).pathname}#customerId=${c.req.param("customerId")}`
     });
   }
@@ -496,14 +497,14 @@ const customerSnapshotDeleteRoute = createRoute({
 customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const customerId = Number(c.req.param("customerId"));
-  if (!Number.isFinite(customerId)) {
+  const customerId = parsePositiveIdParam(c.req.param("customerId"));
+  if (customerId === null) {
     return problemJsonResponse({
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
       detail:
-        "customerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+        "customerId must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: `${new URL(c.req.url).pathname}#customerId=${c.req.param("customerId")}`
     });
   }

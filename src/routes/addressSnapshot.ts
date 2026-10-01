@@ -23,7 +23,8 @@ import {
   isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse
+  snapshotListResponse,
+  parsePositiveIdParam
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -176,14 +177,14 @@ const addressSnapshotByIdRoute = createRoute({
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
-  const id = Number(c.req.param("pickupAddressId"));
-  if (!Number.isFinite(id)) {
+  const id = parsePositiveIdParam(c.req.param("pickupAddressId"));
+  if (id === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
-        "pickupAddressId must be an integer. See docs/PROBLEMS.md#bad-request.",
+        "pickupAddressId must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: `${new URL(c.req.url).pathname}#pickupAddressId=${c.req.param("pickupAddressId")}`
     });
   }

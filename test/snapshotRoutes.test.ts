@@ -514,6 +514,24 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
     });
   });
 
+  describe("GET by id guard", () => {
+    it.each(["-5", "0", "1e3", "007", "abc", "4.5"])(
+      "answers %s with the documented 400 problem+json before any query runs",
+      async (id) => {
+        // Arrange
+        const { db, calls } = readDb({ row: { x: 1 } });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}/${id}`, makeEnv(db));
+
+        // Assert
+        expect(res.status).toBe(400);
+        expect(res.headers.get("content-type")).toContain("problem+json");
+        expect(calls).toHaveLength(0);
+      }
+    );
+  });
+
   describe("POST sync", () => {
     it("returns 503 when neither the export path nor the query id is configured", async () => {
       // Arrange
