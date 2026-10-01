@@ -279,7 +279,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Result",
           },
           "400": {
-            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body.",
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body or the body is zero bytes; post the CSV as raw body.",
           },
           "401": {
             "description": "Unauthorized",
@@ -513,7 +513,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Result",
           },
           "400": {
-            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as the raw request body.",
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body or the body is zero bytes; post the CSV as the raw request body.",
           },
           "401": {
             "description": "Unauthorized",
@@ -725,7 +725,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Import result",
           },
           "400": {
-            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV file as the raw request body.",
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body or the body is zero bytes; post the CSV file as the raw request body.",
           },
           "401": {
             "description": "Unauthorized",
