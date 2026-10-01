@@ -23,7 +23,8 @@ import {
   isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse
+  snapshotListResponse,
+  parsePositiveIdParam
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -190,14 +191,14 @@ const containerSnapshotByIdRoute = createRoute({
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotByIdRoute, async (c) => {
-  const id = Number(c.req.param("containerId"));
-  if (!Number.isFinite(id)) {
+  const id = parsePositiveIdParam(c.req.param("containerId"));
+  if (id === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
-        "containerId must be an integer. See docs/PROBLEMS.md#bad-request.",
+        "containerId must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: `${new URL(c.req.url).pathname}#containerId=${c.req.param("containerId")}`
     });
   }

@@ -518,3 +518,14 @@ export const dataSnapshotSyncResultExample = {
   address: { upserted: 2, rowCount: 2 },
   container: { upserted: 2, rowCount: 2 }
 };
+
+/**
+ * Parses a by-id path param. Only canonical positive decimal integers pass;
+ * `-5`, `4.5`, `abc`, `0` and `1e3` return null so handlers can answer with the
+ * documented 400 instead of letting them reach D1 and come back as 404.
+ */
+export function parsePositiveIdParam(raw: string): number | null {
+  if (!/^[1-9][0-9]*$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}
