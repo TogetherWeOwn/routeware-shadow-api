@@ -5,6 +5,7 @@ import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
+import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import {
   concurrentRefreshTimeoutProblem,
@@ -277,6 +278,26 @@ app.onError((err, c) => {
   // set, so the fix is obvious from the response alone.
   if (isInvalidAuthModeError(err)) {
     console.error("INVALID AUTH_MODE", err.message);
+    return withCors(
+      problemJsonResponse({
+        type: problemType("misconfigured", c.env),
+        title: "Service Unavailable",
+        status: 503,
+        detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname
+      }),
+      c.req.raw
+    );
+  }
+  // A runtime without `Headers.getSetCookie` (TOG-6537): fail fast as 503
+  // misconfigured, not a 500 and never a browser launch. There are no cookies
+  // to fall back from, so a browser retry would burn Browser Rendering budget
+  // on a platform gap, not a markup change. The message is a fixed string
+  // (never URL/body/cookie/PII). Session-retry routes rethrow this past their
+  // single retry; this is the backstop. CORS-wrapped so browsers surface the
+  // real 503 instead of a CORS error.
+  if (isMissingSetCookieCapabilityError(err)) {
+    console.error("MISSING SET-COOKIE CAPABILITY", err.message);
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),

@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
+  lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
+  jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`
+  mode).
 - TOG-8877: `GET /api/v1/customer-snapshot/changes` incremental-sync feed —
   rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. A
   bare `since` replays every later run whole; chunked deltas page with the
