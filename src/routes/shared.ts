@@ -72,6 +72,49 @@ export function requireSnapshotSecret(env: Env, detail?: string): Response | nul
   });
 }
 
+/**
+ * TOG-6521: zero-byte guard for the `...-snapshot/import` routes.
+ *
+ * `c.req.raw.body` is `null` only when the POST carries no body at all. A
+ * zero-byte body (empty file upload, `curl --data ''`, a broken exporter
+ * piping nothing) arrives as a **non-null but immediately-done** stream. The
+ * old null-only check let it through to the CSV parser, which yields zero
+ * lines and returns `200 {upserted:0,rowCount:0}` — a silent success that
+ * masks the broken exporter.
+ *
+ * Returns the live request stream when it carries at least one byte, or
+ * `null` when the body is missing or zero bytes. The probe reads through a
+ * `tee()` branch so the caller receives an unconsumed stream and large-file
+ * streaming is preserved (no whole-file buffering).
+ */
+export async function nonEmptyImportStream(
+  raw: Request
+): Promise<ReadableStream<Uint8Array> | null> {
+  const body = raw.body;
+  if (!body) {
+    return null;
+  }
+  const [probe, rest] = body.tee();
+  const reader = probe.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        void rest.cancel().catch(() => undefined);
+        return null;
+      }
+      if (value && value.byteLength > 0) {
+        return rest;
+      }
+      // A zero-length chunk is not EOF under chunked encoding — keep reading
+      // until a byte arrives or the stream ends.
+    }
+  } finally {
+    reader.releaseLock();
+    void probe.cancel().catch(() => undefined);
+  }
+}
+
 /** Response shape for routes that stream an upstream Routeware body through. */
 export const upstreamPassthrough200 = {
   200: {

@@ -590,6 +590,28 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(body.title).toBe("Empty body");
       expect(syncState.streamCalls).toHaveLength(0);
     });
+
+    it("returns 400 for a zero-byte body instead of a silent zero-row success", async () => {
+      // Arrange — TOG-6521: an empty file upload (or `curl --data ''`) arrives
+      // as a non-null but immediately-done stream, which the old null-only
+      // guard let through to the CSV parser: `200 {upserted:0,rowCount:0}`,
+      // masking the broken exporter.
+      const { db } = readDb({});
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}/import`, makeEnv(db), {
+        method: "POST",
+        body: "",
+        headers: { "content-type": "text/csv" }
+      });
+
+      // Assert
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
+      expect(body.title).toBe("Empty body");
+      expect(syncState.streamCalls).toHaveLength(0);
+    });
   });
 });
 

@@ -157,6 +157,36 @@ describe("snapshot import rejects an empty body with 400 problem+json (TOG-6524)
   });
 });
 
+describe("snapshot import rejects a zero-byte body with 400 problem+json (TOG-6521)", () => {
+  beforeEach(() => {
+    stubNoUpstream();
+  });
+
+  it.each([
+    "/api/v1/customer-snapshot/import",
+    "/api/v1/address-snapshot/import",
+    "/api/v1/container-snapshot/import"
+  ])("POST %s with an empty string body → 400, never a zero-row 200", async (path) => {
+    // Act — an empty file upload (or `curl --data ''`) arrives as a non-null
+    // but immediately-done stream. Before TOG-6521 the null-only guard let it
+    // through to the CSV parser: `200 {upserted:0,rowCount:0}`, masking the
+    // broken exporter. Sync secret clears both gates; the guard fires first.
+    const res = await callApp(
+      path,
+      { method: "POST", body: "", headers: { "content-type": "text/csv" } },
+      SYNC_SECRET
+    );
+
+    // Assert — title accepts both wordings (see drift note above).
+    expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    const body = (await res.json()) as ProblemBody;
+    expect(body.type).toBe(BAD_REQUEST_TYPE);
+    expect(["Bad Request", "Empty body"]).toContain(body.title);
+    expect(body.status).toBe(400);
+  });
+});
+
 describe("GET /api/v1/data/customer without an id → 400 (TOG-6524)", () => {
   beforeEach(() => {
     stubNoUpstream();

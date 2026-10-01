@@ -6,6 +6,7 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  nonEmptyImportStream,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse
@@ -197,7 +198,7 @@ const addressSnapshotImportRoute = createRoute({
     401: { description: "Unauthorized" },
     400: {
       description:
-        "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
+        "Empty body (application/problem+json). Returned when the POST has no request body or the body is zero bytes; post the CSV as raw body."
     }
   }
 });
@@ -205,7 +206,7 @@ const addressSnapshotImportRoute = createRoute({
 addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const body = c.req.raw.body;
+  const body = await nonEmptyImportStream(c.req.raw);
   if (!body) {
     return problemJsonResponse({
       type: problemType("bad-request"),
