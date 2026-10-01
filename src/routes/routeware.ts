@@ -22,6 +22,8 @@ export const routewareRoutes = createRouteModule();
 const loginPageRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/account/login-page",
+  tags: ["routeware"],
+  summary: "Routeware login page (upstream HTML)",
   responses: {
     200: {
       description:
@@ -29,7 +31,8 @@ const loginPageRoute = createRoute({
       content: {
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 
@@ -41,6 +44,8 @@ routewareRoutes.openapi(loginPageRoute, async (c) => {
 const homeIndexRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/home/index",
+  tags: ["routeware"],
+  summary: "Routeware home index (upstream passthrough)",
   responses: {
     200: {
       description:
@@ -49,7 +54,8 @@ const homeIndexRoute = createRoute({
         "application/json": { schema: z.unknown() },
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 

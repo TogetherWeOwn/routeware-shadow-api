@@ -65,13 +65,21 @@ const dataAddressGetRoute = createRoute({
   path: "/api/v1/data/address",
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      pickupAddressId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "address, customer, containers",
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Missing or invalid id" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -80,13 +88,14 @@ const dataAddressGetRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.pickupAddressId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
       title: "Bad request",
       status: 400,
-      detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
+      detail: "Query `id` or `pickupAddressId` (pickup_address_id) is required and must be a positive integer."
     });
   }
   return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id);
@@ -97,13 +106,21 @@ const dataContainerGetRoute = createRoute({
   path: "/api/v1/data/container",
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      containerId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "container, address, customer",
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Missing or invalid id" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -112,13 +129,14 @@ const dataContainerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.containerId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request"),
       title: "Bad request",
       status: 400,
-      detail: "Query `id` (container_id) is required and must be a positive integer."
+      detail: "Query `id` or `containerId` (container_id) is required and must be a positive integer."
     });
   }
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id);

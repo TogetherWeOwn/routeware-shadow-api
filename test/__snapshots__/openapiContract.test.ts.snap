@@ -848,10 +848,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`).",
         "parameters": [
           {
             "in": "query",
             "name": "id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "pickupAddressId",
             "required": false,
             "schema": {
               "type": [
@@ -872,6 +884,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "304": {
             "description": "Not modified",
+          },
+          "400": {
+            "description": "Missing or invalid id",
           },
           "401": {
             "description": "Unauthorized",
@@ -914,10 +929,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`).",
         "parameters": [
           {
             "in": "query",
             "name": "id",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null",
+              ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "containerId",
             "required": false,
             "schema": {
               "type": [
@@ -938,6 +965,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "304": {
             "description": "Not modified",
+          },
+          "400": {
+            "description": "Missing or invalid id",
           },
           "401": {
             "description": "Unauthorized",
@@ -1089,7 +1119,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream HTML for the Routeware login page (unauthenticated fetch)",
           },
+          "401": {
+            "description": "Unauthorized",
+          },
         },
+        "summary": "Routeware login page (upstream HTML)",
+        "tags": [
+          "routeware",
+        ],
       },
     },
     "/api/v1/routeware/address/save-address-form": {
@@ -1390,7 +1427,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
             "description": "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types)",
           },
+          "401": {
+            "description": "Unauthorized",
+          },
         },
+        "summary": "Routeware home index (upstream passthrough)",
+        "tags": [
+          "routeware",
+        ],
       },
     },
     "/api/v1/routeware/reports/query-request-is-complete": {
