@@ -1,4 +1,5 @@
 import { LoginPageUnavailableError } from "./loginPageError";
+import { MissingSetCookieCapabilityError } from "./setCookieCapabilityError";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
@@ -44,8 +45,31 @@ type Jar = Record<string, string>;
  *   sign-out (`Name=; Expires=<past>`) would linger as an empty `Name=` pair
  *   replayed on every forward.
  */
+/**
+ * Fail fast when the runtime cannot merge `Set-Cookie` (TOG-6537).
+ *
+ * Without `Headers.getSetCookie` every HTTP login would silently collect an
+ * empty jar: `http` mode hard-outages and `auto` mode flips to expensive
+ * Browser Rendering logins with no diagnosis. Throwing here (and at
+ * `httpLogin` start, before any fetch) keeps the diagnosis and lets
+ * `establishSession` skip the browser — there are no cookies to fall back
+ * from. The message is a fixed string (never URL/body/cookie/PII).
+ */
+export function assertGetSetCookieAvailable(): void {
+  const probe = new Headers();
+  if (
+    typeof (probe as unknown as { getSetCookie?: unknown }).getSetCookie !==
+    "function"
+  ) {
+    throw new MissingSetCookieCapabilityError();
+  }
+}
+
 export function mergeSetCookies(jar: Jar, res: Response, nowMs: number = Date.now()): void {
-  const list = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
+  if (typeof res.headers.getSetCookie !== "function") {
+    throw new MissingSetCookieCapabilityError();
+  }
+  const list = res.headers.getSetCookie();
   for (const sc of list) {
     const semi = sc.indexOf(";");
     const pair = semi === -1 ? sc : sc.slice(0, semi);
@@ -121,6 +145,10 @@ export type HttpLoginResult = {
 
 /** Perform the HTTP login and return the resulting cookie jar (no DO writes). */
 export async function httpLogin(env: Env): Promise<HttpLoginResult> {
+  // Capability assert first (TOG-6537): before any upstream fetch, so a
+  // runtime without `Headers.getSetCookie` fails with an explicit error
+  // instead of collecting an empty jar and misdiagnosing as a markup change.
+  assertGetSetCookieAvailable();
   const username = env.LOGIN_USERNAME?.trim();
   const password = env.LOGIN_PASSWORD?.trim();
   if (!username || !password) {

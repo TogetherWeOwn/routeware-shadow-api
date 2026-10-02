@@ -360,3 +360,13 @@ the browser would burn Browser Rendering budget misdiagnosed as a markup
 change. A genuine 200 page with no token keeps the old behavior (treated as a
 markup change, browser fallback in auto mode). The 502 detail carries only the
 status number — never URL, body, or PII.
+
+## Missing Set-Cookie capability (`misconfigured`, title "Service Unavailable")
+
+The HTTP login merges upstream `Set-Cookie` via `Headers.getSetCookie`. When
+the runtime has no `getSetCookie`, the login fails fast as 503
+problem+json with a fixed detail — never an empty jar, never a silent flip to
+Browser Rendering (`auto` mode) or a bare login failure (`http` mode): there
+are no cookies to fall back from, so a browser retry would burn Browser
+Rendering budget on a platform gap, not a markup change. The detail carries
+only the fixed capability message — never URL, body, cookie, or PII.
