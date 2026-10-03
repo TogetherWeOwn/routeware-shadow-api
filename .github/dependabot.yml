@@ -3,6 +3,9 @@
 # out into their own PRs regardless of grouping. `chore(deps)` keeps titles
 # inside the pr-lint Conventional Commits types, and the bot needs a card ref
 # in the body — it cannot know ours, so add `Refs: TOG-xxxx` when merging.
+# Parked (TOG-13379): open-pull-requests-limit 0 stops all new PRs until
+# resume. Weekly schedule is kept because the check:ci-workflow gate pins
+# weekly presence (TOG-8904); restore the limits on unpark.
 version: 2
 updates:
   - package-ecosystem: "npm"
@@ -19,7 +22,7 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -39,7 +42,7 @@ updates:
         update-types:
           - "patch"
           - "minor"
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     commit-message:
       prefix: "ci"
       include: "scope"
