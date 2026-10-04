@@ -50,7 +50,7 @@ function usage() {
     "",
     "  --base=<ref>    Diff base for changed paths (default origin/main).",
     "  --card=<id>     Card id claimed for this change (repeatable).",
-    "  --files=<a,b>   Changed paths (default: git diff --name-only <base>...HEAD).",
+    "  --files=<a,b>   Changed paths (default: git diff --name-only --no-renames <base>...HEAD).",
   ].join("\n");
 }
 
@@ -70,7 +70,10 @@ if (filesFlag !== null) {
   changedPaths = filesFlag.split(",").map((s) => s.trim()).filter(Boolean);
 } else {
   try {
-    changedPaths = execFileSync("git", ["diff", "--name-only", `${base}...HEAD`], {
+    // --no-renames: with rename detection `git mv src/routes/x.ts docs/x.ts`
+    // lists only the new path, so the deleted contract path would never reach
+    // the gate. A rename is a delete plus an add; both sides must show.
+    changedPaths = execFileSync("git", ["diff", "--name-only", "--no-renames", `${base}...HEAD`], {
       cwd: root,
       encoding: "utf8",
     })

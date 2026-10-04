@@ -57,7 +57,10 @@ jobs:
             echo "full=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          files="$(git diff --name-only "$base"...HEAD)"
+          # --no-renames: with rename detection `git mv src/x.ts docs/x.ts`
+          # lists only the new path, so the deleted code file would look
+          # docs-only. A rename is a delete plus an add; both sides must show.
+          files="$(git diff --name-only --no-renames "$base"...HEAD)"
           echo "Changed files:"
           echo "$files"
           # code: gates `build` (src, tests, manifests, build config, migrations).
