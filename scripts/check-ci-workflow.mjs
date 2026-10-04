@@ -12,13 +12,57 @@ function jobBlock(name) {
   return match[0];
 }
 
-// TOG-6539: the CSV/.dev.vars PII gate only protects main when build and
-// hygiene actually run on every pull request. Asserting the pull_request
-// trigger alone let a workflow edit add if:/paths-ignore skips to those
-// jobs while the invariant check stayed green. The skip detector below
-// fails on any such skip (job-level if/paths/paths-ignore, step-level if:,
-// or pull_request paths/paths-ignore/types narrowing).
+// TOG-6539 (+ TOG-14898): the CSV/.dev.vars PII gate only protects main
+// when `hygiene` actually runs on every pull request. `build` is a HEAVY job
+// gated by the CI-standard `changes` outputs; the skip detector below allows
+// only `if: needs.changes.outputs.<area>` on `build` (which `ci-ok` turns
+// into a pass) and forbids any skip on `hygiene`. Asserting the
+// pull_request trigger alone let a workflow edit add if:/paths-ignore skips
+// while the invariant check stayed green.
 assertNoPrTriggerSkips(workflow);
+
+// TOG-14898 (CI standard TOG-14877): change detection + job-level gating +
+// one required aggregator + nightly full suite. Native git diff vs merge
+// base (no third-party action); job-level `if: needs.changes.outputs.*`
+// (never workflow-level `paths:` on a required check); `ci-ok` with
+// `if: always()` as the only required check; full suite on push-to-main,
+// nightly schedule, and infra/filter/dep changes.
+const changesJob = jobBlock("changes");
+assert.match(changesJob, /fetch-depth: 0/, "changes must use fetch-depth: 0 so the merge-base diff sees the base commit (TOG-14898)");
+assert.match(changesJob, /git merge-base/, "changes must diff the PR against its merge base with native git (TOG-14898)");
+assert.match(changesJob, /outputs:\n(?:.*\n)*?.*code:/, "changes must output a code boolean (TOG-14898)");
+assert.match(changesJob, /probe:/, "changes must output a probe boolean (TOG-14898)");
+assert.match(changesJob, /infra:/, "changes must output an infra boolean (TOG-14898)");
+assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs (TOG-14898)");
+assert.match(workflow, /- cron: "23 4 \* \* \*"/, "ci must run the nightly full suite on schedule (TOG-14877 rule 5)");
+
+const buildGated = jobBlock("build");
+assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job (TOG-14898)");
+assert.match(
+  buildGated,
+  /if: needs\.changes\.outputs\.code == 'true' \|\| needs\.changes\.outputs\.infra == 'true' \|\| needs\.changes\.outputs\.full == 'true'/,
+  "build must run only when code, infra, or full changed (TOG-14898)",
+);
+
+const probeGated = jobBlock("shadow-api-v1");
+assert.match(probeGated, /needs: \[changes\]/, "shadow-api-v1 must wait for the changes job (TOG-14898)");
+assert.match(
+  probeGated,
+  /if: needs\.changes\.outputs\.probe == 'true' \|\| needs\.changes\.outputs\.infra == 'true' \|\| needs\.changes\.outputs\.full == 'true'/,
+  "shadow-api-v1 must run only when probe, infra, or full changed (TOG-14898)",
+);
+
+const hygieneAlwaysRun = jobBlock("hygiene");
+assert.doesNotMatch(hygieneAlwaysRun, /^    if:/m, "hygiene must stay always-run (no if:) so PII + secret scan run on every PR including docs-only (TOG-6539/TOG-14898)");
+
+const ciOkJob = jobBlock("ci-ok");
+assert.match(ciOkJob, /^    if: always\(\)$/m, "ci-ok must use if: always() so gating can never leave the PR hanging (TOG-14877)");
+assert.match(ciOkJob, /needs: \[changes, build, shadow-api-v1, hygiene\]/, "ci-ok must aggregate every gated job (TOG-14877)");
+
+// pr-lint is the always-run title/body gate (CI standard rule 6). Pin it
+// present so a workflow edit can never silently drop title lint.
+const prLint = await readFile(new URL("../.github/workflows/pr-lint.yml", import.meta.url), "utf8");
+assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional Commits titles (TOG-14898)");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a self-hosted runner with other CI jobs

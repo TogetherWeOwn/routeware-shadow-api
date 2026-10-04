@@ -5,10 +5,12 @@ import {
 } from "../scripts/lib/ciWorkflowCheck.mjs";
 
 /**
- * Regression tests for TOG-6539: `check-ci-workflow.mjs` asserted
- * `on.pull_request: [main]` but never asserted `build`/`hygiene` lack
- * `if:`/`paths-ignore` skips — a workflow edit could drop the CSV/`.dev.vars`
- * gate on PRs while the invariant check stayed green.
+ * Regression tests for TOG-6539 (+ TOG-14898 CI standard): `check-ci-workflow.mjs`
+ * asserted `on.pull_request: [main]` but never asserted the gate jobs lack
+ * `paths-ignore` skips — a workflow edit could drop the CSV/`.dev.vars`
+ * gate on PRs while the invariant check stayed green. `hygiene` (PII + secret
+ * scan) stays unconditional; `build` allows only the standard
+ * `needs.changes.outputs` gate, which `ci-ok` turns into a pass.
  *
  * Fixture workflows are credential-free skeletons (job/step names only, no
  * secrets or PII) per CONVENTIONS.md sections 4-5.
@@ -50,8 +52,8 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertNoPrTriggerSkips(workflow)).toThrow(/hygiene.*paths-ignore/);
   });
 
-  it("fails on a job-level if: on either gate job", () => {
-    const workflow = fixtureWorkflow({
+  it("fails on a non-standard job-level if: on build, allows the changes gate", () => {
+    const bad = fixtureWorkflow({
       build: [
         "  build:",
         "    runs-on: [self-hosted, two-selfhosted]",
@@ -59,9 +61,36 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
         ""
       ].join("\n")
     });
+    const badErrors = findPrTriggerSkips(bad);
+    expect(badErrors.some((e) => e.includes("build") && e.includes("needs.changes.outputs"))).toBe(true);
+    expect(() => assertNoPrTriggerSkips(bad)).toThrow(/build/);
+
+    const gated = fixtureWorkflow({
+      build: [
+        "  build:",
+        "    runs-on: [self-hosted, two-selfhosted]",
+        "    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'",
+        ""
+      ].join("\n")
+    });
+    expect(findPrTriggerSkips(gated)).toEqual([]);
+    expect(() => assertNoPrTriggerSkips(gated)).not.toThrow();
+  });
+
+  it("fails on any job-level if: on hygiene (PII gate stays unconditional)", () => {
+    const workflow = fixtureWorkflow({
+      hygiene: [
+        "  hygiene:",
+        "    runs-on: [self-hosted, two-selfhosted]",
+        "    if: needs.changes.outputs.code == 'true'",
+        "    steps:",
+        "      - run: npm test",
+        ""
+      ].join("\n")
+    });
     const errors = findPrTriggerSkips(workflow);
-    expect(errors.some((e) => e.includes("build") && e.includes("'if:'"))).toBe(true);
-    expect(() => assertNoPrTriggerSkips(workflow)).toThrow(/build/);
+    expect(errors.some((e) => e.includes("hygiene") && e.includes("'if:'"))).toBe(true);
+    expect(() => assertNoPrTriggerSkips(workflow)).toThrow(/hygiene/);
   });
 
   it("fails on a step-level if: inside a gate job", () => {

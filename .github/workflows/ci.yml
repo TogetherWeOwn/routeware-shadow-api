@@ -5,6 +5,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  schedule:
+    # Nightly full suite (TOG-14877 rule 5): push-to-main plus schedule run
+    # EVERYTHING, so a regression that slips past PR gating is caught within hours.
+    - cron: "23 4 * * *"
 
 permissions:
   contents: read
@@ -14,8 +18,82 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed areas
+    # CI standard (TOG-14877 rules 1-2, TOG-14898): native git diff vs merge
+    # base, no third-party action. Outputs one boolean per area; heavy jobs
+    # gate on these with job-level `if:` (never workflow-level `paths:`, which
+    # would leave required checks unreported). Full suite on push-to-main,
+    # nightly schedule, or when infra/filter/deps change (rule 4).
+    runs-on: [self-hosted, two-selfhosted]
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      probe: ${{ steps.filter.outputs.probe }}
+      infra: ${{ steps.filter.outputs.infra }}
+      full: ${{ steps.filter.outputs.full }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: merge-base diff needs the base commit present. A
+          # shallow checkout would silently compute an empty diff.
+          fetch-depth: 0
+      - id: filter
+        run: |
+          # Non-PR events (push-to-main, nightly schedule): run EVERYTHING.
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "Non-PR event (${{ github.event_name }}): full suite."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "probe=true" >> "$GITHUB_OUTPUT"
+            echo "infra=true" >> "$GITHUB_OUTPUT"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+          if [ -z "$base" ]; then
+            echo "::warning::merge base not found — running full suite."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "probe=true" >> "$GITHUB_OUTPUT"
+            echo "infra=true" >> "$GITHUB_OUTPUT"
+            echo "full=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only "$base"...HEAD)"
+          echo "Changed files:"
+          echo "$files"
+          # code: gates `build` (src, tests, manifests, build config, migrations).
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          # probe: gates `shadow-api-v1` (contract probe inputs only).
+          if echo "$files" | grep -qE '^(test/shadow|scripts/check-shadow-api-v1\.mjs$)'; then
+            echo "probe=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "probe=false" >> "$GITHUB_OUTPUT"
+          fi
+          # infra: the filter itself, workflow config, shared entry, discovery
+          # manifests. Any infra change means EVERYTHING runs (rule 4).
+          if echo "$files" | grep -qE '^(\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+            echo "infra=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "infra=false" >> "$GITHUB_OUTPUT"
+          fi
+          # full: root dep manifests also run EVERYTHING (rule 4), so a
+          # package.json/lock bump runs build AND probe (verified TOG-14898).
+          # Non-PR already exited above; on PRs full = infra OR root dep change.
+          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+            echo "full=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "full=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
     name: Typecheck, test, build
+    needs: [changes]
+    # CI standard gating (TOG-14877): heavy job runs only when its area
+    # changed. docs-only PRs skip this; push/main + nightly run it via full.
+    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
     runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
@@ -45,6 +123,11 @@ jobs:
 
   shadow-api-v1:
     name: shadow-api-v1
+    needs: [changes]
+    # CI standard gating (TOG-14877): probe inputs only. Keeps the existing
+    # credential fail-closed step gate below; this job-level gate only decides
+    # whether the job runs at all. NOT a required check (hybrid, per TOG-14898).
+    if: needs.changes.outputs.probe == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
     runs-on: [self-hosted, two-selfhosted]
     # Skipped-check allowlist: the staging probe stays visible while operator
     # credentials are gated. The gate emits the reason and links TODO TOG-135.
@@ -67,6 +150,11 @@ jobs:
 
   hygiene:
     name: Repo hygiene & secret scan
+    # Always-run by design (TOG-6539 + TOG-14877 rule 6): the PII gate
+    # (CSV/.dev.vars) and the blocking secret scan must run on EVERY pull
+    # request, including docs-only ones. No `if:`/`needs:` here — gating this
+    # job would let PII or a secret land while `ci-ok` stays green. LIGHT
+    # (~1 min credential-free checks), so always running it costs nothing.
     runs-on: [self-hosted, two-selfhosted]
     steps:
       - uses: actions/checkout@v4
@@ -161,6 +249,27 @@ jobs:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks detect --source . --redact --config .gitleaks.toml
+
+  ci-ok:
+    name: ci-ok
+    # CI standard aggregator (TOG-14877 rule 3): the ONE required check.
+    # `if: always()` so gating can never leave the PR hanging; passes when
+    # every needed job succeeded or was skipped. Branch protection requires
+    # only this (+ pr-lint, secret scan via hygiene). Deploy is EXEMPT
+    # (own push-only trigger) and is intentionally not in `needs:`.
+    if: always()
+    needs: [changes, build, shadow-api-v1, hygiene]
+    runs-on: [self-hosted, two-selfhosted]
+    steps:
+      - name: Verify required jobs passed or were skipped
+        run: |
+          results="${{ join(needs.*.result, ',') }}"
+          echo "Job results (changes,build,shadow-api-v1,hygiene): $results"
+          if echo "$results" | grep -qE 'failure|cancelled'; then
+            echo "::error::Required jobs failed or were cancelled: $results"
+            exit 1
+          fi
+          echo "ci-ok: all required jobs passed or were skipped."
 
   deploy:
     name: Deploy to Cloudflare Workers
