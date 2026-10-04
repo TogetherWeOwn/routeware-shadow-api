@@ -2,22 +2,49 @@
  * PR-trigger guards for the PII hygiene gate (TOG-6539).
  *
  * Runtime truth this pins: the CSV/`.dev.vars` gate only protects `main`
- * when the `build` and `hygiene` jobs actually run on every pull request.
- * `scripts/check-ci-workflow.mjs` asserted `on.pull_request: [main]` but
- * never asserted the two gate jobs lack `if:`/`paths`/`paths-ignore` skips,
- * so a workflow edit could drop the gate on PRs while the invariant check
- * stayed green (CONVENTIONS.md fact 2: customer PII must never be committed).
+ * when `hygiene` actually runs on every pull request. `build` is a HEAVY job
+ * gated by the CI-standard `changes` outputs (TOG-14877/TOG-14898); its only
+ * allowed job-level `if:` references `needs.changes.outputs`, which `ci-ok`
+ * (if: always()) turns into a pass. `scripts/check-ci-workflow.mjs` asserted
+ * `on.pull_request: [main]` but never asserted the gate jobs lack
+ * `paths`/`paths-ignore` skips, so a workflow edit could drop the gate on PRs
+ * while the invariant check stayed green (CONVENTIONS.md fact 2: customer PII
+ * must never be committed).
  *
  * Findings name jobs and keys only — never values, secrets, or file contents
  * (CONVENTIONS.md sections 4-5). Fixture workflows in tests carry no
  * credentials.
  */
 
-/** Jobs that must run unconditionally on every pull request. */
-const GATE_JOBS = ["build", "hygiene"];
+/**
+ * Jobs that must run unconditionally on every pull request.
+ *
+ * TOG-14898 (CI standard): only `hygiene` stays unconditional — it holds the
+ * PII gate (CSV/`.dev.vars`) and the blocking secret scan (rule 6: cheap and
+ * security always run). `build` is a HEAVY job gated by the `changes` outputs;
+ * docs-only PRs skip it while `ci-ok` stays green. See `findPrTriggerSkips`
+ * for the gating allowance.
+ */
+const GATE_JOBS = ["hygiene"];
+
+/** Jobs allowed to carry CI-standard change gating (`needs.changes`). */
+const GATED_JOBS = ["build"];
 
 /** Job-level keys that let a workflow edit skip a job on pull requests. */
 const JOB_LEVEL_SKIP_KEYS = ["if", "paths", "paths-ignore"];
+
+/**
+ * True when a job-level `if:` is exactly the CI-standard change gate
+ * (`needs.changes.outputs.<area>`), which `ci-ok` tolerates via skipped
+ * results. Any other `if:` (branch, event, actor, …) still drops the gate.
+ *
+ * @param {string} block
+ * @returns {boolean}
+ */
+function isStandardChangesGate(block) {
+  const match = String(block).match(/^    if: (.+)$/m);
+  return !!match && match[1].includes("needs.changes.outputs.");
+}
 
 /** `pull_request` trigger keys that narrow which PRs run the gate. */
 const TRIGGER_NARROW_KEYS = ["paths", "paths-ignore", "types"];
@@ -116,6 +143,37 @@ export function findPrTriggerSkips(workflowText) {
           `${job} job must not define '${key}:' — the PII gate must run on every pull request (TOG-6539)`
         );
       }
+    }
+    // Step keys sit at 8 spaces; `run: |` bodies indent deeper, so a match
+    // here is a real step condition, not shell text.
+    if (/^        if:/m.test(block)) {
+      errors.push(
+        `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests (TOG-6539)`
+      );
+    }
+  }
+
+  for (const job of GATED_JOBS) {
+    const block = extractJobBlock(text, job);
+    if (!block) {
+      errors.push(`Missing ${job} job`);
+      continue;
+    }
+    // `paths:`/`paths-ignore:` on a required check leaves the PR hanging on
+    // "Expected — waiting" (CI standard rule 2); only job-level `if:` via
+    // `needs.changes.outputs` is allowed, because `ci-ok` (if: always())
+    // turns the skip into a pass.
+    for (const key of ["paths", "paths-ignore"]) {
+      if (new RegExp(`^    ${key}:`, "m").test(block)) {
+        errors.push(
+          `${job} job must not define '${key}:' — use job-level 'if: needs.changes.outputs.<area>' so ci-ok still reports (TOG-14877)`
+        );
+      }
+    }
+    if (/^    if:/m.test(block) && !isStandardChangesGate(block)) {
+      errors.push(
+        `${job} job 'if:' must reference 'needs.changes.outputs.<area>' — any other condition drops the gate on pull requests (TOG-6539/TOG-14877)`
+      );
     }
     // Step keys sit at 8 spaces; `run: |` bodies indent deeper, so a match
     // here is a real step condition, not shell text.
