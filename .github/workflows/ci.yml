@@ -294,6 +294,14 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: R2 bucket preflight (TOG-6290)
+        # Read-only `wrangler r2 bucket info <name> --json` lookup: the SNAPSHOTS
+        # bucket must exist before deploy, else snapshot CSV archiving silently
+        # drops. Fails closed naming the fix (`wrangler r2 bucket create`); skips
+        # cleanly when SNAPSHOTS_R2_ENABLED=false (D1-only archiving by design).
+        run: node scripts/check-r2-preflight.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       - name: Apply D1 migrations (remote)
         # Runs before deploy so the schema is present before the new code goes live.
         run: npm run db:migrate:remote
