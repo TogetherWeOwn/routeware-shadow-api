@@ -2,7 +2,7 @@
 /**
  * Markdown doc from discovered-operations.json + route-map.json.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -10,6 +10,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const discoveredPath = join(__dirname, "out", "discovered-operations.json");
 const mapPath = join(__dirname, "route-map.json");
 const outMd = join(__dirname, "out", "HARVEST_API.md");
+
+// Fresh checkout has no out/ dir yet — create it before any writeFile below.
+await mkdir(join(__dirname, "out"), { recursive: true });
 
 let discovered;
 try {

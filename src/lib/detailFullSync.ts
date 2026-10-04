@@ -9,7 +9,9 @@ import {
 } from "./d1SnapshotSync";
 import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
+import { reconcileCustomerChildren } from "./snapshot/upsert";
 import { forwardToUpstream } from "./upstreamForward";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
 export type GetCustomerDetailFullJson = {
@@ -80,7 +82,11 @@ export function mapCurrentCustomerToRow(cc: Record<string, unknown>): CustomerSn
     phone1: s(cc.Phone1),
     phone2: s(cc.Phone2),
     comments: s(cc.Comments),
-    enabled: b(cc.Enabled)
+    // TOG-6542: absent Enabled defaults to true, matching the cron CSV
+    // path (`parseBoolDefaultTrue`), the address/container guards below,
+    // and the D1 `DEFAULT 1` — coercing undefined yields false and would
+    // flap the same customer disabled (POST) / enabled (cron).
+    enabled: cc.Enabled !== undefined ? b(cc.Enabled) : true
   };
 }
 
@@ -238,16 +244,20 @@ export async function fetchGetCustomerDetailFull(
     });
 
   let session = await readSessionState(sessionStub);
-  let resp = await forwardToUpstream(makeReq(), url, session, buf);
+  // Interactive budget honoring UPSTREAM_TIMEOUT_MS (TOG-8359): the forwarder
+  // default alone would ignore the per-deploy override.
+  const timeoutMs = readUpstreamTimeoutMs(env);
+  let resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   if (resp.status !== 200 || isLoginRedirect(resp)) {
     await establishSession(env, sessionStub, env.LOGIN_URL);
     session = await readSessionState(sessionStub);
-    resp = await forwardToUpstream(makeReq(), url, session, buf);
+    resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   }
   if (!resp.ok) {
     // The body is upstream-controlled HTML/JSON and may carry customer PII —
-    // never embed it in the message: this error reaches API clients verbatim
-    // inside `localSync.reason` (POST /api/v1/data/* keeps 200 on sync failure).
+    // never embed it in the message: this error is logged server-side and
+    // POST /api/v1/data/* maps sync failures to a fixed `localSync.code`
+    // (TOG-6535) while keeping the upstream 200.
     throw new Error(`GetCustomerDetailFull failed: HTTP ${resp.status}`);
   }
   // Pre-check: refuse to buffer a graph that would threaten the isolate before
@@ -278,25 +288,45 @@ export async function fetchGetCustomerDetailFull(
 }
 
 /**
- * Fetches `GetCustomerDetailFull` and upserts customer, addresses, and containers into D1.
- * Returns all involved ids (for cache invalidation).
+ * Fetches a complete customer graph and reconciles its D1 children.
+ * Returns fresh and deleted ids so neither can remain in the entity cache.
  */
 export async function syncCustomerDetailFullToD1(
   env: Env,
   sessionStub: DurableObjectStub,
   customerId: number
 ): Promise<{ addressIds: number[]; containerIds: number[] }> {
+  const syncedAt = new Date().toISOString();
   const full = await fetchGetCustomerDetailFull(env, sessionStub, customerId, true);
   const { customer, addresses, containers } = mapDetailFullToRows(full);
-  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer]);
+  // A missing/malformed collection is not proof of deletion. The mapper is
+  // deliberately tolerant for read-only callers; reconciliation must fail closed.
+  if (!Array.isArray(full.data) || full.data.some((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+    const children = (raw as Record<string, unknown>).Containers;
+    return children != null && (!Array.isArray(children) || children.some(
+      (c) => !c || typeof c !== "object" || Array.isArray(c)
+    ));
+  })) {
+    throw new Error("GetCustomerDetailFull has an invalid child collection");
+  }
+  const addressIds = addresses.map((a) => a.pickupAddressId);
+  const addressIdSet = new Set(addressIds);
+  if (customer.customerId !== customerId ||
+      addresses.some((a) => a.customerId !== customerId) ||
+      containers.some((c) => !addressIdSet.has(c.pickupAddressId))) {
+    throw new Error("GetCustomerDetailFull has mismatched graph ids");
+  }
+  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer], 80, syncedAt);
   if (addresses.length) {
-    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses);
+    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses, 80, syncedAt);
   }
   if (containers.length) {
-    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers);
+    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, 50, syncedAt);
   }
+  const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
   return {
-    addressIds: addresses.map((a) => a.pickupAddressId),
-    containerIds: containers.map((c) => c.containerId)
+    addressIds: [...new Set([...addressIds, ...deleted.addressIds])],
+    containerIds: [...new Set([...containers.map((c) => c.containerId), ...deleted.containerIds])]
   };
 }

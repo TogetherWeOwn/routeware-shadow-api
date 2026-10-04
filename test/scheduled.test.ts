@@ -19,7 +19,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * `docs/CRON-SYNC-ALARM-RUNBOOK.md` keys on.
  */
 
-type Result = { upserted: number; rowCount: number; deleted?: number } | null;
+type R2Detail = { status: "stored" | "disabled" | "failed"; reason?: string; key?: string };
+
+type Result =
+  | { upserted: number; rowCount: number; deleted?: number; r2?: R2Detail }
+  | null;
 
 const calls: { chained: string[]; single: number } = { chained: [], single: 0 };
 
@@ -27,15 +31,26 @@ const behavior: {
   result: { customer: Result; address: Result; container: Result };
   error: string | null;
   rawThrow: boolean;
+  /** When set, the sync throws a partial-failure shaped rejection (TOG-6546). */
+  partial: { failedTable: string; partial: { customer: Result; address: Result; container: Result }; message: string } | null;
 } = {
   result: { customer: null, address: null, container: null },
   error: null,
-  rawThrow: false
+  rawThrow: false,
+  partial: null,
 };
 
 vi.mock("../src/lib/d1SnapshotSync", () => ({
   runDataSnapshotSyncChainedHttp: async (publicBase: string) => {
     calls.chained.push(publicBase);
+    if (behavior.partial) {
+      const p = behavior.partial;
+      throw Object.assign(new Error(p.message), {
+        name: "PartialDataSnapshotSyncError",
+        failedTable: p.failedTable,
+        partial: p.partial,
+      });
+    }
     if (behavior.error) {
       // `rawThrow` covers the non-Error rejection branch in the handler.
       throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
@@ -44,6 +59,14 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
   },
   runDataSnapshotSync: async () => {
     calls.single += 1;
+    if (behavior.partial) {
+      const p = behavior.partial;
+      throw Object.assign(new Error(p.message), {
+        name: "PartialDataSnapshotSyncError",
+        failedTable: p.failedTable,
+        partial: p.partial,
+      });
+    }
     if (behavior.error) {
       throw behavior.rawThrow ? behavior.error : new Error(behavior.error);
     }
@@ -55,7 +78,8 @@ const { scheduled, resolveChainedBase } = await import("../src/scheduled");
 
 const logs: string[] = [];
 const errors: unknown[][] = [];
-const real = { log: console.log, error: console.error };
+const warns: string[] = [];
+const real = { log: console.log, error: console.error, warn: console.warn };
 
 /** Captures the promise handed to waitUntil so the test can await it. */
 function fakeCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -120,19 +144,25 @@ beforeEach(() => {
   behavior.result = { customer: null, address: null, container: null };
   behavior.error = null;
   behavior.rawThrow = false;
+  behavior.partial = null;
   logs.length = 0;
   errors.length = 0;
+  warns.length = 0;
   console.log = (...a: unknown[]) => {
     logs.push(a.map(String).join(" "));
   };
   console.error = (...a: unknown[]) => {
     errors.push(a);
   };
+  console.warn = (...a: unknown[]) => {
+    warns.push(a.map(String).join(" "));
+  };
 });
 
 afterEach(() => {
   console.log = real.log;
   console.error = real.error;
+  console.warn = real.warn;
 });
 
 describe("scheduled sync path selection", () => {
@@ -148,6 +178,8 @@ describe("scheduled sync path selection", () => {
     expect(line.mode).toBe("chained-http");
     expect(line.configSource).toBe("SHADOW_API_PUBLIC_BASE");
     expect(line.d1LimitRisk).toBe(false);
+    // No fallback warning on the chained path — the var resolved.
+    expect(warns).toEqual([]);
   });
 
   it("falls back to a single invocation when no public base url is set", async () => {
@@ -161,6 +193,11 @@ describe("scheduled sync path selection", () => {
     expect(line.mode).toBe("single-invocation");
     expect(line.configSource).toBe("fallback-single-invocation");
     expect(line.d1LimitRisk).toBe(true);
+    // The fallback warning is the operator signal: without the var, D1's
+    // per-invocation limit applies to all tables as one pool.
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
+    expect(warns[0]).toContain("single invocation");
   });
 
   it("treats a whitespace-only public base url as unset", async () => {
@@ -171,6 +208,8 @@ describe("scheduled sync path selection", () => {
     expect(calls.single).toBe(1);
     expect(calls.chained).toEqual([]);
     expect(loggedLine().configSource).toBe("fallback-single-invocation");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
   });
 
   it.each([
@@ -268,6 +307,73 @@ describe("scheduled structured outcome", () => {
     expect(line.error).toBeUndefined();
   });
 
+  it("reports deleted for every synced table in the cron summary (TOG-7391)", async () => {
+    // Arrange — the chained path now carries per-table `deleted`; the cron
+    // line must show it for address/container, not just customer. Stored
+    // archives stay silent in the summary (TOG-6549).
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "stored" } },
+      address: { upserted: 5, rowCount: 6, deleted: 2, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, deleted: 0, r2: { status: "stored" } }
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = loggedLine();
+    expect(line.tables).toEqual({
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "stored" } },
+      address: { upserted: 5, rowCount: 6, deleted: 2, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, deleted: 0, r2: { status: "stored" } }
+    });
+    expect(line.summary).toBe(
+      "customer: 3 upserted, 4 rows, 1 deleted; " +
+        "address: 5 upserted, 6 rows, 2 deleted; " +
+        "container: 7 upserted, 8 rows, 0 deleted"
+    );
+  });
+
+  it("surfaces a failed R2 archive in the structured line (TOG-6549)", async () => {
+    // Arrange — the acceptance case: D1 succeeded (outcome stays success) but
+    // the customer archive leg failed. Only the status travels — no row data.
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "failed", reason: "R2 boom" } },
+      address: { upserted: 5, rowCount: 6, r2: { status: "stored" } },
+      container: { upserted: 7, rowCount: 8, r2: { status: "disabled", reason: "SNAPSHOTS binding unbound" } },
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert — the failure is explicit in both the JSON (alarm source) and the
+    // human summary; stored archives stay silent in the summary.
+    const line = loggedLine();
+    expect(line.outcome).toBe("success");
+    expect((line.tables as Record<string, { r2?: R2Detail }>).customer?.r2?.status).toBe("failed");
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows, 1 deleted, r2: failed");
+    expect(line.summary).toContain("address: 5 upserted, 6 rows");
+    expect(line.summary).not.toContain("address: 5 upserted, 6 rows, r2");
+    expect(line.summary).toContain("container: 7 upserted, 8 rows, r2: disabled");
+  });
+
+  it("marks pre-instrumentation counts as r2 unknown instead of inventing success (TOG-6549)", async () => {
+    // Arrange — a table result with no `r2` (older route caller) must not read
+    // as archived; the summary says unknown.
+    behavior.result = {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = loggedLine();
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows, r2: unknown");
+  });
+
   it("marks skipped tables explicitly instead of omitting them", async () => {
     // Arrange
     behavior.result = { customer: { upserted: 3, rowCount: 4 }, address: null, container: null };
@@ -290,8 +396,44 @@ describe("scheduled structured outcome", () => {
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
+    // Assert — outcome plus the exact summary wording: every table names its
+    // skipped state so the line can never read as a pass.
+    const line = loggedLine();
+    expect(line.outcome).toBe("unconfigured");
+    expect(line.outcome).not.toBe("success");
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe(
+      "customer: skipped (no report path configured); " +
+        "address: skipped (no report path configured); " +
+        "container: skipped (no report path configured)"
+    );
+    expect(line.error).toBeUndefined();
+    // Unconfigured is a stdout line like success — never the stderr failure path.
+    expect(errors).toEqual([]);
+  });
+
+  it("reports unconfigured on the single-invocation path when nothing was configured (TOG-7397)", async () => {
+    // Arrange — blanked report vars with no public base: the runbook §5 drill
+    // shape. Same config state, fallback mode.
+    behavior.result = { customer: null, address: null, container: null };
+
+    // Act
+    await runScheduled(envWith());
+
     // Assert
-    expect(loggedLine().outcome).toBe("unconfigured");
+    expect(calls.single).toBe(1);
+    const line = loggedLine();
+    expect(line.outcome).toBe("unconfigured");
+    expect(line.mode).toBe("single-invocation");
+    expect(line.configSource).toBe("fallback-single-invocation");
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe(
+      "customer: skipped (no report path configured); " +
+        "address: skipped (no report path configured); " +
+        "container: skipped (no report path configured)"
+    );
+    expect(line.error).toBeUndefined();
+    expect(errors).toEqual([]);
   });
 
   it("falls back to unknown scheduling metadata on a bare controller", async () => {
@@ -342,6 +484,52 @@ describe("scheduled failure handling", () => {
 
     // Assert
     expect(errorLine().error).toBe("raw string failure");
+  });
+
+  it("reports partial per-table progress when a later table fails (TOG-6546)", async () => {
+    // Arrange — the acceptance case: container throws after customer and
+    // address already succeeded. The log must keep their counts instead of
+    // all-null, and name the failed table.
+    behavior.partial = {
+      failedTable: "container",
+      partial: {
+        customer: { upserted: 3, rowCount: 4 },
+        address: { upserted: 5, rowCount: 6 },
+        container: null,
+      },
+      message: "[container snapshot] D1_ERROR: database is locked",
+    };
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    expect(logs).toEqual([]);
+    const line = errorLine();
+    expect(line.outcome).toBe("failed");
+    expect(line.tables).toEqual({
+      customer: { upserted: 3, rowCount: 4 },
+      address: { upserted: 5, rowCount: 6 },
+      container: null,
+    });
+    expect(line.summary).toContain("customer: 3 upserted, 4 rows");
+    expect(line.summary).toContain("address: 5 upserted, 6 rows");
+    expect(line.summary).toContain("failed: container");
+    expect(line.error).toBe("[container snapshot] D1_ERROR: database is locked");
+  });
+
+  it("keeps the all-null line for rejections with no partial attached", async () => {
+    // Arrange — a plain throw (not a partial error) means nothing ran, so the
+    // previous all-null + 'threw before any result' line still applies.
+    behavior.error = "[customer snapshot] D1_ERROR: database is locked";
+
+    // Act
+    await runScheduled(envWith("https://api.example.test"));
+
+    // Assert
+    const line = errorLine();
+    expect(line.tables).toEqual({ customer: null, address: null, container: null });
+    expect(line.summary).toBe("sync threw before any table result was recorded");
   });
 
   it("catches a failure on the single-invocation path too", async () => {

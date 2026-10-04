@@ -19,14 +19,14 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 6 | `src/lib/sessionRefreshLock.ts` warn | `err.message` | clean — DO transport errors |
  * | 7 | `src/app.ts` `onError` | generic 500 to client; full `err` to server log only | clean — client never sees internals |
  * | 8 | `src/routes/*` + `dataEntityHandlers.ts` 502 `detail` | `err.message` from anti-forgery prep (fixed strings, status codes) | clean — pinned below |
- * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only** |
+ * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only, reason replaced by fixed `code` (TOG-6535)** |
  * | 10 | `src/lib/routewareQueryReportCsv.ts` throw | **was** `…<status> — <upstream body slice>` → reached cron logs via `[step]` wrap | **FIXED — status only** |
- * | 11 | `src/lib/snapshot/orchestration.ts` chained throw (1200-char slice) | body of an *internal* subrequest to our own sync routes (problem+json / counts) | clean — never upstream text |
+ * | 11 | `src/lib/snapshot/orchestration.ts` chained throw | **was** 1200-char slice of the per-table subrequest body (upstream HTML rode the APP ERROR + cron `failed` lines) | **FIXED — table/step/status only, zero body bytes (TOG-9205)** |
  * | 12 | `src/lib/readiness.ts` D1 detail (200-char slice) | D1 driver error text | clean — no PII source; existing "no secrets" test |
  * | 13 | `src/lib/httpAuth.ts` login-failure throw | status + cookie *names* (`.WebRW`, …), never values | clean — names are fixed identifiers |
  * | 14 | `src/lib/upstreamForward.ts` `stripUpstreamSetCookie` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
- * | 15 | `POST /api/v1/data/*` `posted` echo | client's own submitted form fields | by design (documented in OpenAPI); bearer-gated to the submitter |
- * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / `REPLACE_WITH_TOKEN_FROM_PAGE` | clean — pinned below |
+ * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED (TOG-6535) — ids + `upstreamBytes` + fixed `code` only; pinned below** |
+ * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / omits `__RequestVerificationToken` | clean — pinned below |
  *
  * No real secrets appear anywhere in this file: the PII stand-ins below are
  * `555-01xx` / `Example` values, and cookie stand-ins are `FAKE-…` literals.
@@ -118,8 +118,8 @@ describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
     // shared mock answers PII/503 by default; queued explicitly for clarity.)
 
     // Act — the message used to reach API clients verbatim inside
-    // `localSync.reason` (POST /api/v1/data/* keeps 200 and reports the sync
-    // failure there).
+    // `localSync.reason` before TOG-6535 (POST /api/v1/data/* keeps 200 and
+    // maps the sync failure to a fixed `localSync.code`).
     behavior.responses = [piiResponse, piiResponse];
     const error = (await fetchGetCustomerDetailFull(baseEnv, sessionStub, 5, true).catch(
       (e: unknown) => e
@@ -132,9 +132,17 @@ describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
 });
 
 describe("fetchReportCsvByQueryId scrub (TOG-5821 site 10)", () => {
-  it("reports the status without the upstream body", async () => {
-    // Arrange / Act — the message used to reach the cron log wrapped in
-    // `[step]` context.
+  // TOG-6543: every query-id fetch polls QueryRequestIsComplete first, so the
+  // download-throw pin queues a completed poll ahead of the failing download.
+  const pollComplete = () =>
+    new Response("true", {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+
+  it("reports the poll status without the upstream body", async () => {
+    // Arrange / Act — the poll itself fails; the message used to reach the
+    // cron log wrapped in `[step]` context.
     behavior.responses = [piiResponse];
     const error = (await fetchReportCsvByQueryId(baseEnv, "23").catch(
       (e: unknown) => e
@@ -142,6 +150,21 @@ describe("fetchReportCsvByQueryId scrub (TOG-5821 site 10)", () => {
 
     // Assert
     expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("QueryRequestIsComplete failed: HTTP 503");
+    expectScrubbed(error.message, "503");
+  });
+
+  it("reports the download status without the upstream body", async () => {
+    // Arrange / Act — the poll completes, then both download attempts fail
+    // with a body carrying PII-shaped text.
+    behavior.responses = [pollComplete, piiResponse, piiResponse];
+    const error = (await fetchReportCsvByQueryId(baseEnv, "23").catch(
+      (e: unknown) => e
+    )) as Error;
+
+    // Assert
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("QueryExecuteDownload failed: HTTP 503");
     expectScrubbed(error.message, "503");
   });
 });
@@ -199,8 +222,9 @@ describe("anti-forgery modal-failure messages carry upstream status, never body 
 
 describe("committed fixtures carry no real-looking PII or secrets (site 16)", () => {
   it("save-long-form example uses placeholders and empty contact fields", () => {
-    // Placeholder token marker, never a captured token…
-    expect(saveCustomerLongFormBody).toContain("REPLACE_WITH_TOKEN_FROM_PAGE");
+    // Token-less: the Worker auto-injects __RequestVerificationToken, so the
+    // example omits it entirely — never a captured token or placeholder…
+    expect(saveCustomerLongFormBody).not.toContain("__RequestVerificationToken");
     // …example names only…
     expect(saveCustomerLongFormBody).toContain("ExampleCo");
     // …empty contact fields, never a dialable number…

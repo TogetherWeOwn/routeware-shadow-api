@@ -15,6 +15,9 @@
 
 export type { SnapshotSyncCounts, StreamSyncOptions } from "./snapshot/upsert";
 export {
+  findForeignKeyError,
+  isForeignKeyConstraintFailure,
+  SnapshotForeignKeyError,
   upsertAddressSnapshotRows,
   upsertContainerSnapshotRows,
   upsertCustomerSnapshotRows
@@ -23,6 +26,13 @@ export {
 export { createReportRequest, fetchReportCsvForPath } from "./snapshot/reportFetch";
 
 export {
+  InvalidSnapshotCsvError,
+  SNAPSHOT_IMPORT_MAX_BYTES,
+  STREAM_BATCH_ADDR,
+  STREAM_BATCH_CONT,
+  STREAM_BATCH_CUST,
+  SnapshotTooLargeError,
+  isSnapshotTooLarge,
   syncAddressSnapshotFromCsvText,
   syncAddressSnapshotFromStream,
   syncContainerSnapshotFromCsvText,
@@ -31,8 +41,14 @@ export {
   syncCustomerSnapshotFromStream
 } from "./snapshot/streamSync";
 
-export type { DataSnapshotResult, SnapshotTableResult } from "./snapshot/orchestration";
+export type {
+  DataSnapshotResult,
+  SnapshotSyncRunOptions,
+  SnapshotTableName,
+  SnapshotTableResult
+} from "./snapshot/orchestration";
 export {
+  PartialDataSnapshotSyncError,
   getDataSnapshotPlan,
   runAddressSnapshotSync,
   runContainerSnapshotSync,

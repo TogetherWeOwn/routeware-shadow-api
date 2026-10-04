@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import app from "../src/app";
 import { apiAccessToken, isApiAuthorized } from "../src/lib/auth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
@@ -130,7 +131,7 @@ const GENERAL = { method: "GET", path: "/api/v1/shadow/health" };
 // token yields the inner 401. Query string omitted deliberately.
 const PRIVILEGED = { method: "GET", path: "/api/v1/data/customer" };
 const PRIVILEGED_INNER_DETAIL =
-  "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.";
+  "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized.";
 
 describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
   const originalFetch = globalThis.fetch;
@@ -194,7 +195,7 @@ describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
     // wiring changed, not that auth passed.
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
   });
 
   it("privileged route rejects a wrong token at the outer gate", async () => {
@@ -215,6 +216,153 @@ describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
 
   it("public health probe needs no token (control)", async () => {
     const res = await call("GET", "/api/v1/health", { token: null, ip: freshIp() });
+    expect(res.status).toBe(200);
+  });
+});
+
+/**
+ * TOG-8383 (G28): living HTTP re-test contract across all four secret configs.
+ *
+ * Matrix 2 above proves the route-class split, but only under the both-set
+ * `[env.test.vars]` — the one config the `cloudflare:workers` self-fetch path
+ * can run. An auth refactor that collapses the inner check, swaps the
+ * fallback order, or fails open on unset secrets would keep Matrices 1–2
+ * green while changing live wire behavior. This block replays the
+ * PROBLEMS.md outer-gate table at the HTTP layer under every env config by
+ * driving `app.fetch` directly with a synthetic env (the
+ * `test/authModeValidation.test.ts` seam): the throttle DO is a stub that
+ * never blocks, and any upstream fetch throws, so every assertion below is
+ * hermetic.
+ *
+ * Per config × bearer, on the general route (`GET /api/v1/shadow/health`):
+ * outer-gate pass → 200, fail → 401 with the outer (`SHADOW_API_TOKEN`)
+ * detail. On the privileged route (`GET /api/v1/data/customer`, id omitted
+ * so the missing-id 400 proves the inner check was cleared without touching
+ * D1 or upstream):
+ * - bearer clears the outer gate but is not the sync secret → 401 with the
+ *   INNER detail (proves the two-tier split survived);
+ * - bearer is the configured sync secret → 400 missing-id (inner cleared);
+ * - otherwise → 401 with the OUTER detail (stopped at the gate).
+ */
+
+const MATRIX_CTX = {
+  waitUntil() {},
+  passThroughOnException() {}
+} as unknown as ExecutionContext;
+
+function matrixAppEnv(secrets: Record<string, string>): Env {
+  const stub = {
+    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.href : String(input);
+      if (url.includes("/throttle/failure")) {
+        return Response.json({ blocked: false, retryAfterSec: 0 });
+      }
+      if (url.includes("/throttle/clear")) {
+        return new Response("OK");
+      }
+      throw new Error(`Unexpected AUTH_SESSION fetch in dual-secret matrix contract: ${url}`);
+    }
+  };
+  const AUTH_SESSION = {
+    idFromName: (name: string) => name,
+    get: (_id: string) => stub
+  };
+  return { ...secrets, AUTH_SESSION } as unknown as Env;
+}
+
+let matrixIpSeq = 1;
+
+async function matrixCall(
+  method: string,
+  path: string,
+  env: Env,
+  token: string | null
+): Promise<Response> {
+  const headers = new Headers();
+  if (token !== null) {
+    headers.set("authorization", `Bearer ${token}`);
+  }
+  // Distinct IP per call: a future stateful throttle stub must never leak
+  // budget between matrix cells.
+  headers.set("CF-Connecting-IP", `198.51.100.${matrixIpSeq++}`);
+  return app.fetch(new Request(`http://test.local${path}`, { method, headers }), env, MATRIX_CTX);
+}
+
+const PRIVILEGED_PASS_DETAIL =
+  "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.";
+
+describe("dual-secret HTTP matrix across all four secret configs (TOG-8383)", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error("Unexpected upstream fetch in dual-secret matrix contract");
+    }) as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it.each(ENV_CONFIGS)("general route follows the outer gate: $name", async (cfg) => {
+    const env = matrixAppEnv(cfg.env);
+    const bearers: Array<string | null> = [API, SYNC, WRONG, null];
+    for (let i = 0; i < bearers.length; i++) {
+      const res = await matrixCall(GENERAL.method, GENERAL.path, env, bearers[i]);
+      if (cfg.outer[i]) {
+        expect(res.status).toBe(200);
+      } else {
+        expect(res.status).toBe(401);
+        const body = (await res.json()) as ProblemBody;
+        expect(body.type).toBe(UNAUTHORIZED_TYPE);
+        expect(body.detail).toContain("SHADOW_API_TOKEN");
+      }
+    }
+  });
+
+  it.each(ENV_CONFIGS)("privileged route enforces the inner check: $name", async (cfg) => {
+    const env = matrixAppEnv(cfg.env);
+    const [apiOuter, syncOuter] = cfg.outer;
+
+    // Bearer API: outer pass lands on the inner 401 (never the sync secret);
+    // outer fail stops at the gate with the outer wording.
+    const apiRes = await matrixCall(PRIVILEGED.method, PRIVILEGED.path, env, API);
+    expect(apiRes.status).toBe(401);
+    const apiBody = (await apiRes.json()) as ProblemBody;
+    expect(apiBody.type).toBe(UNAUTHORIZED_TYPE);
+    if (apiOuter) {
+      expect(apiBody.detail).toBe(PRIVILEGED_INNER_DETAIL);
+    } else {
+      expect(apiBody.detail).toContain("SHADOW_API_TOKEN");
+    }
+
+    // Bearer SYNC: outer pass clears the inner check (400 on the missing id);
+    // outer fail stops at the gate.
+    const syncRes = await matrixCall(PRIVILEGED.method, PRIVILEGED.path, env, SYNC);
+    if (syncOuter) {
+      expect(syncRes.status).toBe(400);
+      const syncBody = (await syncRes.json()) as ProblemBody;
+      expect(syncBody.detail).toBe(PRIVILEGED_PASS_DETAIL);
+    } else {
+      expect(syncRes.status).toBe(401);
+      const syncBody = (await syncRes.json()) as ProblemBody;
+      expect(syncBody.type).toBe(UNAUTHORIZED_TYPE);
+      expect(syncBody.detail).toContain("SHADOW_API_TOKEN");
+    }
+
+    // Wrong and missing tokens never clear the outer gate in any config.
+    for (const token of [WRONG, null]) {
+      const res = await matrixCall(PRIVILEGED.method, PRIVILEGED.path, env, token);
+      expect(res.status).toBe(401);
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(UNAUTHORIZED_TYPE);
+      expect(body.detail).toContain("SHADOW_API_TOKEN");
+    }
+  });
+
+  it.each(ENV_CONFIGS)("public health probe stays open: $name", async (cfg) => {
+    const res = await matrixCall("GET", "/api/v1/health", matrixAppEnv(cfg.env), null);
     expect(res.status).toBe(200);
   });
 });

@@ -9,8 +9,12 @@ import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
  * table automatically packs fewer rows per statement.
  */
 
-/** D1 allows at most 100 bound parameters per query (see D1 platform limits). */
-const D1_MAX_BINDS = 100;
+/**
+ * D1 allows at most 100 bound parameters per query (see D1 platform limits).
+ * Exported (TOG-6552) so read-path chunking can prove its margin by
+ * construction instead of hardcoding a second copy of the cap.
+ */
+export const D1_MAX_BINDS = 100;
 
 const CUST_NCOLS = 14;
 export const CUST_R_PER_STMT = Math.min(7, Math.floor(D1_MAX_BINDS / CUST_NCOLS));
@@ -29,7 +33,8 @@ const CUST_ON = `ON CONFLICT(customer_id) DO UPDATE SET
   phone2 = excluded.phone2,
   comments = excluded.comments,
   enabled = excluded.enabled,
-  synced_at = excluded.synced_at`;
+  synced_at = excluded.synced_at
+  WHERE customer_snapshot.synced_at <= excluded.synced_at`;
 
 const ADDR_NCOLS = 16;
 export const ADDR_R_PER_STMT = Math.min(6, Math.floor(D1_MAX_BINDS / ADDR_NCOLS));
@@ -50,7 +55,8 @@ const ADDR_ON = `ON CONFLICT(pickup_address_id) DO UPDATE SET
   latitude = excluded.latitude,
   longitude = excluded.longitude,
   last_audit_date = excluded.last_audit_date,
-  synced_at = excluded.synced_at`;
+  synced_at = excluded.synced_at
+  WHERE address_snapshot.synced_at <= excluded.synced_at`;
 
 const CONT_NCOLS = 29;
 export const CONT_R_PER_STMT = Math.min(3, Math.floor(D1_MAX_BINDS / CONT_NCOLS));
@@ -87,7 +93,8 @@ const CONT_ON = `ON CONFLICT(container_id) DO UPDATE SET
   service_date = excluded.service_date,
   route_ids = excluded.route_ids,
   frequency_ids = excluded.frequency_ids,
-  synced_at = excluded.synced_at`;
+  synced_at = excluded.synced_at
+  WHERE container_snapshot.synced_at <= excluded.synced_at`;
 
 function multiValueTuples(rowCount: number, nCols: number): string {
   const row = `(${Array(nCols).fill("?").join(", ")})`;

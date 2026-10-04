@@ -10,7 +10,7 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 
 **Import / sync order:** load customers, then addresses, then containers. The combined job (`POST /api/v1/data-snapshot/sync` or the daily cron) only runs the address step when the customer *export is configured* (static path or query id), and the container step only when both customer and address are configured.
 
-**Foreign keys and reconciliation:** the FK columns are declared but D1 does **not** enforce them (no `PRAGMA foreign_keys`), and a streamed sync spans many batches rather than one transaction — integrity relies on the import order above plus reconciliation, not the database. A report **`sync`** (not `import`) deletes rows not present in the current run (`deleted` count in the response) so upstream deletions propagate; reconciliation is skipped when a run yields zero data rows, so a bad/empty export never wipes a table. **`import`** is treated as possibly-partial and never deletes.
+**Foreign keys and reconciliation:** the FK columns are declared and D1 **enforces** them unconditionally in every transaction/batch — an orphan row is rejected (import/sync answers 400 `bad-request` naming the dangling key), so import order is enforced, not just convention. A streamed sync spans many batches rather than one transaction, so integrity relies on the import order above plus reconciliation as well as the database. A report **`sync`** (not `import`) deletes rows not present in the current run (`deleted` count in the response) so upstream deletions propagate; reconciliation is skipped when a run yields zero data rows, so a bad/empty export never wipes a table. **`import`** is treated as possibly-partial and never deletes.
 
 ## Environment
 
@@ -88,22 +88,76 @@ npx wrangler d1 migrations apply routeware-customer-snapshot --local
 npx wrangler d1 migrations apply routeware-customer-snapshot --remote
 ```
 
+## Readiness: cron staleness
+
+Every scheduled run (`src/scheduled.ts`, `0 7 * * *` UTC) upserts one row per
+table into `cron_sync_state` (`migrations/d1/0004_cron_sync_state.sql`) before
+emitting its `data-snapshot-sync` log line, and `GET /api/v1/readiness`
+reports it back as an advisory `cron` check: `lastRunAt` (newest row),
+per-table `outcome` (`success` / `skipped` / `failed`) with counts and
+timestamps, and `stale` (true when no row exists or the newest row is older
+than 48h — one missed daily firing tolerated, two page). Only
+outcome/mode/counts/timestamps are stored — never row data or error text, so
+no PII by column construction (CONVENTIONS.md §5).
+
+Advisory means advisory: `cron.ok` mirrors `stale` but never flips the
+overall readiness status, so a never-yet-run staging Worker still deploys —
+the cron's own `success`/`failed` log line remains the alarm source (see
+`docs/CRON-SYNC-ALARM-RUNBOOK.md`). Reviewer check: fire a local scheduled
+run (`curl http://localhost:8787/__scheduled` under `wrangler dev
+--test-scheduled`), then read readiness and confirm the fresh timestamp.
+
+```bash
+npx wrangler d1 execute routeware-customer-snapshot --remote --json \
+  --command "SELECT table_name, outcome, ran_at FROM cron_sync_state"
+```
+
+## Archive integrity manifest and verify
+
+Each successful archive also upserts one entry per CSV into a sidecar
+`snapshots/<UTC-date>.manifest.json` — a sibling of the date's CSV "directory",
+carrying `{ version, date, files: { "<table>.csv": { key, sha256, bytes } } }`
+(`src/lib/r2SnapshotArchive.ts`). Hashes and keys only, never row data, so the
+manifest is safe to log and print. A failed CSV put writes no entry; a corrupt
+existing sidecar is replaced (warned), and verify then reports the other tables
+as missing, loudly.
+
+Check one date's archive without credentials (local Miniflare R2 under a
+`--persist-to` dir) or read-only against remote (needs `CLOUDFLARE_API_TOKEN` in
+the environment, never a flag):
+
+```bash
+npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir>
+```
+
+Exit 0 when every entry verifies; exit 1 on any mismatch, missing object, or
+unreadable manifest; exit 2 on flag/usage errors. A tampered CSV fails by name
+with both hashes, e.g. `FAIL customer.csv (snapshots/2026-09-28/customer.csv):
+sha256 mismatch (manifest <old>, r2 <new>; ...)`. Reviewer acceptance path —
+fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
+the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
+lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
+
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
 All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`**.
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, `q`, `enabled`, `limit`, `offset` |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
+| GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows) |
+| GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV |
-| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset` |
+| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/address-snapshot/{pickupAddressId}` | One address row |
+| GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/address-snapshot/import` | Body = raw address CSV |
-| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset` |
+| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
+| GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
@@ -118,11 +172,19 @@ Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D
 
 If a **single** table still exceeds ~1000 operations, run that table’s sync in multiple passes or ask Cloudflare for a limit increase.
 
+### Sync batch sizing vs the D1 budget (TOG-6293)
+
+Measured 2026-09-27 (`SELECT COUNT(*)` only, no PII): customer **109,894**, address **111,620**, container **388,735** rows. Under the per-`db.batch()`-call counting model (one call = 1 op + 1 reconcile `DELETE` per non-empty sync), the committed chunk sizes (`STREAM_BATCH_CUST/ADDR = 80`, `STREAM_BATCH_CONT = 40` in `src/lib/snapshot/streamSync.ts`) cost **1,375 / 1,397 / 9,720 ops** per table — every table exceeds its own 1000-op chained budget, and a pooled single invocation totals 12,492 ops. Safe per-table (chained) sizes at these counts: **customer 120** (917 ops, margin 83), **address 120** (932 ops, margin 68), **container 400** (973 ops, margin 27). Even at safe sizes the three tables pooled in one invocation total 2,822 ops, so chained mode stays required; growing the batch further buys fewer calls but packs more statements per call (the 100-bind / 100 KB per-statement caps still bind inside each call, pinned by `test/snapshotUpsert.test.ts`).
+
+Rerun 2026-09-29 (TOG-8380) on current main: numbers unchanged — committed sizes still cost 1,375 / 1,397 / 9,720 ops; safe sizes 120/120/400 with margins 83/68/27 confirmed. Intervening sync fixes (#71 quoted-header guards, #84 import 400/413 rejects, #89 child-reconcile timestamps, #109 R2-after-D1) touch parsing/validation/ordering, not the batch-counting model, so the recommendation stands.
+
+Reproduce: `node scripts/check-sync-batch-budget.mjs` (measures the committed constants; exit 0 always — `OVER` is a finding, not a gate failure). Try candidates without editing source, e.g. `node scripts/check-sync-batch-budget.mjs --batch-customer=120 --batch-address=120 --batch-container=400`, or re-run against fresh counts with `--customer-rows=N --address-rows=N --container-rows=N`. Unit pins: `test/syncBatchBudget.test.ts`.
+
 ### 503 / `exceededMemory` (rare)
 
 Workers cap **memory** per isolate (~128 MB). Sync and import now **stream** the CSV and upsert in batches (no full-file `string` for report downloads), which is what you need for very large container exports. If you still see `exceededMemory`, run the three `POST` sync routes as **separate** requests in order, or lower batch pressure by splitting work across times.
 
-**Aggregate reads and Routeware writes (OpenAPI tag `data-entity`):** same bearer. **GET** `/api/v1/data/customer?id=…` (or `customerId=…`), `/api/v1/data/address?id=…` (pickup address id), `/api/v1/data/container?id=…` — D1 cache with `ETag` / `If-None-Match` and Workers `Cache` API, invalidated on successful **POST** to the same path. **POST** forwards to Routeware `SaveCustomerLongForm`, `SaveAddressForm`, or `SaveContainerForm` and returns `upstream` + your `posted` form fields, then refreshes D1 from `GetCustomerDetailFull` for the affected customer. Create: customer with `CustomerID=0` (or omit); address with `PickupAddressID=0` + `CustomerID`; container with `ContainerID=0` + `PickupAddressID` (and `CustomerID` if you want local sync when D1 is empty).
+**Aggregate reads and Routeware writes (OpenAPI tag `data-entity`):** same bearer. **GET** `/api/v1/data/customer?id=…` (or `customerId=…`), `/api/v1/data/address?id=…` (pickup address id), `/api/v1/data/container?id=…` — D1 cache with `ETag` / `If-None-Match` and Workers `Cache` API, invalidated on successful **POST** to the same path. **POST** forwards to Routeware `SaveCustomerLongForm`, `SaveAddressForm`, or `SaveContainerForm` and returns ids + sync outcome only (`ok`, `routewareStatus`, resolved ids, `upstreamBytes`, `localSync` with fixed `code` outcomes — never submitted fields or the upstream body; TOG-6535), then refreshes D1 from `GetCustomerDetailFull` for the affected customer. Create: customer with `CustomerID=0` (or omit); address with `PickupAddressID=0` + `CustomerID`; container with `ContainerID=0` + `PickupAddressID` (and `CustomerID` if you want local sync when D1 is empty).
 
 Interactive docs: `GET /docs` (Scalar). Machine-readable: `GET /openapi.json`.
 

@@ -1,6 +1,6 @@
 import { forwardToUpstream } from "./upstreamForward";
 import { establishSession } from "./establishSession";
-import { isLoginRedirect } from "./loginRedirect";
+import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
 import { readReportTimeoutMs } from "./upstreamTimeout";
 
@@ -68,7 +68,11 @@ async function forwardSessionAware(
   let session = await readSessionState(stub);
   const run = () => forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
   let resp = await run();
-  if (resp.status !== 200 || isLoginRedirect(resp)) {
+  // TOG-6540: same 200-with-login-form expiry shape as `fetchReportCsvForPath`
+  // and `forwardWithSessionRetry` (TOG-6515) — one re-login + retry.
+  // `isLoginPageResponse` never throws/logs the body (PII) and skips
+  // JSON/CSV/octet-stream without reading.
+  if (resp.status !== 200 || isLoginRedirect(resp) || (await isLoginPageResponse(resp))) {
     await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
     resp = await forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
@@ -77,11 +81,94 @@ async function forwardSessionAware(
 }
 
 /**
+ * Poll budget for `QueryRequestIsComplete` (TOG-6543): the WebRW modal polls
+ * every 2.5s for its loading indicator, so the Worker polls on the same
+ * cadence. 24 attempts ≈ 60s, inside one Worker invocation alongside the
+ * 60s-per-attempt download budget (TOG-5835). Both knobs are overridable per
+ * deploy/tests via `REPORT_QUERY_POLL_INTERVAL_MS` /
+ * `REPORT_QUERY_POLL_MAX_ATTEMPTS` (absent/invalid falls back here).
+ */
+export const QUERY_REQUEST_POLL_INTERVAL_MS = 2_500;
+export const QUERY_REQUEST_POLL_MAX_ATTEMPTS = 24;
+
+function readPositivePollValue(value: unknown): number | null {
+  const n =
+    typeof value === "string" || typeof value === "number" ? Number(value) : Number.NaN;
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+}
+
+function readQueryPollIntervalMs(env: Env): number {
+  return (
+    readPositivePollValue(
+      (env as unknown as Record<string, unknown>).REPORT_QUERY_POLL_INTERVAL_MS
+    ) ?? QUERY_REQUEST_POLL_INTERVAL_MS
+  );
+}
+
+function readQueryPollMaxAttempts(env: Env): number {
+  return (
+    readPositivePollValue(
+      (env as unknown as Record<string, unknown>).REPORT_QUERY_POLL_MAX_ATTEMPTS
+    ) ?? QUERY_REQUEST_POLL_MAX_ATTEMPTS
+  );
+}
+
+/**
+ * Polls `GET .../Reports/QueryRequestIsComplete?requestID=…` until Routeware
+ * reports the async query complete. Same `requestID` the download then uses —
+ * downloading early returns a truncated CSV, which reconcile (`dataRows > 0`)
+ * would treat as the full table and delete the missing tail as stale.
+ *
+ * Session/login handling matches the download path (single re-login + retry
+ * via `forwardSessionAware`). Errors are status-only — the poll body is
+ * upstream-controlled (TOG-5821).
+ */
+async function pollQueryRequestIsComplete(env: Env, requestId: string): Promise<void> {
+  const intervalMs = readQueryPollIntervalMs(env);
+  const maxAttempts = readQueryPollMaxAttempts(env);
+  const pollUrl = new URL(
+    `${env.TARGET_BASE_PATH}/Reports/QueryRequestIsComplete`,
+    env.TARGET_ORIGIN
+  );
+  pollUrl.searchParams.set("requestID", requestId);
+  const pollReq = () =>
+    new Request("http://internal/qpoll", {
+      method: "GET",
+      headers: {
+        accept: "application/json, text/javascript, */*; q=0.01",
+        referer: reportQueriesReferer(env)
+      }
+    });
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const resp = await forwardSessionAware(env, pollReq, pollUrl, null);
+    if (
+      resp.status !== 200 ||
+      isLoginRedirect(resp) ||
+      (await isLoginPageResponse(resp))
+    ) {
+      throw new Error(`QueryRequestIsComplete failed: HTTP ${resp.status}`);
+    }
+    if (parseQueryRequestIsCompleteResponse(await resp.text())) {
+      return;
+    }
+    if (attempt < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  throw new Error(`QueryRequestIsComplete timed out after ${maxAttempts} attempts`);
+}
+
+/**
  * Fetches a custom report CSV the same way the WebRW modal does:
- * **client** `lastRequestID = crypto.randomUUID()`, then
+ * **client** `lastRequestID = crypto.randomUUID()`, poll
+ * `GET QueryRequestIsComplete?requestID=…` every 2.5s, then
  * `GET` `QueryExecuteDownload?requestID=…&queryID=…&startDate=…&endDate=…`
  * in a hidden iframe. There is **no** `QueryExecute` POST; the one-time
  * `requestID` is generated in the browser.
+ *
+ * The poll is load-bearing (TOG-6543): downloading before the async query
+ * completes returns a truncated CSV with `dataRows > 0`, which reconcile
+ * treats as the full table and deletes the missing tail as stale.
  *
  * `REPORT_QUERY_START_DATE` / `REPORT_QUERY_END_DATE` should match what you would
  * use in the modal (for reports with date pickers) or the placeholder `1900-01-01`
@@ -95,6 +182,7 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
   const startDate = env.REPORT_QUERY_START_DATE?.trim() || "1900-01-01";
   const endDate = env.REPORT_QUERY_END_DATE?.trim() || "1900-01-01";
   const requestId = crypto.randomUUID();
+  await pollQueryRequestIsComplete(env, requestId);
 
   const downPath = `${env.TARGET_BASE_PATH}/Reports/QueryExecuteDownload`;
   const downUrl = new URL(downPath, env.TARGET_ORIGIN);
@@ -114,7 +202,9 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
       }
     });
   const downResp = await forwardSessionAware(env, downReq, downUrl, null);
-  if (downResp.status !== 200 || isLoginRedirect(downResp)) {
+  // A retry that still sees a login page throws instead of returning HTML as
+  // CSV. Body never embedded (TOG-5821).
+  if (downResp.status !== 200 || isLoginRedirect(downResp) || (await isLoginPageResponse(downResp))) {
     // The body is upstream-controlled and may carry customer PII — never embed
     // it in the message: this error reaches the cron log wrapped in `[step]`
     // context (TOG-5821).

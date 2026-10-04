@@ -127,7 +127,7 @@ describe("address/container save silent-failure guard (TOG-6271)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("SaveAddressForm");
   });
@@ -148,7 +148,7 @@ describe("address/container save silent-failure guard (TOG-6271)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Anti-forgery token preparation failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.detail).toContain("LoadAddressModal");
     expect(body.detail).toContain("HTTP 500");
   });
@@ -185,7 +185,7 @@ describe("address/container save silent-failure guard (TOG-6271)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.status).toBe(502);
     expect(body.detail).toContain("SaveContainerForm");
   });
@@ -205,7 +205,7 @@ describe("address/container save silent-failure guard (TOG-6271)", () => {
     expect(response.status).toBe(502);
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail: string };
-    expect(body.title).toBe("Anti-forgery token preparation failed");
+    expect(body.title).toBe("Bad Gateway");
     expect(body.detail).toContain("__RequestVerificationToken");
   });
 });

@@ -45,16 +45,18 @@ const dataCustomerGetRoute = createRoute({
 });
 
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const q = c.req.valid("query");
   const id = q.id ?? q.customerId;
   if (id === undefined) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
-      title: "Bad request",
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` or `customerId` (customer_id) is required."
+      detail:
+        "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataCustomer({ env: c.env, var: c.var, req: c.req }, id);
@@ -65,28 +67,39 @@ const dataAddressGetRoute = createRoute({
   path: "/api/v1/data/address",
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      pickupAddressId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "address, customer, containers",
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Invalid id (application/problem+json)" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
 });
 
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.pickupAddressId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
-      title: "Bad request",
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
+      detail:
+        "Query `id` or `pickupAddressId` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id);
@@ -97,28 +110,39 @@ const dataContainerGetRoute = createRoute({
   path: "/api/v1/data/container",
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  description:
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      containerId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "container, address, customer",
       content: { "application/json": { schema: z.unknown() } }
     },
     304: { description: "Not modified" },
+    400: { description: "Invalid id (application/problem+json)" },
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
 });
 
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required (same as snapshot sync secret).");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.containerId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
-      title: "Bad request",
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
       status: 400,
-      detail: "Query `id` (container_id) is required and must be a positive integer."
+      detail:
+        "Query `id` or `containerId` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id);
@@ -126,12 +150,13 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
 
 const dataEntityPostResponse = {
   200: {
-    description: "Routeware response + `posted` fields + optional local D1 sync summary",
+    description:
+      "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
     content: { "application/json": { schema: z.unknown() } }
   },
-  400: { description: "Bad request" },
+  400: { description: "Bad Request" },
   401: { description: "Unauthorized" },
-  502: { description: "Token preparation failed" }
+  502: { description: "Bad Gateway" }
 } as const;
 
 const dataCustomerPostRoute = createRoute({
@@ -140,12 +165,43 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`). `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `upstream` (Routeware body), `posted` (form fields you sent), `ok`, `localSync`.",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              CustomerTypeID: { type: "string" },
+              CompanyName: { type: "string" },
+              FirstName: { type: "string" },
+              LastName: { type: "string" },
+              Enabled: { type: "string" },
+              CustomerID: { type: "string" }
+            }
+          },
+          example: {
+            CustomerTypeID: "1",
+            CompanyName: "ExampleCo",
+            FirstName: "Jane",
+            LastName: "Doe",
+            Enabled: "true",
+            CustomerID: "0"
+          }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer required.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   return handlePostDataCustomer({ env: c.env, var: c.var, req: c.req });
 });
@@ -156,7 +212,28 @@ const dataAddressPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update address in Routeware + sync D1",
   description:
-    "Proxies to `PickupAddress/SaveAddressForm`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`.",
+    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveAddressForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              PickupAddressID: { type: "string" },
+              CustomerID: { type: "string" },
+              Address: { type: "string" }
+            }
+          },
+          example: { PickupAddressID: "0", CustomerID: "5", Address: "1 Main St" }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 
@@ -172,7 +249,28 @@ const dataContainerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update container in Routeware + sync D1",
   description:
-    "Proxies to `Container/SaveContainerForm`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row).",
+    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+  request: {
+    body: {
+      description: "SaveContainerForm fields — token injected server-side when omitted (see example)",
+      content: {
+        "application/x-www-form-urlencoded": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: {
+            type: "object",
+            properties: {
+              __RequestVerificationToken: { type: "string" },
+              ContainerID: { type: "string" },
+              PickupAddressID: { type: "string" },
+              CustomerID: { type: "string" }
+            }
+          },
+          example: { ContainerID: "0", PickupAddressID: "10" }
+        }
+      }
+    }
+  },
   responses: dataEntityPostResponse
 });
 

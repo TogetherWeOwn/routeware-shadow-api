@@ -1,7 +1,5 @@
 import { applyD1Migrations } from "cloudflare:test";
 import { env } from "cloudflare:workers";
-import sql1 from "../migrations/d1/0001_customer_snapshot.sql?raw";
-import sql2 from "../migrations/d1/0002_address_container.sql?raw";
 
 import type { D1Migration } from "cloudflare:test";
 
@@ -17,29 +15,209 @@ import type { D1Migration } from "cloudflare:test";
  * skips them on later runs, so this is safe to call once per test file (or
  * from a `setupFiles` entry that runs before every file).
  *
- * The migration SQL files carry `--` comment lines that Miniflare's `db.exec`
- * rejects ("SQL code did not contain a statement"), so each file is split into
- * per-statement queries first — the same splitting `readD1Migrations` performs
- * on the Node side of the pool.
+ * Parity guard (TOG-6551): migration files are **auto-discovered** with
+ * `import.meta.glob`, never enumerated by hand — adding
+ * `migrations/d1/0003_*.sql` picks it up with no code change. Before this,
+ * the two files were hard-imported, so 0003 (already on main) shipped
+ * with E2E green on a stale schema while prod D1 broke. Files are ordered by
+ * numeric prefix, exactly like prod `readD1Migrations`.
+ *
+ * Splitting is a port of wrangler's `src/d1/splitter.ts` (plus `trimmer.ts`),
+ * the same splitter `wrangler d1 migrations apply` uses in prod: it is aware
+ * of string literals, quoted identifiers, dollar-quotes, line/block comments
+ * and `BEGIN … END` compound statements (triggers). The previous
+ * strip-`--`-lines-and-split-on-`;` broke on `;`/`--` inside literals and on
+ * trigger bodies, and Miniflare's `db.exec` rejects comment-only chunks
+ * ("SQL code did not contain a statement").
  */
-function toMigration(name: string, sql: string): D1Migration {
-  const queries = sql
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("--"))
-    .join("\n")
-    .split(";")
-    .map((q) => q.trim())
-    .filter((q) => q.length > 0);
-  return { name, queries };
+
+/** Build-time auto-discovery: every `migrations/d1/*.sql`, contents as text. */
+const MIGRATION_SQL = import.meta.glob<string>("../migrations/d1/*.sql", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+function migrationName(path: string): string {
+  return path.split("/").pop() ?? path;
 }
 
-const MIGRATIONS: D1Migration[] = [
-  toMigration("0001_customer_snapshot.sql", sql1),
-  toMigration("0002_address_container.sql", sql2)
-];
+/** Numeric-prefix order, mirroring prod `readD1Migrations`. */
+function byMigrationNumber(a: string, b: string): number {
+  return (
+    parseInt(a.split("_")[0] ?? "", 10) - parseInt(b.split("_")[0] ?? "", 10)
+  );
+}
+
+/**
+ * Sort `files` (`name → sql`) by migration number and split each file into
+ * its per-statement queries. Exported so tests can prove a `0003_*.sql`
+ * fixture is picked up and ordered without touching this module.
+ */
+export function buildMigrations(files: Record<string, string>): D1Migration[] {
+  return Object.keys(files)
+    .sort(byMigrationNumber)
+    .map((name) => ({ name, queries: splitMigrationSql(files[name] ?? "") }));
+}
+
+/**
+ * Split one migration file into executable statements.
+ * Port of wrangler `src/d1/splitter.ts` + `src/d1/trimmer.ts`.
+ */
+export function splitMigrationSql(sql: string): string[] {
+  const trimmedSql = trimSqlQuery(sql);
+  if (!mayContainMultipleStatements(trimmedSql)) {
+    return [trimmedSql];
+  }
+  const split = splitSqlIntoStatements(trimmedSql);
+  return split.length === 0 ? [trimmedSql] : split;
+}
+
+function trimSqlQuery(sql: string): string {
+  if (!sql.includes("BEGIN TRANSACTION")) {
+    return sql;
+  }
+  const trimmedSql = sql
+    .replace("BEGIN TRANSACTION;", "")
+    .replace("COMMIT;", "");
+  if (trimmedSql.includes("BEGIN TRANSACTION")) {
+    throw new Error(
+      "Migration contains explicit transactions; D1 runs migrations in a transaction already.",
+    );
+  }
+  return trimmedSql;
+}
+
+function mayContainMultipleStatements(sql: string): boolean {
+  const trimmed = sql.trimEnd();
+  const semiColonIndex = trimmed.indexOf(";");
+  return semiColonIndex !== -1 && semiColonIndex !== trimmed.length - 1;
+}
+
+function splitSqlIntoStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let str = "";
+  const compoundStatementStack: Array<(s: string) => boolean> = [];
+  const iterator = sql[Symbol.iterator]();
+  let next = iterator.next();
+  while (!next.done) {
+    const char = next.value;
+    if (compoundStatementStack[0]?.(str + char)) {
+      compoundStatementStack.shift();
+    }
+    switch (char) {
+      case `'`:
+      case `"`:
+      case "`":
+        str += char + consumeUntilMarker(iterator, char);
+        break;
+      case `$`: {
+        const dollarQuote =
+          "$" + consumeWhile(iterator, isDollarQuoteIdentifier);
+        str += dollarQuote;
+        if (dollarQuote.endsWith("$")) {
+          str += consumeUntilMarker(iterator, dollarQuote);
+        }
+        break;
+      }
+      case `-`:
+        next = iterator.next();
+        if (!next.done && next.value === "-") {
+          consumeUntilMarker(iterator, "\n");
+          str += "\n";
+          break;
+        } else {
+          str += char;
+          continue;
+        }
+      case `/`:
+        next = iterator.next();
+        if (!next.done && next.value === "*") {
+          consumeUntilMarker(iterator, "*/");
+          break;
+        } else {
+          str += char;
+          continue;
+        }
+      case `;`:
+        if (compoundStatementStack.length === 0) {
+          statements.push(str);
+          str = "";
+        } else {
+          str += char;
+        }
+        break;
+      default:
+        str += char;
+        break;
+    }
+    if (isCompoundStatementStart(str)) {
+      compoundStatementStack.unshift(isCompoundStatementEnd);
+    }
+    next = iterator.next();
+  }
+  statements.push(str);
+  return statements
+    .map((statement) => statement.trim())
+    .filter((statement) => statement.length > 0);
+}
+
+function consumeWhile(
+  iterator: IterableIterator<string>,
+  predicate: (s: string) => boolean,
+): string {
+  let next = iterator.next();
+  let str = "";
+  while (!next.done) {
+    str += next.value;
+    if (!predicate(str)) {
+      break;
+    }
+    next = iterator.next();
+  }
+  return str;
+}
+
+function consumeUntilMarker(
+  iterator: IterableIterator<string>,
+  endMarker: string,
+): string {
+  return consumeWhile(iterator, (str) => !str.endsWith(endMarker));
+}
+
+function isDollarQuoteIdentifier(str: string): boolean {
+  const lastChar = str.slice(-1);
+  return (
+    // The $ marks the end of the identifier
+    lastChar !== "$" &&
+    // we allow numbers, underscore and letters with diacritical marks
+    (/[0-9_]/i.test(lastChar) ||
+      lastChar.toLowerCase() !== lastChar.toUpperCase())
+  );
+}
+
+function isCompoundStatementStart(str: string): boolean {
+  return /\s(BEGIN|CASE)\s$/i.test(str);
+}
+
+function isCompoundStatementEnd(str: string): boolean {
+  return /\sEND[;\s]$/.test(str);
+}
+
+const MIGRATIONS: D1Migration[] = buildMigrations(
+  Object.fromEntries(
+    Object.entries(MIGRATION_SQL).map(([path, sql]) => [
+      migrationName(path),
+      sql,
+    ]),
+  ),
+);
+
+/** Names of the discovered migration files, in apply order. Test-visible parity probe. */
+export const MIGRATION_NAMES: string[] = MIGRATIONS.map((m) => m.name);
 
 export async function ensureD1TestTables(
-  db: D1Database = (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB
+  db: D1Database = (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB,
 ): Promise<void> {
   await applyD1Migrations(db, MIGRATIONS);
 }

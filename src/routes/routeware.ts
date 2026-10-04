@@ -1,7 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { problemJsonResponse, problemType } from "../lib/problem";
+import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { forwardToUpstream } from "../lib/upstreamForward";
+import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import {
   routewareWebRwUrl,
   routewareWebRwUrlWithQueryAllowlist
@@ -22,6 +25,10 @@ export const routewareRoutes = createRouteModule();
 const loginPageRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/account/login-page",
+  tags: ["routeware"],
+  summary: "Routeware login page (sessionless probe)",
+  description:
+    "Fetches the fixed `LOGIN_URL` with no session — never reads or writes the shared Routeware session, sends no `Cookie` upstream, and strips upstream `Set-Cookie`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`; the client query string is never forwarded. See `docs/PROBLEMS.md` § login-page fetch.",
   responses: {
     200: {
       description:
@@ -29,18 +36,27 @@ const loginPageRoute = createRoute({
       content: {
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 
 routewareRoutes.openapi(loginPageRoute, async (c) => {
   const upstreamUrl = new URL(c.env.LOGIN_URL);
-  return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer);
+  // Sessionless probe honors UPSTREAM_TIMEOUT_MS like every other interactive
+  // forward (TOG-8359) — the forwarder default alone would ignore the override.
+  return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer, {
+    timeoutMs: readUpstreamTimeoutMs(c.env)
+  });
 });
 
 const homeIndexRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/home/index",
+  tags: ["routeware"],
+  summary: "Routeware home index (sessioned passthrough)",
+  description:
+    "Forwards to WebRW `Home/Index` under the shared Routeware session (unlike the sessionless `login-page` probe). Upstream answers with whatever content type the SPA serves — HTML, JSON, or other.",
   responses: {
     200: {
       description:
@@ -49,7 +65,8 @@ const homeIndexRoute = createRoute({
         "application/json": { schema: z.unknown() },
         "text/html": { schema: z.string() }
       }
-    }
+    },
+    401: { description: "Unauthorized" }
   }
 });
 
@@ -74,7 +91,29 @@ const appSettingsGetRoute = createRoute({
   path: "/api/v1/routeware/data/app-settings-get",
   tags: ["data"],
   summary: "appSettingsGet",
-  responses: upstreamPassthrough200
+  description:
+    "Reads WebRW `Data/appSettingsGet` with **application/json** (the harvested body is `{}`). Routeware signals a failed read silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
+  request: {
+    body: {
+      description: "App-settings body (see example — the harvested body is empty)",
+      content: {
+        "application/json": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (forwarding must stay byte-identical).
+          schema: { type: "object" },
+          // Mirrors tools/api-discovery/examples/app-settings-get.post.example.json.
+          example: {}
+        }
+      }
+    }
+  },
+  responses: {
+    ...upstreamPassthrough200,
+    502: {
+      description:
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
@@ -83,7 +122,7 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Data/appSettingsGet"
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -91,6 +130,23 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
     c.var.bodyBuffer,
     establishSession
   );
+  // Same silent-failure shape as the save routes (CONVENTIONS.md §1): an
+  // app-settings read is always JSON, so HTML here means the read failed.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway", c.env),
+      title: "Bad Gateway",
+      status: 502,
+      detail:
+        "Upstream read failed: Routeware answered appSettingsGet with HTTP 200 but the body looks like an HTML error page (silent failure). The read did not succeed. See docs/PROBLEMS.md#bad-gateway.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });
 
 /**
@@ -110,14 +166,20 @@ const queryRequestIsCompleteRoute = createRoute({
   tags: ["reports"],
   summary: "QueryRequestIsComplete (allowlisted query params forwarded upstream)",
   description:
-    "Polls upstream `GET /Reports/QueryRequestIsComplete`. Only `requestID` (the one-time report request id) and `_` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in `docs/PROBLEMS.md` § query-param allowlist.",
+    "Polls upstream `GET /Reports/QueryRequestIsComplete`. Only `requestID` (the one-time report request id) and `_` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in `docs/PROBLEMS.md` § query-param allowlist. Routeware signals a failed poll silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
   request: {
     query: z.object({
       requestID: z.string().optional(),
       _: z.string().optional()
     })
   },
-  responses: upstreamPassthrough200
+  responses: {
+    ...upstreamPassthrough200,
+    502: {
+      description:
+        "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
+    }
+  }
 });
 
 routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
@@ -128,7 +190,7 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
     c.req.raw,
     QUERY_REQUEST_IS_COMPLETE_PARAMS
   );
-  return forwardWithSessionRetry(
+  const up = await forwardWithSessionRetry(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -136,4 +198,22 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
     c.var.bodyBuffer,
     establishSession
   );
+  // Same silent-failure shape as the save routes (CONVENTIONS.md §1): the
+  // poll answer is `true`/`false`/`1`/`0` or JSON, so HTML here means the
+  // session was lost or upstream errored.
+  const upText = await up.clone().text();
+  if (routewarePostLooksSuccessful(up.status, upText)) {
+    return up;
+  }
+  if (up.status >= 200 && up.status < 300) {
+    return problemJsonResponse({
+      type: problemType("bad-gateway", c.env),
+      title: "Bad Gateway",
+      status: 502,
+      detail:
+        "Upstream read failed: Routeware answered QueryRequestIsComplete with HTTP 200 but the body looks like an HTML error page (silent failure). The poll did not succeed. See docs/PROBLEMS.md#bad-gateway.",
+      instance: new URL(c.req.url).pathname
+    });
+  }
+  return up;
 });

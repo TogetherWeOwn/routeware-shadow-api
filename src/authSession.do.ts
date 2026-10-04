@@ -14,9 +14,14 @@ type SessionState = {
 /**
  * Auto-expire a held lock after this long so a refresh that crashed without
  * unlocking cannot wedge authentication forever. Must exceed a worst-case
- * browser login.
+ * browser login (~47s: two 15s selector waits + 15s navigation + 2s settle
+ * in `browserAuth.ts`).
+ *
+ * Exported as the single source of truth for the timeout chain (TOG-6527):
+ * `WAIT_TIMEOUT_MS` in `sessionRefreshLock.ts` is derived from it, so the
+ * waiter budget can never drift past the lock TTL again.
  */
-const LOCK_TTL_MS = 120_000;
+export const LOCK_TTL_MS = 120_000;
 
 type StoredSession = { cookieHeader: string; expiresAtMs: number };
 

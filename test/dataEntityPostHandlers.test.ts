@@ -68,7 +68,10 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _s: unknown,
     _r: unknown,
     buf: ArrayBuffer | null
-  ) => prepared(buf)
+  ) => prepared(buf),
+  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // path; this double carries no cache, so the evict is a no-op.
+  evictAntiForgeryTokenCacheForBody: () => false
 }));
 
 vi.mock("../src/lib/addressContainerSaveForm", () => ({
@@ -108,6 +111,11 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
   return {
     ...actual,
     invalidateCustomerGraph: async (p: Graph) => {
+      calls.graph.push(p);
+    },
+    // TOG-6534: handlers now call the retry wrapper; track it on the same
+    // `calls.graph` ledger so success-path assertions are unchanged.
+    invalidateCustomerGraphWithRetry: async (p: Graph) => {
       calls.graph.push(p);
     },
     invalidateDataEntity: async (kind: string, id: number) => {
@@ -175,12 +183,20 @@ function postCtx(buf: ArrayBuffer | null, db: D1Database = fallbackDb(null)): Ct
   } as Ctx;
 }
 
+type LocalSyncBody =
+  | { done: false; code: string }
+  | { done: true; customerId: number; addressIds: number[]; containerIds: number[] };
+
 type PostBody = {
   ok: boolean;
   routewareStatus: number;
-  upstream: unknown;
-  posted: Record<string, string>;
-  localSync?: { done: boolean; reason?: string; customerId?: number };
+  customerId?: number | null;
+  pickupAddressId?: number | null;
+  containerId?: number | null;
+  upstreamBytes?: number;
+  upstream?: unknown;
+  posted?: Record<string, string>;
+  localSync?: LocalSyncBody;
 };
 
 /**
@@ -213,8 +229,10 @@ afterEach(() => {
 });
 
 describe("POST handlers when the local D1 sync throws after a successful upstream write", () => {
-  it("keeps the upstream 200 and reports localSync.done=false with the reason", async () => {
+  it("keeps the upstream 200 and reports localSync.done=false with a fixed code", async () => {
     // Arrange — the save reached Routeware; only the shadow-copy sync failed.
+    // The D1 error text must not reach the client (TOG-6535): the handler
+    // maps it to a fixed `code` and logs the original server-side.
     behavior.syncError = "D1_ERROR: no such table";
 
     // Act
@@ -224,7 +242,8 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
     expect(res.status).toBe(200);
     const body = (await res.json()) as PostBody;
     expect(body.ok).toBe(true);
-    expect(body.localSync).toEqual({ done: false, reason: "D1_ERROR: no such table" });
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(JSON.stringify(body)).not.toContain("D1_ERROR");
   });
 
   it("falls back to invalidating the single customer instead of the whole graph", async () => {
@@ -316,8 +335,9 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
 });
 
 describe("handlePostDataCustomer", () => {
-  it("returns the full response envelope and invalidates the customer graph on success", async () => {
-    // Arrange
+  it("returns ids + sync outcome only and invalidates the customer graph on success", async () => {
+    // Arrange — TOG-6535: the envelope must carry no `posted` PII map and no
+    // raw upstream body, only resolved ids and a byte count of the upstream.
     behavior.upstreamBody = '{"success":true}';
     behavior.syncResult = { addressIds: [10, 11], containerIds: [100] };
 
@@ -333,11 +353,42 @@ describe("handlePostDataCustomer", () => {
     expect(body).toEqual({
       ok: true,
       routewareStatus: 200,
-      upstream: { success: true },
-      posted: { CustomerID: "5", CompanyName: "Acme" },
+      customerId: 5,
+      upstreamBytes: behavior.upstreamBody.length,
       localSync: { done: true, customerId: 5, addressIds: [10, 11], containerIds: [100] }
     });
+    expect("posted" in body).toBe(false);
+    expect("upstream" in body).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("Acme");
+    expect(JSON.stringify(body)).not.toContain("success");
     expect(calls.graph).toEqual([{ customerId: 5, addressIds: [10, 11], containerIds: [100] }]);
+  });
+
+  it("never echoes PII-shaped upstream HTML or submitted fields on failure", async () => {
+    // Arrange — an upstream 503 carrying PII-shaped HTML must survive only as
+    // a byte count; the client sees the status, not the body.
+    behavior.upstreamStatus = 503;
+    behavior.upstreamBody =
+      '<html><body>Error — customer "Jane Example" phone 555-0199</body></html>';
+
+    // Act
+    const res = await handlePostDataCustomer(
+      postCtx(formBody({ CustomerID: "5", CompanyName: "Acme" }))
+    );
+
+    // Assert
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(false);
+    expect(body.routewareStatus).toBe(503);
+    expect("posted" in body).toBe(false);
+    expect("upstream" in body).toBe(false);
+    expect(typeof body.upstreamBytes).toBe("number");
+    const raw = JSON.stringify(body);
+    expect(raw).not.toContain("Acme");
+    expect(raw).not.toContain("Jane Example");
+    expect(raw).not.toContain("555-0199");
+    expect(body.localSync).toEqual({ done: false, code: "not_attempted" });
   });
 
   it("posts to the SaveCustomerLongForm upstream path", async () => {
@@ -373,11 +424,15 @@ describe("handlePostDataCustomer", () => {
     // Assert
     expect(calls.synced).toEqual([]);
     const body = (await res.json()) as PostBody;
-    expect(body.localSync).toEqual({
-      done: false,
-      reason: "could not determine CustomerID from response"
-    });
-    expect(body.upstream).toBe("Saved.");
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(body.customerId).toBeNull();
+    expect(body.upstreamBytes).toBe(behavior.upstreamBody.length);
+    expect("posted" in body).toBe(false);
+    expect("upstream" in body).toBe(false);
+    expect(JSON.stringify(body)).not.toContain("Saved.");
+    // TOG-6533: the form carries no usable posted id, so there is nothing to
+    // invalidate — but the branch must run without throwing.
+    expect(calls.entity).toEqual([]);
   });
 
   it("mirrors an upstream failure status and never attempts a sync", async () => {
@@ -393,7 +448,8 @@ describe("handlePostDataCustomer", () => {
     const body = (await res.json()) as PostBody;
     expect(body.ok).toBe(false);
     expect(body.routewareStatus).toBe(503);
-    expect(body.localSync).toEqual({ done: false, reason: "not attempted" });
+    expect(body.localSync).toEqual({ done: false, code: "not_attempted" });
+    expect(JSON.stringify(body)).not.toContain("upstream down");
     expect(calls.synced).toEqual([]);
     expect(calls.entity).toEqual([]);
   });
@@ -411,6 +467,16 @@ describe("handlePostDataAddress", () => {
 
     // Assert
     expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body).toMatchObject({
+      ok: true,
+      routewareStatus: 200,
+      customerId: 5,
+      pickupAddressId: 10,
+      localSync: { done: true, customerId: 5 }
+    });
+    expect("posted" in body).toBe(false);
+    expect("upstream" in body).toBe(false);
     expect(calls.synced).toEqual([5]);
     expect(calls.graph).toEqual([{ customerId: 5, addressIds: [10], containerIds: [100] }]);
     expect(calls.forwarded).toEqual([
@@ -424,8 +490,35 @@ describe("handlePostDataAddress", () => {
 
     // Assert — an address save with no owner is still forwarded and still 200.
     expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
     expect(calls.synced).toEqual([]);
     expect(calls.graph).toEqual([]);
+  });
+
+  it("invalidates the posted address id when the write succeeds with no usable customer id", async () => {
+    // Arrange — TOG-6533: the upstream save succeeded but no graph sync is
+    // possible, so the pre-edit cached address bundle must still be dropped.
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.graph).toEqual([]);
+    expect(calls.entity).toEqual([{ kind: "address", id: 10 }]);
+  });
+
+  it("invalidates nothing when the unresolvable address write posts no usable ids", async () => {
+    // Arrange — an address save with neither CustomerID nor PickupAddressID
+    // still succeeds upstream; there is simply no cache key to drop.
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ Notes: "x" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.entity).toEqual([]);
   });
 });
 
@@ -439,6 +532,15 @@ describe("handlePostDataContainer", () => {
 
     // Assert
     expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body).toMatchObject({
+      ok: true,
+      customerId: 5,
+      pickupAddressId: 10,
+      localSync: { done: true, customerId: 5 }
+    });
+    expect("posted" in body).toBe(false);
+    expect("upstream" in body).toBe(false);
     expect(calls.synced).toEqual([5]);
     expect(calls.graph).toEqual([{ customerId: 5, addressIds: [10], containerIds: [100] }]);
   });
@@ -452,8 +554,45 @@ describe("handlePostDataContainer", () => {
 
     // Assert
     expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.customerId).toBeNull();
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
     expect(calls.synced).toEqual([]);
     expect(calls.graph).toEqual([]);
+  });
+
+  it("invalidates the posted address and container ids when the write succeeds with no resolvable customer", async () => {
+    // Arrange — TOG-6533: the upstream save succeeded but neither the form
+    // nor the address-snapshot fallback yields a customer, so the pre-edit
+    // cached bundles must still be dropped.
+    const db = fallbackDb({ pickup_address_id: 99, customer_id: 5 });
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ PickupAddressID: "10", ContainerID: "100" }), db)
+    );
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.graph).toEqual([]);
+    expect(calls.entity).toEqual([
+      { kind: "address", id: 10 },
+      { kind: "container", id: 100 }
+    ]);
+  });
+
+  it("invalidates nothing when the unresolvable container write posts no usable ids", async () => {
+    // Arrange
+    const db = fallbackDb(null);
+
+    // Act
+    const res = await handlePostDataContainer(postCtx(formBody({ Notes: "x" }), db));
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls.synced).toEqual([]);
+    expect(calls.entity).toEqual([]);
   });
 
   it("prefers the posted customer id over the fallback lookup", async () => {
@@ -488,7 +627,7 @@ describe("POST handler request-validation branches", () => {
       // Assert
       expect(res.status).toBe(400);
       const body = (await res.json()) as { title: string };
-      expect(body.title).toBe("Empty body");
+      expect(body.title).toBe("Bad Request");
       expect(calls.forwarded).toEqual([]);
     });
 
@@ -515,8 +654,8 @@ describe("POST handler request-validation branches", () => {
       // Assert
       expect(res.status).toBe(502);
       const body = (await res.json()) as { title: string; detail: string };
-      expect(body.title).toBe("Anti-forgery preparation failed");
-      expect(body.detail).toBe("token fetch failed");
+      expect(body.title).toBe("Bad Gateway");
+      expect(body.detail).toBe("token fetch failed See docs/PROBLEMS.md#bad-gateway.");
       expect(calls.forwarded).toEqual([]);
     });
   }

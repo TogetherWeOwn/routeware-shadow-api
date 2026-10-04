@@ -3,13 +3,33 @@ import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
 } from "../lib/d1SnapshotSync";
+// Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
+// mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
+// facade import throws at module scope there. The deep module is never mocked.
+import {
+  InvalidSnapshotCsvError,
+  SNAPSHOT_IMPORT_MAX_BYTES,
+  isSnapshotTooLarge
+} from "../lib/snapshot/streamSync";
+import {
+  ADDRESS_SNAPSHOT_EXPORT,
+  snapshotCsvResponse
+} from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  dryRunQuery,
+  foreignKeyProblem,
+  isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse
+  snapshotListResponse,
+  parsePositiveIdParam
 } from "./shared";
+import {
+  mapSnapshotImportError,
+  rejectOversizedSnapshotImport
+} from "./snapshotImport";
 
 /** D1 address snapshot: reads plus the CSV sync/import writers. */
 export const addressSnapshotRoutes = createRouteModule();
@@ -20,7 +40,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
@@ -28,13 +48,22 @@ const addressSnapshotListRoute = createRoute({
       q: z.string().optional().describe("Address line substring (case-insensitive)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      offset: z.coerce.number().int().min(0).default(0),
+      cursor: z.coerce
+        .number()
+        .int()
+        .optional()
+        .describe("Last pickup_address_id from the previous page's nextCursor; takes precedence over offset")
     })
   },
   responses: {
     200: {
       description: "Rows and total",
       content: { "application/json": { schema: snapshotListResponse } }
+    },
+    400: {
+      description:
+        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -62,21 +91,65 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.enabled === "false") {
     where.push("enabled = 0");
   }
+  if (p.cursor !== undefined) {
+    where.push("pickup_address_id > ?");
+    binds.push(p.cursor);
+  }
   const whereSql = where.join(" AND ");
   const totalRow = await db
     .prepare(`SELECT COUNT(*) as n FROM address_snapshot WHERE ${whereSql}`)
     .bind(...binds)
     .first<{ n: number }>();
   const total = totalRow?.n ?? 0;
+  const pageSql =
+    p.cursor !== undefined
+      ? "ORDER BY pickup_address_id LIMIT ?"
+      : "ORDER BY pickup_address_id LIMIT ? OFFSET ?";
+  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
               extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-       FROM address_snapshot WHERE ${whereSql} ORDER BY pickup_address_id LIMIT ? OFFSET ?`
+       FROM address_snapshot WHERE ${whereSql} ${pageSql}`
     )
-    .bind(...binds, p.limit, p.offset)
+    .bind(...binds, ...pageBinds)
     .all();
-  return c.json({ rows: results ?? [], total });
+  const rows = results ?? [];
+  const nextCursor =
+    rows.length === p.limit
+      ? Number((rows[rows.length - 1] as Record<string, unknown>).pickup_address_id)
+      : null;
+  return c.json({ rows, total, nextCursor });
+});
+
+const addressSnapshotExportRoute = createRoute({
+  method: "get",
+  path: "/api/v1/address-snapshot/export",
+  tags: ["address-snapshot"],
+  summary: "Download address snapshot as CSV",
+  description:
+    "Streams every `address_snapshot` row as CSV (`Content-Disposition: attachment`, filename `address-snapshot.csv`) in `pickup_address_id` order. Reads in keyset pages so a full-table export never buffers the table in memory. Emits a content-hash `ETag`; replay it as `If-None-Match` for a `304` with an empty body. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`.",
+  responses: {
+    200: {
+      description: "CSV download (header line plus one line per row)",
+      content: { "text/csv": { schema: z.string() } }
+    },
+    304: { description: "Not modified (If-None-Match carries the current ETag)" },
+    401: { description: "Unauthorized" }
+  }
+});
+
+// Registered BEFORE the by-id route below: Hono matches in registration
+// order, so a param route registered first would swallow `/export` as an id.
+// (Pinned by `test/snapshotCsvExport.test.ts`.)
+addressSnapshotRoutes.openapi(addressSnapshotExportRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  return snapshotCsvResponse(
+    c.env.CUSTOMER_DB,
+    ADDRESS_SNAPSHOT_EXPORT,
+    c.req.header("if-none-match")
+  );
 });
 
 const addressSnapshotByIdRoute = createRoute({
@@ -84,6 +157,8 @@ const addressSnapshotByIdRoute = createRoute({
   path: "/api/v1/address-snapshot/{pickupAddressId}",
   tags: ["address-snapshot"],
   summary: "Get one address snapshot row",
+  description:
+    "Reads one row from the daily snapshot DB by `pickupAddressId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ pickupAddressId: z.coerce.number().int() })
   },
@@ -102,13 +177,15 @@ const addressSnapshotByIdRoute = createRoute({
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
-  const id = Number(c.req.param("pickupAddressId"));
-  if (!Number.isFinite(id)) {
+  const id = parsePositiveIdParam(c.req.param("pickupAddressId"));
+  if (id === null) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
+      type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
-      detail: "pickupAddressId must be an integer"
+      detail:
+        "pickupAddressId must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+      instance: `${new URL(c.req.url).pathname}#pickupAddressId=${c.req.param("pickupAddressId")}`
     });
   }
   const row = await c.env.CUSTOMER_DB.prepare(
@@ -120,10 +197,11 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
     .first<Record<string, unknown>>();
   if (!row) {
     return problemJsonResponse({
-      type: problemType("not-found"),
+      type: problemType("not-found", c.env),
       title: "Not Found",
       status: 404,
-      detail: `No address row for pickup_address_id=${id}`
+      detail: `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`,
+      instance: `${new URL(c.req.url).pathname}#pickup_address_id=${id}`
     });
   }
   return c.json(row, 200);
@@ -135,7 +213,10 @@ const addressSnapshotSyncRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "Fetch address report CSV and upsert D1",
   description:
-    "Same bearer as `customer-snapshot` sync. Requires `ADDRESS_REPORT_EXPORT_PATH` or `ADDRESS_REPORT_QUERY_ID`. Customers should exist in D1 (run customer import/sync first) so `customer_id` foreign keys are satisfied.",
+    "Same bearer as `customer-snapshot` sync. Requires `ADDRESS_REPORT_EXPORT_PATH` or `ADDRESS_REPORT_QUERY_ID`. Customers should exist in D1 (run customer import/sync first) so `customer_id` foreign keys are satisfied. Pass `?dryRun=true` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
+  request: {
+    query: dryRunQuery
+  },
   responses: {
     200: {
       description: "Result",
@@ -151,28 +232,40 @@ const addressSnapshotSyncRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
-    503: { description: "Not configured" }
+    503: { description: "Service Unavailable" }
   }
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
-  const denied = requireSnapshotAuth(c, "Bearer token required.");
+  const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const misconfigured = requireSnapshotSecret(c.env, "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets.");
+  const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
-      type: problemType("misconfigured"),
-      title: "Not configured",
+      type: problemType("misconfigured", c.env),
+      title: "Service Unavailable",
       status: 503,
-      detail: "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md)."
+      detail:
+        "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+      instance: new URL(c.req.url).pathname
     });
   }
-  const r = await runAddressSnapshotSync(c.env);
-  if (!r) {
-    return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
+  try {
+    // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+    // the would-be counts while writing nothing (no D1, no R2).
+    const r = await runAddressSnapshotSync(c.env, {
+      dryRun: isDryRunRequested(c.req.valid("query"))
+    });
+    if (!r) {
+      return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
+    }
+    return c.json(r, 200);
+  } catch (e) {
+    const fk = foreignKeyProblem(e, c.env);
+    if (fk) return fk;
+    throw e;
   }
-  return c.json(r, 200);
 });
 
 const addressSnapshotImportRoute = createRoute({
@@ -180,7 +273,22 @@ const addressSnapshotImportRoute = createRoute({
   path: "/api/v1/address-snapshot/import",
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
-  description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys.",
+  description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  request: {
+    query: dryRunQuery,
+    body: {
+      description: "Routeware Address Details CSV (header + data rows — see example)",
+      content: {
+        "text/csv": {
+          // Plain SchemaObject, not a zod schema: docs-only, no runtime
+          // validator is installed (the handler streams the raw body).
+          schema: { type: "string" },
+          example:
+            "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
+        }
+      }
+    }
+  },
   responses: {
     200: {
       description: "Result",
@@ -190,22 +298,56 @@ const addressSnapshotImportRoute = createRoute({
         }
       }
     },
-    401: { description: "Unauthorized" }
+    401: { description: "Unauthorized" },
+    400: {
+      description:
+        "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
+    }
   }
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const oversized = rejectOversizedSnapshotImport(
+    { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
+    SNAPSHOT_IMPORT_MAX_BYTES,
+    c.env
+  );
+  if (oversized) return oversized;
   const body = c.req.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: problemType("bad-request"),
-      title: "Empty body",
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
       status: 400,
-      detail: "POST the CSV as raw body."
+      detail:
+        "POST the CSV as raw body. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.url).pathname
     });
   }
-  const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body);
-  return c.json(r, 200);
+  try {
+    // No positional batch size: the per-table default in `streamSync` is the
+    // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
+    // not forward extra args anyway.
+    const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
+      requireDataRows: true,
+      maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
+      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      dryRun: isDryRunRequested(c.req.valid("query"))
+    });
+    return c.json(r, 200);
+  } catch (e) {
+    const mapped = mapSnapshotImportError(
+      c.req.url,
+      e,
+      isSnapshotTooLarge,
+      (err) => err instanceof InvalidSnapshotCsvError,
+      c.env
+    );
+    if (mapped) return mapped;
+    const fk = foreignKeyProblem(e, c.env);
+    if (fk) return fk;
+    throw e;
+  }
 });

@@ -15,22 +15,24 @@ import { problemType } from "../src/lib/problem";
  * either, so sending the API token passes the outer gate and is then rejected
  * by the inner check — which is exactly the path these tests exercise.
  *
- * The `detail` strings are asserted verbatim. They are inconsistent between
- * routes today (some omit `detail` entirely); that is pre-existing, and pinning
- * it here is deliberate, so a later DRY pass cannot quietly change the wording
- * a client sees.
+ * The inner 401 body is canonical (TOG-7030): one detail naming the sync
+ * secret and the remedy doc, plus `instance` for the request path. Per-route
+ * wording drift was unified in `requireSnapshotAuth` itself.
  */
 
 const API_TOKEN = "test-api-token";
 const SYNC_SECRET = "test-sync-secret";
 
 const UNAUTHORIZED_TYPE = problemType("unauthorized");
+const INNER_DETAIL =
+  "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized.";
 
 type ProblemBody = {
   type: string;
   title: string;
   status: number;
   detail?: string;
+  instance?: string;
 };
 
 async function call(
@@ -45,45 +47,40 @@ async function call(
   return exports.default.fetch(`http://test.local${path}`, { method, headers });
 }
 
-/** Every route guarded by the narrower snapshot-secret check, with its exact 401 detail. */
-const GUARDED_ROUTES: Array<{ method: string; path: string; detail?: string }> = [
-  {
-    method: "POST",
-    path: "/api/v1/customer-snapshot/sync",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  {
-    method: "POST",
-    path: "/api/v1/customer-snapshot/import",
-    detail: "Bearer token mismatch or CUSTOMER_SNAPSHOT_SYNC_SECRET unset."
-  },
-  {
-    method: "POST",
-    path: "/api/v1/data-snapshot/sync",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  { method: "POST", path: "/api/v1/address-snapshot/sync", detail: "Bearer token required." },
+/**
+ * Probe a guarded route with a concrete path: entries keep router
+ * (Hono `:param`) syntax for the registration check, but literal parameters
+ * would 400 at param validation before reaching the handler.
+ */
+function probePath(path: string): string {
+  return path
+    .replace(/:customerId/, "1")
+    .replace(":table", "customer")
+    .replace(":date", "2026-09-27");
+}
+
+/** Every route guarded by the narrower snapshot-secret check. All 18 share the canonical inner 401 body. */
+const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
+  { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
+  { method: "POST", path: "/api/v1/customer-snapshot/sync" },
+  { method: "POST", path: "/api/v1/customer-snapshot/import" },
+  { method: "GET", path: "/api/v1/customer-snapshot/export" },
+  { method: "POST", path: "/api/v1/data-snapshot/sync" },
+  { method: "POST", path: "/api/v1/address-snapshot/sync" },
   { method: "POST", path: "/api/v1/address-snapshot/import" },
+  { method: "GET", path: "/api/v1/address-snapshot/export" },
   { method: "POST", path: "/api/v1/container-snapshot/sync" },
   { method: "POST", path: "/api/v1/container-snapshot/import" },
-  {
-    method: "GET",
-    path: "/api/v1/data/customer?id=1",
-    detail: "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
-  },
-  {
-    method: "GET",
-    path: "/api/v1/data/address?id=1",
-    detail: "Bearer required (same as snapshot sync secret)."
-  },
-  {
-    method: "GET",
-    path: "/api/v1/data/container?id=1",
-    detail: "Bearer required (same as snapshot sync secret)."
-  },
-  { method: "POST", path: "/api/v1/data/customer", detail: "Bearer required." },
+  { method: "GET", path: "/api/v1/container-snapshot/export" },
+  { method: "GET", path: "/api/v1/data/customer?id=1" },
+  { method: "GET", path: "/api/v1/data/address?id=1" },
+  { method: "GET", path: "/api/v1/data/container?id=1" },
+  { method: "POST", path: "/api/v1/data/customer" },
   { method: "POST", path: "/api/v1/data/address" },
-  { method: "POST", path: "/api/v1/data/container" }
+  { method: "POST", path: "/api/v1/data/container" },
+  // TOG-9202: R2 archive readback (sync secret only), probed with a concrete
+  // table/date by probePath just like the customer erasure route above.
+  { method: "GET", path: "/api/v1/snapshots/:table/:date" }
 ];
 
 describe("snapshot-secret auth gate", () => {
@@ -101,6 +98,15 @@ describe("snapshot-secret auth gate", () => {
     upstreamFetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      // TOG-6543: the query-id leg polls QueryRequestIsComplete before its
+      // download. The poll answers complete so the download attempt is what
+      // throws, preserving the "reached the sync body" proof below.
+      if (url.includes("/Reports/QueryRequestIsComplete")) {
+        return new Response("true", {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
       throw new Error(`Unexpected upstream fetch in test: ${url}`);
     }) as MockedFunction<typeof fetch>;
     globalThis.fetch = upstreamFetch;
@@ -124,22 +130,24 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(13);
+    expect(GUARDED_ROUTES).toHaveLength(18);
   });
 
   for (const route of GUARDED_ROUTES) {
     it(`rejects the API token on ${route.method} ${route.path} with problem+json 401`, async () => {
       // Arrange / Act — a valid app token that is NOT the sync secret.
-      const response = await call(route.method, route.path);
+      const response = await call(route.method, probePath(route.path));
 
-      // Assert
+      // Assert — the canonical inner 401: same detail on every route, plus
+      // the request path as instance.
       expect(response.status).toBe(401);
       expect(response.headers.get("content-type")).toContain("problem+json");
       const body = (await response.json()) as ProblemBody;
       expect(body.type).toBe(UNAUTHORIZED_TYPE);
       expect(body.title).toBe("Unauthorized");
       expect(body.status).toBe(401);
-      expect(body.detail).toBe(route.detail);
+      expect(body.detail).toBe(INNER_DETAIL);
+      expect(body.instance).toBe(probePath(route.path).split("?")[0]);
     });
   }
 
@@ -160,7 +168,7 @@ describe("snapshot-secret auth gate", () => {
 
     // Assert — the request reached the sync body instead of being turned away at
     // the gate. `[env.test.vars]` sets CONTAINER_REPORT_QUERY_ID, so the 503
-    // "not configured" short-circuit does not fire; the attempted upstream call
+    // short-circuit does not fire; the attempted upstream call
     // is what proves the inner check was cleared.
     //
     // The status is pinned to 500, not merely `not.toBe(401)`: the stub above makes
@@ -168,17 +176,19 @@ describe("snapshot-secret auth gate", () => {
     // handler. `not.toBe(401)` would also accept the **404** you get by deleting the
     // route outright, which must not read as a passing auth test.
     expect(response.status).toBe(500);
-    // Exactly one upstream call, and it is the report download — not "some fetch
-    // happened", which any future middleware would satisfy.
-    expect(upstreamFetch).toHaveBeenCalledTimes(1);
-    const [requested] = upstreamFetch.mock.calls[0];
-    const requestedUrl =
+    // Two upstream calls: the TOG-6543 completion poll (answered complete by
+    // the stub above), then the report download — which throws. Asserting both
+    // URLs, not "some fetch happened", which any future middleware would satisfy.
+    expect(upstreamFetch).toHaveBeenCalledTimes(2);
+    const requestedUrls = upstreamFetch.mock.calls.map(([requested]) =>
       typeof requested === "string"
         ? requested
         : requested instanceof URL
           ? requested.href
-          : requested.url;
-    expect(requestedUrl).toContain("/Reports/QueryExecuteDownload");
-    expect(requestedUrl).toContain("queryID=25");
+          : requested.url
+    );
+    expect(requestedUrls[0]).toContain("/Reports/QueryRequestIsComplete");
+    expect(requestedUrls[1]).toContain("/Reports/QueryExecuteDownload");
+    expect(requestedUrls[1]).toContain("queryID=25");
   });
 });

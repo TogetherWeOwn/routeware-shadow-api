@@ -52,6 +52,30 @@ describe("OpenAPI docs gate (TOG-5828)", () => {
     expect(docs.status).toBe(404);
   });
 
+  it("stamps hardening headers on the disabled-branch 404s (TOG-8368)", async () => {
+    for (const path of ["/openapi.json", "/docs"]) {
+      const res = await get(path, docsEnv("false"));
+      expect(res.status).toBe(404);
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("x-frame-options")).toBe("DENY");
+      expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    }
+  });
+
+  it("stamps hardening headers on the served spec and UI (TOG-8368)", async () => {
+    const spec = await get("/openapi.json", docsEnv("true"));
+    expect(spec.status).toBe(200);
+    expect(spec.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(spec.headers.get("x-frame-options")).toBe("DENY");
+    expect(spec.headers.get("referrer-policy")).toBe("no-referrer");
+
+    const ui = await get("/docs", docsEnv("true"));
+    expect(ui.status).toBe(200);
+    expect(ui.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(ui.headers.get("x-frame-options")).toBe("DENY");
+    expect(ui.headers.get("referrer-policy")).toBe("no-referrer");
+  });
+
   it("serves the spec and UI when explicitly enabled", async () => {
     const spec = await get("/openapi.json", docsEnv("true"));
     expect(spec.status).toBe(200);

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ConcurrentRefreshTimeoutError } from "../src/lib/sessionRefreshLock";
 
 const httpLoginCalls = { count: 0 };
 const browserLoginCalls = { count: 0 };
@@ -31,6 +32,7 @@ vi.mock("../src/lib/browserAuth", () => ({
 }));
 
 const { establishSession } = await import("../src/lib/establishSession");
+const { isConcurrentRefreshTimeout } = await import("../src/lib/sessionRefreshLock");
 
 /**
  * `establishSession` must serialize logins through the AuthSession refresh lock
@@ -186,13 +188,13 @@ describe("establishSession refresh-lock serialization", () => {
     }
   });
 
-  it("does not start a second login while a fresh lock is held by a stalled holder", async () => {
+  it("fails closed when a fresh lock is held by a stalled holder (TOG-6526)", async () => {
     // Arrange — a holder took the lock "now" and then stalled without
     // publishing a session (no /set, no /unlock). The lock stays fresh for
     // the whole wait, so the waiter must time out without logging in itself —
     // a duplicate login here is exactly the thundering-herd the lock exists
     // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
-    // deterministically (20s default timeout).
+    // deterministically (90s default timeout, TOG-6527).
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -203,17 +205,29 @@ describe("establishSession refresh-lock serialization", () => {
       };
       const stub = fakeStub(state);
 
-      // Act — waiter arrives, polls past its 20s timeout while the lock stays fresh
+      // Act — waiter arrives, polls past its 90s timeout while the lock stays fresh
       const pending = establishSession(
         envWith("http"),
         stub,
         "https://upstream/Account/Login"
       );
-      await vi.advanceTimersByTimeAsync(25_000);
-      await pending;
+      // Attach the settlement handler before advancing so the rejection is
+      // never unhandled under the workerd pool.
+      const settled = pending.then(
+        () => null,
+        (err: unknown) => err
+      );
+      await vi.advanceTimersByTimeAsync(95_000);
+      const failure = await settled;
 
-      // Assert — no second login ran; the waiter gave up waiting, it did not
-      // take over a lock that had not yet expired
+      // Assert — the waiter threw a PII-free timeout (never a silent return
+      // that would forward with the expired cookie); no second login ran and
+      // the unexpired lock was not taken over.
+      expect(isConcurrentRefreshTimeout(failure)).toBe(true);
+      expect((failure as ConcurrentRefreshTimeoutError).timeoutMs).toBe(90_000);
+      expect((failure as Error).message).toBe(
+        "Concurrent session refresh timed out after 90000ms"
+      );
       expect(httpLoginCalls.count).toBe(0);
       expect(setCalls.count).toBe(0);
       expect(state.refreshing).toBe(true);

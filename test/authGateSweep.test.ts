@@ -115,8 +115,11 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
     );
     expect(registered).toContain(`${PUBLIC_HEALTH.method} ${PUBLIC_HEALTH.path}`);
     // Pinned count: adding/removing a v1 route must update this sweep explicitly.
-    // 34 = prior 33 + GET /api/v1/readiness (TOG-5816 deep readiness probe).
-    expect(routes).toHaveLength(34);
+    // 40 = prior 34 + GET ...-snapshot/export x3 (TOG-8361 CSV download) +
+    // DELETE /api/v1/customer-snapshot/{customerId} (TOG-8876 erasure) +
+    // GET /api/v1/snapshots/:table/:date (TOG-9202 R2 archive readback) +
+    // GET /api/v1/customer-snapshot/changes (TOG-8877 changes feed).
+    expect(routes).toHaveLength(40);
   });
 
   it.each(gatedRoutes())("401 problem+json without a token: $method $path", async (route) => {
@@ -184,11 +187,14 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
     expect(res.status).toBe(200);
   });
 
-  it("CORS preflight stays 401 without consuming throttle budget", async () => {
+  it("CORS preflight answers 204 without consuming throttle budget", async () => {
+    // TOG-5809 answers OPTIONS with a 204 preflight before the bearer gate;
+    // it must not burn throttle budget doing so.
     const path = "/api/v1/routeware/home/index";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
       const res = await call("OPTIONS", path, { token: "wrong", ip: PREFLIGHT_IP });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
     }
     const gated = await call("GET", path, { token: "wrong", ip: PREFLIGHT_IP });
     expect(gated.status).toBe(401);

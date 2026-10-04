@@ -28,7 +28,9 @@ const behavior: {
   entry: Response | undefined;
   putError: string | null;
   deleteError: string | null;
-} = { entry: undefined, putError: null, deleteError: null };
+  /** TOG-6534: fail the next N deletes, then succeed — simulates a transient mid-graph throw. */
+  deleteFailTimes: number;
+} = { entry: undefined, putError: null, deleteError: null, deleteFailTimes: 0 };
 
 const fakeCache = {
   async match(request: Request): Promise<Response | undefined> {
@@ -42,6 +44,10 @@ const fakeCache = {
     cacheOps.puts.push({ url: request.url, body: await response.text() });
   },
   async delete(request: Request): Promise<boolean> {
+    if (behavior.deleteFailTimes > 0) {
+      behavior.deleteFailTimes -= 1;
+      throw new Error("transient cache failure");
+    }
     if (behavior.deleteError) {
       throw new Error(behavior.deleteError);
     }
@@ -55,15 +61,24 @@ const fakeCache = {
 vi.stubGlobal("caches", { default: fakeCache });
 
 const {
+  ENTITY_DATA_CACHE_MAX_AGE_SECONDS,
+  entityDataCacheControlValue,
   getCachedDataEntity,
+  getEntityDataCacheStats,
   invalidateCustomerGraph,
+  invalidateCustomerGraphWithRetry,
   invalidateDataEntity,
   putCachedDataEntity,
+  resetEntityDataCacheStats,
   sha256Etag
 } = await import("../src/lib/entityDataCache");
 
 const loggedWarnings: unknown[][] = [];
+const loggedLines: unknown[][] = [];
 const realConsoleWarn = console.warn;
+const realConsoleLog = console.log;
+const loggedErrors: unknown[][] = [];
+const realConsoleError = console.error;
 
 beforeEach(() => {
   cacheOps.matches = [];
@@ -72,14 +87,26 @@ beforeEach(() => {
   behavior.entry = undefined;
   behavior.putError = null;
   behavior.deleteError = null;
+  behavior.deleteFailTimes = 0;
+  resetEntityDataCacheStats();
   loggedWarnings.length = 0;
+  loggedLines.length = 0;
   console.warn = (...args: unknown[]) => {
     loggedWarnings.push(args);
+  };
+  console.log = (...args: unknown[]) => {
+    loggedLines.push(args);
+  };
+  loggedErrors.length = 0;
+  console.error = (...args: unknown[]) => {
+    loggedErrors.push(args);
   };
 });
 
 afterEach(() => {
   console.warn = realConsoleWarn;
+  console.log = realConsoleLog;
+  console.error = realConsoleError;
 });
 
 describe("cache key namespacing", () => {
@@ -265,6 +292,132 @@ describe("invalidateCustomerGraph", () => {
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/customer/5");
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/address/1249");
     expect(cacheOps.deletes).toContain("https://routeware-shadow-entity/v1/container/2299");
+  });
+});
+
+describe("TTL centralization (TOG-6294)", () => {
+  it("exposes the shared TTL and renders the Cache-Control value from it", () => {
+    // Arrange / Act / Assert — one constant feeds every 200/304 header, so a
+    // tuning change cannot miss a call site.
+    expect(ENTITY_DATA_CACHE_MAX_AGE_SECONDS).toBe(60);
+    expect(entityDataCacheControlValue()).toBe(
+      `private, max-age=${ENTITY_DATA_CACHE_MAX_AGE_SECONDS}`
+    );
+  });
+});
+
+describe("hit/miss observability (TOG-6294)", () => {
+  it("logs a count-only miss line and counts it per entity kind", async () => {
+    // Arrange / Act
+    await getCachedDataEntity("customer", 5);
+
+    // Assert
+    expect(loggedLines).toHaveLength(1);
+    expect(loggedLines[0][0]).toBe("entityDataCache customer miss hits=0 misses=1");
+    expect(getEntityDataCacheStats().customer).toEqual({ hits: 0, misses: 1 });
+  });
+
+  it("logs a count-only hit line and accumulates running totals", async () => {
+    // Arrange
+    behavior.entry = new Response('{"cached":true}');
+
+    // Act
+    await getCachedDataEntity("address", 10);
+    await getCachedDataEntity("address", 11);
+
+    // Assert
+    expect(loggedLines).toHaveLength(2);
+    expect(loggedLines[0][0]).toBe("entityDataCache address hit hits=1 misses=0");
+    expect(loggedLines[1][0]).toBe("entityDataCache address hit hits=2 misses=0");
+    expect(getEntityDataCacheStats().address).toEqual({ hits: 2, misses: 0 });
+  });
+
+  it("keeps counters separate per entity kind", async () => {
+    // Arrange
+    behavior.entry = new Response('{"cached":true}');
+
+    // Act
+    await getCachedDataEntity("customer", 5);
+    await getCachedDataEntity("container", 5);
+
+    // Assert — customer 5 and container 5 share an id but not a counter.
+    expect(getEntityDataCacheStats().customer).toEqual({ hits: 1, misses: 0 });
+    expect(getEntityDataCacheStats().container).toEqual({ hits: 1, misses: 0 });
+    expect(getEntityDataCacheStats().address).toEqual({ hits: 0, misses: 0 });
+  });
+
+  it("never logs ids or bodies in the hit/miss line", async () => {
+    // Arrange
+    behavior.entry = new Response('{"company_name":"Acme"}');
+
+    // Act
+    await getCachedDataEntity("customer", 12345);
+
+    // Assert — the id 12345 and the PII body appear nowhere in the log.
+    const line = String(loggedLines[0][0]);
+    expect(line).not.toContain("12345");
+    expect(line).not.toContain("Acme");
+  });
+});
+
+describe("invalidateCustomerGraphWithRetry (TOG-6534)", () => {
+  it("invalidates the remaining ids on the retry path after a mid-graph throw", async () => {
+    // Arrange — the first whole-graph attempt throws mid-graph (the two
+    // deletes that landed stay landed; deletes are idempotent), the retry
+    // then completes the graph.
+    behavior.deleteFailTimes = 2;
+
+    // Act
+    await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: [100]
+    });
+
+    // Assert — every id invalidated despite the transient mid-graph throw.
+    expect(new Set(cacheOps.deletes)).toEqual(
+      new Set([
+        "https://routeware-shadow-entity/v1/customer/5",
+        "https://routeware-shadow-entity/v1/address/10",
+        "https://routeware-shadow-entity/v1/container/100"
+      ])
+    );
+    expect(loggedErrors).toHaveLength(1);
+    expect(String(loggedErrors[0][0])).toContain("invalidateCustomerGraph attempt 1/2 failed");
+  });
+
+  it("succeeds without retry noise when the first attempt lands clean", async () => {
+    // Arrange / Act
+    await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: []
+    });
+
+    // Assert
+    expect(cacheOps.deletes).toEqual([
+      "https://routeware-shadow-entity/v1/customer/5",
+      "https://routeware-shadow-entity/v1/address/10"
+    ]);
+    expect(loggedErrors).toEqual([]);
+  });
+
+  it("propagates the last error when every attempt fails", async () => {
+    // Arrange — persistent outage: both attempts throw.
+    behavior.deleteError = "cache unavailable";
+
+    // Act
+    const error = (await invalidateCustomerGraphWithRetry({
+      customerId: 5,
+      addressIds: [10],
+      containerIds: []
+    }).catch((e: unknown) => e)) as Error;
+
+    // Assert — same loud contract as invalidateCustomerGraph: the caller
+    // still must not report success.
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toBe("cache unavailable");
+    expect(loggedErrors).toHaveLength(2);
   });
 });
 

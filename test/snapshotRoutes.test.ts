@@ -175,8 +175,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CUSTOMER_REPORT_EXPORT_PATH",
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md.",
-    notFoundDetail: (id) => `No snapshot row for customer_id=${id}`
+      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "address",
@@ -191,8 +191,8 @@ const SPECS: Spec[] = [
     exportPathVar: "ADDRESS_REPORT_EXPORT_PATH",
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No address row for pickup_address_id=${id}`
+      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "container",
@@ -208,8 +208,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CONTAINER_REPORT_EXPORT_PATH",
     queryIdVar: "CONTAINER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No container row for container_id=${id}`
+      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`
   }
 ];
 
@@ -236,7 +236,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       // Assert — WHERE degenerates to the always-true seed, and the only binds
       // are the default limit/offset.
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2 });
+      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2, nextCursor: null });
       expect(calls).toHaveLength(2);
       expect(calls[0].sql).toContain("WHERE 1 = 1");
       expect(calls[0].binds).toEqual([]);
@@ -359,6 +359,47 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ? OFFSET ?`);
     });
 
+    it("seeks past cursor with LIMIT only, dropping OFFSET, when cursor is supplied", async () => {
+      // Arrange
+      const { db, calls } = readDb({ total: 0, rows: [] });
+
+      // Act — offset is present but must be ignored once cursor takes over.
+      await call(spec.routes, `${spec.base}?cursor=42&limit=5&offset=10`, makeEnv(db));
+
+      // Assert — WHERE gains the seek predicate on both count and select, and
+      // pagination drops to a single LIMIT bind (no OFFSET placeholder at all).
+      const seekFilter = `${spec.prefix}${spec.idColumn} > ?`;
+      expect(calls[0].sql).toContain(seekFilter);
+      expect(calls[0].binds).toEqual([42]);
+      expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ?`);
+      expect(calls[1].sql).not.toContain("OFFSET");
+      expect(calls[1].binds).toEqual([42, 5]);
+    });
+
+    it("returns the last row's id as nextCursor when the page is full", async () => {
+      // Arrange
+      const rows = [{ [spec.idColumn]: 10 }, { [spec.idColumn]: 20 }];
+      const { db } = readDb({ total: 2, rows });
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=2`, makeEnv(db));
+
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 2, nextCursor: 20 });
+    });
+
+    it("returns nextCursor null when the page is short of the limit", async () => {
+      // Arrange — fewer rows than the limit means this is the last page.
+      const rows = [{ [spec.idColumn]: 10 }];
+      const { db } = readDb({ total: 1, rows });
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=5`, makeEnv(db));
+
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 1, nextCursor: null });
+    });
+
     it("reports total 0 when the count query returns no row", async () => {
       // Arrange
       const { db } = readDb({ total: null, rows: [] });
@@ -367,7 +408,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("returns an empty rows array when the select yields no results field", async () => {
@@ -379,7 +420,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const res = await call(spec.routes, spec.base, makeEnv(db));
 
       // Assert
-      expect(await res.json()).toEqual({ rows: [], total: 0 });
+      expect(await res.json()).toEqual({ rows: [], total: 0, nextCursor: null });
     });
 
     it("rejects a limit above the 500 ceiling", async () => {
@@ -473,6 +514,24 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
     });
   });
 
+  describe("GET by id guard", () => {
+    it.each(["-5", "0", "1e3", "007", "abc", "4.5"])(
+      "answers %s with the documented 400 problem+json before any query runs",
+      async (id) => {
+        // Arrange
+        const { db, calls } = readDb({ row: { x: 1 } });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}/${id}`, makeEnv(db));
+
+        // Assert
+        expect(res.status).toBe(400);
+        expect(res.headers.get("content-type")).toContain("problem+json");
+        expect(calls).toHaveLength(0);
+      }
+    );
+  });
+
   describe("POST sync", () => {
     it("returns 503 when neither the export path nor the query id is configured", async () => {
       // Arrange
@@ -486,7 +545,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.headers.get("content-type")).toContain("problem+json");
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}misconfigured`);
-      expect(body.title).toBe("Not configured");
+      expect(body.title).toBe("Service Unavailable");
       expect(body.detail).toBe(spec.notConfiguredDetail);
       expect(syncState.runCalls).toHaveLength(0);
     });
@@ -587,7 +646,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
-      expect(body.title).toBe("Empty body");
+      expect(body.title).toBe("Bad Request");
       expect(syncState.streamCalls).toHaveLength(0);
     });
   });
