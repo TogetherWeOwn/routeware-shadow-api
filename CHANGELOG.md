@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-6518: buffered `/api/v1/*` request bodies over 1 MiB are rejected with
+  413 `payload-too-large` before the isolate holds them (truthful
+  `Content-Length` fails fast, otherwise a bounded reader stops at the cap),
+  and the `...-snapshot/import` routes accept a trailing slash (`/import/`)
+  on the same streaming handler and limits. Import case variants stream past
+  the middleware instead of buffering a full export to a 404.
 - TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
   lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
   jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`

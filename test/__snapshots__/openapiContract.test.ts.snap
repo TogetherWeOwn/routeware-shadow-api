@@ -670,6 +670,64 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/address-snapshot/import/": {
+      "post": {
+        "description": "Trailing-slash alias of \`POST /api/v1/address-snapshot/import\`: same raw-CSV streaming handler, same bearer secret, same size limits.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import address CSV body into D1 (trailing-slash alias)",
+        "tags": [
+          "address-snapshot",
+        ],
+      },
+    },
     "/api/v1/address-snapshot/sync": {
       "post": {
         "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
@@ -984,6 +1042,64 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "summary": "Import container CSV into D1",
+        "tags": [
+          "container-snapshot",
+        ],
+      },
+    },
+    "/api/v1/container-snapshot/import/": {
+      "post": {
+        "description": "Trailing-slash alias of \`POST /api/v1/container-snapshot/import\`: same raw-CSV streaming handler, same bearer secret, same size limits.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import container CSV into D1 (trailing-slash alias)",
         "tags": [
           "container-snapshot",
         ],
@@ -1347,6 +1463,64 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
         },
         "summary": "Import CSV body into D1",
+        "tags": [
+          "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/customer-snapshot/import/": {
+      "post": {
+        "description": "Trailing-slash alias of \`POST /api/v1/customer-snapshot/import\`: same raw-CSV streaming handler, same bearer secret, same size limits.",
+        "parameters": [
+          {
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                    },
+                    "upserted": {
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "upserted",
+                    "rowCount",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Import result",
+          },
+          "400": {
+            "description": "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV file as the raw request body.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Import CSV body into D1 (trailing-slash alias)",
         "tags": [
           "customer-snapshot",
         ],

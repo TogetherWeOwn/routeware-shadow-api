@@ -54,6 +54,9 @@ function isPrivilegedRoute(method: string, path: string): boolean {
   return (
     path.endsWith("/sync") ||
     path.endsWith("/import") ||
+    // Trailing-slash import aliases share the canonical streaming handler and
+    // its inner gate, so they are privileged too.
+    path.endsWith("/import/") ||
     path.endsWith("/export") ||
     path.startsWith("/api/v1/data/") ||
     // TOG-9202: R2 archive readback carries the same sync-secret inner gate.
@@ -80,10 +83,13 @@ const PINNED_PRIVILEGED: string[] = [
   // date.
   "GET /api/v1/snapshots/:table/:date",
   "POST /api/v1/address-snapshot/import",
+  "POST /api/v1/address-snapshot/import/",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",
+  "POST /api/v1/container-snapshot/import/",
   "POST /api/v1/container-snapshot/sync",
   "POST /api/v1/customer-snapshot/import",
+  "POST /api/v1/customer-snapshot/import/",
   "POST /api/v1/customer-snapshot/sync",
   "POST /api/v1/data-snapshot/sync",
   "POST /api/v1/data/address",
@@ -153,7 +159,7 @@ describe("auth-gate re-sweep on newest routes (TOG-8386)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("privileged inventory from the live router equals the pinned 17", () => {
+  it("privileged inventory from the live router equals the pinned 20", () => {
     expect(livePrivilegedRoutes()).toEqual(PINNED_PRIVILEGED);
   });
 

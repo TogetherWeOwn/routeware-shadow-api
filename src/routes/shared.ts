@@ -80,7 +80,7 @@ export function snapshotSyncAuthorized(c: SnapshotAuthContext): boolean {
   return bearerMatches(c.req, c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET);
 }
 
-type SnapshotAuthContext = {
+export type SnapshotAuthContext = {
   env: Env;
   req: { header: (name: string) => string | undefined; url: string };
 };

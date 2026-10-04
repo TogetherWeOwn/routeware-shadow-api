@@ -2,6 +2,12 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
+import {
+  bufferedBodyTooLargeProblem,
+  isSnapshotImportPath,
+  MAX_BUFFERED_BODY_BYTES,
+  readBoundedBody
+} from "./lib/bodyLimit";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
@@ -153,20 +159,37 @@ app.use("/api/v1/*", async (c, next) => {
 app.use("/api/v1/*", async (c, next) => {
   const raw = c.req.raw;
   const path = new URL(raw.url).pathname;
-  const snapshotImportStream =
-    path.endsWith("/customer-snapshot/import") ||
-    path.endsWith("/address-snapshot/import") ||
-    path.endsWith("/container-snapshot/import");
-  const bodyBuffer =
-    raw.method === "GET" || raw.method === "HEAD" || snapshotImportStream
-      ? null
-      : await raw.arrayBuffer();
-  c.set("bodyBuffer", bodyBuffer);
+  // Snapshot CSV imports stream `raw.body` in their handlers (under their own
+  // 50 MB byte cap), so the middleware must not buffer them — including
+  // trailing-slash and case variants, which would otherwise hold a full export
+  // in the isolate only to 404 afterwards.
+  if (raw.method === "GET" || raw.method === "HEAD" || isSnapshotImportPath(path)) {
+    c.set("bodyBuffer", null);
+  } else {
+    // A truthful Content-Length fails fast without reading the stream; a
+    // missing, non-numeric or understated one falls through to the bounded
+    // reader, which stops at the cap without ever holding the full body.
+    const declared = raw.headers.get("content-length");
+    if (declared !== null) {
+      const n = Number(declared);
+      if (Number.isFinite(n) && n > MAX_BUFFERED_BODY_BYTES) {
+        return bufferedBodyTooLargeProblem(n, path, c.env);
+      }
+    }
+    const bounded = await readBoundedBody(raw, MAX_BUFFERED_BODY_BYTES);
+    if (!bounded.ok) {
+      return bufferedBodyTooLargeProblem(bounded.receivedBytes, path, c.env);
+    }
+    c.set("bodyBuffer", bounded.buffer);
+  }
   c.set(
     "sessionStub",
     c.env.AUTH_SESSION.get(c.env.AUTH_SESSION.idFromName("primary"))
   );
-  await next();
+  // `return next()` (not bare `await`) so every path returns a value, as
+  // `noImplicitReturns` requires alongside the 413 early-returns above.
+  // Runtime behaviour is unchanged: Hono awaits the handler either way.
+  return next();
 });
 
 // Route modules. Each is an OpenAPIHono, so `route()` merges its

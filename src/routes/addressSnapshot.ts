@@ -24,7 +24,8 @@ import {
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
-  parsePositiveIdParam
+  parsePositiveIdParam,
+  type SnapshotAuthContext
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -306,48 +307,115 @@ const addressSnapshotImportRoute = createRoute({
   }
 });
 
-addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
-  const denied = requireSnapshotAuth(c);
+/**
+ * Shared address-import core: the canonical `/import` route and its
+ * trailing-slash alias run the same streaming implementation. Plain-data
+ * arguments (never the framework context type) so both `createRoute`
+ * registrations — which infer different context types — can share it. Returns
+ * a `Response` for rejections, or the sync result for the caller to `c.json`.
+ */
+async function runAddressSnapshotImport(args: {
+  auth: SnapshotAuthContext;
+  raw: Request;
+  url: string;
+  dryRun: boolean;
+  env: Env;
+}): Promise<Response | Awaited<ReturnType<typeof syncAddressSnapshotFromStream>>> {
+  const denied = requireSnapshotAuth(args.auth);
   if (denied) return denied;
   const oversized = rejectOversizedSnapshotImport(
-    { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
+    { url: args.url, contentLength: args.raw.headers.get("content-length") },
     SNAPSHOT_IMPORT_MAX_BYTES,
-    c.env
+    args.env
   );
   if (oversized) return oversized;
-  const body = c.req.raw.body;
+  const body = args.raw.body;
   if (!body) {
     return problemJsonResponse({
-      type: problemType("bad-request", c.env),
+      type: problemType("bad-request", args.env),
       title: "Bad Request",
       status: 400,
       detail:
         "POST the CSV as raw body. See docs/PROBLEMS.md#bad-request.",
-      instance: new URL(c.req.url).pathname
+      instance: new URL(args.url).pathname
     });
   }
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
-    const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
+    return await syncAddressSnapshotFromStream(args.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
-      dryRun: isDryRunRequested(c.req.valid("query"))
+      dryRun: args.dryRun
     });
-    return c.json(r, 200);
   } catch (e) {
     const mapped = mapSnapshotImportError(
-      c.req.url,
+      args.url,
       e,
       isSnapshotTooLarge,
       (err) => err instanceof InvalidSnapshotCsvError,
-      c.env
+      args.env
     );
     if (mapped) return mapped;
-    const fk = foreignKeyProblem(e, c.env);
+    const fk = foreignKeyProblem(e, args.env);
     if (fk) return fk;
     throw e;
   }
+}
+
+async function handleAddressSnapshotImport(
+  c: SnapshotAuthContext & {
+    req: { raw: Request; url: string; valid: (scope: "query") => { dryRun?: string } };
+    env: Env;
+    json: (value: unknown, status: 200) => Response;
+  }
+): Promise<Response> {
+  const out = await runAddressSnapshotImport({
+    auth: c,
+    raw: c.req.raw,
+    url: c.req.url,
+    dryRun: isDryRunRequested(c.req.valid("query")),
+    env: c.env
+  });
+  return out instanceof Response ? out : c.json(out, 200);
+}
+
+addressSnapshotRoutes.openapi(addressSnapshotImportRoute, (c) =>
+  handleAddressSnapshotImport(c)
+);
+
+// Trailing-slash alias: same streaming handler and limits. Hono matches paths
+// exactly, so without this `/import/` 404s — and, before the body cap, the
+// middleware buffered the full export first. Pinned by `test/bodySizeCap.test.ts`.
+const addressSnapshotImportSlashRoute = createRoute({
+  method: "post",
+  path: "/api/v1/address-snapshot/import/",
+  tags: ["address-snapshot"],
+  summary: "Import address CSV body into D1 (trailing-slash alias)",
+  description:
+    "Trailing-slash alias of `POST /api/v1/address-snapshot/import`: same raw-CSV streaming handler, same bearer secret, same size limits.",
+  request: {
+    query: dryRunQuery
+  },
+  responses: {
+    200: {
+      description: "Result",
+      content: {
+        "application/json": {
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+        }
+      }
+    },
+    401: { description: "Unauthorized" },
+    400: {
+      description:
+        "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
+    }
+  }
 });
+
+addressSnapshotRoutes.openapi(addressSnapshotImportSlashRoute, (c) =>
+  handleAddressSnapshotImport(c)
+);

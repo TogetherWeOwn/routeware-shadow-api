@@ -256,6 +256,16 @@ covers operator uploads only — the report `sync` path is uncapped (upstream
 export size is the operator's own config) — and a rejected import never
 touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
 
+Non-import routes buffer the body in the isolate for upstream forwarding, so
+they refuse bodies over `MAX_BUFFERED_BODY_BYTES` (1 MiB,
+`src/lib/bodyLimit.ts`) with the same 413 type: a truthful `Content-Length`
+fails fast without reading the stream, otherwise a bounded reader stops at the
+cap without ever holding the full body. Rejection details carry byte counts
+only, never body bytes. Snapshot imports keep their streaming exemption —
+including trailing-slash (`/import/`) and case variants, which alias to the
+same streaming handlers — and stay under their own 50 MB streaming cap
+instead. Pinned by `test/bodySizeCap.test.ts`.
+
 ## Query-param allowlist (load-long-modal probe)
 
 `GET /api/v1/routeware/customer/load-long-modal` forwards only `customerID`
