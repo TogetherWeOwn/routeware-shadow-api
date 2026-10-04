@@ -42,6 +42,7 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"
 
 /** Every operation the Worker publishes, as `METHOD path`. */
 const EXPECTED_OPERATIONS = [
+  "DELETE /api/v1/customer-snapshot/{customerId}",
   "DELETE /api/v1/routeware/customer",
   "GET /api/v1/address-snapshot",
   "GET /api/v1/address-snapshot/export",
@@ -50,6 +51,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/container-snapshot/export",
   "GET /api/v1/container-snapshot/{containerId}",
   "GET /api/v1/customer-snapshot",
+  "GET /api/v1/customer-snapshot/changes",
   "GET /api/v1/customer-snapshot/export",
   "GET /api/v1/customer-snapshot/{customerId}",
   "GET /api/v1/data-snapshot/orphans",
@@ -64,6 +66,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/routeware/home/index",
   "GET /api/v1/routeware/reports/query-request-is-complete",
   "GET /api/v1/shadow/health",
+  "GET /api/v1/snapshots/{table}/{date}",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",
@@ -148,9 +151,12 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each, even though `CustomerSnapshotList` is shared by the
-    // customer, address and container snapshot list routes.
+    // Registered once each: `CustomerSnapshotList` is shared by the customer,
+    // address and container snapshot list routes, and `CustomerSnapshotChanges`
+    // (TOG-8877) carries the composite `{since, since_id}` cursor instead of
+    // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+      "CustomerSnapshotChanges",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
@@ -191,6 +197,56 @@ describe("published OpenAPI document", () => {
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
     expect(missing).toEqual([]);
+  });
+
+  it("documents the id alias on all three data-entity GETs", async () => {
+    // Arrange — TOG-6525: customer GET accepted `id|customerId` while address
+    // and container accepted only `id`. The alias must be visible on all three
+    // so generated clients offer the same spelling.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const paramsOf = (path: string): string[] => {
+      const get = doc.paths[path]?.["get"] as
+        | { parameters?: Array<{ in?: string; name?: string }> }
+        | undefined;
+      return (get?.parameters ?? [])
+        .filter((p) => p.in === "query")
+        .map((p) => p.name ?? "");
+    };
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "id"]);
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["id", "pickupAddressId"]);
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "id"]);
+  });
+
+  it("tags the routeware meta routes and documents their 401", async () => {
+    // Arrange — TOG-6525: login-page/home-index carried no 401 docs despite
+    // sitting behind the `/api/v1/*` bearer gate.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const operations = [
+      "GET /api/v1/routeware/account/login-page",
+      "GET /api/v1/routeware/home/index"
+    ];
+    const problems = operations.filter((op) => {
+      const [method, path] = op.split(" ");
+      const operation = doc.paths[path]?.[method.toLowerCase()] as
+        | { responses?: Record<string, unknown>; tags?: string[] }
+        | undefined;
+      return (
+        !operation?.tags?.includes("routeware") ||
+        !operation?.responses ||
+        !("401" in operation.responses)
+      );
+    });
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(problems).toEqual([]);
   });
 
   it("matches the recorded document byte for byte", async () => {

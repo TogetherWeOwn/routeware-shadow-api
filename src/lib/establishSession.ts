@@ -1,6 +1,7 @@
 import { establishSessionWithBrowser } from "./browserAuth";
 import { establishSessionViaHttp } from "./httpAuth";
 import { isLoginPageUnavailableError } from "./loginPageError";
+import { isMissingSetCookieCapabilityError } from "./setCookieCapabilityError";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
@@ -109,8 +110,15 @@ async function login(
     // A blocked login page (TOG-6536) is never a browser case: the token is
     // missing because upstream answered 403/500, not because the markup
     // changed. Re-run the browser there would burn Browser Rendering budget
-    // on a page that has no form at all.
-    if (mode === "http" || isLoginPageUnavailableError(err)) {
+    // on a page that has no form at all. A missing getSetCookie capability
+    // (TOG-6537) is likewise never a browser case: there are no cookies to
+    // fall back from, so a browser retry would burn budget on a platform
+    // gap, not a markup change.
+    if (
+      mode === "http" ||
+      isLoginPageUnavailableError(err) ||
+      isMissingSetCookieCapabilityError(err)
+    ) {
       throw err;
     }
     console.warn(

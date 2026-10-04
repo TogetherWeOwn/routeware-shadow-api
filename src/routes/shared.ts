@@ -70,6 +70,11 @@ export function createRouteModule(): OpenAPIHono<AppEnv> {
  * Snapshot and data-entity routes gate on `CUSTOMER_SNAPSHOT_SYNC_SECRET`
  * specifically. This is a second, narrower check that runs inside the handler,
  * on top of the app-wide `/api/v1/*` bearer gate in `app.ts`.
+ *
+ * Only the sync secret clears it — never `SHADOW_API_TOKEN`, and never the
+ * read-only `SHADOW_API_READ_TOKEN` (TOG-8878): the read token may pass the
+ * outer gate on GET, but every privileged route (including GET exports and
+ * `/api/v1/data/*` reads) 401s here.
  */
 export function snapshotSyncAuthorized(c: SnapshotAuthContext): boolean {
   return bearerMatches(c.req, c.env.CUSTOMER_SNAPSHOT_SYNC_SECRET);
@@ -117,6 +122,27 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
       "Set CUSTOMER_SNAPSHOT_SYNC_SECRET in vars or secrets. See docs/PROBLEMS.md#misconfigured.",
     instance: new URL(c.req.url).pathname
   });
+}
+
+/**
+ * `?dryRun=true` query flag for the snapshot sync/import routes (TOG-9203).
+ * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
+ * string (including `"false"`) to `true`, which would turn a cautious
+ * `?dryRun=false` probe into a real write. Only the exact string `"true"`
+ * dry-runs; anything else is rejected with the anchored 400 below.
+ */
+export const dryRunQuery = z.object({
+  dryRun: z
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      "Dry run: validate the CSV and return the would-be counts without writing D1 or R2"
+    )
+});
+
+/** True only for `?dryRun=true` — absent or `?dryRun=false` runs for real. */
+export function isDryRunRequested(query: { dryRun?: string }): boolean {
+  return query.dryRun === "true";
 }
 
 /**
@@ -492,3 +518,14 @@ export const dataSnapshotSyncResultExample = {
   address: { upserted: 2, rowCount: 2 },
   container: { upserted: 2, rowCount: 2 }
 };
+
+/**
+ * Parses a by-id path param. Only canonical positive decimal integers pass;
+ * `-5`, `4.5`, `abc`, `0` and `1e3` return null so handlers can answer with the
+ * documented 400 instead of letting them reach D1 and come back as 404.
+ */
+export function parsePositiveIdParam(raw: string): number | null {
+  if (!/^[1-9][0-9]*$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}

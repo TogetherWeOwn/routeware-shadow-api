@@ -43,6 +43,33 @@ ls -la
 # expect three non-empty $DATE-{customer,address,container}.csv files
 ```
 
+### Verify-first gate (must PASS before any §3 `.../import` call)
+
+`.../import` is upsert-only and never deletes, so a truncated or tampered CSV
+would silently overwrite good D1 rows — and the §5 count/spot checks only catch
+it if a damaged row happens to be sampled. Each UTC date's archive carries a
+sidecar integrity manifest, `snapshots/<date>.manifest.json` (sha256 + byte
+size per CSV, written by `src/lib/r2SnapshotArchive.ts`, TOG-8881). Verify the
+archive against it before importing:
+
+```bash
+node scripts/verify-r2-manifest.mjs --date=$DATE --remote
+# expect: r2-manifest: PASS — snapshots/$DATE.manifest.json: 3 passed, 0 mismatched, 0 missing (exit 0)
+```
+
+Pair the flags with §4's target: `--remote` for a deployed-default-env restore
+(read-only GETs; needs `CLOUDFLARE_API_TOKEN` in the environment, never a
+flag); drop `--remote` for a local-dev restore (credential-free) and add
+`--persist-to <dir>` when `wrangler dev` uses a custom persist dir, or
+`--bucket routeware-csv-snapshots-test` for the test env. (`npm run
+verify:r2-manifest -- --date=$DATE ...` runs the same checker.)
+
+On FAIL — including a missing manifest (archives written before TOG-8881 have
+no sidecar) — **stop: do not run any §3 import**. Treat the archive as suspect
+(truncated, tampered, or wrong date/bucket) and re-pull or escalate instead of
+importing blind. The reviewer tamper recipe in the `verify-r2-manifest.mjs`
+header comment replays this gate end-to-end (flip one CSV byte → exit 1).
+
 ## 3. Restore into D1 in FK order (customer → address → container)
 
 Terminal A (blocking — leave it running; point `$BASE` at your target — local dev URL here, deployed Worker URL for a real restore):
@@ -56,7 +83,7 @@ BASE=http://127.0.0.1:8787
 SECRET=<the CUSTOMER_SNAPSHOT_SYNC_SECRET value from .dev.vars>
 ```
 
-Terminal B, **in this order** — D1 enforces the FK chain unconditionally and a misordered import 400s with `Dangling reference` instead of writing orphans (`docs/BACKFILL-RUNBOOK.md` §2):
+Terminal B, **in this order** — only after the §2 verify-first gate PASSES — D1 enforces the FK chain unconditionally and a misordered import 400s with `Dangling reference` instead of writing orphans (`docs/BACKFILL-RUNBOOK.md` §2):
 
 ```bash
 curl -s -X POST "$BASE/api/v1/customer-snapshot/import" \

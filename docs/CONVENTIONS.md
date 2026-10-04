@@ -149,7 +149,7 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm test` / `npm run test:watch` | Vitest. |
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
-| `npm run types` | `wrangler types` → `src/worker-configuration.d.ts`. Run after changing bindings. |
+| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373; run once after cloning). Run after changing bindings. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
 | `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs. |

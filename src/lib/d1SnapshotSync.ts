@@ -42,6 +42,12 @@ export {
 } from "./snapshot/streamSync";
 
 export type {
+  DataSnapshotResult,
+  SnapshotSyncRunOptions,
+  SnapshotTableName,
+  SnapshotTableResult
+} from "./snapshot/orchestration";
+export type {
   SnapshotOrphanReport,
   SnapshotOrphanSample
 } from "./snapshot/reconcile";
@@ -50,9 +56,8 @@ export {
   ORPHAN_SAMPLE_LIMIT_MAX,
   getSnapshotOrphans
 } from "./snapshot/reconcile";
-
-export type { DataSnapshotResult, SnapshotTableResult } from "./snapshot/orchestration";
 export {
+  PartialDataSnapshotSyncError,
   getDataSnapshotPlan,
   runAddressSnapshotSync,
   runContainerSnapshotSync,

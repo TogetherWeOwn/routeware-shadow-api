@@ -7,6 +7,9 @@ LOGIN_PASSWORD=
 # At least one of these must be set (non-empty) or every /api/v1/* call returns 401.
 SHADOW_API_TOKEN=
 CUSTOMER_SNAPSHOT_SYNC_SECRET=
+# Optional read-only role (TOG-8878): GET-only access to non-privileged reads.
+# Writes/sync/import and every privileged route still require the tokens above.
+SHADOW_API_READ_TOKEN=
 
 # Optional: session auth method. Default "auto" (HTTP form login, browser fallback).
 # HTTP login needs no Browser Rendering, so `npm run dev` (local) works without --remote.
@@ -26,6 +29,12 @@ OPENAPI_DOCS_ENABLED=true
 
 # Optional: skip writing report CSVs to R2 (wrangler.toml / dashboard R2 binding)
 # SNAPSHOTS_R2_ENABLED=false
+
+# Optional: trust X-Forwarded-For for bearer-throttle bucketing (TOG-8888).
+# Default in wrangler.toml is "false" (fail-closed — XFF-only callers share the
+# "unknown" bucket). Set "true" here only for local dev behind no Cloudflare
+# proxy; never enable on a deployed Worker.
+# THROTTLE_TRUST_XFF=true
 
 # Non-secret Worker defaults (wrangler.toml [vars]). `wrangler dev` overlays
 # `.dev.vars` on those defaults, so these stay commented unless you need a

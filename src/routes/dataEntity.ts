@@ -68,8 +68,13 @@ const dataAddressGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id`.",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      pickupAddressId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "address, customer, containers",
@@ -85,14 +90,15 @@ const dataAddressGetRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.pickupAddressId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
-        "Query `id` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+        "Query `id` or `pickupAddressId` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -105,8 +111,13 @@ const dataContainerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id`.",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
+  request: {
+    query: z.object({
+      id: z.coerce.number().int().optional(),
+      containerId: z.coerce.number().int().optional()
+    })
+  },
   responses: {
     200: {
       description: "container, address, customer",
@@ -122,14 +133,15 @@ const dataContainerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const id = Number(c.req.query("id"));
-  if (!Number.isInteger(id) || id <= 0) {
+  const q = c.req.valid("query");
+  const id = q.id ?? q.containerId;
+  if (id === undefined || !Number.isInteger(id) || id <= 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
       detail:
-        "Query `id` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+        "Query `id` or `containerId` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.url).pathname
     });
   }

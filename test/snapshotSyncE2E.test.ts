@@ -72,7 +72,13 @@ const CSV_BY_QID: Record<string, string> = {
   [CONTAINER_QID]: CONTAINER_CSV
 };
 
-type SyncResult = { upserted: number; rowCount: number; deleted?: number };
+type SyncResult = {
+  upserted: number;
+  rowCount: number;
+  deleted?: number;
+  /** R2 archive outcome stamped by the sync route (TOG-6549). Key is date+table only — no PII. */
+  r2?: { status: string; key?: string; reason?: string };
+};
 
 function db(): D1Database {
   return (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
@@ -159,7 +165,10 @@ describe("hermetic snapshot sync e2e", () => {
     // Assert — login ran (not bypassed), the expired-session retry fired, the
     // CSV parsed, rows upserted, and the stale row reconciled away.
     expect(customer.status).toBe(200);
-    expect(customer.body).toEqual({ upserted: 2, rowCount: 2, deleted: 1 });
+    expect(customer.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 1 });
+    // TOG-6549: a stored archive is explicit in the route body (date+table key only — no PII).
+    expect(customer.body.r2?.status).toBe("stored");
+    expect(customer.body.r2?.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
     expect(httpLoginCalls.count).toBe(1);
     expect(downloadAttempts.get(CUSTOMER_QID)).toBe(2);
     const customers = await db()
@@ -175,7 +184,8 @@ describe("hermetic snapshot sync e2e", () => {
 
     // Assert
     expect(address.status).toBe(200);
-    expect(address.body).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(address.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(address.body.r2?.status).toBe("stored");
     expect(httpLoginCalls.count).toBe(2);
     const addresses = await db()
       .prepare(
@@ -192,7 +202,8 @@ describe("hermetic snapshot sync e2e", () => {
 
     // Assert — including the full-width container columns (UD-*, service codes).
     expect(container.status).toBe(200);
-    expect(container.body).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(container.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(container.body.r2?.status).toBe("stored");
     expect(httpLoginCalls.count).toBe(3);
     const containers = await db()
       .prepare(
@@ -228,7 +239,8 @@ describe("hermetic snapshot sync e2e", () => {
 
     // Assert
     expect(again.status).toBe(200);
-    expect(again.body).toEqual({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(again.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(again.body.r2?.status).toBe("stored");
     const n = await db()
       .prepare("SELECT COUNT(*) as n FROM customer_snapshot")
       .first<{ n: number }>();

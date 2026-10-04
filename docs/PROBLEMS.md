@@ -34,6 +34,23 @@ land. Fix: import the parents first (customers, then addresses, then
 containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 — integer keys only, never PII.
 
+## Blocked customer erasure (`bad-request`)
+
+`DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
+customer row (GDPR-style erasure for the stored extract — upstream Routeware
+is untouched; see `method-not-allowed`). The same FK chain refuses a delete
+while address rows still reference the customer, mapped to 400 (never an
+orphan, never a cascade):
+
+```
+Cannot delete customer_id=42: 2 address row(s) still reference it
+(pickup_address_id=10, 11). Delete the addresses first.
+See docs/PROBLEMS.md#bad-request.
+```
+
+Fix: delete the listed addresses first, then retry. The `detail` names up to
+20 blocking integer keys — integer keys only, never PII.
+
 ## Authentication (`unauthorized`)
 
 All `/api/v1/*` endpoints **except** `GET /api/v1/health` require a bearer token:
@@ -86,6 +103,24 @@ Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
 route-class matrix) and `test/snapshotAuth.test.ts` (per-route inner 401
 bodies).
 
+### Read-only bearer role (TOG-8878)
+
+`SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
+reads. It passes the outer gate on GET requests only: a GET with the read
+token returns 200 on a general route, while any non-GET request with it 401s
+at the outer gate, and every privileged route (sync/import, GET exports,
+`/api/v1/data/*` reads) 401s at the inner sync-secret check — no privileged
+route accepts the read token. Unset or blank means unconfigured: the role
+fails closed. Use a distinct random value — if it ever equals the full token
+it inherits full access.
+
+```
+npx wrangler secret put SHADOW_API_READ_TOKEN
+```
+
+Pinned by `test/readOnlyRole.test.ts` (unit matrix + HTTP acceptance pair +
+per-privileged-route sweep + fail-closed contract).
+
 Set these as secrets in production — never in `wrangler.toml` `[vars]`:
 
 ```
@@ -95,9 +130,13 @@ npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET
 
 ## Brute-force throttling (`rate-limited`)
 
-Failed bearer-auth checks on `/api/v1/*` are counted per client IP (from
-`CF-Connecting-IP`, falling back to `X-Forwarded-For`) in the `AuthSession`
-Durable Object. After 20 failures inside a 60-second window, further failed
+Failed bearer-auth checks on `/api/v1/*` are counted per client IP in the
+`AuthSession` Durable Object. The IP comes from `CF-Connecting-IP` (which
+Cloudflare overwrites, so clients cannot spoof it); `X-Forwarded-For` is
+honored only when `THROTTLE_TRUST_XFF="true"` (dev/test) — production
+XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
+value can neither evade the throttle by rotation nor frame a victim's bucket.
+After 20 failures inside a 60-second window, further failed
 attempts from that IP get `429 Too Many Requests` with a problem+json body and
 a `Retry-After` header, for 60 seconds. The block is per-IP, not per-token, so
 rotating candidate tokens does not evade it.
@@ -303,8 +342,10 @@ Pinned by `test/problemAnchors.test.ts` (the 405 shape) and
 ## Session refresh timeouts (`bad-gateway`, title "Session refresh timed out")
 
 Only one login runs at a time per `AuthSession` instance (the refresh lock).
-A request that arrives while another request is refreshing waits up to 20s
-for the fresh session; if the holder never publishes (hung login), the waiter
+A request that arrives while another request is refreshing waits up to 90s
+for the fresh session — the waiter budget is derived from the 120s lock TTL
+so it covers a worst-case ~47s browser login (TOG-6527); if the holder never
+publishes (hung login), the waiter
 answers as 502 problem+json — never by forwarding with the expired cookie,
 which would surface upstream login HTML as a 200.
 
@@ -319,3 +360,13 @@ the browser would burn Browser Rendering budget misdiagnosed as a markup
 change. A genuine 200 page with no token keeps the old behavior (treated as a
 markup change, browser fallback in auto mode). The 502 detail carries only the
 status number — never URL, body, or PII.
+
+## Missing Set-Cookie capability (`misconfigured`, title "Service Unavailable")
+
+The HTTP login merges upstream `Set-Cookie` via `Headers.getSetCookie`. When
+the runtime has no `getSetCookie`, the login fails fast as 503
+problem+json with a fixed detail — never an empty jar, never a silent flip to
+Browser Rendering (`auto` mode) or a bare login failure (`http` mode): there
+are no cookies to fall back from, so a browser retry would burn Browser
+Rendering budget on a platform gap, not a markup change. The detail carries
+only the fixed capability message — never URL, body, cookie, or PII.

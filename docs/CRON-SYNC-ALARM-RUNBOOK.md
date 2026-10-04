@@ -8,7 +8,7 @@ changes. Every check below uses observability this repo already has: Workers Log
 (`[triggers]` in `wrangler.toml`), handler `src/scheduled.ts`, tests `test/scheduled.test.ts`.
 **Why:** a silent cron failure used to look identical to "no report paths configured"
 (both were free-text log lines). Every run now emits exactly one structured line whose
-`outcome` is `success`, `unconfigured`, or `failed` — the alarm keys on that field,
+`outcome` is `success`, `unconfigured`, `failed`, or `skipped-overlap` — the alarm keys on that field,
 and on the *absence* of any line.
 
 ## 0. The signal: one `data-snapshot-sync` JSON line per run
@@ -27,6 +27,7 @@ data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"cha
 | `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
 | `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
 | `failed` | The sync threw before any table result was recorded. `error` carries the step tag (e.g. `[customer snapshot] …`, `[chained address] …`) with the message only — never row data. | Triage per §4. |
+| `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (guard TOG-9216). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
 
 Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
@@ -54,7 +55,10 @@ npx wrangler tail --format json 2>&1 | grep 'data-snapshot-sync'
 
 Parse the JSON after the prefix and read `outcome`, `tables`, `durationMs`, and
 `error`. One line per run: if you see two lines for one `scheduledTime`, the second
-is a platform retry — read the latest.
+is a platform retry — read the latest. Note the guard (TOG-9216) serializes
+firings per isolate only: two `success` lines for adjacent `scheduledTime`s mean
+a platform double-fire landed on two isolates and both ran — expected residual,
+not a guard failure.
 
 ## 2. Ground truth: did rows actually move? (catches missed runs)
 
@@ -82,9 +86,27 @@ If a table has neither a path nor a query id, the next cron logs `unconfigured` 
 § "Checklist" before treating any sync as healthy. This distinguishes "nothing
 configured" from "configured but broken" without reading logs.
 
-## 4. The daily alarm loop (no paid services: a scheduled human-or-runner check)
+## 4. The daily alarm loop (automated: the 07:30 UTC scheduled probe)
 
-Until a log-based alerting tier exists, the alarm is this loop, run once daily after
+The 07:30 UTC `Post-deploy probe` workflow (`.github/workflows/post-deploy-probe.yml`,
+TOG-9225 gap O4) asserts cron freshness automatically: probe 3b reads
+`GET /api/v1/readiness` → `checks.cron.stale` and **fails the job (exit 1)** when the
+verdict is stale, i.e. no cron run recorded within the server-side 48h threshold
+(`CRON_STALE_AFTER_MS` in `src/lib/readiness.ts` — the probe never re-implements the
+threshold, so probe and server cannot drift). The cron fires at 07:00 UTC, so the probe
+runs after it settles; a red job means two consecutive cron misses. Triage a red job
+with §1–§3 and the step-tag table below — start at this runbook's §1, not at the
+probe script. Probe output names the stale timestamp (`FAIL cron freshness -> STALE
+lastRunAt=…`) and points back here.
+
+Schedule note: the probe needs a bearer (`SHADOW_API_TOKEN` secret) to reach
+readiness; in skip-safe mode without one the authed probes SKIP and cron freshness
+is unchecked — a SKIP-only scheduled run is a monitoring gap, not a pass. Ping the
+authored fixture check before trusting green: point the probe at a readiness body
+with a >48h-old cron timestamp and confirm it exits 1 (`test/postDeployProbe.test.ts`
+pins the verdict mapping; the `evalCronFreshness` unit tests are the runnable spec).
+
+Until a log-based alerting tier exists, the manual fallback is this loop, run once daily after
 07:30 UTC by whoever holds the deploy token (or any existing scheduled runner):
 
 1. Pull the last `data-snapshot-sync` line (§1).
@@ -93,6 +115,7 @@ Until a log-based alerting tier exists, the alarm is this loop, run once daily a
 4. `outcome: failed` or **no line** → confirm ground truth (§2). Then triage by `error` step tag:
    - `[customer|address|container snapshot] D1_*` — D1 limit or lock. If `d1LimitRisk: true`, set `SHADOW_API_PUBLIC_BASE` and re-run; otherwise split per-table syncs (`CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests").
    - `[chained <table>] POST … → 4xx/5xx` — the chained subrequest was rejected (usually a rotated `CUSTOMER_SNAPSHOT_SYNC_SECRET` that missed the Worker, or an unconfigured table route returning 503). Re-run the named table route manually with the current secret.
+   - `[chained <table>] POST … timed out after Nms` — the subrequest hung past its per-table budget (default 180s, `CHAINED_SYNC_TIMEOUT_MS`; TOG-6547). The hung table failed fast so the tables behind it were never attempted; check whether the named table's report export is stalled upstream, then re-run that table route manually.
    - Upstream HTML-200 failures (session lost, login page) surface inside the step error per `docs/CONVENTIONS.md` fact 1 — verify Routeware credentials, not Worker config.
    - No line at all with fresh `synced_at` — a duplicate/overlapping invocation; note it and watch the next run. No line with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
 5. Record the disposition where the team looks (issue comment or ops log): date, outcome, tables, action taken. Silence is how the next miss goes unnoticed.

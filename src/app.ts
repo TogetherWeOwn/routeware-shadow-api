@@ -1,10 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
-import { isApiAuthorized } from "./lib/auth";
+import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
+import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import {
   concurrentRefreshTimeoutProblem,
@@ -23,6 +24,7 @@ import { dataSnapshotRoutes } from "./routes/dataSnapshot";
 import { metaRoutes } from "./routes/meta";
 import { routewareRoutes } from "./routes/routeware";
 import { shadowRoutes } from "./routes/shadow";
+import { snapshotArchiveRoutes } from "./routes/snapshotArchive";
 import type { AppEnv } from "./routes/types";
 
 const openApiDocumentConfig = {
@@ -97,7 +99,13 @@ app.use("/api/v1/*", async (c, next) => {
     c.res = withCors(c.res, c.req.raw);
     return;
   }
-  if (!isApiAuthorized(c.env, c.req)) {
+  // Read-only role (TOG-8878): SHADOW_API_READ_TOKEN passes the outer gate
+  // on GET requests only, then flows through the same authorized path as a
+  // full token below. Non-GET requests with the read token fall through to
+  // the 401; privileged routes reject the read token at their inner
+  // sync-secret check (`requireSnapshotAuth`).
+  const readOnly = isReadAuthorized(c.env, c.req, method);
+  if (!readOnly && !isApiAuthorized(c.env, c.req)) {
     // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
     // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
     // a token-guessing loop slows to a crawl. (Preflight returns above, so
@@ -175,6 +183,7 @@ app.route("/", dataSnapshotRoutes);
 app.route("/", addressSnapshotRoutes);
 app.route("/", containerSnapshotRoutes);
 app.route("/", dataEntityRoutes);
+app.route("/", snapshotArchiveRoutes);
 
 app.get("/openapi.json", (c) => {
   if (!openapiDocsEnabled(c.env)) {
@@ -269,6 +278,26 @@ app.onError((err, c) => {
   // set, so the fix is obvious from the response alone.
   if (isInvalidAuthModeError(err)) {
     console.error("INVALID AUTH_MODE", err.message);
+    return withCors(
+      problemJsonResponse({
+        type: problemType("misconfigured", c.env),
+        title: "Service Unavailable",
+        status: 503,
+        detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname
+      }),
+      c.req.raw
+    );
+  }
+  // A runtime without `Headers.getSetCookie` (TOG-6537): fail fast as 503
+  // misconfigured, not a 500 and never a browser launch. There are no cookies
+  // to fall back from, so a browser retry would burn Browser Rendering budget
+  // on a platform gap, not a markup change. The message is a fixed string
+  // (never URL/body/cookie/PII). Session-retry routes rethrow this past their
+  // single retry; this is the backstop. CORS-wrapped so browsers surface the
+  // real 503 instead of a CORS error.
+  if (isMissingSetCookieCapabilityError(err)) {
+    console.error("MISSING SET-COOKIE CAPABILITY", err.message);
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),
