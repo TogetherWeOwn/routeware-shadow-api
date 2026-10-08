@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -47,7 +48,7 @@ const customerSnapshotListRoute = createRoute({
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
-      q: z.string().optional().describe("Company name substring (case-insensitive)").openapi({ example: "ExampleCo" }),
+      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -71,7 +72,7 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
