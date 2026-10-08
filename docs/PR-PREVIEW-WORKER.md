@@ -50,7 +50,6 @@ const { REPO_ROOT, PREVIEW_WORKER, PREVIEW_CONFIG } = process.env;
 const config = {
   name: PREVIEW_WORKER,
   main: path.join(REPO_ROOT, 'src/worker.ts'),
-  tsconfig: path.relative(path.dirname(PREVIEW_CONFIG), path.join(REPO_ROOT, 'tsconfig.json')),
   compatibility_date: '2025-01-01',
   compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
   workers_dev: true,
