@@ -21,7 +21,13 @@ const FIXTURES = [
   [7, MIXED_QUERY, "fixture-other"],
   // Container-only matches pin the serial_number OR leg at the boundary too.
   [8, "fixture-other", BOUNDARY_QUERY],
-  [9, "fixture-other", UNICODE_QUERY]
+  [9, "fixture-other", UNICODE_QUERY],
+  // Serial-prefix decoys distinguish truncation of only the second search bind.
+  [10, "fixture-other", BOUNDARY_QUERY.slice(0, 99)],
+  [11, "fixture-other", "\u{2000B}".repeat(99)],
+  [12, "fixture-other", "\u{2000B}".repeat(50)],
+  [13, "fixture-other", "x".repeat(50) + "\u{2000B}".repeat(49)],
+  [14, "fixture-other", "x".repeat(50) + "\u{2000B}".repeat(25)]
 ] as const;
 const SPECS = [
   { name: "customer", id: "customer_id", matches: [1], ip: "192.0.2.211" },
@@ -121,7 +127,7 @@ describe.each(SPECS)("$name snapshot q limit", (spec) => {
 
   it.each([
     { name: "100 ASCII characters", q: BOUNDARY_QUERY, matches: [3], serialMatches: [8] },
-    { name: "51 supplementary-plane code points", q: "\u{2000B}".repeat(51), matches: [5, 6], serialMatches: [9] },
+    { name: "51 supplementary-plane code points", q: "\u{2000B}".repeat(51), matches: [5, 6], serialMatches: [9, 11] },
     { name: "100 supplementary-plane code points", q: UNICODE_QUERY, matches: [5], serialMatches: [9] },
     { name: "100 mixed code points", q: MIXED_QUERY, matches: [7], serialMatches: [] }
   ])("accepts $name and filters without truncation", async ({ q, matches, serialMatches }) => {
