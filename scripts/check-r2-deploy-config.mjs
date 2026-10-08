@@ -54,7 +54,11 @@ try {
   writeFileSync(join(bin, "npx"), `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 writeFileSync(process.env.LOOKUP_LOG, JSON.stringify(process.argv.slice(2)));
-process.exit(process.env.LOOKUP_FAIL === "true" ? 1 : 0);
+if (process.env.LOOKUP_ERROR) {
+  console.error(process.env.LOOKUP_ERROR);
+  process.exit(1);
+}
+process.exit(0);
 `, { mode: 0o755 });
   writeFileSync(join(bin, "package.json"), '{"type":"module"}');
   writeFileSync(join(scratch, "worker.mjs"), 'export default { fetch() { return new Response("fixture"); } };');
@@ -80,10 +84,31 @@ process.exit(process.env.LOOKUP_FAIL === "true" ? 1 : 0);
   ]);
   dryRun(enabledConfig, "true");
 
-  const missing = preflight(enabledConfig, { LOOKUP_FAIL: "true" });
+  const missing = preflight(enabledConfig, { LOOKUP_ERROR: "The specified bucket does not exist. [code: 10006]" });
   assert.equal(missing.status, 1, missing.output);
   assert.match(missing.output, /Fix: npx wrangler r2 bucket create r2-config-regression/);
+  assert.match(missing.output, /The specified bucket does not exist\. \[code: 10006\]/);
   assert.ok(readFileSync(lookupLog, "utf8").includes('"info"'));
+
+  for (const diagnostic of [
+    "CLOUDFLARE_API_TOKEN must be set in a non-interactive environment.",
+    "Authentication error [code: 10000]",
+    "fetch failed: getaddrinfo ENOTFOUND api.cloudflare.com",
+  ]) {
+    const failed = preflight(enabledConfig, { LOOKUP_ERROR: diagnostic });
+    assert.equal(failed.status, 1, failed.output);
+    assert.match(failed.output, /could not be verified/);
+    assert.ok(failed.output.includes(diagnostic), failed.output);
+    assert.ok(!failed.output.includes("bucket create"), failed.output);
+  }
+
+  const redacted = preflight(enabledConfig, {
+    CLOUDFLARE_API_TOKEN: "fixture-token-not-a-real-credential",
+    LOOKUP_ERROR: "Authentication failed for fixture-token-not-a-real-credential [code: 10000]",
+  });
+  assert.equal(redacted.status, 1, redacted.output);
+  assert.ok(!redacted.output.includes("fixture-token-not-a-real-credential"), redacted.output);
+  assert.match(redacted.output, /Authentication failed for \[REDACTED\]/);
 
   for (const config of [disabledConfig, noBucketConfig]) {
     const skipped = preflight(config, { SNAPSHOTS_R2_ENABLED: "true" });
