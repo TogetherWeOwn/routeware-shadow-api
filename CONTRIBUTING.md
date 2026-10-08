@@ -79,11 +79,38 @@ PR titles and branch commits follow
 - Branch names: `type/short-slug`, e.g. `fix/sudo-window`.
 - Merging is squash only — each PR lands on `main` as one commit.
 
+## Pull request standards
+
+These follow the upstream paperclipai/paperclip contributor rules, adapted for
+this private repo. The existing `pr-lint` check enforces them
+(`.github/scripts/pr_standards.py`, tests beside it).
+
+- **Title** is a Conventional Commits header, `type(scope): summary`, at most
+  100 characters, no trailing period. The squash commit on `main` takes the PR title.
+- **Body** uses `.github/pull_request_template.md`. Fill in every section:
+  Thinking Path, Linked Issues or Issue Description, What Changed, Verification,
+  Risks, Model Used and the Checklist. A PR created through the API gets no
+  template, so paste it in. Thinking Path needs at least three real items.
+- **Private card reference** stays required: include `Refs: TOG-1234` in the body,
+  never in the title or branch name. `docs`, `chore`, `build`, `ci`, `style`, `test`
+  and `revert` PRs need no linked-issue description or duplicate-search tick,
+  but still need the private card reference.
+- **Model Used** names the provider and exact model/version that wrote or helped
+  with the change, or says `None - human-authored`.
+- **Search first.** Look for an open or recent PR that touches the same area,
+  and link what you find.
+- **Branch name** is `type/short-slug`, for example `fix/sudo-window`. Agent
+  workspaces may be named after a card: push with
+  `git push origin HEAD:refs/heads/fix/short-slug`.
+- **Rollout** starts with `PR_STANDARDS_MODE: "warn"`: new body-section and
+  duplicate-search findings warn. Invalid titles, empty bodies and missing
+  required private card references remain errors. No new required check is added.
+
 ## PR process
 
-1. Fill in the PR template (Summary, Changes, Testing, `Refs: TOG-…`).
+1. Fill in the seven-section PR template and its repo-specific checklist.
 2. Keep each PR to one logical change.
 3. The `pr-lint` check enforces the title/body standard — fix the title or body
    and it re-runs; never weaken or bypass it.
-4. Code review: a Code Reviewer pass on the exact head SHA with green CI, and
-   the approving reviewer merges. Re-pushes need re-review.
+4. Code review: a Code Reviewer pass on the exact head SHA with green CI
+   before squash merge. Re-pushes need re-review.

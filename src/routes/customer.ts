@@ -5,7 +5,8 @@ import {
 } from "../lib/customerSaveAutoToken";
 import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
+import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -62,7 +63,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
       bodyBuffer = new TextEncoder().encode(translated.text).buffer;
     }
   }
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -113,7 +114,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/GetCustomerDetailFull"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -164,7 +165,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomerTypesRead"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -232,25 +233,26 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   );
   let up: Response;
   try {
-    up = await forwardWithSessionRetry(
+    const options: SessionForwardOptions = {
+      prepareBody: async (session, originalBody) => {
+        bodyBuffer = await prepareSaveCustomerLongFormBody(
+          c.env,
+          session,
+          c.req.raw,
+          originalBody,
+          c.req.raw.headers.get("content-type")
+        );
+        return bodyBuffer;
+      }
+    };
+    up = await forwardPassthrough(
       c.env,
       c.var.sessionStub,
       c.req.raw,
       upstreamUrl,
       rawBody,
       establishSession,
-      {
-        prepareBody: async (session, originalBody) => {
-          bodyBuffer = await prepareSaveCustomerLongFormBody(
-            c.env,
-            session,
-            c.req.raw,
-            originalBody,
-            c.req.raw.headers.get("content-type")
-          );
-          return bodyBuffer;
-        }
-      }
+      options
     );
   } catch (err) {
     if (!(err instanceof SessionBodyPreparationError)) {
@@ -313,7 +315,7 @@ customerRoutes.openapi(customerAddNewLongRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/AddNewLong"
   );
-  return forwardWithSessionRetry(
+  return forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -374,7 +376,7 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
     c.req.raw,
     LOAD_LONG_MODAL_PARAMS
   );
-  return forwardWithSessionRetry(
+  return forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,

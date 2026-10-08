@@ -162,7 +162,10 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
         return new Promise<Response>(() => {});
       }
       if (saveStatus !== 200) {
-        return new Response("rejected", { status: saveStatus, headers: { "retry-after": "7" } });
+        return new Response("FAKE-UPSTREAM-ERROR", {
+          status: saveStatus,
+          headers: { "retry-after": "7", "x-upstream-debug": "FAKE-UPSTREAM-ERROR" }
+        });
       }
       const matchesSession = token === `FAKE-TOKEN-${cookie}`;
       return new Response(matchesSession ? '{"success":true}' : "<html>Save rejected</html>", {
@@ -299,13 +302,44 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
     });
   }
 
-  it.each([401, 429])("passes upstream %i through without refresh or retry", async (status) => {
+  it.each([401, 429, 503])("contains upstream %i without refresh or retry", async (status) => {
     saveStatus = status;
     const response = await save();
     expect(response.status).toBe(status);
-    expect(response.headers.get("retry-after")).toBe("7");
-    expect(calls.map((call) => call.hop)).toEqual(["modal", "save"]);
+    expect(response.headers.get("content-type")).toContain("application/problem+json");
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(response.headers.get("x-upstream-debug")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json() as { type: string };
+    expect(body.type).toMatch(/#upstream-error$/);
+    expect(JSON.stringify(body)).not.toContain("FAKE-UPSTREAM-ERROR");
+    expect(calls).toEqual([
+      { hop: "modal", cookie: "session=FAKE-OLD", token: null },
+      { hop: "save", cookie: "session=FAKE-OLD", token: "FAKE-TOKEN-session=FAKE-OLD" }
+    ]);
     expect(login.calls).toBe(0);
+  });
+
+  it.each([401, 429, 503])("contains upstream %i after re-preparing on the fresh session", async (status) => {
+    saveStatus = status;
+    rejectedHop = "save";
+    rotateAfterModal = true;
+    const response = await save();
+    expect(response.status).toBe(status);
+    expect(response.headers.get("content-type")).toContain("application/problem+json");
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect(response.headers.get("x-upstream-debug")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json() as { type: string };
+    expect(body.type).toMatch(/#upstream-error$/);
+    expect(JSON.stringify(body)).not.toContain("FAKE-UPSTREAM-ERROR");
+    expect(calls).toEqual([
+      { hop: "modal", cookie: "session=FAKE-OLD", token: null },
+      { hop: "save", cookie: "session=FAKE-OLD", token: "FAKE-TOKEN-session=FAKE-OLD" },
+      { hop: "modal", cookie: "session=FAKE-FRESH", token: null },
+      { hop: "save", cookie: "session=FAKE-FRESH", token: "FAKE-TOKEN-session=FAKE-FRESH" }
+    ]);
+    expect(login.calls).toBe(1);
   });
 
   it("never replays a timed-out save", async () => {

@@ -100,7 +100,9 @@ export async function forwardWithSessionRetry(
   upstreamUrl: URL,
   bodyBuffer: ArrayBuffer | null,
   establishSession: EstablishSession,
-  options: SessionForwardOptions = {}
+  options: SessionForwardOptions = {},
+  // Client-facing wrapper only; local timeout/refresh problems bypass this filter.
+  mapUpstreamResponse: (response: Response) => Response = (response) => response
 ): Promise<Response> {
   // Bounded per-attempt budget (TOG-5835), honoring an optional
   // `UPSTREAM_TIMEOUT_MS` binding. Worst case is 2x this (one retry max).
@@ -194,7 +196,7 @@ export async function forwardWithSessionRetry(
   // 401/429) is returned as-is and never retried.
   if (response && !isLoginRedirect(response)) {
     if (response.status !== 200 || !(await isLoginPageResponse(response))) {
-      return response;
+      return mapUpstreamResponse(response);
     }
   }
 
@@ -214,7 +216,8 @@ export async function forwardWithSessionRetry(
   session = await readSessionState(sessionStub);
 
   try {
-    return await forwardAttempt(session);
+    response = await forwardAttempt(session);
+    return mapUpstreamResponse(response);
   } catch (err) {
     if (isUpstreamTimeout(err)) {
       return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);

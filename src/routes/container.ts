@@ -1,7 +1,8 @@
 import { createRoute } from "@hono/zod-openapi";
 import { prepareSaveContainerFormBody, validateSaveFormBody } from "../lib/addressContainerSaveForm";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
+import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -54,28 +55,32 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
   );
   let up: Response;
   try {
-    up = await forwardWithSessionRetry(
+    // Validate before entering the async passthrough or any session operation.
+    try {
+      validateSaveFormBody(c.env, rawBody, c.req.raw.headers.get("content-type"), "container");
+    } catch (err) {
+      throw new SessionBodyPreparationError(err);
+    }
+    const options: SessionForwardOptions = {
+      prepareBody: async (session, originalBody) => {
+        bodyBuffer = await prepareSaveContainerFormBody(
+          c.env,
+          session,
+          c.req.raw,
+          originalBody,
+          c.req.raw.headers.get("content-type")
+        );
+        return bodyBuffer;
+      }
+    };
+    up = await forwardPassthrough(
       c.env,
       c.var.sessionStub,
       c.req.raw,
       upstreamUrl,
       rawBody,
       establishSession,
-      {
-        validateBody: (originalBody) => validateSaveFormBody(
-          c.env, originalBody, c.req.raw.headers.get("content-type"), "container"
-        ),
-        prepareBody: async (session, originalBody) => {
-          bodyBuffer = await prepareSaveContainerFormBody(
-            c.env,
-            session,
-            c.req.raw,
-            originalBody,
-            c.req.raw.headers.get("content-type")
-          );
-          return bodyBuffer;
-        }
-      }
+      options
     );
   } catch (err) {
     if (!(err instanceof SessionBodyPreparationError)) {
