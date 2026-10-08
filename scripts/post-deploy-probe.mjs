@@ -5,12 +5,14 @@
  * (authed) against a base URL.
  *
  * Usage:
- *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [--skip-if-no-token]
+ *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [--skip-if-no-token] [--scheduled]
  *   npm run probe:post-deploy -- <base-url>
  *   npm run probe:post-deploy:scheduled   (scheduled mode: SHADOW_API_BASE + skip-safe)
  *
  * Base resolution: explicit <base-url> wins, then $SHADOW_API_BASE (same name
  * as scripts/smoke-readiness.mjs), then http://localhost:8787 for local dev.
+ * --scheduled (also enforced for GITHUB_EVENT_NAME=schedule) requires a
+ * configured remote HTTPS staging target; no local fallback is permitted.
  *
  * Token resolution (never printed, never committed):
  *   1. --token-env=NAME (value read from process.env[NAME])
@@ -29,8 +31,10 @@ import {
   BASE_ENV,
   DEFAULT_BASE,
   SKIP_FLAG,
+  SCHEDULED_FLAG,
   evalCronFreshness,
   formatSkipLine,
+  resolveBase,
 } from "./lib/postDeployProbe.mjs";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -38,7 +42,7 @@ const MAX_BODY_SNIPPET = 500;
 
 function usage() {
   return [
-    `Usage: node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [${SKIP_FLAG}]`,
+    `Usage: node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [${SKIP_FLAG}] [${SCHEDULED_FLAG}]`,
     "",
     "  <base-url>      Worker origin, e.g. http://localhost:8787 or",
     "                  https://routeware-shadow-api.<account>.workers.dev",
@@ -47,7 +51,9 @@ function usage() {
     "                  (default: SHADOW_API_TOKEN, else CUSTOMER_SNAPSHOT_SYNC_SECRET)",
     "  --timeout-ms=N    Per-probe fetch timeout in ms (default 15000)",
     `  ${SKIP_FLAG}  skip (exit 0) the authed probes when no token resolves;`,
-    "                  scheduled mode. Without it a missing token fails (exit 1).",
+    "                  Without it a missing token fails (exit 1).",
+    `  ${SCHEDULED_FLAG}  require an approved remote HTTPS staging origin;`,
+    "                  also enforced automatically for GitHub schedule events.",
     "",
     "Token is never printed. For local dev it is read from the environment or",
     "from .dev.vars (SHADOW_API_TOKEN preferred, CUSTOMER_SNAPSHOT_SYNC_SECRET fallback).",
@@ -59,12 +65,15 @@ function parseArgs(args) {
   let tokenEnv = null;
   let timeoutMs = DEFAULT_TIMEOUT_MS;
   let skipIfNoToken = false;
+  let scheduled = false;
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") {
       console.log(usage());
       exit(0);
     } else if (arg === SKIP_FLAG) {
       skipIfNoToken = true;
+    } else if (arg === SCHEDULED_FLAG) {
+      scheduled = true;
     } else if (arg.startsWith("--token-env=")) {
       tokenEnv = arg.slice("--token-env=".length).trim();
     } else if (arg.startsWith("--timeout-ms=")) {
@@ -81,9 +90,13 @@ function parseArgs(args) {
       base = arg;
     }
   }
-  // Explicit <base-url> wins, then $SHADOW_API_BASE, then local default.
-  const resolved = base.trim() || env[BASE_ENV]?.trim() || DEFAULT_BASE;
-  return { base: resolved, tokenEnv, timeoutMs, skipIfNoToken };
+  try {
+    const resolved = resolveBase({ positional: base, env, scheduled });
+    return { base: resolved, tokenEnv, timeoutMs, skipIfNoToken };
+  } catch (error) {
+    console.error(`post-deploy probe configuration: ${error.message}`);
+    exit(1);
+  }
 }
 
 /** Read KEY=value pairs from `.dev.vars` without ever logging values. */
