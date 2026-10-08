@@ -15,77 +15,87 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 ---
 
-## 0. Do this first — enable PR CI before enabling production deploys
+## 0. Do this first — verify PR CI before enabling production deploys
 
 **Verification and production authorization are separate.** CI uses self-hosted runners labeled
-`two-selfhosted`. The credential-free `build` and `hygiene` jobs run on PRs; `shadow-api-v1`
+`two-selfhosted`. On PRs to `main`, changed-area detection selects the credential-free `build` and
+optional `shadow-api-v1` jobs; `hygiene` always runs. Docs-only PRs skip build and shadow, while
+pushes to `main` and nightly runs select the full verification suite. `ci-ok` aggregates these jobs,
+accepting intentional skips but failing on failures or cancellations. When selected, `shadow-api-v1`
 evaluates an optional `CF_TOKEN` gate and skips its contract step without that token. The `deploy`
-job fails closed unless the repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`.
+job requires successful build and hygiene, a push to `main`, and the expression
+`vars.PRODUCTION_DEPLOY_ENABLED == 'true'`; it never runs on PRs or nightly schedules. GitHub
+[compares strings case-insensitively](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#operators),
+so `TRUE` and `True` also enable this gate. Keep the variable unset until production is approved.
 
-The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5). Actions
-runs have since executed, including main run [36231264777](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777)
-on 2026-09-26. Do not infer current settings, secrets, or environments from the historical snapshot;
-verify them with authorized access. Keep production deploys disabled until setup is explicitly approved.
+The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5), but
+`GET actions/permissions` returned `enabled: true` on 2026-10-08. Re-check the current repository or
+new owner's settings instead of unconditionally re-enabling Actions. Do not infer secrets or
+production readiness from successful runs; keep production deploys disabled until setup is explicitly approved.
 
-### Observed runner/gate behavior (verified 2026-09-27, read-only — no settings changed)
+### Observed runner/gate behavior (verified 2026-10-08, read-only — no settings or deployments changed)
 
-- **Actions execute** (administratively enabled in practice). The permissions API returned 403 for the
-  verification token, so the enabled flag was not read directly; runs executing is the evidence.
-  - Main push run [36231264777](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777)
-    (2026-09-26, head `8f9eaed`, pre-fail-closed-gate): **completed / failure** —
-    `Typecheck, test, build` success, `Repo hygiene & secret scan` success, `shadow-api-v1`
-    success, `Deploy to Cloudflare Workers` **failure** at step `Apply D1 migrations (remote)`
-    with `Deploy Worker` skipped.
-  - Main push run [36285555015](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36285555015)
-    (2026-09-27, head `db89be6`): **completed / success** — build, hygiene and `shadow-api-v1`
-    success, deploy **skipped**. The fail-closed gate works: a push to `main` no longer attempts a
-    deploy while `PRODUCTION_DEPLOY_ENABLED` is not exactly `true`. The variables API returned 403
-    for the verification token, so variable presence was not read directly; the skipped conclusion
-    is the observable evidence.
-- **Runners:** every CI job carries labels `[self-hosted, two-selfhosted]` (verified in
-  `.github/workflows/ci.yml` and on both runs above). Runner host names rotate
-  (`coolify-vps-1/2` on the 2026-09-26 run, `ci-rbx1-*/ci-w2494-*` on 2026-09-27 runs) — the labels
-  are the stable contract, not the host names.
-- **`shadow-api-v1` gate (no `CF_TOKEN`):** step `Evaluate operator credential gate` succeeds and
-  step `Execute versioned API contract tests` concludes **skipped**; the job stays green. That is the
-  expected PR behavior without operator credentials.
-- **PR behavior:** success ex
-  [36283643912](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36283643912)
-  (build/hygiene/shadow success, deploy skipped — deploy never runs on PRs); failure ex
-  [36289128920](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36289128920)
-  (build **failure** at `Test (with coverage ratchet)`, downstream validate steps skipped, deploy
-  skipped). Red build is the blocking signal — do not open a review card for a red-CI PR.
-- **Branch protection (read-only):** `GET branches/main` returns `protected: false` (verified
-  2026-09-27). `GET branches/main/protection` returned 403 for the verification token, so detailed
-  rules could not be read — treat `main` as **unprotected** and complete Phase 1 step 4 before any
-  production deploy.
-- **Environment:** the `production` environment exists (created 2026-09-21) with `protection_rules:
-  []` — no required reviewers. Secret/variable values returned 403 for the verification token and
-  were not inferred.
+- **Actions are enabled:** `GET actions/permissions` returned `enabled: true` and
+  `allowed_actions: all`. Successful main and PR runs below confirm execution, not production approval.
+- **Main push:** run [37755980876](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37755980876)
+  (2026-10-08, head `353144e`): **completed / success** — `Detect changed areas`,
+  `Typecheck, test, build`, `Repo hygiene & secret scan`, `shadow-api-v1` and `ci-ok` succeeded;
+  `Deploy to Cloudflare Workers` was **skipped**. The repository variables list returned
+  `total_count: 0`, so `PRODUCTION_DEPLOY_ENABLED` was absent at verification. This is a pinned
+  completed run, not a claim that every newer main run has finished or passed.
+- **Docs-only PR:** run [37757808298](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37757808298)
+  (2026-10-08, head `24153bc`): **completed / success** — changed-area detection, hygiene and
+  `ci-ok` succeeded; build, `shadow-api-v1` and deploy were **skipped**. A green docs-only run
+  does not mean typecheck, coverage or remote contract tests executed.
+- **Runners:** every CI job on both runs carries labels `[self-hosted, two-selfhosted]`, matching
+  `.github/workflows/ci.yml`. These labels are the stable contract, not individual host names.
+- **Optional contract gate:** on the main run, `Evaluate operator credential gate` succeeded and
+  `Execute versioned API contract tests` was **skipped** while `shadow-api-v1` stayed green.
+  A successful gate/job is not evidence that the credentialed contract tests ran. No secret values
+  were read during verification.
+- **Main protection:** `GET branches/main` returned `protected: true`. `GET rules/branches/main`
+  returned active required checks: organization rule `Paperclip Review`; repository rules `pr-lint`,
+  `ci-ok` and `Repo hygiene & secret scan`. The classic `GET branches/main/protection` endpoint
+  returned 404 (`Branch not protected`); that does **not** negate the active rulesets. Re-check the
+  effective rules after a transfer rather than treating this repository as unprotected.
+- **Environment:** `production` still exists (created 2026-09-21), with `protection_rules: []`
+  and no deployment branch policy. It has no environment-required reviewers; its existence and
+  successful CI do not authorize enabling deploys or prove production credentials/resources are ready.
 
-### Phase 1 — turn on credential-free PR verification
+### Phase 1 — verify credential-free PR checks after a transfer
 
 1. **Leave `PRODUCTION_DEPLOY_ENABLED` unset.** Its absence is the production safety gate.
-2. **Re-enable Actions:**
-   ```bash
-   gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true
-   ```
-   or Settings → Actions → General → *Allow all actions and reusable workflows*. Confirm with:
+2. **Check whether Actions are enabled:**
    ```bash
    gh api repos/<owner>/<repo>/actions/permissions --jq .enabled     # expect: true
    ```
-   If the new owner is an organization, an **org-level** policy can still block Actions even when the
-   repo says enabled — check Organization Settings → Actions → General as well.
+   This repository was already enabled at verification. Only if the destination has Actions disabled,
+   have an authorized administrator enable them using Settings → Actions → General or:
+   ```bash
+   gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true
+   ```
+   Then confirm the enabled flag again. If the new owner is an organization, an **org-level** policy
+   can still block Actions even when the repo says enabled — check Organization Settings → Actions →
+   General as well.
 
    **Re-enabling does not retroactively build anything.** Verified 2026-08-22 by toggling it on this
    repo: no runs were created for the pushes made while it was off. Nothing will run until the next
    push or PR.
-3. **Verify without shipping anything.** Open a throwaway PR touching only a comment. Confirm
-   `Typecheck, test, build` and `Repo hygiene & secret scan` both run and pass on the self-hosted
-   runners. Without `CF_TOKEN`, `shadow-api-v1` must report its gate reason and skip contract execution.
-   The production deploy job must be skipped on the PR and remains skipped on pushes to `main` while
-   the enable variable is absent.
-4. **Add branch protection on `main`** and require both PR jobs before merging real changes.
+3. **Verify without shipping anything.** Inspect a recent PR run for the reviewed head, or use a
+   documentation-only PR after a transfer. Expect changed-area detection, `Repo hygiene & secret scan`
+   and `ci-ok` to pass on the self-hosted runners; docs-only PRs intentionally skip build and shadow.
+   For a PR selecting build/shadow, confirm build passes and, without `CF_TOKEN`, the shadow gate
+   reports its reason and skips contract execution. The deploy job must be skipped on every PR and
+   remain skipped on pushes to `main` while the enable variable is absent. Any failed or cancelled
+   required check blocks merging; do not interpret optional skips as executed tests.
+4. **Verify effective rules on `main`**, including organization rulesets:
+   ```bash
+   gh api repos/<owner>/<repo>/rules/branches/main
+   ```
+   At verification, the required contexts were `Paperclip Review`, `pr-lint`, `ci-ok` and
+   `Repo hygiene & secret scan`. After a transfer, have an authorized administrator restore the
+   intended rules if needed. Require the aggregate `ci-ok`, not a build job that intentionally skips
+   on docs-only PRs, and finish this check before any production deploy.
 
 ### Phase 2 — intentionally enable production deploys
 
@@ -106,11 +116,12 @@ Only after the production Cloudflare account, resources and Worker secrets are r
    ```bash
    gh variable set PRODUCTION_DEPLOY_ENABLED --body true --repo <owner>/<repo>
    ```
-5. Push a reviewed commit to `main`; confirm both blocking jobs pass, the deploy job runs, and
-   `GET /api/v1/health` responds afterwards. Then run the post-deploy probe
-   (`scripts/post-deploy-probe.mjs`, `npm run probe:post-deploy`), which hits
-   `GET /api/v1/health` (public) and `GET /api/v1/shadow/health` (authed) and exits 0
-   only when both pass:
+5. Push a reviewed commit to `main`; confirm all required checks pass, the deploy job runs, and
+   `GET /api/v1/health` responds afterwards. As part of the approved release, run the strict
+   post-deploy probe (`scripts/post-deploy-probe.mjs`, `npm run probe:post-deploy`), which checks
+   `GET /api/v1/health` (public), `GET /api/v1/shadow/health` and
+   `GET /api/v1/readiness` (both authenticated). It exits 0 only when all three pass,
+   including readiness and cron-freshness checks when cron metadata is present:
    ```bash
    npm run probe:post-deploy -- https://<worker-url>
    # local dev: npm run dev in one shell, then
@@ -119,14 +130,22 @@ Only after the production Cloudflare account, resources and Worker secrets are r
    The bearer is read from `SHADOW_API_TOKEN` (else `CUSTOMER_SNAPSHOT_SYNC_SECRET`),
    `--token-env=NAME`, or local `.dev.vars` — it is never logged and never committed.
 
-**Emergency stop / rollback:** delete `PRODUCTION_DEPLOY_ENABLED` or set it to anything other than
-`true`; the next workflow run skips deploy without disabling PR checks. Keep the code-level variable
-gate in place. If production setup is later abandoned entirely, remove the deploy job rather than
-removing its fail-closed condition.
+**Stop future deploys:** delete `PRODUCTION_DEPLOY_ENABLED` or explicitly set it to `false`;
+future workflow evaluations skip deploy without disabling PR checks. Changing only its capitalization
+is not a stop because the comparison is case-insensitive. This does not cancel
+an already-running deploy or roll back an already-deployed Worker. Keep the code-level variable gate
+in place. If production setup is later abandoned entirely, remove the deploy job rather than removing
+its fail-closed condition.
 
 **The four Worker secrets are a separate matter** and are not set through GitHub. They live in
 Cloudflare via `npx wrangler secret put …`, are untouched by deploys, and are listed by name in § 1.
-`CLOUDFLARE_API_TOKEN` is the only secret GitHub Actions needs.
+`CLOUDFLARE_API_TOKEN` is the deployment job's secret. Optional contract verification separately
+references `CF_TOKEN`; the scheduled/manual post-deploy probe references `SHADOW_API_TOKEN` and
+repository variable `SHADOW_API_BASE`. The probe workflow is not chained to deployment. Both its
+scheduled and manual dispatch runs require a configured, approved remote HTTPS staging origin;
+a missing or invalid target fails before any fetch (see [`SCHEDULED-PROBE.md`](SCHEDULED-PROBE.md)).
+With a valid target but no auth token, it skips authenticated checks, not public health. These
+optional paths do not require adding production credentials to ordinary PR verification.
 
 ---
 
