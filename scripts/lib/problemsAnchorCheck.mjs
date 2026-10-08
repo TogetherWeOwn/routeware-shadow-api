@@ -13,6 +13,8 @@
  * the suite runs inside the workers pool with no `node:fs`).
  */
 
+import { marked } from "marked";
+
 export const CHECK_NAME = "problems-anchor-coverage";
 
 /**
@@ -41,7 +43,7 @@ const DOC_ROW_RE = /^\|\s*`([a-z0-9-]+)`\s*\|/gm;
 /** GitHub's custom-anchor syntax (not an automatically slugged heading).
  * https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors
  */
-const DOC_ANCHOR_RE = /<a\s+name=["']([a-z0-9-]+)["']\s*><\/a>/g;
+const DOC_ANCHOR_RE = /^<a\s+name=(["'])([a-z0-9-]+)\1\s*>/;
 
 function lineOf(text, index) {
   return text.slice(0, index).split("\n").length;
@@ -113,25 +115,20 @@ export function extractDocSlugs(markdownText) {
  * @returns {string[]} sorted unique named anchors
  */
 export function extractDocAnchors(markdownText) {
-  const lines = String(markdownText).replace(/<!--[\s\S]*?-->/g, "").split("\n");
-  const rendered = [];
-  let fence = null;
-  for (const line of lines) {
-    const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-    if (fence) {
-      if (marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) {
-        fence = null;
-      }
-    } else if (marker) {
-      fence = marker[1];
-    } else if (!/^(?: {4}|\t)/.test(line)) {
-      rendered.push(line);
+  const anchors = [];
+  // Walk parsed GFM tokens, including table cells, not raw markup in examples.
+  // https://marked.js.org/using_pro#lexer
+  marked.walkTokens(marked.lexer(String(markdownText), { gfm: true }), (token) => {
+    // Image alt text is not rendered HTML; do not visit its inline tokens.
+    if (token.type === "image") {
+      token.tokens = [];
+      return;
     }
-  }
-  const withoutCodeSpans = rendered.join("\n").replace(/(`+)[\s\S]*?\1(?!`)/g, "");
-  return sortedUnique(
-    [...withoutCodeSpans.matchAll(DOC_ANCHOR_RE)].map((m) => m[1])
-  );
+    if (token.type !== "html") return;
+    const match = DOC_ANCHOR_RE.exec(token.text);
+    if (match) anchors.push(match[2]);
+  });
+  return sortedUnique(anchors);
 }
 
 /**

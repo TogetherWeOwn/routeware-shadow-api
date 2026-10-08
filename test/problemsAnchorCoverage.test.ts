@@ -121,7 +121,7 @@ describe("problems anchor check: doc extraction", () => {
       '<a name="tilde-fence"></a>',
       "~~~",
       '<a name="real"></a>',
-    ].join("\n");
+    ].join("\n\n");
     expect(extractDocAnchors(examples)).toEqual(["real"]);
   });
 });
@@ -207,5 +207,27 @@ describe("problems anchor check: real tree", () => {
     expect(result.unknown).toEqual([]);
     expect(result.unreferenced).toEqual([]);
     expect(result.missingAnchors).toEqual(["payload-too-large"]);
+  });
+
+  it.each([
+    ["mismatched attribute quotes", '<a name="payload-too-large\'></a>'],
+    ["escaped opening tag", '\\<a name="payload-too-large"></a>'],
+    ["image alt text", '![alt <a name="payload-too-large"></a>](example.png)'],
+    ["CRLF tilde fence", '~~~html\r\n<a name="payload-too-large"></a>\r\n~~~'],
+    ["unequal inline backtick runs", '`before `` <a name="payload-too-large"></a> `` after`'],
+    ["comment-looking fence suffix", '```html\n```<!-- note -->\n<a name="payload-too-large"></a>\n```'],
+  ])("does not replace a missing target with %s", (_label, example) => {
+    const withoutTarget = problemsMd.replace('<a name="payload-too-large"></a>', "");
+    const result = checkTree(`${withoutTarget}\n\n${example}\n`);
+    expect(result.ok).toBe(false);
+    expect(result.missingAnchors).toEqual(["payload-too-large"]);
+  });
+
+  it("does not count the table's targets inside an unterminated HTML comment", () => {
+    const commented = problemsMd.replace("| Slug (`type` anchor)", "<!--\n| Slug (`type` anchor)");
+    expect(commented).not.toBe(problemsMd);
+    const result = checkTree(commented);
+    expect(result.ok).toBe(false);
+    expect(result.missingAnchors).toEqual(extractDocSlugs(problemsMd));
   });
 });

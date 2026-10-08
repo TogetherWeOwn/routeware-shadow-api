@@ -14,15 +14,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  * serves CSV **only** for `QueryExecuteDownload` and throws on any other
  * upstream URL, so no test can reach `killeen.routeware.com`.
  *
- * Import order is customer → address → container: D1 enforces the declared
- * foreign keys, so out-of-order rows 400 instead of writing orphans, and the
- * plan guard (`getDataSnapshotPlan`) keeps a misconfigured run from failing
- * batch-by-batch (see docs/TEST-INVARIANTS.md § `getDataSnapshotPlan`). Each sync runs with
- * `reconcile: true` (the route default via `run*SnapshotSync`), and the
- * customer sync pins the reconcile guard behaviorally: a pre-seeded stale row
- * is deleted while a bad/empty export must not wipe the table (unit-pinned in
- * `test/snapshotStreamSync.test.ts`; asserted end-to-end here for the delete
- * path).
+ * Import order is customer → address → container, matching the declared
+ * foreign keys and `getDataSnapshotPlan` (docs/TEST-INVARIANTS.md). Each sync
+ * runs with `reconcile: true` (the route default via `run*SnapshotSync`): stale
+ * rows are deleted from all three tables while surviving parent rows remain.
+ * Bad/empty exports must not wipe the tables (unit-pinned in
+ * `test/snapshotStreamSync.test.ts`). The combined route dispatches its internal
+ * POSTs back through the real Worker at a synthetic request origin.
  *
  * Deliberately does NOT assert problem+json wording — those strings are owned
  * by slice A (`test/snapshotAuth.test.ts`).
@@ -42,6 +40,10 @@ import { env, exports } from "cloudflare:workers";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 const SYNC_SECRET = "test-sync-secret";
+const CHAIN_ORIGIN = "https://snapshot-e2e.invalid:8443";
+const TABLES = ["customer", "address", "container"] as const;
+type Table = (typeof TABLES)[number];
+type DataSyncResult = Record<Table, SyncResult | null>;
 
 // Report query ids from wrangler.toml [env.test.vars].
 const CUSTOMER_QID = "23";
@@ -84,13 +86,49 @@ function db(): D1Database {
   return (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
 }
 
-async function sync(path: string): Promise<{ status: number; body: SyncResult }> {
-  const resp = await exports.default.fetch(`http://test.local${path}`, {
+async function sync<T = SyncResult>(
+  path: string,
+  origin = "http://test.local"
+): Promise<{ status: number; body: T }> {
+  const resp = await exports.default.fetch(`${origin}${path}`, {
     method: "POST",
     headers: { authorization: `Bearer ${SYNC_SECRET}` }
   });
-  const body = (await resp.json()) as SyncResult;
+  const body = (await resp.json()) as T;
   return { status: resp.status, body };
+}
+
+async function seedStaleRows(): Promise<void> {
+  // Stale children reference surviving parents, not the stale customer or
+  // address: their deletes must come from reconciliation, not FK cascades.
+  await db().batch([
+    db().prepare(
+      "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (101, 'Acme Corp', 1, '2000-01-01T00:00:00.000Z'), (999, 'Stale Co', 1, '2000-01-01T00:00:00.000Z')"
+    ),
+    db().prepare(
+      "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (201, 101, '201 Main St', 1, '2000-01-01T00:00:00.000Z'), (998, 101, 'Stale Test Address', 1, '2000-01-01T00:00:00.000Z')"
+    ),
+    db().prepare(
+      "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (997, 201, 'STALE-TEST', 1, '2000-01-01T00:00:00.000Z')"
+    )
+  ]);
+}
+
+async function expectArchiveBytes(table: Table, result: SyncResult, startedDay: string): Promise<void> {
+  expect(result.r2?.status).toBe("stored");
+  const key = result.r2?.key;
+  expect(key).toMatch(new RegExp(`^snapshots/\\d{4}-\\d{2}-\\d{2}/${table}\\.csv$`));
+  // Preserve the current-UTC-day guard, allowing a sync to straddle midnight.
+  expect([startedDay, new Date().toISOString().slice(0, 10)]).toContain(key?.split("/")[1]);
+  const bucket = (env as unknown as { SNAPSHOTS: R2Bucket }).SNAPSHOTS;
+  const object = await bucket.get(key!);
+  expect(object).not.toBeNull();
+  const csv = CSV_BY_QID[{
+    customer: CUSTOMER_QID,
+    address: ADDRESS_QID,
+    container: CONTAINER_QID
+  }[table]];
+  expect(new Uint8Array(await object!.arrayBuffer())).toEqual(new TextEncoder().encode(csv));
 }
 
 describe("hermetic snapshot sync e2e", () => {
@@ -100,16 +138,34 @@ describe("hermetic snapshot sync e2e", () => {
   // in docs/HANDOVER.md fact 1), so every table exercises the re-auth retry:
   // re-read the session after establishSession rather than reusing the stale one.
   const downloadAttempts = new Map<string, number>();
+  const chainedRequests: string[] = [];
 
   beforeAll(async () => {
     await ensureD1TestTables();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await db().batch([
+      db().prepare("DELETE FROM container_snapshot"),
+      db().prepare("DELETE FROM address_snapshot"),
+      db().prepare("DELETE FROM customer_snapshot")
+    ]);
     downloadAttempts.clear();
-    globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
+    chainedRequests.length = 0;
+    httpLoginCalls.count = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const parsed = new URL(url);
+      if (parsed.origin === CHAIN_ORIGIN) {
+        expect(TABLES.map((table) => `/api/v1/${table}-snapshot/sync`)).toContain(parsed.pathname);
+        expect(parsed.search).toBe("");
+        const request = new Request(input instanceof Request ? input : url, init);
+        expect(request.method).toBe("POST");
+        expect(request.headers.get("authorization")).toBe(`Bearer ${SYNC_SECRET}`);
+        chainedRequests.push(url);
+        return exports.default.fetch(request);
+      }
       // TOG-6543: every query-id fetch polls QueryRequestIsComplete before
       // its download. The poll answers complete immediately so the e2e keeps
       // exercising the download retry leg (first download 302s, then CSV).
@@ -138,11 +194,8 @@ describe("hermetic snapshot sync e2e", () => {
           headers: { "content-type": "text/csv" }
         });
       }
-      // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
-        throw new Error(`Unexpected upstream fetch in test: ${url}`);
-      }
-      return originalFetch(input);
+      // No fallthrough to the network, including a wrongly hardcoded chain origin.
+      throw new Error(`Unexpected fetch in test: ${url}`);
     }) as typeof fetch;
   });
 
@@ -151,13 +204,8 @@ describe("hermetic snapshot sync e2e", () => {
   });
 
   it("syncs customer → address → container in FK order with login, retry, parse and upsert", async () => {
-    // Arrange — a stale customer row the reconcile step must delete.
-    await db()
-      .prepare(
-        "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (999, 'Stale Co', 1, '2000-01-01T00:00:00.000Z')"
-      )
-      .run();
-    httpLoginCalls.count = 0;
+    const startedDay = new Date().toISOString().slice(0, 10);
+    await seedStaleRows();
 
     // Act — customer first: address rows point at these customers.
     const customer = await sync("/api/v1/customer-snapshot/sync");
@@ -184,7 +232,7 @@ describe("hermetic snapshot sync e2e", () => {
 
     // Assert
     expect(address.status).toBe(200);
-    expect(address.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(address.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 1 });
     expect(address.body.r2?.status).toBe("stored");
     expect(httpLoginCalls.count).toBe(2);
     const addresses = await db()
@@ -202,7 +250,7 @@ describe("hermetic snapshot sync e2e", () => {
 
     // Assert — including the full-width container columns (UD-*, service codes).
     expect(container.status).toBe(200);
-    expect(container.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 0 });
+    expect(container.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 1 });
     expect(container.body.r2?.status).toBe("stored");
     expect(httpLoginCalls.count).toBe(3);
     const containers = await db()
@@ -218,21 +266,52 @@ describe("hermetic snapshot sync e2e", () => {
       { container_id: 302, pickup_address_id: 202, serial_number: "SN-302", customer_id: 102 }
     ]);
 
-    // Assert — the R2 archive leg stored all three CSVs (same stream as D1).
-    const bucket = (env as unknown as { SNAPSHOTS: R2Bucket }).SNAPSHOTS;
-    const day = new Date().toISOString().slice(0, 10);
-    const listed = await bucket.list({ prefix: `snapshots/${day}/` });
-    const keys = listed.objects.map((o) => o.key).sort();
-    expect(keys).toEqual([
-      `snapshots/${day}/address.csv`,
-      `snapshots/${day}/container.csv`,
-      `snapshots/${day}/customer.csv`
+    // Assert actual object bytes, not just keys or re-serialized parsed rows.
+    await expectArchiveBytes("customer", customer.body, startedDay);
+    await expectArchiveBytes("address", address.body, startedDay);
+    await expectArchiveBytes("container", container.body, startedDay);
+  });
+
+  it("POSTs data-snapshot/sync at the request origin through real per-table routes in FK order", async () => {
+    await seedStaleRows();
+
+    const combined = await sync<DataSyncResult>("/api/v1/data-snapshot/sync", CHAIN_ORIGIN);
+
+    expect(combined.status).toBe(200);
+    expect(chainedRequests).toEqual(TABLES.map((table) =>
+      `${CHAIN_ORIGIN}/api/v1/${table}-snapshot/sync`
+    ));
+    for (const table of TABLES) {
+      expect(combined.body[table]).toMatchObject({ upserted: 2, rowCount: 2 });
+    }
+    expect(httpLoginCalls.count).toBe(3);
+    for (const qid of [CUSTOMER_QID, ADDRESS_QID, CONTAINER_QID]) {
+      expect(downloadAttempts.get(qid)).toBe(2);
+    }
+    const customers = await db()
+      .prepare("SELECT customer_id FROM customer_snapshot ORDER BY customer_id")
+      .all<{ customer_id: number }>();
+    const addresses = await db()
+      .prepare("SELECT pickup_address_id, customer_id FROM address_snapshot ORDER BY pickup_address_id")
+      .all<{ pickup_address_id: number; customer_id: number }>();
+    const containers = await db()
+      .prepare("SELECT container_id, pickup_address_id FROM container_snapshot ORDER BY container_id")
+      .all<{ container_id: number; pickup_address_id: number }>();
+    expect(customers.results).toEqual([{ customer_id: 101 }, { customer_id: 102 }]);
+    expect(addresses.results).toEqual([
+      { pickup_address_id: 201, customer_id: 101 },
+      { pickup_address_id: 202, customer_id: 102 }
+    ]);
+    expect(containers.results).toEqual([
+      { container_id: 301, pickup_address_id: 201 },
+      { container_id: 302, pickup_address_id: 202 }
     ]);
   });
 
   it("re-syncing is idempotent: upserts overwrite, no duplicates, nothing stale to delete", async () => {
-    // Arrange — table state comes from the previous test's sync in this file.
-    // (Each test file gets a fresh D1; order within the file is top-to-bottom.)
+    // Arrange independently so this test also passes when selected alone.
+    const first = await sync("/api/v1/customer-snapshot/sync");
+    expect(first.status).toBe(200);
 
     // Act
     const again = await sync("/api/v1/customer-snapshot/sync");
