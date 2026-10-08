@@ -195,6 +195,10 @@ describe("scheduled sync path selection", () => {
     ["path-suffixed origin", "https://api.example.test/worker"],
     ["query-suffixed origin", "https://api.example.test?x=1"],
     ["fragment-suffixed origin", "https://api.example.test#frag"],
+    ["empty query delimiter", "https://api.example.test?"],
+    ["root slash and empty query delimiter", "https://api.example.test/?"],
+    ["empty fragment delimiter", "https://api.example.test#"],
+    ["root slash and empty fragment delimiter", "https://api.example.test/#"],
     ["userinfo origin", "https://user:pass@api.example.test"],
   ])("falls back to single-invocation on %s without throwing", async (_label, value) => {
     // Arrange — a malformed SHADOW_API_PUBLIC_BASE must never throw before
@@ -211,6 +215,7 @@ describe("scheduled sync path selection", () => {
     expect(line.configSource).toBe("fallback-single-invocation");
     expect(line.d1LimitRisk).toBe(true);
     expect(line.outcome).toBe("success");
+    expect([...logs, ...warns, ...errors.flat().map(String)].join("\n")).not.toContain(value);
   });
 
   it("still chains when a valid origin has surrounding whitespace", async () => {

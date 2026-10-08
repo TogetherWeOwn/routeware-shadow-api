@@ -92,7 +92,9 @@ export function resolveChainedBase(raw: unknown): string | null {
   if (parsed.pathname !== "/" && parsed.pathname !== "") {
     return null;
   }
-  if (parsed.search || parsed.hash) {
+  // URL.search/hash are empty for bare delimiters, but appending a sync path
+  // to the original string would put that path in the query or fragment.
+  if (trimmed.includes("?") || trimmed.includes("#")) {
     return null;
   }
   return trimmed;
