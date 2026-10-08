@@ -60,6 +60,11 @@ function harness() {
   return { values, fetch, stub: { fetch } as unknown as DurableObjectStub };
 }
 
+async function storeThenExpire(stub: DurableObjectStub) {
+  await storeSession(stub, COOKIE, Date.now() + 1);
+  await vi.advanceTimersByTimeAsync(1);
+}
+
 const invalidExpiries = [
   { label: "expired", expiry: () => Date.now() - 1 },
   { label: "exact expiry boundary", expiry: () => Date.now() },
@@ -94,7 +99,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
 
   it.each(invalidExpiries)("fails closed after unlock with $label", async ({ expiry }) => {
     const { stub, values, fetch } = harness();
-    await storeSession(stub, COOKIE, Date.now() - 1);
+    await storeThenExpire(stub);
     values.set("expiresAtMs", expiry());
     await stub.fetch("https://auth/lock");
     let completed = false;
@@ -152,7 +157,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
 
   it("accepts a later valid publication without extending the original deadline", async () => {
     const { stub } = harness();
-    await storeSession(stub, COOKIE, Date.now() - 1);
+    await storeThenExpire(stub);
     await stub.fetch("https://auth/lock");
     let completed = false;
     const pending = waitForConcurrentRefresh(stub, 2000, 500).then(() => { completed = true; });
@@ -168,7 +173,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
 
   it("all real establishSession waiters reuse one publication without logging in", async () => {
     const { stub, fetch } = harness();
-    await storeSession(stub, COOKIE, Date.now() - 1);
+    await storeThenExpire(stub);
     await stub.fetch("https://auth/lock");
     const pending = Promise.all(Array.from({ length: 3 }, () => establishSession(env, stub, env.LOGIN_URL)));
     await vi.advanceTimersByTimeAsync(0);
@@ -182,22 +187,26 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   });
 
   it.each(["proactive", "reactive"])(
-    "%s forwarding fails closed after the real failed holder unlocks",
+    "%s forwarding never retries a cookie that expires while the failed holder is locked",
     async (leg) => {
-      const { stub, values, fetch } = harness();
-      // A live cookie within the refresh skew triggers the proactive leg even
-      // when expired-session eviction is enabled. It expires while the holder waits.
-      await storeSession(stub, COOKIE, Date.now() + (leg === "proactive" ? 1000 : -1));
-      if (leg === "reactive") values.delete("expiresAtMs");
+      const { stub, fetch } = harness();
+      // The reactive cookie starts outside the 60s skew and is rejected upstream
+      // while locally live. Both cookies expire before the failed holder unlocks.
+      const remainingMs = leg === "proactive" ? 1000 : 61_000;
+      const expiresAtMs = Date.now() + remainingMs;
+      await storeSession(stub, COOKIE, expiresAtMs);
       await stub.fetch("https://auth/lock");
       const seenCookies: string[] = [];
+      const forwardTimes: number[] = [];
       const upstream = vi.fn(async (_input: unknown, init?: RequestInit) => {
         seenCookies.push(new Headers(init?.headers).get("cookie") ?? "");
-        // The initial reactive request may be cookieless; no stale material is sent.
-        values.set("cookieHeader", COOKIE);
-        return new Response(null, { status: 302, headers: { location: env.LOGIN_URL } });
+        forwardTimes.push(Date.now());
+        return new Response(
+          '<form action="/WebRW/Account/Login" method="post">' +
+            '<input name="UserName" /><input name="Password" type="password" /></form>',
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
       });
-      if (leg === "reactive") values.delete("cookieHeader");
       vi.stubGlobal("fetch", upstream);
       const pending = forwardWithSessionRetry(
         env, stub, new Request("https://shadow.invalid/api/test"),
@@ -205,7 +214,9 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       );
       const settled = pending.then((response) => response, (error: unknown) => error);
       await vi.advanceTimersByTimeAsync(0);
-      if (leg === "proactive") await vi.advanceTimersByTimeAsync(1000);
+      expect(seenCookies).toEqual(leg === "reactive" ? [COOKIE] : []);
+      await vi.advanceTimersByTimeAsync(remainingMs);
+      expect(Date.now()).toBe(expiresAtMs);
       await releaseRefreshLock(stub);
       // Covers both the inherited 20s budget and current main's unchanged 90s budget.
       await vi.advanceTimersByTimeAsync(120_000);
@@ -216,7 +227,8 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       expect(response.status).toBe(502);
       expect(response.headers.get("content-type")).toContain("problem+json");
       expect(await response.text()).not.toContain(COOKIE);
-      expect(seenCookies).toEqual(leg === "reactive" ? [""] : []);
+      expect(seenCookies).toEqual(leg === "reactive" ? [COOKIE] : []);
+      expect(forwardTimes.every((time) => time < expiresAtMs)).toBe(true);
       expect(fetch.mock.calls.filter(([url]) => url.endsWith("/lock"))).toHaveLength(2);
       expect(fetch.mock.calls.filter(([url]) => url.endsWith("/set"))).toHaveLength(1);
     }
