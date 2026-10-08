@@ -13,11 +13,15 @@ changes cannot skip these regressions when the filtered build is skipped.
 
 An operator must first identify an **approved, deployed nonproduction Worker**,
 with isolated staging bindings and no production data or upstream mutation.
-Then set the repository Actions variable `SHADOW_API_BASE` to that origin.
-A valid-looking URL is not approval: do not copy a workers.dev example or a
-production deployment URL. Repository documentation currently records no
-staging deployment; configuration must remain missing (and the monitor red)
-until this prerequisite is resolved. Do not disable the workflow or add a
+Then set an Actions variable `SHADOW_API_BASE` in the repository scope for a
+repository-specific target, or in an applicable organization scope only if the
+target is intentionally shared. Verify the workflow's effective
+`vars.SHADOW_API_BASE` resolves to the approved origin. A valid-looking URL is
+not approval: do not copy a workers.dev example or a production deployment URL.
+Repository documentation currently records no staging deployment; check
+applicable repository and organization scopes before concluding the variable is
+missing, and keep its effective value missing (so the monitor stays red) until
+this prerequisite is resolved. Do not disable the workflow or add a
 success/skip condition to hide the dependency.
 
 `SHADOW_API_TOKEN` remains optional in scheduled mode. Without it the public
