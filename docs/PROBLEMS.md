@@ -170,10 +170,16 @@ Cloudflare overwrites, so clients cannot spoof it); `X-Forwarded-For` is
 honored only when `THROTTLE_TRUST_XFF="true"` (dev/test) — production
 XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
 value can neither evade the throttle by rotation nor frame a victim's bucket.
-After 20 failures inside a 60-second window, further failed
-attempts from that IP get `429 Too Many Requests` with a problem+json body and
-a `Retry-After` header, for 60 seconds. The block is per-IP, not per-token, so
-rotating candidate tokens does not evade it.
+After 19 failed checks inside a 60-second window, the 20th check from that IP
+returns `429 Too Many Requests` and starts a 60-second block. Further failed
+checks while that block is active also return 429. Each 429 has a problem+json
+body, a `Retry-After` header reporting the remaining block duration (at most
+60 seconds), and `X-RateLimit-Limit` (`20`),
+`X-RateLimit-Remaining` (`0`), and `X-RateLimit-Reset` (an absolute Unix
+timestamp in seconds; for older Durable Objects that omit the expiry, it is a
+conservative estimate derived from `Retry-After`). CORS exposes `Retry-After` and
+all three `X-RateLimit-*` headers through `Access-Control-Expose-Headers`. The
+block is per-IP, not per-token, so rotating candidate tokens does not evade it.
 
 Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and

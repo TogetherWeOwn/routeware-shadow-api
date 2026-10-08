@@ -209,8 +209,11 @@ export function throttleRecordFailure(
   state: AuthThrottleState | null,
   nowMs: number
 ): { next: AuthThrottleState; verdict: AuthThrottleVerdict } {
+  const activeBlock =
+    state !== null && state.blockedUntilMs !== null && nowMs < state.blockedUntilMs;
   const fresh =
-    !state || nowMs - state.windowStartMs >= AUTH_THROTTLE_WINDOW_MS
+    !state ||
+    (nowMs - state.windowStartMs >= AUTH_THROTTLE_WINDOW_MS && !activeBlock)
       ? { failures: 0, windowStartMs: nowMs, blockedUntilMs: null }
       : state;
   const failures = fresh.failures + 1;

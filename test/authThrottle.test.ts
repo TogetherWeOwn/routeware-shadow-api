@@ -141,6 +141,25 @@ describe("throttle window math", () => {
     });
   });
 
+  it("preserves an active block when the failure window expires", () => {
+    const now = 1_000_000;
+    let state: AuthThrottleState | null = null;
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {
+      state = throttleRecordFailure(state, now).next;
+    }
+
+    const thresholdAt = now + AUTH_THROTTLE_WINDOW_MS - 500;
+    const blocked = throttleRecordFailure(state, thresholdAt);
+    expect(blocked.verdict.blocked).toBe(true);
+    expect(blocked.next.blockedUntilMs).toBe(thresholdAt + AUTH_THROTTLE_BLOCK_MS);
+
+    const afterWindow = now + AUTH_THROTTLE_WINDOW_MS + 100;
+    const stillBlocked = throttleRecordFailure(blocked.next, afterWindow);
+    expect(stillBlocked.verdict.blocked).toBe(true);
+    expect(stillBlocked.next.windowStartMs).toBe(now);
+    expect(stillBlocked.next.blockedUntilMs).toBe(afterWindow + AUTH_THROTTLE_BLOCK_MS);
+  });
+
   it("starts a fresh window after the old one expires", () => {
     // Arrange
     const first = throttleRecordFailure(null, 0).next;
@@ -265,6 +284,31 @@ describe("throttle fail-open paths", () => {
 
   afterEach(() => {
     console.error = realConsoleError;
+  });
+
+  it("derives an absolute reset at response time when an older DO omits resetAtSec", async () => {
+    const now = 1_000_500;
+    const clock = { nowMs: now };
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => clock.nowMs);
+    const env = envWithStub({
+      fetch: async () => {
+        // The DO's Retry-After is relative to its response, not request start.
+        clock.nowMs += 5_000;
+        return Response.json({ blocked: true, retryAfterSec: 55 });
+      }
+    });
+
+    try {
+      const verdict = await recordAuthFailure(env, req, now);
+
+      expect(verdict).toEqual({
+        blocked: true,
+        retryAfterSec: 55,
+        resetAtSec: Math.ceil((now + 60_000) / 1000)
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("records open when the DO fetch rejects (auth still enforced by the caller)", async () => {
