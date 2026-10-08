@@ -6,7 +6,7 @@ Both API and privileged sync secrets were changed independently, rolled back, an
 
 ## Scope and provenance
 
-- Assignment: [TOG-9226](/TOG/issues/TOG-9226). Its prerequisite [TOG-8910](/TOG/issues/TOG-8910) was `done` when checked.
+- Assignment: [TOG-9226](https://workforce.infextion.net/TOG/issues/TOG-9226). Its prerequisite [TOG-8910](https://workforce.infextion.net/TOG/issues/TOG-8910) was `done` when checked.
 - Tested checkout: `600ecb42ad4aa50c7ed33144cb75da2cc2602c01`.
 - Instructions used for the drill: `docs/SECRET-ROTATION-RUNBOOK.md` §§0–4, pre-edit SHA-256 `644fad6cd879773e3760ec7d5b1be04243003469a46a89e3a03ee3b655761746`. No application-code inspection was used to choose the probe routes or expected results; source was read after the drill to cross-check the documentation fixes.
 - Runtime: Node `v24.21.0`, Wrangler `4.84.1`, Vitest `4.1.10`, dependencies installed from the lockfile with `NODE_ENV=development npm ci --include=dev`.
@@ -17,7 +17,7 @@ Both API and privileged sync secrets were changed independently, rolled back, an
 
 ## Timings (UTC)
 
-From the 59-row [timestamped assertion artifact](/api/attachments/32682d46-9185-4364-844b-b9cdda0ad0cc/content). Times include the local runtime startup, not production secret propagation. Startup seconds run from launcher invocation to the first public-health `200`; the final column is elapsed from drill start.
+From the 59-row [timestamped assertion artifact](https://workforce.infextion.net/api/attachments/32682d46-9185-4364-844b-b9cdda0ad0cc/content). Times include the local runtime startup, not production secret propagation. Startup seconds run from launcher invocation to the first public-health `200`; the final column is elapsed from drill start.
 
 | Phase | Bindings written at | Worker ready at | Startup seconds | Phase assertions complete (elapsed seconds) |
 |---|---|---|---:|---:|
@@ -72,6 +72,15 @@ Author pre-review identified two existing production-checklist defects; both are
 - Local `BASE` and dummy variables were described as applying to the rest of the document. §3 now requires a separate approved deployed HTTPS origin, matching account/Worker/environment and real credential variables before any remote cutover or verification. Local probes cannot establish remote success.
 - Consumers were told to delete the old sync secret before next-cron acceptance, defeating the documented rollback fallback. §§3a/3b/6 now retain the operator **and consumer** old copies through acceptance and the agreed rollback window, then retire them together.
 
+A further fresh-context author check during scoped publication identified four standing findings, fixed in the same two-document slice:
+
+- Real-token probes must not expand bearer credentials into curl process arguments. §3 now supplies a stdin-header GET helper, disables default curl configuration and requires tracing off before secret loading/calls. §2/§2a argv examples are explicitly dummy-only.
+- The serial `401`-only dummy fallback does not cover concurrent shared-NAT attempts reaching the auth-throttle `429`. Production consumer readiness now requires a bounded alternate-token attempt only for positively identified pre-handler Worker auth/throttle rejections; generic/handler errors are not retryable. No concurrent-consumer experiment was added, and that readiness is not attested by this drill.
+- An old sync value aliased to an active read/API token can remain usable for general GET while failing the privileged inner check. §3 requires distinct active slots and both general/privileged **outer** retirement denials; aliases stop this checklist and require a separately authorized plan.
+- Root-relative task/artifact URLs did not resolve to Paperclip from GitHub. They are fully qualified for the authenticated Paperclip origin; the historical assertion artifact still has the recorded 59 rows and SHA-256. No timings, assertion counts or historical test results were changed.
+
+Current-source review also narrowed reset claims to best-effort Durable Object persistence and clarified that a chained run captures its outbound sync bearer once, rather than rereading it for each leg. These are publication documentation corrections, not newly observed drill behavior.
+
 ## Verification and limits
 
 - `npx vitest run test/dualSecretMatrix.test.ts test/snapshotAuth.test.ts`: **2 files, 49 tests passed**, duration **3.14 s**, started **05:40:41 UTC**, with no scratch credential file present. Test log is uploaded on the issue.
@@ -79,11 +88,11 @@ Author pre-review identified two existing production-checklist defects; both are
 - `npm ci` reported **18 dependency audit findings** (1 low, 5 moderate, 12 high). This is the existing lockfile install output, not a new defect caused by this docs-only slice; no packages were changed and no audit fix was run.
 - At the original 05:40 drill, the inherited task branch was 44 commits behind / 13 ahead of `main`; a read-only merge preview found eight conflicts in unrelated source/tests. This drill remains evidence for the named tested checkout, **not a claim that current main or a future PR head was drilled**. Publication must apply only the two-document patch to current `main`, verify its auth claims against that source and run the relevant checks there before the single Code Reviewer pass. Do not merge the entire shared branch or overwrite sibling edits.
 - The initially clean workspace subsequently acquired concurrent changes to source, scripts, package metadata, workflows and other documents. The observed changed source-file mtimes were after the 05:40:16 drill completion (05:40:51); this is not an immutable-worktree attestation. No other agent's changes were staged, reverted, overwritten, or committed. The portable patch is restricted to this card's runbook/report; there is no branch switch, reset, rebase, or merge.
-- Publication was initially held on the red scheduled-probe repair, [TOG-18093](/TOG/issues/TOG-18093). Observed failed run: [37638221376](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37638221376), main SHA `3ac5a209edaef39dc1b638e5693332f0ebd406c9`; build/hygiene/`ci-ok` were green but the deployed probe was red. The blocker reached `done` and its repair is on `main` as `2d1df58765cdfdfd10babf985f9ca4b1ea0f7be7` when publication resumed at 08:00 UTC. The latest main CI was still queued/pending; resolution of the card alone is not proof of green CI or a successful live probe. No duplicate repair card or production probe was created.
+- Publication was initially held on the red scheduled-probe repair, [TOG-18093](https://workforce.infextion.net/TOG/issues/TOG-18093). Observed failed run: [37638221376](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37638221376), main SHA `3ac5a209edaef39dc1b638e5693332f0ebd406c9`; build/hygiene/`ci-ok` were green but the deployed probe was red. The blocker reached `done` and its repair is on `main` as `2d1df58765cdfdfd10babf985f9ca4b1ea0f7be7` when publication resumed at 08:00 UTC. The latest main CI was still queued/pending; resolution of the card alone is not proof of green CI or a successful live probe. No duplicate repair card or production probe was created.
 - Neither next-day cron success nor real-consumer distribution was tested. The production acceptance in runbook §6 remains unmet and still needs its normal approval/operator route. This drill does **not** authorize that work.
 
 ## Evidence
 
-- [Timestamped assertions, 59 JSON rows](/api/attachments/32682d46-9185-4364-844b-b9cdda0ad0cc/content), SHA-256 `6d140cf2357b13e2e601d61dfae210ee04ee66eb2d4611fcdbc17790c3faafa8`.
-- [Exact disposable wrapper](/api/attachments/5d27f194-7cff-47d5-a45f-0fc4746abba7/content) and [49-test verification output](/api/attachments/42cb53fb-8af3-45cf-881e-a4e74abb79fa/content) are uploaded so the operations and test result can be inspected without this workspace. The wrapper is run-owned scratch tooling, not a new project service or CI dependency.
+- [Timestamped assertions, 59 JSON rows](https://workforce.infextion.net/api/attachments/32682d46-9185-4364-844b-b9cdda0ad0cc/content), SHA-256 `6d140cf2357b13e2e601d61dfae210ee04ee66eb2d4611fcdbc17790c3faafa8`.
+- [Exact disposable wrapper](https://workforce.infextion.net/api/attachments/5d27f194-7cff-47d5-a45f-0fc4746abba7/content) and [49-test verification output](https://workforce.infextion.net/api/attachments/42cb53fb-8af3-45cf-881e-a4e74abb79fa/content) are uploaded so the operations and test result can be inspected without this workspace. The wrapper is run-owned scratch tooling, not a new project service or CI dependency.
 - Report and runbook edits are local work products pending publication. No PR is claimed opened, reviewed, merged, or deployed by this report.
