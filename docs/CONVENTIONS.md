@@ -173,7 +173,7 @@ CI uses self-hosted runners labeled `two-selfhosted`. On pull requests targeting
 detection selects the credential-free `build` and optional `shadow-api-v1` jobs when relevant paths
 change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs. Without `CF_TOKEN`,
 the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
-matches `true`; an unset repository variable alone does not prove that an applicable organization
+matches `true`; an unset repository variable alone does not prove that no applicable organization
 variable can enable it. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased scope verification,
 enable and stop procedures. If Actions is disabled or runners are unavailable, local verification is not a substitute
 for exact-head CI.
