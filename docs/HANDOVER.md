@@ -87,6 +87,10 @@ verify them with authorized access. Keep production deploys disabled until setup
    the enable variable is absent.
 4. **Add branch protection on `main`** and require both PR jobs before merging real changes.
 
+For an offline rehearsal that leaves production off, use the
+[production deploy dry-run checklist](PRODUCTION-DEPLOY-DRY-RUN.md). It is not
+permission to execute Phase 2 or to test production.
+
 ### Phase 2 — intentionally enable production deploys
 
 Only after the production Cloudflare account, resources and Worker secrets are ready:
