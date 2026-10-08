@@ -180,12 +180,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Address line substring (case-insensitive; maximum 100 characters)",
+            "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Address line substring (case-insensitive; maximum 100 characters)",
+              "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
               "maxLength": 100,
               "type": "string",
             },
@@ -241,7 +241,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 characters, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -415,12 +415,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Substring on location or serial (case-insensitive; maximum 100 characters)",
+            "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Substring on location or serial (case-insensitive; maximum 100 characters)",
+              "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
               "maxLength": 100,
               "type": "string",
             },
@@ -476,7 +476,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 characters, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -628,12 +628,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Company name substring (case-insensitive; maximum 100 characters)",
+            "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Company name substring (case-insensitive; maximum 100 characters)",
+              "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
               "maxLength": 100,
               "type": "string",
             },
@@ -689,7 +689,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 characters, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",

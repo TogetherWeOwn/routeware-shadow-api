@@ -7,11 +7,25 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 
 const API_TOKEN = "test-api-token";
 const BOUNDARY_QUERY = "x".repeat(100);
+const UNICODE_QUERY = "\u{2000B}".repeat(100);
+const MIXED_QUERY = "x".repeat(50) + "\u{2000B}".repeat(50);
 const TEST_ENV = env as unknown as Env;
+const FIXTURES = [
+  [1, "fixture-needle", "fixture-other"],
+  [2, "fixture-other", "fixture-needle"],
+  [3, BOUNDARY_QUERY, "fixture-other"],
+  // Prefix decoys must not match the complete boundary queries.
+  [4, BOUNDARY_QUERY.slice(0, 99), "fixture-other"],
+  [5, UNICODE_QUERY, "fixture-other"],
+  [6, "\u{2000B}".repeat(99), "fixture-other"],
+  [7, MIXED_QUERY, "fixture-other"],
+  // Container-only matches pin the serial_number OR leg at the boundary too.
+  [8, "fixture-other", BOUNDARY_QUERY],
+  [9, "fixture-other", UNICODE_QUERY]
+] as const;
 const SPECS = [
   { name: "customer", id: "customer_id", matches: [1], ip: "192.0.2.211" },
   { name: "address", id: "pickup_address_id", matches: [1], ip: "192.0.2.212" },
-  // One match in location_address and one in serial_number pins both OR legs.
   { name: "container", id: "container_id", matches: [1, 2], ip: "192.0.2.213" }
 ] as const;
 
@@ -56,7 +70,7 @@ beforeEach(async () => {
     db.prepare("DELETE FROM address_snapshot"),
     db.prepare("DELETE FROM customer_snapshot")
   ]);
-  for (const [id, label] of [[1, "fixture-needle"], [2, "fixture-other"], [3, BOUNDARY_QUERY]] as const) {
+  for (const [id, label, serial] of FIXTURES) {
     await db.batch([
       db.prepare(
         "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, ?, 1, 'test')"
@@ -66,7 +80,7 @@ beforeEach(async () => {
       ).bind(id, id, label),
       db.prepare(
         "INSERT INTO container_snapshot (container_id, pickup_address_id, location_address, serial_number, enabled, synced_at) VALUES (?, ?, ?, ?, 1, 'test')"
-      ).bind(id, id, label, id === 2 ? "fixture-needle" : "fixture-other")
+      ).bind(id, id, label, serial)
     ]);
   }
 });
@@ -76,30 +90,58 @@ afterEach(() => {
 });
 
 describe.each(SPECS)("$name snapshot q limit", (spec) => {
-  it.each([101, 10_000])("rejects a %i-character q before touching D1 or echoing its value", async (length) => {
-    const q = "x".repeat(length);
+  it.each([
+    ["101 ASCII characters", "fixture-rejected-".padEnd(101, "x")],
+    ["10,000 ASCII characters", "fixture-rejected-".padEnd(10_000, "x")],
+    ["101 supplementary-plane code points", "\u{2000B}".repeat(101)],
+    ["101 mixed code points", "x".repeat(50) + "\u{2000B}".repeat(51)]
+  ])("rejects %s before touching D1 or echoing any query fragment", async (_name, q) => {
     const prepare = vi.fn(() => {
       throw new Error("Rejected query must not reach D1");
     });
     const db = { prepare } as unknown as D1Database;
-    const errorLog = vi.spyOn(console, "error");
+    const logs = (["error", "warn", "info", "log", "debug"] as const).map((method) =>
+      vi.spyOn(console, method)
+    );
     try {
       const response = await list(spec.name, q, { db });
       const text = await expectProblem(response, 400, "bad-request");
-      expect(text).not.toContain(q);
+      expect(JSON.parse(text)).toEqual({
+        type: problemType("bad-request"),
+        title: "Bad Request",
+        status: 400,
+        detail: "Invalid request query (q). See docs/PROBLEMS.md#bad-request."
+      });
       expect(prepare).not.toHaveBeenCalled();
-      expect(errorLog).not.toHaveBeenCalled();
+      for (const log of logs) expect(log).not.toHaveBeenCalled();
     } finally {
-      errorLog.mockRestore();
+      for (const log of logs) log.mockRestore();
     }
   });
 
-  it("accepts exactly 100 characters and filters without truncation", async () => {
-    const response = await list(spec.name, BOUNDARY_QUERY);
+  it.each([
+    { name: "100 ASCII characters", q: BOUNDARY_QUERY, matches: [3], serialMatches: [8] },
+    { name: "51 supplementary-plane code points", q: "\u{2000B}".repeat(51), matches: [5, 6], serialMatches: [9] },
+    { name: "100 supplementary-plane code points", q: UNICODE_QUERY, matches: [5], serialMatches: [9] },
+    { name: "100 mixed code points", q: MIXED_QUERY, matches: [7], serialMatches: [] }
+  ])("accepts $name and filters without truncation", async ({ q, matches, serialMatches }) => {
+    const response = await list(spec.name, q);
     expect(response.status).toBe(200);
     const body = await response.json() as { rows: Record<string, unknown>[]; total: number };
-    expect(body.total).toBe(1);
-    expect(body.rows.map((row) => row[spec.id])).toEqual([3]);
+    const expected = spec.name === "container" ? [...matches, ...serialMatches] : matches;
+    expect(body.total).toBe(expected.length);
+    expect(body.rows.map((row) => row[spec.id])).toEqual(expected);
+  });
+
+  it("publishes the same 100-code-point limit in OpenAPI", async () => {
+    const response = await app.fetch(new Request("http://test.local/openapi.json"), TEST_ENV);
+    expect(response.status).toBe(200);
+    const document = await response.json() as {
+      paths: Record<string, { get: { parameters: { name: string; schema: Record<string, unknown> }[] } }>;
+    };
+    const query = document.paths[`/api/v1/${spec.name}-snapshot`].get.parameters.find((p) => p.name === "q");
+    expect(query?.schema).toMatchObject({ type: "string", maxLength: 100 });
+    expect(query?.schema.description).toContain("100 Unicode code points");
   });
 
   it("keeps trimmed, case-insensitive substring filtering", async () => {
@@ -114,8 +156,8 @@ describe.each(SPECS)("$name snapshot q limit", (spec) => {
     const response = await list(spec.name, q);
     expect(response.status).toBe(200);
     const body = await response.json() as { rows: Record<string, unknown>[]; total: number };
-    expect(body.total).toBe(3);
-    expect(body.rows.map((row) => row[spec.id])).toEqual([1, 2, 3]);
+    expect(body.total).toBe(FIXTURES.length);
+    expect(body.rows.map((row) => row[spec.id])).toEqual(FIXTURES.map(([id]) => id));
   });
 
   it("caps the raw q before trimming rather than accepting oversized padding", async () => {

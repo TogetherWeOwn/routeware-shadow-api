@@ -4,6 +4,7 @@ import {
   syncCustomerSnapshotFromStream
 } from "../lib/d1SnapshotSync";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   createRouteModule,
   nonEmptyImportStream,
@@ -25,7 +26,7 @@ const customerSnapshotListRoute = createRoute({
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional(),
-      q: z.string().max(100).optional().describe("Company name substring (case-insensitive; maximum 100 characters)"),
+      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
       offset: z.coerce.number().int().min(0).default(0)
@@ -38,7 +39,7 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 characters, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
