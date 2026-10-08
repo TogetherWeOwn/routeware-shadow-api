@@ -84,8 +84,8 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
     expect(text).toBe('{"success":true}');
   });
 
-  it("passes a non-2xx upstream status through unchanged", async () => {
-    // Arrange — a loud upstream failure is not a silent one; no rewriting.
+  it("preserves a loud upstream status but replaces its body", async () => {
+    // Arrange — loud errors retain their status, never their upstream bytes.
     saveStatus = 503;
     saveBody = "upstream down";
     saveContentType = "text/plain";
@@ -99,7 +99,8 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
 
     // Assert
     expect(response.status).toBe(503);
-    expect(await response.text()).toBe("upstream down");
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    expect(await response.json()).toMatchObject({ title: "Upstream request failed", status: 503 });
   });
 
   it("surfaces an upstream JSON success:false with HTTP 200 as 502", async () => {

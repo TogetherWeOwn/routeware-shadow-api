@@ -26,9 +26,13 @@ Two facts govern every change here, and neither is obvious from the code:
    redirect shape*, not on `resp.ok`. The existing guards are the pattern to copy:
    - `isLoginRedirect()` (`src/lib/loginRedirect.ts`) — requires status 302 *and* a `location`
      naming `/Account/Login` or `Login.aspx`.
-   - `forwardWithSessionRetry()` (`src/lib/forwardWithSessionRetry.ts`) — returns early on
-     `status === 200 || !isLoginRedirect(response)`, otherwise re-establishes the session and retries
-     once.
+   - `forwardWithSessionRetry()` (`src/lib/forwardWithSessionRetry.ts`) — re-establishes the session
+     and retries once only for a login redirect or an HTTP-200 login form. Other responses do not
+     trigger a retry. Client-facing retry passthrough routes use `forwardPassthrough()`
+     (`src/lib/forwardPassthrough.ts`): upstream HTTP 400–599 keeps its status but receives a fixed
+     local `upstream-error` problem body, never upstream body bytes, headers or status text. This
+     applies on both attempts regardless of content type. Successful HTML/JSON and redirects are
+     unchanged. Internal save consumers retain the raw helper for their own sanitized envelopes.
    - `src/lib/routewareQueryReportCsv.ts` — throws when a report response body starts `<!DOCTYPE` or
      contains `<html`, because that *is* the failure signal: `"QueryRequestIsComplete returned HTML
      (session lost or error page)"`.

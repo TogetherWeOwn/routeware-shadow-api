@@ -114,6 +114,19 @@ describe("problems anchor check: doc extraction", () => {
     expect(extractDocAnchors('| `payload-too-large` | 413 | Too big. |\n## Oversized (`payload-too-large`)')).toEqual([]);
   });
 
+  it("requires a named target for the newest upstream-error slug", () => {
+    const row = '| `upstream-error` | 400–599 | An upstream error. |';
+    const target = '<a name="upstream-error"></a>\n\n## Loud upstream errors';
+    const compare = (markdownText: string) => compareAnchors({
+      codeSlugs: ["upstream-error"],
+      docSlugs: extractDocSlugs(markdownText),
+      anchorSlugs: extractDocAnchors(markdownText),
+    });
+    expect(compare(`${row}\n\n${target}`).ok).toBe(true);
+    expect(compare(row).missingAnchors).toEqual(["upstream-error"]);
+    expect(compare(`${row}\n\n\`\`\`html\n${target}\n\`\`\``).missingAnchors).toEqual(["upstream-error"]);
+  });
+
   it("ignores anchors quoted in code examples or HTML comments", () => {
     const examples = [
       '<!-- <a name="commented"></a> -->',
@@ -233,6 +246,10 @@ describe("problems anchor check: comparison", () => {
 });
 
 describe("problems anchor check: real tree", () => {
+  it("pins #upstream-error to its documented explanation", () => {
+    expect(problemsMd).toMatch(/<a name="upstream-error"><\/a>\s+## Loud upstream errors/);
+  });
+
   it("every problemType() slug resolves to a PROBLEMS.md row and named target", () => {
     const result = checkTree(problemsMd);
     expect({
@@ -244,14 +261,14 @@ describe("problems anchor check: real tree", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("fails if the payload-too-large target disappears but its table row remains", () => {
-    const broken = problemsMd.replace('<a name="payload-too-large"></a>', "");
+  it.each(extractDocSlugs(problemsMd))("fails if the %s target disappears but its table row remains", (slug) => {
+    const broken = problemsMd.replace(`<a name="${slug}"></a>`, "");
     expect(broken).not.toBe(problemsMd);
     const result = checkTree(broken);
     expect(result.ok).toBe(false);
     expect(result.unknown).toEqual([]);
     expect(result.unreferenced).toEqual([]);
-    expect(result.missingAnchors).toEqual(["payload-too-large"]);
+    expect(result.missingAnchors).toEqual([slug]);
   });
 
   it.each([

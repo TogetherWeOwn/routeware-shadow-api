@@ -20,7 +20,7 @@ import { validationFailureHook } from "../src/routes/shared";
  * | `GET /api/v1/health` | — (no schema) | — (public) | | | | | | |
  * | `GET /api/v1/readiness` | — | outer gate | | | shared | | R1 (own schema, not problem+json) | shared |
  * | `GET /api/v1/shadow/health` | — | outer gate | | | shared | | | shared |
- * | Routeware passthroughs (customers-read, detail-full, customer-types-read, add-new-long, load-long-modal, app-settings-get, home/index, login-page, query-request-is-complete) | — (no schemas) | outer gate | | | shared | | | shared; upstream status/body streams through verbatim (R2) |
+ * | Routeware passthroughs (customers-read, detail-full, customer-types-read, add-new-long, load-long-modal, app-settings-get, home/index, login-page, query-request-is-complete) | — (no schemas) | outer gate | | | shared | | | shared; retry passthrough errors use upstream-error; sessionless login-page remains R2 |
  * | `POST …/save-long-form` | — | outer gate | | | shared | token-prep + HTML-200 silent failure | | shared |
  * | `POST …/save-address-form`, `…/save-container-form` | create w/o parent id (TOG-8148) | outer gate | | | shared | token-prep | | shared |
  * | `DELETE /api/v1/routeware/customer` | — | outer gate | | anchored | shared | | | shared |
@@ -42,9 +42,9 @@ import { validationFailureHook } from "../src/routes/shared";
  * - R1: readiness 503 carries the `ReadinessResponse` schema, not
  *   problem+json (`test/readiness.test.ts`). It is a deploy probe, not an
  *   entry in the PROBLEMS.md error table.
- * - R2: upstream passthroughs stream Routeware's own status/body (`R3` in
- *   `test/customerSaveLongFormSilentFailure.test.ts` pins the one shape we
- *   DO rewrite: HTML-200 silent failures become 502).
+ * - R2: the sessionless login-page probe retains its direct-forward contract.
+ *   Retry passthroughs replace HTTP 400–599 with anchored upstream-error bodies
+ *   (`test/passthroughLoudFailure.test.ts`); HTML-200 silent failures still become 502.
  * - R3: `src/authSession.do.ts` plain-text 400/404/423s are the Durable
  *   Object's internal stub protocol, unreachable from the public API surface.
  * - R4: `POST /api/v1/data/*` returns ids + `upstreamBytes` + fixed
