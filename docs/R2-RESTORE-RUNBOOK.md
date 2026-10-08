@@ -53,15 +53,21 @@ policy from the key's date. [R2 lifecycle documentation](https://developers.clou
 
 ## 2. Create private scratch state (terminal B)
 
-In Paperclip use the run-owned scratch directory. Outside Paperclip, set
+In Paperclip use the run-owned scratch directory. Outside Paperclip, **export**
 `PAPERCLIP_RUN_SCRATCH_DIR` to an approved private scratch parent first. Do **not**
 erase `.wrangler/state`, point at an existing dev server, or substitute the
 repository's production config.
 
-Terminal B: create a private context file once in your ordinary Bash shell.
-This block does not enable strict mode or call `exit` in your interactive shell.
+Terminal B: choose `RECOVERY_BUCKET` in the block below before creating state.
+The shown value names the **local fixture's simulated bucket**. For an authorized
+incident, use the approved source bucket from §7.1 instead. After initialization,
+the context is authoritative: changing a parent-shell `BUCKET` does not override
+it. If you chose the wrong bucket, start a new context rather than mixing archives.
+Create the private context file once in your ordinary Bash shell; this block does
+not enable strict mode or call `exit` in your interactive shell.
 
 ```bash
+export RECOVERY_BUCKET=routeware-csv-snapshots-test  # choose the approved source bucket here
 if RECOVERY_CONTEXT="$(mktemp "${PAPERCLIP_RUN_SCRATCH_DIR:?set a private scratch parent}/r2-context.XXXXXX")"; then
   export RECOVERY_CONTEXT
   export SOURCE=local
@@ -89,9 +95,11 @@ RUN="$(mktemp -d "${PAPERCLIP_RUN_SCRATCH_DIR:?set a private scratch parent}/r2-
 [ -n "$RUN" ] && [ -d "$RUN" ] || { printf 'STOP: scratch creation failed\n' >&2; exit 1; }
 export RUN
 export DATE=2026-09-28  # choose the archive's UTC date before downloading
-export BUCKET=routeware-csv-snapshots
+export BUCKET="${RECOVERY_BUCKET:?select the approved source bucket before creating state}"
 export PORT=8797       # use a free local port; do not reuse another Worker's URL
 export WRANGLER_SEND_METRICS=false
+# Preserve the owned directory even if a later config/port check fails.
+declare -p ROOT RUN DATE BUCKET PORT WRANGLER_SEND_METRICS > "$RECOVERY_CONTEXT"
 
 python3 - <<'PY'
 import json, os, pathlib, socket
@@ -130,7 +138,6 @@ new_classes = ["AuthSession"]
 ''')
 PY
 
-declare -p ROOT RUN DATE BUCKET PORT WRANGLER_SEND_METRICS > "$RECOVERY_CONTEXT"
 npx wrangler d1 migrations apply CUSTOMER_DB --local \
   --config "$RUN/wrangler.toml" --persist-to "$RUN/state"
 )
@@ -138,10 +145,14 @@ npx wrangler d1 migrations apply CUSTOMER_DB --local \
 
 The generated config has a dummy D1 id, public **synthetic** local-only bearer
 values, no report query ids, no cron, no live R2 binding and no real credentials.
-It loads no repository `.dev.vars`. Every D1 command below uses that config and
+It loads no repository `.dev.vars`. Every D1 command in §§2–5 uses that config and
 `--local --persist-to "$RUN/state"`. No Cloudflare account provisioning is needed.
+**Never import a real archive into this fixture Worker.** Its published bearer
+values are safe only for synthetic rows; loopback does not isolate other users
+on a shared host. Real-data local rehearsal needs separately approved access
+isolation and private credentials, not this credential-free drill.
 
-## 3. Credential-free reviewer fixture (skip for an authorized real archive)
+## 3. Credential-free reviewer fixture — synthetic data only
 
 This is the complete one-table acceptance drill: seed synthetic CSV + sidecar
 into **local** R2, then recover them using the same Wrangler download leg as §4.
@@ -290,6 +301,7 @@ npx wrangler d1 execute CUSTOMER_DB --local --config "$RUN/wrangler.toml" \
 
 python3 - <<'PY'
 import csv, json, os, pathlib
+csv.field_size_limit(50 * 1024 * 1024)  # match the import body's supported ceiling
 run = pathlib.Path(os.environ['RUN'])
 with (run / 'customer.csv').open(encoding='utf-8-sig', newline='') as f:
     expected = sum(1 for _ in csv.DictReader(f))
@@ -333,8 +345,9 @@ PY
 )
 ```
 
-For a real archive, compare sampled ids/values to its CSV **privately** instead of
-using the synthetic assertion. Only post counts, digests and the reviewed SHA.
+§5 is **synthetic-only**. For a real archive, use the separately authorized target
+in §7 and compare sampled ids/values to its CSV **privately**. Never load real PII
+into the fixture Worker. Only post counts, digests and the reviewed SHA.
 Duplicate ids, skipped/invalid rows or partial writes can make counts disagree;
 a 200 alone is not acceptance. Diagnose the input, then repeat in a **new**
 scratch directory. Imports upsert existing ids and never reconcile/delete rows.
@@ -410,12 +423,14 @@ umask 077
 source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 DEPLOYED_FLAGS=(--config "$ROOT/wrangler.toml")
 case "${RECOVERY_ENV:?export the explicitly approved environment}" in
-  default) D1_NAME=routeware-customer-snapshot ;;
-  test) D1_NAME=routeware-customer-snapshot-test; DEPLOYED_FLAGS+=(--env test) ;;
+  default) D1_NAME=routeware-customer-snapshot; SOURCE_BUCKET=routeware-csv-snapshots ;;
+  test) D1_NAME=routeware-customer-snapshot-test; SOURCE_BUCKET=routeware-csv-snapshots-test; DEPLOYED_FLAGS+=(--env test) ;;
   *) printf 'STOP: unapproved environment\n' >&2; exit 1 ;;
 esac
+[ "$BUCKET" = "$SOURCE_BUCKET" ] || { printf 'STOP: source bucket does not match the approved environment; create a new context\n' >&2; exit 1; }
+export SOURCE_BUCKET
 : "${RECOVERY_BASE:?export the approved Worker origin}"
-declare -p D1_NAME DEPLOYED_FLAGS RECOVERY_BASE > "$RUN/deployed-context.bash"
+declare -p D1_NAME DEPLOYED_FLAGS RECOVERY_BASE SOURCE_BUCKET > "$RUN/deployed-context.bash"
 npx wrangler d1 info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/deployed-d1-info.json"
 npx wrangler d1 time-travel info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/pre-recovery-bookmark.json"
 npx wrangler d1 execute "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --remote --json --command \
@@ -443,8 +458,50 @@ destination filename and manifest entry: `address.csv` or `container.csv` as
 needed. Keep the same sidecar and verify **every** selected CSV before the first
 write. Recover parents before children: **customer → address → container**;
 unchanged parents must already exist. A same-date manifest is not proof of a
-consistent chain. Confirm compatible parent ids in the scratch drill before
-approving a multi-table incident recovery.
+consistent chain. Confirm compatible parent ids against the approved target or
+in a separately approved, privately isolated rehearsal; never use the public
+fixture Worker for real PII.
+
+The HTTP imports cap **each body at 50 MiB** (`SNAPSHOT_IMPORT_MAX_BYTES`); archive
+writers have no equivalent cap. Before the first deployed write, export
+`RECOVERY_TABLES` as the approved space-separated table names in FK order (for
+example, `customer address container`). Run this all-files preflight. Stop on an
+oversized archive and obtain an approved alternative; do not begin a partial
+chain or improvise CSV splitting during an incident.
+
+```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
+source "$RUN/deployed-context.bash"
+[ "$BUCKET" = "$SOURCE_BUCKET" ] || { printf 'STOP: source bucket mismatch\n' >&2; exit 1; }
+node --input-type=module <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+try {
+  const { RUN, DATE, RECOVERY_TABLES } = process.env;
+  const order = ['customer', 'address', 'container'];
+  const tables = RECOVERY_TABLES?.trim().split(/\s+/);
+  if (!tables?.length || tables.some((t, i) => !order.includes(t) ||
+      (i > 0 && order.indexOf(t) <= order.indexOf(tables[i - 1])))) throw new Error();
+  const manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
+  if (manifest?.version !== 1 || manifest.date !== DATE) throw new Error();
+  for (const table of tables) {
+    const entry = manifest.files?.[`${table}.csv`];
+    const csv = readFileSync(`${RUN}/${table}.csv`);
+    if (csv.length > 50 * 1024 * 1024 || entry?.bytes !== csv.length || csv.length === 0 ||
+        entry.key !== `snapshots/${DATE}/${table}.csv` ||
+        entry.sha256 !== createHash('sha256').update(csv).digest('hex')) throw new Error();
+  }
+  writeFileSync(`${RUN}/approved-recovery-tables.json`, JSON.stringify(tables));
+  console.log('PASS: all selected archives satisfy integrity and the 50 MiB import ceiling');
+} catch {
+  console.error('STOP: selected archive integrity, order or size preflight failed');
+  process.exit(1);
+}
+JS
+)
+```
 
 For each table in that order, export `RECOVERY_TABLE` as exactly `customer`,
 `address` or `container` in terminal B and run this block. It rechecks the exact
@@ -462,9 +519,11 @@ node --input-type=module <<'JS'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 try {
-  const { RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table,
+  const { RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table, BUCKET, SOURCE_BUCKET,
     CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } = process.env;
-  if (!['customer', 'address', 'container'].includes(table) || !secret) {
+  const tables = JSON.parse(readFileSync(`${RUN}/approved-recovery-tables.json`, 'utf8'));
+  if (!['customer', 'address', 'container'].includes(table) || !secret ||
+      BUCKET !== SOURCE_BUCKET || !Array.isArray(tables) || !tables.includes(table)) {
     throw new Error();
   }
   const base = new URL(RECOVERY_BASE);
@@ -476,6 +535,7 @@ try {
   if (manifest?.version !== 1 || manifest.date !== DATE ||
       entry?.key !== `snapshots/${DATE}/${table}.csv` ||
       !Number.isInteger(entry?.bytes) || entry.bytes <= 0 || entry.bytes !== csv.length ||
+      csv.length > 50 * 1024 * 1024 ||
       !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '') ||
       entry.sha256 !== createHash('sha256').update(csv).digest('hex')) throw new Error();
   const response = await fetch(new URL(`/api/v1/${table}-snapshot/import`, base), {
