@@ -1,5 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { runDataSnapshotSyncChainedHttp } from "../lib/d1SnapshotSync";
+import {
+  ORPHAN_SAMPLE_LIMIT_DEFAULT,
+  ORPHAN_SAMPLE_LIMIT_MAX,
+  getSnapshotOrphans,
+  runDataSnapshotSyncChainedHttp
+} from "../lib/d1SnapshotSync";
 import {
   createRouteModule,
   dataSnapshotSyncResultExample,
@@ -81,4 +86,78 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
     },
     200
   );
+});
+
+const snapshotOrphanSampleSchema = z
+  .object({
+    count: z.number().int(),
+    sampleIds: z.array(z.number().int())
+  })
+  .openapi("SnapshotOrphanSample");
+
+const snapshotOrphanReportSchema = z
+  .object({
+    orphanAddresses: snapshotOrphanSampleSchema,
+    orphanContainers: snapshotOrphanSampleSchema
+  })
+  .openapi("SnapshotOrphanReport");
+
+const dataSnapshotOrphansRoute = createRoute({
+  method: "get",
+  path: "/api/v1/data-snapshot/orphans",
+  tags: ["data-snapshot"],
+  summary: "Report orphan rows on the snapshot FK chain (D1)",
+  description:
+    "Defensive integrity audit of `address_snapshot.customer_id` → `customer_snapshot` and `container_snapshot.pickup_address_id` → `address_snapshot`. D1 enforces both foreign keys on writes and parent deletes, so normal streamed syncs cannot create orphans. A nonzero report warrants investigating legacy or out-of-band data and missing or mismatched schema constraints. Returns per-edge orphan counts plus deterministic id samples (ordered by primary key) from one read-only transaction. Same bearer as other snapshot routes.",
+  request: {
+    query: z.object({
+      sampleLimit: z.coerce
+        .number()
+        .int()
+        .min(1)
+        .max(ORPHAN_SAMPLE_LIMIT_MAX)
+        .default(ORPHAN_SAMPLE_LIMIT_DEFAULT)
+        .describe(
+          "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched."
+        )
+        .openapi({ example: ORPHAN_SAMPLE_LIMIT_DEFAULT })
+    })
+  },
+  responses: {
+    200: {
+      description: "Orphan counts and id samples per FK edge",
+      content: {
+        "application/json": {
+          schema: snapshotOrphanReportSchema,
+          example: {
+            orphanAddresses: { count: 0, sampleIds: [] },
+            orphanContainers: { count: 0, sampleIds: [] }
+          }
+        }
+      }
+    },
+    400: {
+      description:
+        "Invalid sampleLimit (application/problem+json). Must be an integer from 1 to 500; invalid values are rejected before any D1 query runs.",
+      content: {
+        "application/problem+json": {
+          schema: z.object({
+            type: z.string(),
+            title: z.string(),
+            status: z.literal(400),
+            detail: z.string()
+          })
+        }
+      }
+    },
+    401: { description: "Unauthorized" }
+  }
+});
+
+dataSnapshotRoutes.openapi(dataSnapshotOrphansRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  const q = c.req.valid("query");
+  const report = await getSnapshotOrphans(c.env.CUSTOMER_DB, q.sampleLimit);
+  return c.json(report, 200);
 });

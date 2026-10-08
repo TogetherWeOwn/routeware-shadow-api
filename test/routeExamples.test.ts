@@ -223,6 +223,7 @@ const REMAINING_RESPONSES = [
   { path: "/api/v1/customer-snapshot/changes", method: "get", mediaType: "application/json" },
   { path: "/api/v1/customer-snapshot/{customerId}", method: "delete", mediaType: "application/json" },
   { path: "/api/v1/data-snapshot/sync", method: "post", mediaType: "application/json" },
+  { path: "/api/v1/data-snapshot/orphans", method: "get", mediaType: "application/json" },
   { path: "/api/v1/routeware/home/index", method: "get", mediaType: "text/html" },
   { path: "/api/v1/routeware/account/login-page", method: "get", mediaType: "text/html" },
   { path: "/api/v1/routeware/data/app-settings-get", method: "post", mediaType: "application/json" },
@@ -275,7 +276,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
         checked++;
       }
     }
-    expect(checked).toBe(45);
+    expect(checked).toBe(46);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
@@ -349,6 +350,29 @@ describe("example bodies install no runtime validators (TOG-6272)", () => {
     const res = await post("/api/v1/routeware/data/app-settings-get", "foreign=1");
     expect(res.status).toBe(200);
     expect(forwarded.some((url) => url.includes("/WebRW/Data/appSettingsGet"))).toBe(true);
+  });
+
+  it("forwards non-object JSON app-settings bytes without validation", async () => {
+    // A matching Content-Type exercises JSON validation; an optional object
+    // validator would reject null instead of forwarding it.
+    // Source: https://hono.dev/docs/guides/validation
+    const res = await exports.default.fetch("http://test.local/api/v1/routeware/data/app-settings-get", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${API_TOKEN}`,
+        "content-type": "application/json"
+      },
+      body: "null"
+    });
+    expect(res.status).toBe(200);
+    expect(forwarded.some((url) => url.includes("/WebRW/Data/appSettingsGet"))).toBe(true);
+    const upstreamCall = vi.mocked(globalThis.fetch).mock.calls.find(
+      ([input]) => typeof input === "string" && input.includes("/WebRW/Data/appSettingsGet")
+    );
+    expect(upstreamCall).toBeDefined();
+    const upstreamBody = upstreamCall![1]?.body;
+    expect(upstreamBody).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(upstreamBody as ArrayBuffer)).toStrictEqual(new TextEncoder().encode("null"));
   });
 
   it("keeps data-entity form examples docs-only", async () => {

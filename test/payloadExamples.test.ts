@@ -55,7 +55,7 @@ describe("synthetic OpenAPI rows match stored snapshot values", () => {
   });
 
   it.each(CASES)("$spec.table CSV example matches the production serializer", ({ spec, fixture, csv }) => {
-    expect(csv.replace(/\r\n/g, "\n")).toBe(
+    expect(csv).toBe(
       snapshotExportHeaderLine(spec) + "\n" + encodeSnapshotRow(spec, fixture) + "\n"
     );
   });

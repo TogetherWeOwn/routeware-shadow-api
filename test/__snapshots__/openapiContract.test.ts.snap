@@ -442,6 +442,39 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "type": "object",
       },
+      "SnapshotOrphanReport": {
+        "properties": {
+          "orphanAddresses": {
+            "$ref": "#/components/schemas/SnapshotOrphanSample",
+          },
+          "orphanContainers": {
+            "$ref": "#/components/schemas/SnapshotOrphanSample",
+          },
+        },
+        "required": [
+          "orphanAddresses",
+          "orphanContainers",
+        ],
+        "type": "object",
+      },
+      "SnapshotOrphanSample": {
+        "properties": {
+          "count": {
+            "type": "integer",
+          },
+          "sampleIds": {
+            "items": {
+              "type": "integer",
+            },
+            "type": "array",
+          },
+        },
+        "required": [
+          "count",
+          "sampleIds",
+        ],
+        "type": "object",
+      },
     },
     "securitySchemes": {
       "bearerAuth": {
@@ -1745,6 +1778,89 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "summary": "Get one customer snapshot row",
         "tags": [
           "customer-snapshot",
+        ],
+      },
+    },
+    "/api/v1/data-snapshot/orphans": {
+      "get": {
+        "description": "Defensive integrity audit of \`address_snapshot.customer_id\` → \`customer_snapshot\` and \`container_snapshot.pickup_address_id\` → \`address_snapshot\`. D1 enforces both foreign keys on writes and parent deletes, so normal streamed syncs cannot create orphans. A nonzero report warrants investigating legacy or out-of-band data and missing or mismatched schema constraints. Returns per-edge orphan counts plus deterministic id samples (ordered by primary key) from one read-only transaction. Same bearer as other snapshot routes.",
+        "parameters": [
+          {
+            "description": "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched.",
+            "in": "query",
+            "name": "sampleLimit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched.",
+              "example": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "orphanAddresses": {
+                    "count": 0,
+                    "sampleIds": [],
+                  },
+                  "orphanContainers": {
+                    "count": 0,
+                    "sampleIds": [],
+                  },
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotOrphanReport",
+                },
+              },
+            },
+            "description": "Orphan counts and id samples per FK edge",
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "enum": [
+                        400,
+                      ],
+                      "type": "number",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                    "detail",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Invalid sampleLimit (application/problem+json). Must be an integer from 1 to 500; invalid values are rejected before any D1 query runs.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+        },
+        "summary": "Report orphan rows on the snapshot FK chain (D1)",
+        "tags": [
+          "data-snapshot",
         ],
       },
     },

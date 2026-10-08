@@ -2,7 +2,9 @@ import type { CustomerBundle, AddressBundle, ContainerBundle } from "../lib/data
 import {
   CUSTOMER_SNAPSHOT_EXPORT,
   ADDRESS_SNAPSHOT_EXPORT,
-  CONTAINER_SNAPSHOT_EXPORT
+  CONTAINER_SNAPSHOT_EXPORT,
+  encodeSnapshotRow,
+  snapshotExportHeaderLine
 } from "../lib/snapshot/export";
 import type { SnapshotExportSpec } from "../lib/snapshot/export";
 
@@ -90,13 +92,9 @@ export const containerBundleExample: ContainerBundle = {
   customer: customerRowExample
 };
 
-/** Use the actual export column order and boolean spelling, not the import subset. */
+/** Use the production export encoding and LF separators, not the import subset. */
 function exportExample(spec: SnapshotExportSpec, row: Record<string, unknown>): string {
-  return spec.columns.map((column) => column.header).join(",") + "\r\n" +
-    spec.columns.map((column) => {
-      const value = row[column.db];
-      return column.boolean ? (value ? "true" : "false") : (value ?? "");
-    }).join(",") + "\r\n";
+  return snapshotExportHeaderLine(spec) + "\n" + encodeSnapshotRow(spec, row) + "\n";
 }
 
 export const customerExportExample = exportExample(CUSTOMER_SNAPSHOT_EXPORT, customerRowExample);
