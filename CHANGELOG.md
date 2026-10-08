@@ -16,10 +16,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ready body chunks yield to timer tasks so they cannot starve the deadline;
   successful passthrough bodies and long-running report CSV streams remain unchanged.
 
+- TOG-6517: Customer, address and container snapshot list `q` parameters now
+  reject more than 100 Unicode code points with value-free 400 problem+json
+  before D1 access. Accepted searches are not truncated; validation applies
+  before whitespace trimming, with the same limit published in OpenAPI.
+
 - TOG-7577: Client-facing retry passthroughs replace upstream HTTP 400–599
   bodies, headers and status text with fixed `upstream-error` problem+json,
   preserving the HTTP status and containing possible customer/session data.
   Successful responses, login retry and internal data-save envelopes are unchanged.
+
+- TOG-9232: Readiness D1/R2 and advisory cron observations use a 20-second
+  in-memory cache per Worker isolate; concurrent probes share two D1 queries.
+  Authentication, report configuration, and the 200/503 payload are unchanged.
 
 - TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
   defensive audit for legacy or out-of-band rows, not normal streamed syncs:
