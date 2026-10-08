@@ -12,6 +12,8 @@
  * impure wrapper lives in `scripts/check-r2-preflight.mjs`.
  */
 
+import { stripVTControlCharacters } from "node:util";
+
 export const CHECK_NAME = "r2-preflight";
 export const R2_BINDING = "SNAPSHOTS";
 export const R2_ENABLED_KEY = "SNAPSHOTS_R2_ENABLED";
@@ -75,10 +77,32 @@ export function formatPassLog(bucket) {
 /** Fail-closed message: names the missing bucket and the exact fix. */
 export function formatMissingBucketError(bucket) {
   return [
-    `${CHECK_NAME}: FAIL — R2 bucket "${bucket}" (binding ${R2_BINDING}) not found or not readable.`,
+    `${CHECK_NAME}: FAIL — R2 bucket "${bucket}" (binding ${R2_BINDING}) not found in the configured account.`,
     `Fix: npx wrangler r2 bucket create ${bucket} (then re-run deploy).`,
     `Disable only by setting ${R2_ENABLED_KEY}="false" in [vars] of the deployed config.`,
   ].join("\n");
+}
+
+/** Wrangler renders API errors as [code: N]; only R2 NoSuchBucket proves absence.
+ * Source: https://developers.cloudflare.com/r2/api/error-codes/#bucket-errors
+ */
+export function formatLookupFailure(bucket, error, secrets = []) {
+  const redact = (text) => {
+    let diagnostic = stripVTControlCharacters(String(text ?? "")).trim();
+    for (const secret of secrets.filter(Boolean).sort((a, b) => b.length - a.length)) {
+      diagnostic = diagnostic.replaceAll(secret, "[REDACTED]");
+    }
+    return diagnostic;
+  };
+  const stderr = redact(error?.stderr);
+  const diagnostic = stderr || redact(error?.stdout) ||
+    `Wrangler exited without diagnostics (${redact(error?.code || error?.signal || error?.status || "unknown error")}).`;
+  const missing = !error?.code && !error?.signal && /\[code:\s*10006\]/.test(stderr);
+  const message = missing ? formatMissingBucketError(bucket) : [
+    `${CHECK_NAME}: FAIL — existence of R2 bucket "${bucket}" (binding ${R2_BINDING}) could not be verified; read-only lookup failed.`,
+    "Check Wrangler availability, Cloudflare credentials/permissions, the configured account and network connectivity before re-running deploy.",
+  ].join("\n");
+  return `${message}\nWrangler diagnostic:\n${diagnostic}`;
 }
 
 export function formatNoBucketConfiguredError() {

@@ -4,7 +4,8 @@
  * `wrangler r2 bucket info <name> --json` (a head/lookup, never a write).
  *
  * - `SNAPSHOTS_R2_ENABLED="false"` in the deployed config's `[vars]` → SKIPPED.
- * - Bucket missing/unreadable → FAIL with the exact fix, exit 1.
+ * - Bucket missing → FAIL with the create command, exit 1.
+ * - Lookup fails → FAIL with sanitized Wrangler diagnostics, exit 1.
  * - Bucket present → PASS, exit 0.
  *
  * Pass the same top-level TOML config to this command and `wrangler deploy`.
@@ -18,10 +19,10 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { argv, exit } from "node:process";
+import { argv, env, exit } from "node:process";
 import {
   CHECK_NAME,
-  formatMissingBucketError,
+  formatLookupFailure,
   formatNoBucketConfiguredError,
   formatPassLog,
   formatSkipLog,
@@ -80,8 +81,11 @@ function main() {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
     });
-  } catch {
-    console.error(formatMissingBucketError(bucket));
+  } catch (error) {
+    const secrets = Object.entries(env)
+      .filter(([key]) => /(?:TOKEN|KEY|SECRET|PASSWORD)$/.test(key))
+      .map(([, value]) => value);
+    console.error(formatLookupFailure(bucket, error, secrets));
     exit(1);
   }
   console.log(formatPassLog(bucket));
