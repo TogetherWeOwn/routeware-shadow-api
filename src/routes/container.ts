@@ -1,7 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import { prepareSaveContainerFormBody } from "../lib/addressContainerSaveForm";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -83,7 +83,7 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Container/SaveContainerForm"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,

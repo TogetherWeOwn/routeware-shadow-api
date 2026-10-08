@@ -1,6 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { readUpstreamText } from "../lib/upstreamBody";
@@ -77,7 +77,7 @@ routewareRoutes.openapi(homeIndexRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Home/Index"
   );
-  return forwardWithSessionRetry(
+  return forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -123,7 +123,7 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Data/appSettingsGet"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -191,7 +191,7 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
     c.req.raw,
     QUERY_REQUEST_IS_COMPLETE_PARAMS
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
