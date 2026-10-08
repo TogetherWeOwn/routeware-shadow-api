@@ -4,7 +4,7 @@ import { parseContainerSnapshotRow } from "../csvContainerSnapshot";
 import type { ContainerSnapshotRow } from "../csvContainerSnapshot";
 import { parseCustomerSnapshotRow } from "../csvCustomerSnapshot";
 import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
-import { mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
+import { assertCsvControlCharacters, mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
@@ -87,14 +87,18 @@ function firstHeaderCell(line: string): string {
   return normHeader(parseCsvLine(line)[0] ?? "");
 }
 
-/** CSV lines, optionally enforcing a cumulative byte cap without buffering. */
-function cappedLines(
+/** Validate raw records before header/row trimming or any D1 binding. */
+async function* cappedLines(
   body: ReadableStream<Uint8Array>,
   maxBytes?: number
 ): AsyncGenerator<string, void, undefined> {
-  return streamCsvLines(
+  let rowNumber = 0;
+  for await (const line of streamCsvLines(
     maxBytes === undefined ? body : withByteCap(body, maxBytes)
-  );
+  )) {
+    assertCsvControlCharacters(line, ++rowNumber);
+    yield line;
+  }
 }
 
 /**

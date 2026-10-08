@@ -5,8 +5,24 @@ import {
 
 /** Shared CSV field parser (RFC 4180-style quoted fields). */
 
-export function parseCsvLine(line: string): string[] {
-  const s = line.endsWith("\r") ? line.slice(0, -1) : line;
+export class CsvControlCharacterError extends Error {
+  constructor(readonly rowNumber: number) {
+    super(`CSV row ${rowNumber} contains a disallowed control character.`);
+    this.name = "CsvControlCharacterError";
+  }
+}
+
+export function parseCsvLine(line: string, rowNumber = 1): string[] {
+  return scanCsvLine(line, rowNumber, false);
+}
+
+/** Validate without allocating cell strings, including rows later skipped by trim. */
+export function assertCsvControlCharacters(line: string, rowNumber = 1): void {
+  scanCsvLine(line, rowNumber, true);
+}
+
+function scanCsvLine(line: string, rowNumber: number, validateOnly: boolean): string[] {
+  const s = line;
   const out: string[] = [];
   let cur = "";
   let inQuotes = false;
@@ -17,10 +33,24 @@ export function parseCsvLine(line: string): string[] {
   let fieldStart = true;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
+    // A terminal, unquoted CR is a record separator, not cell content.
+    if (ch === "\r" && i === s.length - 1 && !inQuotes) {
+      continue;
+    }
+    const code = s.charCodeAt(i);
+    if (
+      (code < 0x20 && ch !== "\t" && ch !== "\n" && ch !== "\r") ||
+      (code >= 0x7f && code <= 0x9f) ||
+      (ch === "\r" && s[i + 1] !== "\n")
+    ) {
+      throw new CsvControlCharacterError(rowNumber);
+    }
     if (ch === '"') {
       if (inQuotes) {
         if (s[i + 1] === '"') {
-          cur += '"';
+          if (!validateOnly) {
+            cur += '"';
+          }
           i += 1;
           continue;
         }
@@ -33,22 +63,30 @@ export function parseCsvLine(line: string): string[] {
         fieldStart = false;
         continue;
       }
-      cur += ch;
+      if (!validateOnly) {
+        cur += ch;
+      }
       fieldStart = false;
       continue;
     }
     if (!inQuotes && ch === ",") {
-      out.push(cur);
+      if (!validateOnly) {
+        out.push(cur);
+      }
       cur = "";
       fieldStart = true;
       continue;
     }
-    cur += ch;
+    if (!validateOnly) {
+      cur += ch;
+    }
     if (!inQuotes && ch !== " " && ch !== "\t") {
       fieldStart = false;
     }
   }
-  out.push(cur);
+  if (!validateOnly) {
+    out.push(cur);
+  }
   return out;
 }
 

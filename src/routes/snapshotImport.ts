@@ -1,3 +1,4 @@
+import { CsvControlCharacterError } from "../lib/csvParse";
 import { problemJsonResponse, problemType } from "../lib/problem";
 
 /**
@@ -49,8 +50,8 @@ export function rejectOversizedSnapshotImport(
 /**
  * Map a snapshot import failure to its problem+json response:
  * `SnapshotTooLargeError` (direct or `cause`-wrapped by `streamCsvLines`'s
- * read guard) → 413; `InvalidSnapshotCsvError` → 400. Both error classes
- * carry only fixed strings — the submitted bytes are never echoed, so the
+ * read guard) → 413; `InvalidSnapshotCsvError` or `CsvControlCharacterError`
+ * → 400. Only fixed strings and a numeric row are returned — no submitted bytes, so the
  * error body cannot leak PII. Returns `null` for anything else, which the
  * caller lets propagate to the global 500 handler.
  */
@@ -70,13 +71,14 @@ export function mapSnapshotImportError(
       instance: new URL(url).pathname
     });
   }
-  if (isInvalidCsv(e)) {
+  if (e instanceof CsvControlCharacterError || isInvalidCsv(e)) {
     return problemJsonResponse({
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
-      detail:
-        "Snapshot import body is not valid CSV. See docs/PROBLEMS.md#bad-request.",
+      detail: e instanceof CsvControlCharacterError
+        ? `CSV row ${e.rowNumber} contains a disallowed control character. See docs/PROBLEMS.md#bad-request.`
+        : "Snapshot import body is not valid CSV. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(url).pathname
     });
   }
