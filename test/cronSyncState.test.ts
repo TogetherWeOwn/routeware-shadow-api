@@ -24,7 +24,8 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
  * no customer PII.
  */
 
-vi.mock("../src/lib/d1SnapshotSync", () => ({
+vi.mock("../src/lib/d1SnapshotSync", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/d1SnapshotSync")>()),
   runDataSnapshotSyncChainedHttp: async () => ({
     customer: { upserted: 3, rowCount: 4 },
     address: null,

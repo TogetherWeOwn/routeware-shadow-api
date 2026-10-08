@@ -10,7 +10,7 @@ The optional **§2–3 HTTP path** is only for CSVs whose entire contents are al
 
 ## 0. Prerequisites
 
-- Repo root, dependencies installed.
+- Repo root, dependencies installed; Python 3 for the offline pre-check and curl 7.76+ for `--fail-with-body`.
 - `.dev.vars` beside `wrangler.toml` with a non-empty `CUSTOMER_SNAPSHOT_SYNC_SECRET` (the import routes match the **sync secret** only — `SHADOW_API_TOKEN` gets a 401; same as `docs/BACKFILL-RUNBOOK.md` §1).
 - PII warning: archived CSVs are real Routeware exports. Keep downloaded files out of git (`*.csv` is gitignored and CI fails on it) and delete them when done.
 - Two terminals: **A** runs the Worker, **B** runs commands.
@@ -74,7 +74,44 @@ header comment replays this gate end-to-end (flip one CSV byte → exit 1).
 
 ## 3. Optional HTTP upsert of import-compatible CSVs
 
-Use this path only after the §2 integrity gate passes **and all three complete CSVs are known to be import-compatible**. For arbitrary report archives, control-bearing exports, or unknown compatibility, use §6 instead. Keep FK order customer → address → container and stop on the first failed request; do not continue the chain after a 400.
+Use this path only after the §2 integrity gate passes and the following offline control pre-check passes for **all three complete CSVs**. It is read-only and prints filenames/reasons, never cell values. It checks strict UTF-8, all import-forbidden code points and lone CR; it conservatively rejects even valid CR-only record separators. It does not certify headers, data rows, byte limits or FK consistency, so other HTTP 400/413 errors remain possible. Imports are non-atomic even after pre-checking.
+
+```bash
+python3 - "$DATE" <<'PY'
+from datetime import date
+from pathlib import Path
+import sys
+
+try:
+    day = date.fromisoformat(sys.argv[1]).isoformat()
+except (IndexError, ValueError):
+    sys.exit("Invalid DATE; expected YYYY-MM-DD.")
+
+failed = False
+for table in ("customer", "address", "container"):
+    path = Path("/tmp/r2-restore") / f"{day}-{table}.csv"
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        print(f"{path}: unreadable or invalid UTF-8; STOP")
+        failed = True
+        continue
+    rejected = any(
+        (ord(ch) < 0x20 and ch not in "\t\n\r")
+        or 0x7f <= ord(ch) <= 0x9f
+        or (ch == "\r" and text[i + 1:i + 2] != "\n")
+        for i, ch in enumerate(text)
+    )
+    if rejected:
+        print(f"{path}: control-incompatible; use §6, not HTTP import")
+        failed = True
+if failed:
+    sys.exit(1)
+print("All three CSVs passed the offline control pre-check.")
+PY
+```
+
+On a failed pre-check, **do not run the HTTP commands**: use §6's code-deployment procedure or a separately verified D1 backup. Do not strip controls from a recovery archive to make the check pass. Keep FK order customer → address → container. The `&&` chain below stops after a failed request without exiting the interactive shell; `--fail-with-body` retains the row-numbered problem response. Do not continue the chain after an error.
 
 Terminal A (blocking — leave it running; point `$BASE` at your target — local dev URL here, deployed Worker URL for a real restore):
 
@@ -90,21 +127,18 @@ SECRET=<the CUSTOMER_SNAPSHOT_SYNC_SECRET value from .dev.vars>
 Terminal B, **in this order** — only after the §2 verify-first gate PASSES — D1 enforces the FK chain unconditionally and a misordered import 400s with `Dangling reference` instead of writing orphans (`docs/BACKFILL-RUNBOOK.md` §2):
 
 ```bash
-set -e  # stop the restore chain on any failed HTTP request
-curl -fsS -X POST "$BASE/api/v1/customer-snapshot/import" \
+curl -sS --fail-with-body -X POST "$BASE/api/v1/customer-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
-  --data-binary @/tmp/r2-restore/$DATE-customer.csv; echo
-# expect {"upserted":N,"rowCount":N,"deleted":0}
-
-curl -fsS -X POST "$BASE/api/v1/address-snapshot/import" \
+  --data-binary @/tmp/r2-restore/$DATE-customer.csv &&
+printf '\n' &&
+curl -sS --fail-with-body -X POST "$BASE/api/v1/address-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
-  --data-binary @/tmp/r2-restore/$DATE-address.csv; echo
-# expect {"upserted":M,"rowCount":M,"deleted":0}
-
-curl -fsS -X POST "$BASE/api/v1/container-snapshot/import" \
+  --data-binary @/tmp/r2-restore/$DATE-address.csv &&
+printf '\n' &&
+curl -sS --fail-with-body -X POST "$BASE/api/v1/container-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
-  --data-binary @/tmp/r2-restore/$DATE-container.csv; echo
-# expect {"upserted":K,"rowCount":K,"deleted":0}
+  --data-binary @/tmp/r2-restore/$DATE-container.csv
+# Each successful response has upserted/rowCount/deleted; any error stops the chain.
 ```
 
 Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`), validates controls before binding, and never reconciles/deletes. It upserts import-compatible business cells, but cannot restore every archive: rejected control content is not stripped or silently repaired. If the archive is newer than D1, upserts overwrite in place (re-sync is idempotent — pinned in `test/snapshotSyncE2E.test.ts`).
@@ -137,7 +171,9 @@ Then delete the scratch CSVs: `rm -rf /tmp/r2-restore` (PII — see §0).
 
 ## 6. Programmatic restore (in-code path)
 
-**Preferred for report-origin archives, including controls that HTTP import rejects.** Pass the §2 integrity gate against the same date and bucket first: `restoreSnapshotCsvFromR2` retrieves bytes but does not verify the manifest. Use an authorized restore execution context with the intended R2 and D1 bindings; this is not a new HTTP route or an import-validation opt-out.
+**Required for control-bearing report archives, but not currently a runnable production command.** The repository has no route, CLI or deployed caller for this helper; the existing drill runs in Vitest only. An operator must first implement and deploy an authorized restore entry point using the sample below, validate it against staging bindings, and obtain the normal production-change authorization before executing a real recovery. Do not try to paste this TypeScript into a shell, or assume `wrangler` exposes an invocation for it. This runbook does not claim that entry point is already shipped.
+
+After that prerequisite, pass the §2 integrity gate against the same date and bucket: `restoreSnapshotCsvFromR2` retrieves bytes but does not verify the manifest. The deployed entry point needs the intended `SNAPSHOTS` R2 and `CUSTOMER_DB` D1 bindings and must run the three tables in FK order. Keep it separate from public HTTP import; do not add an import-validation opt-out.
 
 `restoreSnapshotCsvFromR2(env, table, date?)` returns the archived bytes as a `ReadableStream` (or `null` when the key is absent). Feed it straight into the same sync functions the cron uses, leaving `rejectControlCharacters` disabled (the default):
 
