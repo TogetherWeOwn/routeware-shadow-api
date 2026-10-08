@@ -141,7 +141,7 @@ describe("throttle window math", () => {
     });
   });
 
-  it("preserves an active block when the failure window expires", () => {
+  it("preserves and extends an active block when the failure window expires", () => {
     const now = 1_000_000;
     let state: AuthThrottleState | null = null;
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {

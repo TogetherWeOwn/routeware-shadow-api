@@ -5,9 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- TOG-8375: Throttle 429s now include `X-RateLimit-Limit`,
+- TOG-8375: Throttle 429s include `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS
-  exposes them to browser clients; `Retry-After` is unchanged.
+  exposes them to browser clients. Active blocks survive failure-window rollover;
+  each further failed check during a block restarts its 60-second timer.
 
 - TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
   cell content before D1 binding, with a PII-free row-numbered 400. Upstream

@@ -172,9 +172,10 @@ XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
 value can neither evade the throttle by rotation nor frame a victim's bucket.
 After 19 failed checks inside a 60-second window, the 20th check from that IP
 returns `429 Too Many Requests` and starts a 60-second block. Further failed
-checks while that block is active also return 429. Each 429 has a problem+json
-body, a `Retry-After` header reporting the remaining block duration (at most
-60 seconds), and `X-RateLimit-Limit` (`20`),
+checks while that block is active also return 429 and restart the 60-second
+timer, so continued failures keep `Retry-After` at 60 seconds. Each 429 has a
+problem+json body, a `Retry-After` header reporting the remaining block
+duration (at most 60 seconds), and `X-RateLimit-Limit` (`20`),
 `X-RateLimit-Remaining` (`0`), and `X-RateLimit-Reset` (an absolute Unix
 timestamp in seconds; for older Durable Objects that omit the expiry, it is a
 conservative estimate derived from `Retry-After`). CORS exposes `Retry-After` and
@@ -209,7 +210,7 @@ attempts from that IP. This never blocks legitimate traffic: a request with
 the valid token always passes, even while its IP is blocked, and clears the
 shared counter. Operator remedy: confirm the affected client is sending the
 current token (one good request clears the block immediately); otherwise the
-block expires on its own after 60 seconds. If `429`s recur from one egress
+block expires 60 seconds after the last failed check. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
 
