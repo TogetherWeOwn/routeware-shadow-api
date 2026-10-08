@@ -5,6 +5,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-6516: Keep the Routeware-tier customer, address, and container save forms'
+  modal token fetch and save POST on the same upstream session. Refresh before
+  token preparation and re-prepare the original form once after a login rejection;
+  do not replay timed-out saves or upstream 401/429 responses.
+
 - TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
   lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
   jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`

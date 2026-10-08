@@ -4,6 +4,7 @@ import {
 } from "./forwardWithSessionRetry";
 import { readSessionState, type SessionState } from "./sessionState";
 import { forwardToUpstream } from "./upstreamForward";
+import { requireAuthenticatedModal } from "./sessionPreparation";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
@@ -251,6 +252,7 @@ export async function resolveSaveCustomerLongFormToken(
         // forwarder default alone would ignore the per-deploy override.
         timeoutMs: readUpstreamTimeoutMs(env)
       });
+  await requireAuthenticatedModal(modalResp);
   if (!modalResp.ok) {
     throw new Error(
       `Could not load anti-forgery modal (${modalPath}): HTTP ${modalResp.status}`

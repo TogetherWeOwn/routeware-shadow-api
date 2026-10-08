@@ -1,11 +1,12 @@
 import { createRoute } from "@hono/zod-openapi";
-import { prepareSaveContainerFormBody } from "../lib/addressContainerSaveForm";
+import { prepareSaveContainerFormBody, validateSaveFormBody } from "../lib/addressContainerSaveForm";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
-import { readSessionState } from "../lib/sessionState";
+import { SessionBodyPreparationError } from "../lib/sessionPreparation";
+import { isLoginPageResponse } from "../lib/loginRedirect";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
 import { containerSaveFormDocs, createRouteModule } from "./shared";
 
@@ -45,20 +46,44 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer: ArrayBuffer | null = rawBody;
+  const upstreamUrl = routewareWebRwUrl(
+    c.env.TARGET_ORIGIN,
+    c.env.TARGET_BASE_PATH,
+    "/Container/SaveContainerForm"
+  );
+  let up: Response;
   try {
-    bodyBuffer = await prepareSaveContainerFormBody(
+    up = await forwardWithSessionRetry(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
-      bodyBuffer,
-      c.req.raw.headers.get("content-type"),
-      { sessionStub: c.var.sessionStub, establishSession }
+      upstreamUrl,
+      rawBody,
+      establishSession,
+      {
+        validateBody: (originalBody) => validateSaveFormBody(
+          c.env, originalBody, c.req.raw.headers.get("content-type"), "container"
+        ),
+        prepareBody: async (session, originalBody) => {
+          bodyBuffer = await prepareSaveContainerFormBody(
+            c.env,
+            session,
+            c.req.raw,
+            originalBody,
+            c.req.raw.headers.get("content-type")
+          );
+          return bodyBuffer;
+        }
+      }
     );
   } catch (err) {
-    console.error("prepareSaveContainerFormBody", err);
-    const msg = err instanceof Error ? err.message : String(err);
+    if (!(err instanceof SessionBodyPreparationError)) {
+      throw err;
+    }
+    const cause = err.preparationCause;
+    console.error("prepareSaveContainerFormBody", cause);
+    const msg = cause instanceof Error ? cause.message : String(cause);
     if (msg === "New container requires PickupAddressID in POST body") {
       return problemJsonResponse({
         type: problemType("bad-request", c.env),
@@ -76,24 +101,11 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const upstreamUrl = routewareWebRwUrl(
-    c.env.TARGET_ORIGIN,
-    c.env.TARGET_BASE_PATH,
-    "/Container/SaveContainerForm"
-  );
-  const up = await forwardWithSessionRetry(
-    c.env,
-    c.var.sessionStub,
-    c.req.raw,
-    upstreamUrl,
-    bodyBuffer,
-    establishSession
-  );
   // Routeware signals a failed save silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the save
   // worked when it did not. Same heuristic as the save-long-form route.
   const upText = await up.clone().text();
-  if (routewarePostLooksSuccessful(up.status, upText)) {
+  if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up))) {
     // TOG-6463: refresh D1 + evict the data-entity cache after a successful
     // save so shadow reads stop serving the pre-save record. Never throws.
     await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "container", bodyBuffer, upText);

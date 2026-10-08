@@ -9,9 +9,34 @@ import {
   type ModalRetryContext
 } from "./forwardWithSessionRetry";
 import { forwardToUpstream } from "./upstreamForward";
+import { requireAuthenticatedModal } from "./sessionPreparation";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
 import type { SessionState } from "./sessionState";
+
+/** Keep create-parent validation ahead of session selection without upstream IO. */
+export function validateSaveFormBody(
+  env: Env,
+  bodyBuffer: ArrayBuffer | null,
+  contentType: string | null,
+  kind: "address" | "container"
+): void {
+  if (!autoTokenEnabled(env) || !bodyBuffer?.byteLength ||
+      !(contentType ?? "").toLowerCase().includes("application/x-www-form-urlencoded")) {
+    return;
+  }
+  const raw = new TextDecoder("utf-8", { fatal: false }).decode(bodyBuffer);
+  const existing = lastUrlEncodedValue(raw, "__RequestVerificationToken");
+  if (existing && !isPlaceholderAntiForgeryToken(existing)) {
+    return;
+  }
+  const idField = kind === "address" ? "PickupAddressID" : "ContainerID";
+  const parentField = kind === "address" ? "CustomerID" : "PickupAddressID";
+  const id = Number.parseInt(lastUrlEncodedValue(raw, idField) ?? "", 10);
+  if ((!Number.isFinite(id) || id <= 0) && lastUrlEncodedValue(raw, parentField) === undefined) {
+    throw new Error(`New ${kind} requires ${parentField} in POST body`);
+  }
+}
 
 function autoTokenEnabled(env: Env): boolean {
   const v = env.CUSTOMER_SAVE_AUTO_TOKEN as string;
@@ -110,6 +135,7 @@ export async function prepareSaveAddressFormBody(
     }
   });
   const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
+  await requireAuthenticatedModal(modalResp);
   if (!modalResp.ok) {
     throw new Error(`Load address modal (${modalPath}): HTTP ${modalResp.status}`);
   }
@@ -179,6 +205,7 @@ export async function prepareSaveContainerFormBody(
     }
   });
   const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
+  await requireAuthenticatedModal(modalResp);
   if (!modalResp.ok) {
     throw new Error(`Load container modal (${modalPath}): HTTP ${modalResp.status}`);
   }
