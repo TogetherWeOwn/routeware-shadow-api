@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-18135: Buffered upstream read/save, token-modal, and login bodies now
+  have a separate `UPSTREAM_TIMEOUT_MS` deadline after headers arrive.
+  Timeouts abort/cancel pending reads without replaying saves. Continuously
+  ready body chunks yield to timer tasks so they cannot starve the deadline;
+  successful passthrough bodies and long-running report CSV streams remain unchanged.
+
 - TOG-7577: Client-facing retry passthroughs replace upstream HTTP 400–599
   bodies, headers and status text with fixed `upstream-error` problem+json,
   preserving the HTTP status and containing possible customer/session data.

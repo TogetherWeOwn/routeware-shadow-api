@@ -2,6 +2,7 @@ import { LoginPageUnavailableError } from "./loginPageError";
 import { MissingSetCookieCapabilityError } from "./setCookieCapabilityError";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
+import { readUpstreamText } from "./upstreamBody";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeout";
 
@@ -178,7 +179,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     throw new LoginPageUnavailableError(pageRes.status, "login page");
   }
   mergeSetCookies(jar, pageRes);
-  const html = await pageRes.text();
+  const html = await readUpstreamText(pageRes, timeoutMs);
 
   // 2) GET the Ext.NET init script (same session) for the anti-forgery token.
   let token = extractAntiForgeryFromExtNet(html);
@@ -196,7 +197,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
       throw new LoginPageUnavailableError(axRes.status, "init script");
     }
     mergeSetCookies(jar, axRes);
-    token = extractAntiForgeryFromExtNet(await axRes.text());
+    token = extractAntiForgeryFromExtNet(await readUpstreamText(axRes, timeoutMs));
   }
   if (!token) {
     throw new Error("Anti-forgery token not found on login page/init script.");

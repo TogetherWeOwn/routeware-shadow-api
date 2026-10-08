@@ -18,9 +18,10 @@ import { problemJsonResponse, problemType } from "./problem";
  * (absent/invalid falls back to the default), same pattern as
  * `CUSTOMER_SAVE_AUTO_TOKEN_TTL_SECONDS`.
  *
- * Timeouts are NOT retried: the single retry is reserved for the login
- * redirect (provably safe — `forwardWithSessionRetry` already handles only
- * that). A timeout fails fast to 502 problem+json.
+ * Forwarding timeouts are NOT retried: `forwardWithSessionRetry` reserves
+ * its single retry for a login redirect. Primary-response timeouts map to
+ * 502 problem+json; auth fallback and post-save refresh retain their caller
+ * policies (docs/PROBLEMS.md).
  */
 
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 15_000;
@@ -85,6 +86,26 @@ export function isUpstreamTimeout(err: unknown): err is UpstreamTimeoutError {
   return err instanceof UpstreamTimeoutError;
 }
 
+const upstreamControllers = new WeakMap<Response, AbortController>();
+
+/** Header-only wrappers still own the same upstream fetch and body. */
+export function inheritUpstreamController(source: Response, target: Response): Response {
+  const controller = upstreamControllers.get(source);
+  if (controller) {
+    upstreamControllers.set(target, controller);
+  }
+  return target;
+}
+
+/** Abort body consumption after headers, without imposing a streaming deadline. */
+export function abortUpstreamResponse(response: Response): void {
+  try {
+    upstreamControllers.get(response)?.abort();
+  } catch {
+    // Best effort; the body-read race and stream cancellation still run.
+  }
+}
+
 /**
  * `fetch` bounded to time-to-headers. Clears the timer once headers arrive so
  * a slow-but-started body stream is not cut off; callers that buffer
@@ -132,10 +153,12 @@ export async function fetchWithUpstreamTimeout(
     // Race (not abort alone) enforces the budget: a non-abort-aware fetch
     // (e.g. a test mock returning a never-settling promise) would otherwise
     // hang past the timer. Real fetches abort and reject; the race covers both.
-    return await Promise.race([
+    const response = await Promise.race([
       fetch(url, { ...init, signal: controller.signal }),
       timeoutPromise
     ]);
+    upstreamControllers.set(response, controller);
+    return response;
   } catch (err) {
     // Our timer fired (or the fetch rejected with an abort our timer caused):
     // report the bounded, PII-free timeout. A caller abort with the timer
@@ -164,8 +187,9 @@ export function upstreamTimeoutProblem(
     title: "Upstream timed out",
     status: 502,
     detail:
-      `Routeware did not respond within ${timeoutMs}ms. Retry once; ` +
-      `if it persists the upstream host is hung. See docs/PROBLEMS.md#bad-gateway.`,
+      `Routeware did not complete its response within ${timeoutMs}ms. ` +
+      `A save may have completed upstream; verify the record before resubmitting. ` +
+      `See docs/PROBLEMS.md#bad-gateway.`,
     instance
   });
 }
