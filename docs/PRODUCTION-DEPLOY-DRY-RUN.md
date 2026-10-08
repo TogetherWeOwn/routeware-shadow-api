@@ -19,8 +19,13 @@ credential values, request/response bodies, customer rows, or raw CSVs.
 - [ ] Inspect the candidate's [CI workflow](../.github/workflows/ci.yml).
   The deploy job must require successful `build` and `hygiene`, the exact condition
   `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'`,
-  the `production` environment, and serialized deployments with
-  `cancel-in-progress: false`. Do not change a gate for rehearsal.
+  the `production` environment, and job-level deployment serialization with
+  `cancel-in-progress: false`. Also inspect workflow-level concurrency: the
+  current workflow has `cancel-in-progress: true`, so a newer main push can cancel
+  an older workflow during migrations/deploy despite the job-level setting.
+  Record this interruption risk as **NOT READY** for unattended activation;
+  job serialization is not an uncancelable-deploy guarantee. Do not change a
+  gate or concurrency setting for rehearsal.
 - [ ] Read an existing push-to-main CI receipt: record head SHA, run URL and the
   deploy job's **skipped** conclusion. A PR's skipped deploy only proves the PR
   trigger is excluded, not that the enable variable is absent. A queued run has
@@ -68,17 +73,32 @@ throwaway directory outside the repository for output and local D1 state:
 
 ```bash
 : "${PAPERCLIP_RUN_SCRATCH_DIR:?set an external throwaway rehearsal directory}"
-test ! -e .dev.vars && test ! -e .env || exit 1
-(
-  unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL
-  export WRANGLER_SEND_METRICS=false
-  export CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false
-  npm run check:ci-workflow &&
-  npm run check:vars-parity &&
-  npm run check:d1-drift &&
-  npx --no-install wrangler deploy --dry-run --outdir "$PAPERCLIP_RUN_SCRATCH_DIR/worker-dry-run"
-)
+for file in .env .env.* .dev.vars .dev.vars.*; do
+  [ ! -e "$file" ] || [ "$file" = .dev.vars.example ] || {
+    printf '%s\n' 'Local credential files present; stop.' >&2
+    exit 1
+  }
+done
+export PAPERCLIP_RUN_SCRATCH_DIR
+rehearsal_home=$(mktemp -d "$PAPERCLIP_RUN_SCRATCH_DIR/rehearsal-home.XXXXXX") || exit 1
+env -i PATH="$PATH" HOME="$rehearsal_home" \
+  XDG_CONFIG_HOME="$rehearsal_home/.config" \
+  PAPERCLIP_RUN_SCRATCH_DIR="$PAPERCLIP_RUN_SCRATCH_DIR" \
+  WRANGLER_SEND_METRICS=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+  sh -c '
+    npm run check:ci-workflow &&
+    npm run check:vars-parity &&
+    npm run check:d1-drift &&
+    npx --no-install wrangler deploy --dry-run --env="" --outdir "$PAPERCLIP_RUN_SCRATCH_DIR/worker-dry-run"
+  '
 ```
+
+`env -i` drops inherited credentials (including legacy `CF_API_TOKEN`,
+`CF_API_KEY`, and `CF_EMAIL`); the fresh HOME/XDG directories isolate Wrangler's
+OAuth cache. Rejecting all local dotenv/dev-vars files except the committed
+example also blocks `.env.local` and environment-specific credential loading.
+The explicit empty environment selects the top-level production configuration
+for **bundling only**; it does not execute or deploy the Worker.
 
 - [ ] `check:ci-workflow` and `check:vars-parity` exit 0.
 - [ ] `check:d1-drift` reports manifest hashes match and a fresh **local** D1

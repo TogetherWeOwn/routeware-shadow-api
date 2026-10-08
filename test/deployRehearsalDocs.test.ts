@@ -9,6 +9,15 @@ function shellBlocks(markdown: string): string[] {
   return [...markdown.matchAll(/^```bash\n([\s\S]*?)^```/gm)].map((match) => match[1]);
 }
 
+function hasSafeDryRun(markdown: string): boolean {
+  const deployLines = shellBlocks(markdown).join("\n").split("\n")
+    .filter((line) => /\bwrangler\s+deploy\b/.test(line));
+  return deployLines.length === 1 && deployLines.every((line) =>
+    /(?:^|\s)--dry-run(?:=true)?(?=\s|$)/.test(line) &&
+    !/(?:^|\s)--no-dry-run\b|--dry-run(?:=|\s+)(?:false|0)\b/.test(line),
+  );
+}
+
 function safetyBoundary(markdown: string): boolean {
   return markdown.includes("**Production stays OFF.**") &&
     /Leave `PRODUCTION_DEPLOY_ENABLED` unset/.test(markdown) &&
@@ -36,16 +45,32 @@ describe("production deploy rehearsal documentation", () => {
     expect(blocks.length).toBe(2);
     const commands = blocks.join("\n");
     expect(commands).not.toMatch(/--remote|db:migrate:remote|secret\s+(?:put|set|delete)|variable\s+(?:set|delete)|workflow\s+run|\s-X\s+(?:POST|PUT|PATCH|DELETE)/);
-    const deployLines = commands.split("\n").filter((line) => /wrangler deploy/.test(line));
-    expect(deployLines.length).toBe(1);
-    expect(deployLines[0]).toContain("--dry-run");
-    expect(deployLines[0]).toContain("--outdir");
+    expect(hasSafeDryRun(checklist)).toBe(true);
+    expect(commands).toContain("--outdir");
+    expect(commands).toContain('env -i PATH="$PATH" HOME="$rehearsal_home"');
+    expect(commands).toContain('XDG_CONFIG_HOME="$rehearsal_home/.config"');
+    expect(commands).toContain(".env .env.* .dev.vars .dev.vars.*");
+    expect(commands).toContain("export PAPERCLIP_RUN_SCRATCH_DIR");
     expect(commands).toContain("npm run check:ci-workflow");
     expect(commands).toContain("npm run check:vars-parity");
     expect(commands).toContain("npm run check:d1-drift");
-    expect(commands).toContain("unset CLOUDFLARE_API_TOKEN CLOUDFLARE_API_KEY CLOUDFLARE_EMAIL");
     expect(commands).toContain(".variables[].name");
     expect(commands).toContain(".secrets[].name");
+  });
+
+  it("pins fail-closed isolated-HOME allocation before tool invocation", () => {
+    const commands = shellBlocks(checklist).join("\n");
+    const allocation = /^rehearsal_home=\$\(mktemp -d "\$PAPERCLIP_RUN_SCRATCH_DIR\/rehearsal-home\.XXXXXX"\) \|\| exit 1$/m;
+    expect(commands).toMatch(allocation);
+    expect(commands.replace('rehearsal-home.XXXXXX") || exit 1', 'rehearsal-home.XXXXXX")')).not.toMatch(allocation);
+    expect(commands.indexOf("rehearsal_home=$(mktemp")).toBeLessThan(commands.indexOf("env -i"));
+  });
+
+  it("rejects missing and explicitly disabled dry-run flags", () => {
+    for (const flag of ["", "--dry-run=false", "--dry-run false", "--dry-run=0", "--no-dry-run"]) {
+      expect(hasSafeDryRun(checklist.replace("--dry-run --env", `${flag} --env`))).toBe(false);
+    }
+    expect(hasSafeDryRun(checklist.replace("--dry-run --env", "--dry-run=true --env"))).toBe(true);
   });
 
   it("does not equate local checks, missing metadata or skipped probes with live readiness", () => {
@@ -71,6 +96,11 @@ describe("production deploy rehearsal documentation", () => {
     expect(deploy).toMatch(/^    environment: production$/m);
     expect(deploy).toContain("group: deploy-production");
     expect(deploy).toContain("cancel-in-progress: false");
+    const workflowConcurrency = workflow.split("\njobs:")[0];
+    expect(workflowConcurrency).toContain("cancel-in-progress: true");
+    expect(checklist).toContain("a newer main push can cancel");
+    expect(checklist).toContain("an older workflow during migrations/deploy despite the job-level setting");
+    expect(checklist).toContain("interruption risk as **NOT READY**");
     const migrateAt = deploy!.indexOf("run: npm run db:migrate:remote");
     const publishAt = deploy!.indexOf("run: npx wrangler deploy");
     expect(migrateAt).toBeGreaterThan(0);
