@@ -5,7 +5,7 @@ import {
 } from "../lib/customerSaveAutoToken";
 import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -61,7 +61,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
       bodyBuffer = new TextEncoder().encode(translated.text).buffer;
     }
   }
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -112,7 +112,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/GetCustomerDetailFull"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -163,7 +163,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomerTypesRead"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -250,7 +250,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/SaveCustomerLongForm"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -304,7 +304,7 @@ customerRoutes.openapi(customerAddNewLongRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/AddNewLong"
   );
-  return forwardWithSessionRetry(
+  return forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,
@@ -365,7 +365,7 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
     c.req.raw,
     LOAD_LONG_MODAL_PARAMS
   );
-  return forwardWithSessionRetry(
+  return forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,

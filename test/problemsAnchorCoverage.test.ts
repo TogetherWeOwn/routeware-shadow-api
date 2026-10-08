@@ -121,6 +121,10 @@ describe("problems anchor check: comparison", () => {
 });
 
 describe("problems anchor check: real tree", () => {
+  it("pins #upstream-error to its documented explanation", () => {
+    expect(problemsMd).toMatch(/<a id="upstream-error"><\/a>\s+## Loud upstream errors/);
+  });
+
   it("every problemType() slug resolves to a PROBLEMS.md row and back", () => {
     // Arrange — fail closed if the glob ever matches nothing: empty sets
     // would compare vacuously green.
