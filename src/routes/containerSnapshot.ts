@@ -27,7 +27,7 @@ const containerSnapshotListRoute = createRoute({
       customerId: z.coerce.number().int().optional(),
       pickupAddressId: z.coerce.number().int().optional(),
       containerId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Substring on location or serial (case-insensitive)"),
+      q: z.string().max(100).optional().describe("Substring on location or serial (case-insensitive; maximum 100 characters)"),
       enabled: z.enum(["true", "false", "any"]).optional().default("any"),
       limit: z.coerce.number().int().min(1).max(500).default(50),
       offset: z.coerce.number().int().min(0).default(0)
@@ -40,7 +40,7 @@ const containerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 characters, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });

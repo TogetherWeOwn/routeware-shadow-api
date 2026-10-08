@@ -4,6 +4,30 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import type { AppEnv } from "./types";
 
 /**
+ * Schema failures must not echo query/body values: they can contain PII.
+ * Keep the problem+json hook on each module, where its validators are built.
+ */
+export function validationFailureHook(result: {
+  success: boolean;
+  target: string;
+  error?: { issues: Array<{ path: PropertyKey[] }> };
+}): Response | undefined {
+  if (result.success || !result.error) {
+    return undefined;
+  }
+  const fields = result.error.issues.map((issue) =>
+    issue.path.length > 0 ? issue.path.map((p) => String(p)).join(".") : result.target
+  );
+  const unique = [...new Set(fields)];
+  return problemJsonResponse({
+    type: problemType("bad-request"),
+    title: "Bad Request",
+    status: 400,
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+  });
+}
+
+/**
  * Build an empty route module.
  *
  * It must be an `OpenAPIHono`, never a plain `Hono`: `OpenAPIHono.route()`
@@ -15,7 +39,7 @@ import type { AppEnv } from "./types";
  * written in each `createRoute` is used verbatim, with no prefix merging.
  */
 export function createRouteModule(): OpenAPIHono<AppEnv> {
-  return new OpenAPIHono<AppEnv>();
+  return new OpenAPIHono<AppEnv>({ defaultHook: validationFailureHook });
 }
 
 /**
