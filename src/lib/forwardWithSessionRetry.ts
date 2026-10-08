@@ -6,6 +6,11 @@ import {
 } from "./sessionRefreshLock";
 import { readSessionState, readSessionTtlMs, type SessionState } from "./sessionState";
 import {
+  isSessionConfigurationError,
+  SessionBodyPreparationError,
+  SessionRejectedDuringPreparation
+} from "./sessionPreparation";
+import {
   isUpstreamTimeout,
   readUpstreamTimeoutMs,
   upstreamTimeoutProblem
@@ -30,6 +35,16 @@ export type ModalRetryContext = {
   sessionStub?: DurableObjectStub;
   /** Real `establishSession` — the single re-login budget. */
   establishSession?: EstablishSession;
+};
+
+export type SessionForwardOptions = ForwardOptions & {
+  /** Pure request validation, once before any session or login operation. */
+  validateBody?: (originalBody: ArrayBuffer | null) => void;
+  /** Runs after session selection, again from the ORIGINAL body on a login retry. */
+  prepareBody?: (
+    session: SessionState,
+    originalBody: ArrayBuffer | null
+  ) => Promise<ArrayBuffer | null>;
 };
 
 /** Refresh this far before the stored session's recorded expiry. */
@@ -85,7 +100,7 @@ export async function forwardWithSessionRetry(
   upstreamUrl: URL,
   bodyBuffer: ArrayBuffer | null,
   establishSession: EstablishSession,
-  options: ForwardOptions = {},
+  options: SessionForwardOptions = {},
   // Client-facing wrapper only; local timeout/refresh problems bypass this filter.
   mapUpstreamResponse: (response: Response) => Response = (response) => response
 ): Promise<Response> {
@@ -102,6 +117,41 @@ export async function forwardWithSessionRetry(
       : {})
   };
 
+  // Validate once, before an expired session can cause an unnecessary login.
+  try {
+    options.validateBody?.(bodyBuffer);
+  } catch (err) {
+    throw new SessionBodyPreparationError(err);
+  }
+
+  async function refreshSelectedSession(): Promise<void> {
+    try {
+      await establishSession(env, sessionStub, env.LOGIN_URL);
+    } catch (err) {
+      if (options.prepareBody && !isConcurrentRefreshTimeout(err) && !isUpstreamTimeout(err) &&
+          !isSessionConfigurationError(err)) {
+        throw new SessionBodyPreparationError(err);
+      }
+      throw err;
+    }
+  }
+
+  async function forwardAttempt(selectedSession: SessionState): Promise<Response> {
+    let preparedBody = bodyBuffer;
+    if (options.prepareBody) {
+      try {
+        preparedBody = await options.prepareBody(selectedSession, bodyBuffer);
+      } catch (err) {
+        if (err instanceof SessionRejectedDuringPreparation || isUpstreamTimeout(err)) {
+          throw err;
+        }
+        throw new SessionBodyPreparationError(err);
+      }
+    }
+    // No DO read between preparation and save: the token belongs to this session.
+    return await forwardToUpstream(incoming, upstreamUrl, selectedSession, preparedBody, forwardOpts);
+  }
+
   let session: SessionState = await readSessionState(sessionStub);
 
   // Proactive refresh: if the stored session is absent or about to expire
@@ -113,7 +163,7 @@ export async function forwardWithSessionRetry(
   // cookie.
   if (sessionNeedsRefresh(session, Date.now(), env)) {
     try {
-      await establishSession(env, sessionStub, env.LOGIN_URL);
+      await refreshSelectedSession();
     } catch (err) {
       if (isConcurrentRefreshTimeout(err)) {
         return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
@@ -127,27 +177,24 @@ export async function forwardWithSessionRetry(
   // is NEVER retried: the single-retry budget is reserved for the login
   // redirect (provably safe — a timeout retry could double-execute a
   // non-idempotent POST). Fail fast to 502 problem+json instead.
-  let response: Response;
+  let response: Response | null = null;
   try {
-    response = await forwardToUpstream(
-      incoming,
-      upstreamUrl,
-      session,
-      bodyBuffer,
-      forwardOpts
-    );
+    response = await forwardAttempt(session);
   } catch (err) {
     if (isUpstreamTimeout(err)) {
       return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
     }
-    throw err;
+    // A login response during preparation uses the SAME retry budget as the save.
+    if (!(err instanceof SessionRejectedDuringPreparation)) {
+      throw err;
+    }
   }
 
   // TOG-6515: the common ASP.NET expiry shape is HTTP 200 with a login
   // form, not a 302. A 200 carrying a login page takes the same single
   // re-login + retry as a login redirect; every other response (including
   // 401/429) is returned as-is and never retried.
-  if (!isLoginRedirect(response)) {
+  if (response && !isLoginRedirect(response)) {
     if (response.status !== 200 || !(await isLoginPageResponse(response, timeoutMs))) {
       return mapUpstreamResponse(response);
     }
@@ -158,7 +205,7 @@ export async function forwardWithSessionRetry(
   // waiter that gives up on a hung refresh fails closed to 502 (TOG-6526) —
   // never retry with the expired cookie (which would surface login HTML).
   try {
-    await establishSession(env, sessionStub, env.LOGIN_URL);
+    await refreshSelectedSession();
   } catch (err) {
     if (isConcurrentRefreshTimeout(err)) {
       return concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
@@ -169,11 +216,14 @@ export async function forwardWithSessionRetry(
   session = await readSessionState(sessionStub);
 
   try {
-    response = await forwardToUpstream(incoming, upstreamUrl, session, bodyBuffer, forwardOpts);
+    response = await forwardAttempt(session);
     return mapUpstreamResponse(response);
   } catch (err) {
     if (isUpstreamTimeout(err)) {
       return upstreamTimeoutProblem(err.timeoutMs, new URL(incoming.url).pathname, env);
+    }
+    if (err instanceof SessionRejectedDuringPreparation) {
+      throw new SessionBodyPreparationError(err);
     }
     throw err;
   }
