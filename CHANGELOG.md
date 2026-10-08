@@ -5,6 +5,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
+  cell content before D1 binding, with a PII-free row-numbered 400. Upstream
+  report sync parsing stays permissive; earlier valid import batches may remain.
 - TOG-8877: `GET /api/v1/customer-snapshot/changes` incremental-sync feed —
   rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. A
   bare `since` replays every later run whole; chunked deltas page with the

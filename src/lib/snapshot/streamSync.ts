@@ -87,16 +87,19 @@ function firstHeaderCell(line: string): string {
   return normHeader(parseCsvLine(line)[0] ?? "");
 }
 
-/** Validate raw records before header/row trimming or any D1 binding. */
+/** Imports validate raw records before trimming/D1; reports keep legacy parsing. */
 async function* cappedLines(
   body: ReadableStream<Uint8Array>,
-  maxBytes?: number
+  options: StreamSyncOptions
 ): AsyncGenerator<string, void, undefined> {
   let rowNumber = 0;
   for await (const line of streamCsvLines(
-    maxBytes === undefined ? body : withByteCap(body, maxBytes)
+    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes)
   )) {
-    assertCsvControlCharacters(line, ++rowNumber);
+    rowNumber += 1;
+    if (options.rejectControlCharacters) {
+      assertCsvControlCharacters(line, rowNumber);
+    }
     yield line;
   }
 }
@@ -117,7 +120,7 @@ export async function syncCustomerSnapshotFromStream(
   let dataRows = 0;
   let upserted = 0;
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
@@ -188,7 +191,7 @@ export async function syncAddressSnapshotFromStream(
   let dataRows = 0;
   let upserted = 0;
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
@@ -259,7 +262,7 @@ export async function syncContainerSnapshotFromStream(
   let dataRows = 0;
   let upserted = 0;
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(

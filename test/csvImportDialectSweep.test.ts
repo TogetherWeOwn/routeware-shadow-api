@@ -156,7 +156,9 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
 
     await expect(syncCustomerSnapshotFromStream(
       db,
-      stringToUint8Stream(`${CUSTOMER_HEADER}\n${ROW(1, "a\u0000b")}`)
+      stringToUint8Stream(`${CUSTOMER_HEADER}\n${ROW(1, "a\u0000b")}`),
+      undefined,
+      { rejectControlCharacters: true }
     )).rejects.toThrow("CSV row 2 contains a disallowed control character.");
 
     expect(batches).toEqual([]);

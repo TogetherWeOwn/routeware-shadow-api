@@ -12,17 +12,27 @@ export class CsvControlCharacterError extends Error {
   }
 }
 
-export function parseCsvLine(line: string, rowNumber = 1): string[] {
-  return scanCsvLine(line, rowNumber, false);
+/** Report parsing stays permissive; import control rejection is opt-in. */
+export function parseCsvLine(
+  line: string,
+  rowNumber = 1,
+  options: { rejectControlCharacters?: boolean } = {}
+): string[] {
+  return scanCsvLine(line, rowNumber, false, options.rejectControlCharacters ?? false);
 }
 
 /** Validate without allocating cell strings, including rows later skipped by trim. */
 export function assertCsvControlCharacters(line: string, rowNumber = 1): void {
-  scanCsvLine(line, rowNumber, true);
+  scanCsvLine(line, rowNumber, true, true);
 }
 
-function scanCsvLine(line: string, rowNumber: number, validateOnly: boolean): string[] {
-  const s = line;
+function scanCsvLine(
+  line: string,
+  rowNumber: number,
+  validateOnly: boolean,
+  rejectControlCharacters: boolean
+): string[] {
+  const s = !rejectControlCharacters && line.endsWith("\r") ? line.slice(0, -1) : line;
   const out: string[] = [];
   let cur = "";
   let inQuotes = false;
@@ -34,15 +44,15 @@ function scanCsvLine(line: string, rowNumber: number, validateOnly: boolean): st
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
     // A terminal, unquoted CR is a record separator, not cell content.
-    if (ch === "\r" && i === s.length - 1 && !inQuotes) {
+    if (rejectControlCharacters && ch === "\r" && i === s.length - 1 && !inQuotes) {
       continue;
     }
     const code = s.charCodeAt(i);
-    if (
+    if (rejectControlCharacters && (
       (code < 0x20 && ch !== "\t" && ch !== "\n" && ch !== "\r") ||
       (code >= 0x7f && code <= 0x9f) ||
       (ch === "\r" && s[i + 1] !== "\n")
-    ) {
+    )) {
       throw new CsvControlCharacterError(rowNumber);
     }
     if (ch === '"') {

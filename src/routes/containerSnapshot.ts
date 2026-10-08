@@ -328,6 +328,7 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
     // not forward extra args anyway.
     const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES
     });
     return c.json(r, 200);

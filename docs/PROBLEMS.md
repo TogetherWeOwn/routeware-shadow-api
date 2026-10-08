@@ -36,6 +36,8 @@ invalid-ID records count. Tabs and quoted LF/CRLF remain supported. CR-only
 record separators remain supported; a lone CR **inside a quoted cell** is
 rejected, not silently removed. This is the API's import policy, stricter
 for cell CR than [RFC 4180 §2](https://datatracker.ietf.org/doc/html/rfc4180#section-2).
+Upstream report syncs and the default shared parser retain their permissive
+behavior; import routes explicitly enable control rejection.
 
 Fix the named record (remove forbidden controls or replace cell CR with LF)
 and retry. No rejected record is written, and import never reconciles/deletes.
