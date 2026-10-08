@@ -3,8 +3,11 @@
 `Post-deploy probe` runs daily and on `workflow_dispatch`. Both use
 `npm run probe:post-deploy:scheduled`, which requires a configured remote HTTPS
 origin. GitHub `schedule` events enforce the same requirement even if the CLI
-flag is omitted. Missing/blank, malformed, non-HTTPS, local, or URL-credential
-values fail before any fetch; there is no scheduled localhost fallback.
+flag is omitted. Missing/blank, malformed, non-HTTPS, local, URL-credential,
+non-root path, query, or fragment values fail before any fetch; there is no
+scheduled localhost fallback. A root slash and explicit HTTPS port are allowed.
+The hermetic CLI suite also runs in the always-run CI hygiene job, so probe-only
+changes cannot skip these regressions when the filtered build is skipped.
 
 ## Staging prerequisite
 
