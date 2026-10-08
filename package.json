@@ -21,7 +21,7 @@
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
     "verify:config": "node scripts/verify-config.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
-    "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
+    "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --scheduled --skip-if-no-token",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",
     "verify:r2-manifest": "node scripts/verify-r2-manifest.mjs",
     "dev:remote": "wrangler dev --remote",
@@ -31,9 +31,9 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "npm run test:probe && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "npm run test:probe && vitest run --coverage",
     "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",
     "discovery:setup": "npm --prefix tools/api-discovery install && npm run setup --prefix tools/api-discovery",
     "discovery:process": "npm run process --prefix tools/api-discovery",
@@ -42,7 +42,8 @@
     "discovery:codegen": "npm run codegen --prefix tools/api-discovery",
     "discovery:verify": "npm run discovery:process && npm test",
     "secret:login-username": "wrangler secret put LOGIN_USERNAME",
-    "secret:login-password": "wrangler secret put LOGIN_PASSWORD"
+    "secret:login-password": "wrangler secret put LOGIN_PASSWORD",
+    "test:probe": "node --test scripts/post-deploy-probe.test.mjs"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4",

@@ -170,6 +170,9 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: Hermetic post-deploy probe regressions
+        # Always run even for probe-only PRs whose filtered build is skipped.
+        run: npm run test:probe
       - name: Regenerate Worker types (TOG-8373)
         # worker-configuration.d.ts is gitignored — regenerate it here so the
         # baked-secrets gate below inspects current wrangler.toml [vars].
