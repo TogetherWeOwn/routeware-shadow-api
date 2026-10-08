@@ -4,7 +4,9 @@
 **Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Archive bucket `SNAPSHOTS` (`routeware-csv-snapshots`), keys `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date), D1 `CUSTOMER_DB`.
 **Why:** the daily sync archives the same CSV bytes it writes to D1 (`archiveReportCsvToR2AfterD1`), but nothing ever read them back. This doc is the recovery procedure: fetch the archived CSVs out of R2 and re-import them into D1 in FK order.
 
-Two restore paths: **§2 operator path** (R2 CLI → `.../import` HTTP — no code, works against any deployed Worker) and **§6 in-code path** (`restoreSnapshotCsvFromR2` → `sync*FromStream` — for programmatic/full restores). Both were drilled 2026-09-28 (see §7).
+**Use §6's in-code path for report-origin archive recovery.** It retrieves the archived stream and uses the same permissive parsing as upstream report sync. Public `.../import` is not a general disaster-recovery route: it rejects forbidden controls and lone CR cell content, even when those bytes came from our archive or `.../export`.
+
+The optional **§2–3 HTTP path** is only for CSVs whose entire contents are already known to satisfy the import policy in `docs/PROBLEMS.md#csv-control-characters-bad-request`. A passing integrity manifest proves byte integrity, not import compatibility. Do not start an HTTP restore to discover whether the CSV is compatible: a late 400 can leave earlier batches written. Neither restore path is atomic. Historical drill evidence is in §7; the control-boundary regression is pinned by `test/snapshotRestoreControlBoundary.test.ts`.
 
 ## 0. Prerequisites
 
@@ -43,7 +45,7 @@ ls -la
 # expect three non-empty $DATE-{customer,address,container}.csv files
 ```
 
-### Verify-first gate (must PASS before any §3 `.../import` call)
+### Verify-first gate (must PASS before either restore path)
 
 `.../import` is upsert-only and never deletes, so a truncated or tampered CSV
 would silently overwrite good D1 rows — and the §5 count/spot checks only catch
@@ -65,12 +67,14 @@ flag); drop `--remote` for a local-dev restore (credential-free) and add
 verify:r2-manifest -- --date=$DATE ...` runs the same checker.)
 
 On FAIL — including a missing manifest (archives written before TOG-8881 have
-no sidecar) — **stop: do not run any §3 import**. Treat the archive as suspect
+no sidecar) — **stop: do not run any §3 import or §6 in-code restore**. Treat the archive as suspect
 (truncated, tampered, or wrong date/bucket) and re-pull or escalate instead of
 importing blind. The reviewer tamper recipe in the `verify-r2-manifest.mjs`
 header comment replays this gate end-to-end (flip one CSV byte → exit 1).
 
-## 3. Restore into D1 in FK order (customer → address → container)
+## 3. Optional HTTP upsert of import-compatible CSVs
+
+Use this path only after the §2 integrity gate passes **and all three complete CSVs are known to be import-compatible**. For arbitrary report archives, control-bearing exports, or unknown compatibility, use §6 instead. Keep FK order customer → address → container and stop on the first failed request; do not continue the chain after a 400.
 
 Terminal A (blocking — leave it running; point `$BASE` at your target — local dev URL here, deployed Worker URL for a real restore):
 
@@ -86,23 +90,24 @@ SECRET=<the CUSTOMER_SNAPSHOT_SYNC_SECRET value from .dev.vars>
 Terminal B, **in this order** — only after the §2 verify-first gate PASSES — D1 enforces the FK chain unconditionally and a misordered import 400s with `Dangling reference` instead of writing orphans (`docs/BACKFILL-RUNBOOK.md` §2):
 
 ```bash
-curl -s -X POST "$BASE/api/v1/customer-snapshot/import" \
+set -e  # stop the restore chain on any failed HTTP request
+curl -fsS -X POST "$BASE/api/v1/customer-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
   --data-binary @/tmp/r2-restore/$DATE-customer.csv; echo
 # expect {"upserted":N,"rowCount":N,"deleted":0}
 
-curl -s -X POST "$BASE/api/v1/address-snapshot/import" \
+curl -fsS -X POST "$BASE/api/v1/address-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
   --data-binary @/tmp/r2-restore/$DATE-address.csv; echo
 # expect {"upserted":M,"rowCount":M,"deleted":0}
 
-curl -s -X POST "$BASE/api/v1/container-snapshot/import" \
+curl -fsS -X POST "$BASE/api/v1/container-snapshot/import" \
   -H "Authorization: Bearer $SECRET" -H "Content-Type: text/csv" \
   --data-binary @/tmp/r2-restore/$DATE-container.csv; echo
 # expect {"upserted":K,"rowCount":K,"deleted":0}
 ```
 
-Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`) and never deletes: it restores exactly what the archive holds and reconciles nothing. If the archive is newer than D1, upserts overwrite in place (re-sync is idempotent — pinned in `test/snapshotSyncE2E.test.ts`).
+Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`), validates controls before binding, and never reconciles/deletes. It upserts import-compatible business cells, but cannot restore every archive: rejected control content is not stripped or silently repaired. If the archive is newer than D1, upserts overwrite in place (re-sync is idempotent — pinned in `test/snapshotSyncE2E.test.ts`).
 
 ## 4. Targeting: which bucket and which D1
 
@@ -132,7 +137,9 @@ Then delete the scratch CSVs: `rm -rf /tmp/r2-restore` (PII — see §0).
 
 ## 6. Programmatic restore (in-code path)
 
-`restoreSnapshotCsvFromR2(env, table, date?)` returns the archived bytes as a `ReadableStream` (or `null` when the key is absent). Feed it straight into the same sync functions the cron uses:
+**Preferred for report-origin archives, including controls that HTTP import rejects.** Pass the §2 integrity gate against the same date and bucket first: `restoreSnapshotCsvFromR2` retrieves bytes but does not verify the manifest. Use an authorized restore execution context with the intended R2 and D1 bindings; this is not a new HTTP route or an import-validation opt-out.
+
+`restoreSnapshotCsvFromR2(env, table, date?)` returns the archived bytes as a `ReadableStream` (or `null` when the key is absent). Feed it straight into the same sync functions the cron uses, leaving `rejectControlCharacters` disabled (the default):
 
 ```ts
 import { restoreSnapshotCsvFromR2 } from "./lib/r2SnapshotArchive";
@@ -145,7 +152,7 @@ if (body === null) {
 await syncCustomerSnapshotFromStream(env.CUSTOMER_DB, body);
 ```
 
-Restore in FK order (customer → address → container), same as §3. No new route was added deliberately: the existing `.../import` routes already accept raw CSV bodies, so the operator path needs no deploy.
+Restore in FK order (customer → address → container), using `syncCustomerSnapshotFromStream`, `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream`; stop on a missing archive or failed sync. The default options upsert without reconciliation/deletion and restamp `synced_at`. They preserve the existing report-parser behavior for control-bearing business cells. Public HTTP import remains strict, including for the API's own exports; use §3 only for import-compatible CSVs, not arbitrary archive recovery.
 
 ## 7. Drill evidence
 
