@@ -200,17 +200,17 @@ export function encodeSnapshotRow(
   spec: SnapshotExportSpec,
   row: Record<string, unknown>
 ): string {
-  return [
-    ...spec.columns.map((c) => escapeCsvCell(formatCell(c, row[c.db]))),
-    CSV_SPREADSHEET_ENCODING
-  ].join(",");
+  const cells = spec.columns.map((c) => escapeCsvCell(formatCell(c, row[c.db])));
+  // All snapshot specs end in synced_at. Keep that existing trailer contract;
+  // the encoding marker is CSV metadata only, never selected from D1.
+  cells.splice(cells.length - 1, 0, CSV_SPREADSHEET_ENCODING);
+  return cells.join(",");
 }
 
 export function snapshotExportHeaderLine(spec: SnapshotExportSpec): string {
-  return [
-    ...spec.columns.map((c) => c.header),
-    CSV_SPREADSHEET_ENCODING_HEADER
-  ].join(",");
+  const headers = spec.columns.map((c) => c.header);
+  headers.splice(headers.length - 1, 0, CSV_SPREADSHEET_ENCODING_HEADER);
+  return headers.join(",");
 }
 
 export type SnapshotExportPage = {

@@ -170,7 +170,7 @@ with an apostrophe inside a double-quoted CSV field. Double quotes are doubled
 per RFC 4180. Original apostrophe-leading cells receive an extra apostrophe,
 so `=1+1` and the literal `'=1+1` cannot collide.
 
-Exports append `_shadow_csv_encoding` after `synced_at`, with `apostrophe-v1`
+Exports insert `_shadow_csv_encoding` before the final `synced_at`, with `apostrophe-v1`
 on every row. Re-importing the **original downloaded bytes**, including that
 column, removes exactly one inserted apostrophe before the existing import
 normalization. Ordinary unmarked Routeware CSV and unknown encoding versions

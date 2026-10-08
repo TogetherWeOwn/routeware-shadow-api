@@ -69,7 +69,7 @@ describe("spreadsheet-safe CSV cells", () => {
       });
       const fields = parseCsvLine(encoded);
       expect(fields).toHaveLength(spec.columns.length + 1);
-      expect(fields.at(-1)).toBe(CSV_SPREADSHEET_ENCODING);
+      expect(fields.at(-2)).toBe(CSV_SPREADSHEET_ENCODING);
       expect(parse(cols, encoded)).toMatchObject({ [property]: value.trim() });
       if (spec !== CUSTOMER_SNAPSHOT_EXPORT) {
         expect(parse(cols, encoded)).toMatchObject({ longitude: "-97.7" });

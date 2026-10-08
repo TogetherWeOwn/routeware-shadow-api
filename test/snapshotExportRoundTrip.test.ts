@@ -104,14 +104,14 @@ async function logicalLines(csv: string): Promise<string[]> {
 
 /**
  * Mask the per-run `synced_at` trailer on each logical line. Precise: the
- * export renders `synced_at` immediately before the encoding marker, so only
- * that ISO timestamp is masked — a business timestamp mid-row never matches.
- * Applied to both exports before checksumming.
+ * export always renders `synced_at` as the last column, so only a trailing ISO
+ * timestamp is masked — a business timestamp mid-row never matches. Applied to
+ * both exports before checksumming.
  */
 function maskSyncedAtLine(line: string): string {
   return line.replace(
-    /,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z,apostrophe-v1$/,
-    ",<STAMP>,apostrophe-v1"
+    /,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/,
+    ",<STAMP>"
   );
 }
 
@@ -395,7 +395,8 @@ describe("snapshot export → reimport round-trip (TOG-8887)", () => {
     // (UD-*/service-code columns present, empty), and survives the reimport.
     const header = (await logicalLines(textA))[0]!;
     expect(header.split(",")).toHaveLength(30);
-    expect(header.split(",").at(-1)).toBe("_shadow_csv_encoding");
+    expect(header.split(",").at(-2)).toBe("_shadow_csv_encoding");
+    expect(header.split(",").at(-1)).toBe("synced_at");
     expect(header).toContain("UD-Material_Stream-UD");
     expect(textB).toContain('"SN-1, ""A"""');
     expect(textB).toContain('"99 Industrial, Bldg ""C"""');
