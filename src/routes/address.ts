@@ -1,7 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import { prepareSaveAddressFormBody } from "../lib/addressContainerSaveForm";
 import { establishSession } from "../lib/establishSession";
-import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { forwardPassthrough } from "../lib/forwardPassthrough";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -81,7 +81,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/PickupAddress/SaveAddressForm"
   );
-  const up = await forwardWithSessionRetry(
+  const up = await forwardPassthrough(
     c.env,
     c.var.sessionStub,
     c.req.raw,

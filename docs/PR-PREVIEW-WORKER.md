@@ -14,6 +14,8 @@ approval gates unchanged. No new paid plan or service is part of this recipe.
   Cloudflare account. Confirm the account and granted capability before deploying;
   if access is missing or a plan upgrade is required, stop. Do not copy/export a
   production token or obtain another credential after an authentication failure.
+  Confirm already-authorized dashboard access for name-confirmed cleanup **before**
+  deployment; without it, do not create the temporary Worker.
 - This restricted preview proves Worker bundling, public liveness and fail-closed
   auth. It intentionally has **no D1, R2, Browser Rendering or report sources**.
   It is not a snapshot E2E, readiness, upstream-login or production-parity test.
@@ -39,6 +41,7 @@ PREVIEW_NONCE="$(node -e 'process.stdout.write(require("node:crypto").randomByte
 PREVIEW_WORKER="routeware-shadow-api-pr-${PR_NUMBER}-${PREVIEW_SHA}-${PREVIEW_NONCE}"
 PREVIEW_DIR="$(mktemp -d "${PAPERCLIP_RUN_SCRATCH_DIR:?}/worker-preview.XXXXXX")"
 [[ -d "$PREVIEW_DIR" ]]
+PREVIEW_DIR="$(cd "$PREVIEW_DIR" && pwd -P)"
 PREVIEW_CONFIG="$PREVIEW_DIR/wrangler.json"
 WRANGLER="$REPO_ROOT/node_modules/wrangler/bin/wrangler.js"
 export REPO_ROOT PREVIEW_SHA PREVIEW_WORKER PREVIEW_DIR PREVIEW_CONFIG WRANGLER
@@ -102,16 +105,22 @@ bindings, Browser binding, custom routes, cron schedules, credentials, real upst
 host, report IDs or paid CPU limit. Paths must point at the reviewed checkout.
 
 ```bash
-env -i PATH="$PATH" HOME="$PREVIEW_DIR/auth-home" \
-  WRANGLER_SEND_METRICS=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
-  node "$WRANGLER" deploy --config "$PREVIEW_CONFIG" \
-  --dry-run --outdir "$PREVIEW_DIR/bundle"
+(
+  cd "$PREVIEW_DIR"
+  env -i PATH="$PATH" HOME="$PREVIEW_DIR/auth-home" \
+    WRANGLER_SEND_METRICS=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+    node "$WRANGLER" deploy --config "$PREVIEW_CONFIG" \
+    --dry-run --outdir "$PREVIEW_DIR/bundle"
+)
 ```
 
 Require exit 0 and inspect the reported bindings: only `AUTH_SESSION` and the
 synthetic vars above. Wrangler's dry-run compiles/checks without uploading; the
-clean environment and scratch HOME avoid using a cached account login. It does
-**not** prove account authorization, successful namespace creation or live smoke.
+clean environment and scratch HOME avoid using a cached account login. Run every
+Wrangler invocation from the isolated scratch directory: this pinned version also
+loads CLI credentials from `.env`/`.env.local` in its working directory, independently
+of the config directory and the dev-vars dotenv flag. Do not copy dotenv files there.
+It does **not** prove account authorization, successful namespace creation or live smoke.
 Save the PR/head, Worker name, config and dry-run result as reviewer evidence.
 
 ## 3. Optional manual deployment (separate staging authorization)
@@ -123,9 +132,12 @@ Keep the config/name unchanged; never substitute the stable production name.
 
 ```bash
 : "${CLOUDFLARE_ACCOUNT_ID:?Verified preview account required}"
-CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" WRANGLER_SEND_METRICS=false \
-  CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
-  node "$WRANGLER" deploy --config "$PREVIEW_CONFIG" --name "$PREVIEW_WORKER"
+(
+  cd "$PREVIEW_DIR"
+  CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" WRANGLER_SEND_METRICS=false \
+    CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+    node "$WRANGLER" deploy --config "$PREVIEW_CONFIG" --name "$PREVIEW_WORKER"
+)
 ```
 
 This activates **only the temporary Worker** on its own `workers.dev` URL. Record
@@ -179,7 +191,6 @@ permanently removes this temporary Worker's associated state; unexpected shared 
 real data means **stop**, not force deletion. This is not a production rollback.
 
 ```bash
-: "${CLOUDFLARE_ACCOUNT_ID:?Use the same verified preview account}"
 node <<'NODE'
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -190,16 +201,31 @@ assert.deepEqual(c.routes, []);
 assert.deepEqual(c.triggers.crons, []);
 assert.deepEqual(c.durable_objects.bindings, [{ name: 'AUTH_SESSION', class_name: 'AuthSession' }]);
 NODE
-CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" WRANGLER_SEND_METRICS=false \
-  node "$WRANGLER" delete "$PREVIEW_WORKER" --config "$PREVIEW_CONFIG"
+(
+  cd "$PREVIEW_DIR"
+  env -i PATH="$PATH" HOME="$PREVIEW_DIR/auth-home" \
+    WRANGLER_SEND_METRICS=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+    node "$WRANGLER" delete "$PREVIEW_WORKER" --config "$PREVIEW_CONFIG" --dry-run
+)
 ```
 
-Keep Wrangler's confirmation prompt; verify the temporary name/account, never use
-`--force`. Confirm the Worker and its associated namespace are gone in the selected
-account and the recorded URL no longer serves this deployment. Record teardown
-outcome and release the local scratch directory through normal workspace cleanup.
-There are no separately created D1 databases or R2 buckets to delete. Production
-config, data, routes, credentials and activation gates remain untouched throughout.
+The block above **does not delete anything**. Keep `--dry-run`: Wrangler 4.84.1
+can auto-confirm deletion in noninteractive/CI mode, including a dependency warning
+that would force deletion even without `--force`. Do not automate live CLI deletion.
+
+For actual removal, use the already-authorized account's Cloudflare dashboard:
+**Workers & Pages → exact recorded temporary Worker → Settings → Delete**. Verify
+the account, name and deployment again, then type that exact temporary Worker name
+in the dashboard's deletion confirmation. If any shared-state/dependency warning
+appears, cancel and stop; never approve forced removal or substitute a stable Worker.
+If authorized dashboard access is unavailable, stop and record that cleanup remains
+pending; this recipe does not authorize a new login or another credential.
+
+Confirm the Worker and its associated namespace are gone in the selected account
+and the recorded URL no longer serves this deployment. Record teardown outcome and
+release the local scratch directory through normal workspace cleanup. There are no
+separately created D1 databases or R2 buckets to delete. Production config, data,
+routes, credentials and activation gates remain untouched throughout.
 
 ## Reviewer-checkable acceptance
 
@@ -208,12 +234,14 @@ config, data, routes, credentials and activation gates remain untouched througho
 - [ ] Independent config contains synthetic vars, `.invalid` upstream, fresh same-Worker DO, empty routes/cron and no production resources/secrets.
 - [ ] Credential-free `deploy --dry-run` passes before any separately authorized manual deployment.
 - [ ] Smoke is explicitly limited to liveness/auth rejection, with no data/readiness/parity claim.
-- [ ] Teardown validates the exact temporary target, retains confirmation and records removal.
+- [ ] Teardown validates the exact temporary target with CLI dry-run only; live removal requires dashboard name confirmation and records removal.
 
 ## Official references
 
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/): explicit config, routes, `workers_dev`, cron, vars and same-script DO bindings.
 - [Wrangler deploy/delete commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/): `--config`, `--name`, `--dry-run`, `--outdir` and deletion semantics. Use the pinned executable's `--help` for version-specific options.
 - [Local and deployed secrets](https://developers.cloudflare.com/workers/configuration/secrets/): config-directory dotenv loading and preservation of existing deployed secrets.
+- [Wrangler system environment variables](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/): CLI authentication variables; pinned Wrangler also loads cwd dotenv during argument processing.
+- [Dashboard Worker deletion](https://developers.cloudflare.com/d1/get-started/#7-optional-delete-your-database): the Worker deletion subsection requires selecting the Worker and typing its name to confirm. No D1 database is created by this recipe.
 - [Durable Object migrations](https://developers.cloudflare.com/durable-objects/reference/durable-objects-migrations/): legacy `new_sqlite_classes` migration and Worker/environment namespace isolation. The newer declarative `exports` flow is not required by this pinned Wrangler recipe.
 - [SQLite-backed storage](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/): SQLite-backed objects support the key-value storage API.
