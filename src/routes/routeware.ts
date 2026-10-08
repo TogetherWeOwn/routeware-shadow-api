@@ -3,6 +3,7 @@ import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
+import { readUpstreamText } from "../lib/upstreamBody";
 import { forwardToUpstream } from "../lib/upstreamForward";
 import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import {
@@ -132,7 +133,7 @@ routewareRoutes.openapi(appSettingsGetRoute, async (c) => {
   );
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): an
   // app-settings read is always JSON, so HTML here means the read failed.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -201,7 +202,7 @@ routewareRoutes.openapi(queryRequestIsCompleteRoute, async (c) => {
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): the
   // poll answer is `true`/`false`/`1`/`0` or JSON, so HTML here means the
   // session was lost or upstream errored.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }

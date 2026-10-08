@@ -10,6 +10,8 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
+import { readUpstreamText } from "../lib/upstreamBody";
+import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import {
   routewareWebRwUrl,
   routewareWebRwUrlWithQueryAllowlist
@@ -72,7 +74,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
   // Routeware signals a failed read silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the read
   // worked when it did not. Same heuristic as the save-long-form route.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -123,7 +125,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): an HTML
   // error page with HTTP 200. A detail payload is always JSON, so HTML here
   // means the read failed.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -173,7 +175,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
   );
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): a
   // dropdown store read is always JSON, so HTML here means the read failed.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -261,7 +263,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   // Routeware signals a failed save silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the save
   // worked when it did not. Same heuristic as the /data/* write path.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     // TOG-6463: a successful routeware-tier save must refresh D1 + evict the
     // data-entity cache, or shadow reads keep serving the pre-save record.

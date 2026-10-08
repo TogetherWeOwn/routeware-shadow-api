@@ -5,6 +5,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-18135: Buffered upstream read/save, token-modal, and login bodies now
+  have a separate `UPSTREAM_TIMEOUT_MS` deadline after headers arrive.
+  Timeouts abort/cancel pending reads without replaying saves; successful
+  passthrough bodies and long-running report CSV streams remain unchanged.
+
 - TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
   lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
   jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`
