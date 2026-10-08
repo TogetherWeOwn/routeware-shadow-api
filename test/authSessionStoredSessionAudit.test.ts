@@ -8,8 +8,8 @@ import {
 } from "../src/lib/sessionRefreshLock";
 import { readSessionState, sessionExpiryMs } from "../src/lib/sessionState";
 
-// Synthetic fixture only. Finding-evidence tests characterize unfixed defects;
-// their passing result is NOT an expiry/redaction security guarantee.
+// Synthetic fixture only. F1/F2 evidence tests still characterize unfixed defects;
+// the scoped release-warning regressions do not guarantee expiry or all auth-log redaction.
 const COOKIE = ".WebRW=SYNTHETIC-AUDIT-NOT-A-CREDENTIAL";
 const LOCK_TTL_MS = 120_000;
 
@@ -193,17 +193,38 @@ describe("AuthSession stored-session audit", () => {
     { label: "Error.message", thrown: new Error(COOKIE) },
     { label: "string", thrown: COOKIE },
     { label: "object stringification", thrown: { toString: (): string => COOKIE } }
-  ])("F3 evidence: unlock warning copies untrusted $label verbatim", async ({ thrown }) => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const stub = {
-      fetch: async () => { throw thrown; }
-    } as unknown as DurableObjectStub;
+  ])("emits only a fixed warning when unlock rejects with untrusted $label", async ({ thrown }) => {
+    const logs = captureConsole();
+    const fetch = vi.fn().mockRejectedValue(thrown);
+    const stub = { fetch } as unknown as DurableObjectStub;
 
     await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
 
-    expect(warn).toHaveBeenCalledExactlyOnceWith(
-      "Failed to release the auth refresh lock; it will expire via its TTL:",
-      COOKIE
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock");
+    expect(logs[2]).toHaveBeenCalledExactlyOnceWith(
+      "Failed to release the auth refresh lock; it will expire via its TTL."
     );
+    for (const log of logs) {
+      expect(JSON.stringify(log.mock.calls)).not.toContain(COOKIE);
+    }
   });
+
+  it.each(["toString", "message getter"])(
+    "does not inspect a rejected object's throwing %s",
+    async (kind) => {
+      const logs = captureConsole();
+      const inspect = vi.fn(() => { throw new Error(COOKIE); });
+      const thrown = kind === "toString"
+        ? { toString: inspect }
+        : Object.defineProperty(new Error(""), "message", { get: inspect });
+      const stub = { fetch: vi.fn().mockRejectedValue(thrown) } as unknown as DurableObjectStub;
+
+      await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
+
+      expect(inspect).not.toHaveBeenCalled();
+      expect(logs[2]).toHaveBeenCalledExactlyOnceWith(
+        "Failed to release the auth refresh lock; it will expire via its TTL."
+      );
+    }
+  );
 });

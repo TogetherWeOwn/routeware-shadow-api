@@ -54,7 +54,7 @@ type LockState = {
  */
 function fakeStub(
   state: LockState,
-  options: { rejectSet?: boolean } = {}
+  options: { rejectSet?: boolean; unlockFailure?: unknown } = {}
 ): DurableObjectStub {
   return {
     fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -74,6 +74,9 @@ function fakeStub(
         return new Response("OK");
       }
       if (path === "/unlock") {
+        if ("unlockFailure" in options) {
+          throw options.unlockFailure;
+        }
         state.refreshing = false;
         state.lockedAt = null;
         return new Response("OK");
@@ -267,6 +270,32 @@ describe("establishSession refresh-lock serialization", () => {
     httpLoginShouldFail = false;
     await establishSession(env, stub, env.LOGIN_URL);
     expect(state.cookieHeader).toBe(".WebRW=http");
+  });
+
+  it("preserves the original auth failure when lock release rejects with a hostile object", async () => {
+    const state = freshState();
+    const inspect = vi.fn(() => {
+      throw new Error(".WebRW=SYNTHETIC-UNLOCK-NOT-A-CREDENTIAL");
+    });
+    const stub = fakeStub(state, { unlockFailure: { toString: inspect } });
+    const env = envWith("http");
+    const authFailure = new Error("Original synthetic auth failure");
+    const { establishSessionViaHttp } = await import("../src/lib/httpAuth");
+    vi.mocked(establishSessionViaHttp).mockRejectedValueOnce(authFailure);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      await expect(establishSession(env, stub, env.LOGIN_URL)).rejects.toBe(authFailure);
+
+      expect(inspect).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        "Failed to release the auth refresh lock; it will expire via its TTL."
+      );
+      expect(state.refreshing).toBe(true);
+      expect(state.cookieHeader).toBeNull();
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("falls back to the browser under the same single lock when HTTP login fails in auto mode", async () => {

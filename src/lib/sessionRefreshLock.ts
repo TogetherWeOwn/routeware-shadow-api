@@ -59,15 +59,13 @@ export async function acquireRefreshLock(stub: DurableObjectStub): Promise<boole
  * Release the lock after a failed refresh. The DO's `/set` already clears it on
  * success, so this is only needed on the error path. Never throws — a failure to
  * unlock must not mask the original error, and the DO expires a stale lock anyway.
+ * Do not inspect rejected values: they may contain credentials or throw on coercion.
  */
 export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void> {
   try {
     await stub.fetch("https://auth/unlock");
-  } catch (err) {
-    console.warn(
-      "Failed to release the auth refresh lock; it will expire via its TTL:",
-      err instanceof Error ? err.message : String(err)
-    );
+  } catch {
+    console.warn("Failed to release the auth refresh lock; it will expire via its TTL.");
   }
 }
 
