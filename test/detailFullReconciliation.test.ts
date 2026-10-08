@@ -7,7 +7,11 @@ const state = vi.hoisted(() => ({
   invalidated: [] as Array<{ customerId: number; addressIds: number[]; containerIds: number[] }>,
   report: undefined as (() => Promise<Response>) | undefined
 }));
-vi.mock("../src/lib/sessionState", () => ({ readSessionState: async () => null }));
+vi.mock("../src/lib/sessionState", () => ({ readSessionState: async () => ({
+  cookieHeader: ".WebRW=SYNTHETIC-RECONCILIATION-NOT-A-CREDENTIAL",
+  expiresAtMs: Date.now() + 60_000,
+  refreshing: false
+}) }));
 vi.mock("../src/lib/establishSession", () => ({ establishSession: async () => {
   throw new Error("Unexpected login in reconciliation test");
 } }));

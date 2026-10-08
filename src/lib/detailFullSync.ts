@@ -243,14 +243,25 @@ export async function fetchGetCustomerDetailFull(
       body: bodyStr
     });
 
+  const authenticate = async () => {
+    await establishSession(env, sessionStub, env.LOGIN_URL);
+    const session = await readSessionState(sessionStub);
+    if (!session.cookieHeader) {
+      throw new Error("GetCustomerDetailFull has no live session after authentication");
+    }
+    return session;
+  };
   let session = await readSessionState(sessionStub);
+  // Expiry eviction leaves no cookie; do not send the detail request anonymously.
+  if (!session.cookieHeader) {
+    session = await authenticate();
+  }
   // Interactive budget honoring UPSTREAM_TIMEOUT_MS (TOG-8359): the forwarder
   // default alone would ignore the per-deploy override.
   const timeoutMs = readUpstreamTimeoutMs(env);
   let resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   if (resp.status !== 200 || isLoginRedirect(resp)) {
-    await establishSession(env, sessionStub, env.LOGIN_URL);
-    session = await readSessionState(sessionStub);
+    session = await authenticate();
     resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
   }
   if (!resp.ok) {

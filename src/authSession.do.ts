@@ -64,17 +64,63 @@ export class AuthSession {
   constructor(
     private readonly state: DurableObjectState,
     _env: Env
-  ) {}
+  ) {
+    // Repair sessions written before alarms existed when the object next wakes.
+    this.state.blockConcurrencyWhile(() =>
+      this.state.storage.transaction((txn) => this.readLiveSession(txn))
+    );
+  }
+
+  private async clearSession(txn: DurableObjectTransaction): Promise<void> {
+    await txn.delete(["cookieHeader", "expiresAtMs"]);
+    await txn.deleteAlarm();
+  }
+
+  private async readLiveSession(txn: DurableObjectTransaction): Promise<StoredSession | null> {
+    const cookieHeader = await txn.get<unknown>("cookieHeader");
+    const expiresAtMs = await txn.get<unknown>("expiresAtMs");
+    const session = parseSetBody({ cookieHeader, expiresAtMs });
+    if (!session || session.expiresAtMs <= Date.now()) {
+      // Session eviction must not release another caller's lock or throttle.
+      await this.clearSession(txn);
+      return null;
+    }
+    if (await txn.getAlarm() !== session.expiresAtMs) {
+      await txn.setAlarm(session.expiresAtMs);
+    }
+    // Alarm storage I/O can cross the boundary even while the transaction holds.
+    if (session.expiresAtMs <= Date.now()) {
+      await this.clearSession(txn);
+      return null;
+    }
+    return session;
+  }
+
+  async alarm(): Promise<void> {
+    // At-least-once/old alarms must inspect the current expiry, not the one
+    // that originally scheduled them. A renewal and its alarm are atomic.
+    await this.state.storage.transaction((txn) => this.readLiveSession(txn));
+  }
 
   async fetch(req: Request): Promise<Response> {
     const url = new URL(req.url);
 
     if (url.pathname === "/get") {
-      const data: SessionState = {
-        cookieHeader: (await this.state.storage.get("cookieHeader")) ?? null,
-        expiresAtMs: (await this.state.storage.get("expiresAtMs")) ?? null,
-        refreshing: (await this.state.storage.get("refreshing")) ?? false
-      };
+      const data = await this.state.storage.transaction(async (txn): Promise<SessionState> => {
+        const refreshing = (await txn.get<boolean>("refreshing")) ?? false;
+        const session = await this.readLiveSession(txn);
+        return {
+          cookieHeader: session?.cookieHeader ?? null,
+          expiresAtMs: session?.expiresAtMs ?? null,
+          refreshing
+        };
+      });
+      // Committing the transaction can cross expiry after its callback returned.
+      if (data.expiresAtMs !== null && data.expiresAtMs <= Date.now()) {
+        await this.state.storage.transaction((txn) => this.readLiveSession(txn));
+        data.cookieHeader = null;
+        data.expiresAtMs = null;
+      }
       return Response.json(data);
     }
 
@@ -86,10 +132,21 @@ export class AuthSession {
         return new Response("Bad Request", { status: 400 });
       }
 
-      await this.state.storage.put("cookieHeader", session.cookieHeader);
-      await this.state.storage.put("expiresAtMs", session.expiresAtMs);
-      await this.state.storage.put("refreshing", false);
-      await this.state.storage.delete("lockedAt");
+      const published = await this.state.storage.transaction(async (txn) => {
+        if (session.expiresAtMs <= Date.now()) {
+          await this.readLiveSession(txn);
+          return false;
+        }
+        await txn.put(session);
+        await txn.setAlarm(session.expiresAtMs);
+        await txn.put("refreshing", false);
+        await txn.delete("lockedAt");
+        return true;
+      });
+      if (!published) {
+        return new Response("Session expired", { status: 409 });
+      }
+      // This acknowledges the committed write and lock release, not authentication.
       return new Response("OK");
     }
 

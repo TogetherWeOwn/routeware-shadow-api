@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthSession } from "../src/authSession.do";
 import { sessionExpiryMs } from "../src/lib/sessionState";
+import { authSessionTestState } from "./authSessionTestState";
 
 /**
  * Unit tests for the `AuthSession` Durable Object — the sole holder of the
@@ -14,24 +15,11 @@ import { sessionExpiryMs } from "../src/lib/sessionState";
 /** Must match LOCK_TTL_MS in src/authSession.do.ts. */
 const LOCK_TTL_MS = 120_000;
 
-type StoredValue = string | number | boolean;
-
-/** Minimal in-memory stand-in for the subset of DurableObjectState the DO uses. */
-function fakeState(): DurableObjectState {
-  const store = new Map<string, StoredValue>();
-  return {
-    storage: {
-      get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
-      put: async (key: string, value: StoredValue): Promise<void> => {
-        store.set(key, value);
-      },
-      delete: async (key: string): Promise<boolean> => store.delete(key)
-    }
-  } as unknown as DurableObjectState;
-}
-
-function makeSession(): AuthSession {
-  return new AuthSession(fakeState(), {} as Env);
+async function makeSession(): Promise<AuthSession> {
+  const fake = authSessionTestState();
+  const session = new AuthSession(fake.state, {} as Env);
+  await fake.ready();
+  return session;
 }
 
 function call(session: AuthSession, path: string, body?: unknown): Promise<Response> {
@@ -55,10 +43,19 @@ async function readState(session: AuthSession): Promise<SessionSnapshot> {
 }
 
 describe("AuthSession Durable Object", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe("/get", () => {
     it("returns an empty session before anything is stored", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const state = await readState(session);
@@ -71,7 +68,7 @@ describe("AuthSession Durable Object", () => {
   describe("/set", () => {
     it("stores the cookie header and expiry, and reports them back", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       const expiresAtMs = 1_900_000_000_000;
 
       // Act
@@ -91,11 +88,11 @@ describe("AuthSession Durable Object", () => {
 
     it("clears a held lock so a completed refresh cannot wedge authentication", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act
-      await call(session, "/set", { cookieHeader: ".WebRW=fresh", expiresAtMs: 1 });
+      await call(session, "/set", { cookieHeader: ".WebRW=fresh", expiresAtMs: Date.now() + 60_000 });
 
       // Assert — refreshing reset, and the lock is immediately re-acquirable
       expect((await readState(session)).refreshing).toBe(false);
@@ -114,7 +111,7 @@ describe("AuthSession Durable Object", () => {
       { label: "a non-object body", body: "nope" }
     ])("rejects $label with 400 instead of storing it", async ({ body }) => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/set", body);
@@ -130,8 +127,9 @@ describe("AuthSession Durable Object", () => {
 
     it("does not clobber a good session when a later malformed /set arrives", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs: 1000 });
+      const session = await makeSession();
+      const expiresAtMs = Date.now() + 60_000;
+      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs });
 
       // Act
       const response = await call(session, "/set", {
@@ -142,16 +140,16 @@ describe("AuthSession Durable Object", () => {
       // Assert
       expect(response.status).toBe(400);
       expect((await readState(session)).cookieHeader).toBe(".WebRW=good");
-      expect((await readState(session)).expiresAtMs).toBe(1000);
+      expect((await readState(session)).expiresAtMs).toBe(expiresAtMs);
     });
 
     it("overwrites a previously stored cookie", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=old", expiresAtMs: 1 });
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=old", expiresAtMs: Date.now() + 1000 });
 
       // Act
-      await call(session, "/set", { cookieHeader: ".WebRW=new", expiresAtMs: 2 });
+      await call(session, "/set", { cookieHeader: ".WebRW=new", expiresAtMs: Date.now() + 2000 });
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=new");
@@ -161,7 +159,7 @@ describe("AuthSession Durable Object", () => {
   describe("/lock", () => {
     it("grants the lock when free and marks the session as refreshing", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/lock");
@@ -173,7 +171,7 @@ describe("AuthSession Durable Object", () => {
 
     it("returns 423 to a second caller while the lock is held and fresh", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act
@@ -185,18 +183,9 @@ describe("AuthSession Durable Object", () => {
   });
 
   describe("/lock stale-lock recovery", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     it("still refuses a second caller just before the TTL expires", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act
@@ -209,7 +198,7 @@ describe("AuthSession Durable Object", () => {
 
     it("treats a lock older than the TTL as stale so a crashed refresh cannot wedge auth", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act — the holder never unlocked (simulating a crash)
@@ -225,7 +214,7 @@ describe("AuthSession Durable Object", () => {
   describe("/unlock", () => {
     it("releases the lock so the next caller can acquire it", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act
@@ -239,8 +228,8 @@ describe("AuthSession Durable Object", () => {
 
     it("preserves the stored cookie when releasing the lock", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: 42 });
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: Date.now() + 60_000 });
       await call(session, "/lock");
 
       // Act
@@ -289,7 +278,7 @@ describe("AuthSession Durable Object", () => {
   describe("unknown paths", () => {
     it("returns 404 rather than falling through to a default behavior", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/not-a-real-endpoint");

@@ -15,6 +15,7 @@ import {
   type AuthThrottleState
 } from "../src/lib/authThrottle";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
+import { authSessionTestState } from "./authSessionTestState";
 
 // Matches wrangler.toml [env.test.vars].
 const API_TOKEN = "test-api-token";
@@ -146,22 +147,11 @@ describe("throttle window math", () => {
 });
 
 describe("throttle DO endpoints", () => {
-  function fakeState(initial?: Record<string, unknown>): DurableObjectState {
-    const store = new Map<string, unknown>(Object.entries(initial ?? {}));
-    return {
-      storage: {
-        get: async <T>(key: string): Promise<T | undefined> =>
-          store.get(key) as T | undefined,
-        put: async (key: string, value: unknown): Promise<void> => {
-          store.set(key, value);
-        },
-        delete: async (key: string): Promise<boolean> => store.delete(key)
-      }
-    } as unknown as DurableObjectState;
-  }
-
-  function sessionWith(initial?: Record<string, unknown>): AuthSession {
-    return new AuthSession(fakeState(initial), {} as Env);
+  async function sessionWith(initial?: Record<string, unknown>): Promise<AuthSession> {
+    const fake = authSessionTestState(initial);
+    const session = new AuthSession(fake.state, {} as Env);
+    await fake.ready();
+    return session;
   }
 
   async function throttleCall(
@@ -173,7 +163,7 @@ describe("throttle DO endpoints", () => {
 
   it("reports open on fresh state and counts one failure", async () => {
     // Arrange
-    const session = sessionWith();
+    const session = await sessionWith();
 
     // Act / Assert
     expect(await (await throttleCall(session, "/throttle/check")).json()).toEqual({
@@ -186,7 +176,7 @@ describe("throttle DO endpoints", () => {
 
   it("treats a corrupt stored value as empty instead of throwing", async () => {
     // Arrange — a foreign value under the throttle key (e.g. a past key bug).
-    const session = sessionWith({ throttle: { failures: "many" } });
+    const session = await sessionWith({ throttle: { failures: "many" } });
 
     // Act
     const res = await throttleCall(session, "/throttle/failure");
@@ -198,7 +188,7 @@ describe("throttle DO endpoints", () => {
 
   it("clears the counter so a recovered client starts fresh", async () => {
     // Arrange
-    const session = sessionWith();
+    const session = await sessionWith();
     await throttleCall(session, "/throttle/failure");
 
     // Act

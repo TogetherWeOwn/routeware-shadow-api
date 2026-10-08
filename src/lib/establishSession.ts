@@ -1,6 +1,7 @@
 import { establishSessionWithBrowser } from "./browserAuth";
 import { establishSessionViaHttp } from "./httpAuth";
 import { isLoginPageUnavailableError } from "./loginPageError";
+import { readSessionState } from "./sessionState";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
@@ -85,6 +86,18 @@ export async function establishSession(
     // The DO clears the lock on a successful /set, so release only on failure.
     await releaseRefreshLock(stub);
     throw err;
+  }
+
+  // A successful publication released our lock. Validate authentication outside
+  // the catch: a delayed write/read can expire, but another caller now owns any lock.
+  const session = await readSessionState(stub);
+  if (
+    session.refreshing !== false ||
+    typeof session.cookieHeader !== "string" || session.cookieHeader.length === 0 ||
+    typeof session.expiresAtMs !== "number" || !Number.isFinite(session.expiresAtMs) ||
+    session.expiresAtMs <= Date.now()
+  ) {
+    throw new Error("Session refresh completed without an available live session.");
   }
 }
 

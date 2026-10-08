@@ -61,7 +61,17 @@ describe("routeware-tier saves refresh D1 + cache (TOG-6463)", () => {
     await ensureD1TestTables();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // The save/detail assertions use a locally published synthetic live session.
+    const stub = env.AUTH_SESSION.get(env.AUTH_SESSION.idFromName("primary"));
+    const published = await stub.fetch("https://auth/set", {
+      method: "POST",
+      body: JSON.stringify({
+        cookieHeader: ".WebRW=SYNTHETIC-SAVE-CACHE-NOT-A-CREDENTIAL",
+        expiresAtMs: Date.now() + 300_000
+      })
+    });
+    expect(published.status).toBe(200);
     detailFullCalls.length = 0;
     behavior.saveBody = '{"success":true}';
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

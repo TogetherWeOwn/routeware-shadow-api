@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { httpLogin } from "../src/lib/httpAuth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
+import { AuthSession } from "../src/authSession.do";
+import { authSessionTestState } from "./authSessionTestState";
 
 /**
  * Fail fast on a non-200 login page (TOG-6536).
@@ -30,8 +32,11 @@ import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 const browserLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/browserAuth", () => ({
-  establishSessionWithBrowser: vi.fn(async () => {
+  establishSessionWithBrowser: vi.fn(async (env: Env, stub: DurableObjectStub) => {
     browserLoginCalls.count += 1;
+    const { storeSession } = await import("../src/lib/sessionRefreshLock");
+    const { sessionExpiryMs } = await import("../src/lib/sessionState");
+    await storeSession(stub, ".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL", sessionExpiryMs(env));
   })
 }));
 
@@ -197,7 +202,12 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode still falls back to the browser on a genuine 200 markup change", async () => {
     // Arrange — 200 page, no token anywhere: the case the fallback exists for.
-    const state = { refreshing: false };
+    const fake = authSessionTestState();
+    const session = new AuthSession(fake.state, {} as Env);
+    await fake.ready();
+    const stub = {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) => session.fetch(new Request(input, init))
+    } as unknown as DurableObjectStub;
     globalThis.fetch = (async () =>
       new Response("<html><body>redesigned login, no token</body></html>", {
         status: 200,
@@ -205,10 +215,13 @@ describe("establishSession never launches the browser for a blocked login page (
       })) as unknown as typeof fetch;
 
     // Act
-    await establishSession(baseEnv(), lockStub(state), LOGIN_URL);
+    await establishSession(baseEnv(), stub, LOGIN_URL);
 
-    // Assert — the fallback ran exactly once.
+    // Assert — the fallback ran exactly once and published a usable session.
     expect(browserLoginCalls.count).toBe(1);
+    expect(fake.values.get("cookieHeader")).toBe(".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL");
+    expect(fake.values.get("expiresAtMs")).toBeGreaterThan(Date.now());
+    expect(fake.values.get("refreshing")).toBe(false);
   });
 });
 
