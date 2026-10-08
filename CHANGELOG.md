@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8375: Throttle 429s now include `X-RateLimit-Limit`,
+  `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS
+  exposes them to browser clients; `Retry-After` is unchanged.
+
 - TOG-18135: Buffered upstream read/save, token-modal, and login bodies now
   have a separate `UPSTREAM_TIMEOUT_MS` deadline after headers arrive.
   Timeouts abort/cancel pending reads without replaying saves. Continuously

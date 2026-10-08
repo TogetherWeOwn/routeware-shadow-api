@@ -1,7 +1,11 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized } from "./lib/auth";
-import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
+import {
+  AUTH_THROTTLE_MAX_FAILURES,
+  clearAuthFailures,
+  recordAuthFailure
+} from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
@@ -115,6 +119,15 @@ app.use("/api/v1/*", async (c, next) => {
         instance: new URL(c.req.raw.url).pathname
       });
       throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
+      throttled.headers.set("X-RateLimit-Limit", String(AUTH_THROTTLE_MAX_FAILURES));
+      throttled.headers.set("X-RateLimit-Remaining", "0");
+      throttled.headers.set(
+        "X-RateLimit-Reset",
+        String(
+          verdict.resetAtSec ??
+            Math.ceil((Date.now() + verdict.retryAfterSec * 1000) / 1000)
+        )
+      );
       return withCors(throttled, c.req.raw);
     }
     return withCors(
