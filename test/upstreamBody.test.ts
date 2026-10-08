@@ -161,6 +161,8 @@ describe("root app buffered-body deadline", () => {
       const problem = await response.text();
       expect(problem).toContain("Upstream timed out");
       expect(problem).toContain("50ms");
+      expect(problem).not.toContain("Retry once");
+      expect(problem).toContain("verify the record before resubmitting");
       expect(problem).not.toContain("private upstream body marker");
       expect(problem).not.toContain(ORIGIN);
       expect(signal.aborted).toBe(true);

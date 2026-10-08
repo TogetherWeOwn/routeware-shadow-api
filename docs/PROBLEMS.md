@@ -139,14 +139,23 @@ header budget. Each buffered read can therefore spend one header budget plus
 one body budget. Completing headers does not make a never-finishing JSON or
 modal body successful.
 
-A timeout fails fast to 502 problem+json with a fixed PII-free detail (no URL,
-no body). The body deadline aborts the original fetch and cancels pending
-reads; passthrough validation cancels both clone/tee branches on timeout.
-Cancellation is not awaited, because an underlying source can itself hang.
-No timeout triggers session refresh, replays a save, or begins its local D1
-refresh. If the upstream save completed but its response timed out, its result
-is **unknown**: verify the record before deciding whether to submit again.
+A timeout of the primary forwarded response fails fast to 502 problem+json
+with a fixed PII-free detail (no URL, no body). The body deadline aborts the
+original fetch and cancels pending reads; passthrough validation cancels both
+clone/tee branches on timeout. Cancellation is not awaited, because an
+underlying source can itself hang. The forwarding retry wrapper propagates a
+timeout without refreshing the session or replaying the request. A timed-out
+save response does not begin its local D1 refresh. Its upstream result is
+**unknown**: verify the record before deciding whether to submit again.
 A caller abort with the header timer unfired rethrows verbatim, never a 502.
+
+Existing caller policies remain unchanged: with `AUTH_MODE=auto`, an HTTP
+login timeout can fall back to Browser Rendering in `establishSession` rather
+than immediately returning 502 (`AUTH_MODE=http` propagates it). After a
+confirmed successful save, a timeout of the separate detail-full refresh is
+caught: the routeware tier retains the successful save response, and the data
+tier reports `localSync.code="sync_failed"` while retaining save success.
+Neither case replays a timed-out save.
 
 Buffered coverage: customer list/detail/type reads, app settings, report
 completion control polls, customer/address/container saves at both routeware
@@ -169,7 +178,7 @@ attempt; buffered consumers additionally get the body budget described above):
 |---|---|---|---|
 | Interactive forwards (`forwardWithSessionRetry`: API passthrough, modals, saves) | 15s (`DEFAULT_UPSTREAM_TIMEOUT_MS`) | 30s | retried once only for the login redirect / 200-with-login-form; timeouts never retried |
 | Sessionless login-page probe (`forwardToUpstream` direct, no retry wrapper) | 15s (default) | 15s | single attempt, no retry |
-| HTTP login (`httpAuth.httpLogin`: login-page GET, ext.NET init GET, login POST) | 15s per fetch | 45s for the three fetches | no retry inside; the caller owns the single login-redirect retry |
+| HTTP login (`httpAuth.httpLogin`: login-page GET, ext.NET init GET, login POST) | 15s per fetch | 45s for the three fetches | no retry inside; `establishSession` can fall back to Browser Rendering in auto mode |
 | Report-CSV downloads (`routewareQueryReportCsv`, `snapshot/reportFetch`) | 60s (`REPORT_UPSTREAM_TIMEOUT_MS`) | 120s | one re-login + retry; timeouts never retried |
 | Query-report poll (`pollQueryRequestIsComplete`: 2.5s × 24 attempts ≈ 60s) | ≈60s poll + 60s download | fits in one Worker invocation | poll loop, not a fetch retry |
 
@@ -204,7 +213,7 @@ already passed the report budget. Pinned by
 `test/upstreamTimeoutRoutes.test.ts` (hung upstream → timely
 `UpstreamTimeoutError` on each fixed path + source-wiring assertions).
 
-Why timeouts are never retried: the single retry is reserved for the login
+Why timed-out forwards are never retried: the single retry is reserved for the login
 redirect (provably safe — `forwardWithSessionRetry` retries only that), while
 retrying a timeout could double-execute a non-idempotent POST. Pinned by
 `test/upstreamTimeout.test.ts` (hung upstream → exactly one attempt, then 502)

@@ -18,9 +18,10 @@ import { problemJsonResponse, problemType } from "./problem";
  * (absent/invalid falls back to the default), same pattern as
  * `CUSTOMER_SAVE_AUTO_TOKEN_TTL_SECONDS`.
  *
- * Timeouts are NOT retried: the single retry is reserved for the login
- * redirect (provably safe — `forwardWithSessionRetry` already handles only
- * that). A timeout fails fast to 502 problem+json.
+ * Forwarding timeouts are NOT retried: `forwardWithSessionRetry` reserves
+ * its single retry for a login redirect. Primary-response timeouts map to
+ * 502 problem+json; auth fallback and post-save refresh retain their caller
+ * policies (docs/PROBLEMS.md).
  */
 
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 15_000;
@@ -166,8 +167,9 @@ export function upstreamTimeoutProblem(
     title: "Upstream timed out",
     status: 502,
     detail:
-      `Routeware did not respond within ${timeoutMs}ms. Retry once; ` +
-      `if it persists the upstream host is hung. See docs/PROBLEMS.md#bad-gateway.`,
+      `Routeware did not complete its response within ${timeoutMs}ms. ` +
+      `A save may have completed upstream; verify the record before resubmitting. ` +
+      `See docs/PROBLEMS.md#bad-gateway.`,
     instance
   });
 }
