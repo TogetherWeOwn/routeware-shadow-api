@@ -162,6 +162,27 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 
+### Spreadsheet-safe snapshot CSV exports
+
+All three `/export` downloads prefix formula-leading cells (`=`, `+`, `-`, `@`),
+leading tabs/CR/LF, whitespace-hidden operators, and their full-width variants
+with an apostrophe inside a double-quoted CSV field. Double quotes are doubled
+per RFC 4180. Original apostrophe-leading cells receive an extra apostrophe,
+so `=1+1` and the literal `'=1+1` cannot collide.
+
+Exports append `_shadow_csv_encoding` after `synced_at`, with `apostrophe-v1`
+on every row. Re-importing the **original downloaded bytes**, including that
+column, removes exactly one inserted apostrophe before the existing import
+normalization. Ordinary unmarked Routeware CSV and unknown encoding versions
+are not decoded. Machine consumers must honor this marker rather than treat
+spreadsheet-escaped values as raw business data; export widths are now
+15 customer / 17 address / 30 container columns.
+
+This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/attacks/CSV_Injection)
+for text-cell escaping. It is not a promise of safety or losslessness after a
+spreadsheet saves, converts, or reopens the CSV: spreadsheet programs can strip
+escaping or alter values. Keep the original download for programmatic re-import.
+
 ### D1: “Too many API requests by single Worker invocation”
 
 Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). This project uses **multi-row `INSERT` statements** (up to the 100 bound-parameter cap) to pack many CSV rows per statement.

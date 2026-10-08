@@ -1,3 +1,8 @@
+import {
+  CSV_SPREADSHEET_ENCODING,
+  CSV_SPREADSHEET_ENCODING_HEADER
+} from "./csvSpreadsheet";
+
 /** Shared CSV field parser (RFC 4180-style quoted fields). */
 
 export function parseCsvLine(line: string): string[] {
@@ -68,7 +73,17 @@ export function cell(
   for (const n of names) {
     const i = cols[normHeader(n)];
     if (i !== undefined && row[i] !== undefined) {
-      return row[i].trim();
+      const value = row[i];
+      const encodingIndex = cols[CSV_SPREADSHEET_ENCODING_HEADER];
+      // Decode only a version-marked export row, before the usual trimming.
+      // Unmarked upstream CSV (including literal apostrophes) is untouched.
+      return (
+        encodingIndex !== undefined &&
+        row[encodingIndex] === CSV_SPREADSHEET_ENCODING &&
+        value.startsWith("'")
+          ? value.slice(1)
+          : value
+      ).trim();
     }
   }
   return "";

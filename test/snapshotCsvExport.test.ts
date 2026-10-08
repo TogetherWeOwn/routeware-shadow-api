@@ -215,16 +215,16 @@ type Spec = {
 
 const CUSTOMER_HEADER =
   "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix," +
-  "CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at";
+  "CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at,_shadow_csv_encoding";
 const ADDRESS_HEADER =
   "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments," +
-  "ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at";
+  "ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at,_shadow_csv_encoding";
 const CONTAINER_HEADER =
   "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked," +
   "Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote," +
   "UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD," +
   "UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType," +
-  "ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at";
+  "ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at,_shadow_csv_encoding";
 
 const SPECS: Spec[] = [
   {
@@ -241,8 +241,8 @@ const SPECS: Spec[] = [
       customerRow(2, null, 0)
     ],
     edgeLines: [
-      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,${SYNCED_AT}`,
-      `2,,,,,,,,,,,,false,${SYNCED_AT}`
+      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,${SYNCED_AT},apostrophe-v1`,
+      `2,,,,,,,,,,,,false,${SYNCED_AT},apostrophe-v1`
     ]
   },
   {
@@ -256,7 +256,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => addressRow(i + 1)),
     edgeRows: [addressRow(1)],
     edgeLines: [
-      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,${SYNCED_AT}`
+      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,${SYNCED_AT},apostrophe-v1`
     ]
   },
   {
@@ -270,7 +270,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => containerRow(i + 1)),
     edgeRows: [containerRow(1)],
     edgeLines: [
-      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,${SYNCED_AT}`
+      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,${SYNCED_AT},apostrophe-v1`
     ]
   }
 ];
@@ -295,10 +295,9 @@ describe("snapshotExportSpec", () => {
     expect(snapshotExportSpec("container")).toBe(CONTAINER_SNAPSHOT_EXPORT);
   });
 
-  it("publishes the canonical import header plus synced_at on every table", () => {
-    // The export must paste back into `...-snapshot/import`: every import
-    // header column is present under the same name (synced_at is extra and
-    // ignored by the row parsers, which look columns up by name).
+  it("publishes the canonical import header plus export metadata on every table", () => {
+    // Every business column retains its import name. synced_at is ignored;
+    // the encoding marker opts re-import into spreadsheet-prefix decoding.
     expect(snapshotExportHeaderLine(CUSTOMER_SNAPSHOT_EXPORT)).toBe(CUSTOMER_HEADER);
     expect(snapshotExportHeaderLine(ADDRESS_SNAPSHOT_EXPORT)).toBe(ADDRESS_HEADER);
     expect(snapshotExportHeaderLine(CONTAINER_SNAPSHOT_EXPORT)).toBe(CONTAINER_HEADER);
@@ -309,7 +308,7 @@ describe("snapshotExportSpec", () => {
     const line = encodeSnapshotRow(CUSTOMER_SNAPSHOT_EXPORT, customerRow(9, null, 0));
 
     // Assert
-    expect(line).toBe(`9,,,,,,,,,,,,false,${SYNCED_AT}`);
+    expect(line).toBe(`9,,,,,,,,,,,,false,${SYNCED_AT},apostrophe-v1`);
   });
 });
 
