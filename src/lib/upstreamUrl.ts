@@ -19,3 +19,27 @@ export function routewareWebRwUrlWithIncomingSearch(
   url.search = new URL(incoming.url).search;
   return url;
 }
+
+/**
+ * Fixed WebRW path with only the allowlisted query params copied from the
+ * shadow API request. Anything else the client sends is dropped (never
+ * forwarded, never an error) so arbitrary client input cannot reach upstream
+ * as new query surface. Matching is case-sensitive; repeated allowlisted
+ * params keep every value, in allowlist order.
+ */
+export function routewareWebRwUrlWithQueryAllowlist(
+  targetOrigin: string,
+  basePath: string,
+  resourcePath: string,
+  incoming: Request,
+  allowedParams: readonly string[]
+): URL {
+  const url = routewareWebRwUrl(targetOrigin, basePath, resourcePath);
+  const incomingParams = new URL(incoming.url).searchParams;
+  for (const name of allowedParams) {
+    for (const value of incomingParams.getAll(name)) {
+      url.searchParams.append(name, value);
+    }
+  }
+  return url;
+}

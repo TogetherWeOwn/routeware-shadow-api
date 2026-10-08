@@ -1,66 +1,119 @@
-# Secret rotation runbook — all four Worker secrets
+# Secret-rotation runbook — `SHADOW_API_TOKEN` / `CUSTOMER_SNAPSHOT_SYNC_SECRET`
 
-**Status:** runbook only. No rotation is executed in this card and no secret values enter git, issues, PRs, comments, or logs.
-**Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Secrets: `SHADOW_API_TOKEN`, `CUSTOMER_SNAPSHOT_SYNC_SECRET`, `LOGIN_USERNAME`, `LOGIN_PASSWORD`.
-**Why now:** rotation was declined 2026-08-07 pre-transfer (`docs/SECURITY-REMEDIATION.md` Step 1) when the repo was private with one collaborator. The transfer to an organization invalidates that premise (`docs/HANDOVER.md` § 5). Values move to the new owner out-of-band only.
-**CISO approval (this run):** approved as the rotation plan on 2026-09-27 by the CISO agent. Approval covers this document's order, blast radius, and verification steps. It does not authorize executing a rotation and does not attest to handling any value.
+**Status:** runbook only. No code, schema, or config changes. No new services, secrets, or paid tiers. **No rotation is executed by this doc — every production step is operator-gated.**
+**Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Secrets `SHADOW_API_TOKEN` (general) and `CUSTOMER_SNAPSHOT_SYNC_SECRET` (privileged).
+**Why:** the dual-secret gate (`src/lib/auth.ts`, `src/routes/shared.ts`, pinned by `test/dualSecretMatrix.test.ts`) is documented in `docs/PROBLEMS.md#authentication`, but there was no operator checklist for rotating either secret without dropping legitimate traffic (round-3 gap, [TOG-8601](/TOG/issues/TOG-8601) gap list).
 
-## 0. Rules that apply to every secret
+## 0. The honest mechanism (read this first)
 
-1. **Out-of-band only.** Real values travel via the owner-controlled channel (e.g. password manager / direct handoff), never through this repo, an issue, a PR, a comment, a log, or a CLI argument. `npx wrangler secret put <NAME>` reads from stdin interactively — do not `echo` values through shared shell history.
-2. **Placement.** Deployed Workers: `wrangler secret put` (persists across deploys, untouched by deploys). Local dev: `.dev.vars` in the repo root (gitignored, same directory as `wrangler.toml`). Never `[vars]` in `wrangler.toml` — bearer secrets are deliberately absent there so an unconfigured deploy fails closed with 401 (`wrangler.toml:53-57`). Never regenerate `worker-configuration.d.ts` from a TOML containing real values (it bakes `[vars]` into literal string types; `docs/SECURITY-REMEDIATION.md` Step 3 gap).
-3. **Revocation is overwrite.** `wrangler secret put` takes effect on the next request without a deploy. The old value is then rejected. There is no versioned dual-secret support — each cutover is atomic, so follow the order below and verify old-rejected / new-accepted per secret.
-4. **Local hygiene.** Update `.dev.vars` to match (values never printed; `npm run check:devvars` checks keys only). Shred any temp file holding a value (`shred -u`). `test` env placeholders in `wrangler.toml:95-103` are synthetic and stay as-is.
+Each secret name holds **exactly one value** — `bearerMatches` (`src/lib/auth.ts:49-56`) compares the presented bearer against a single configured string. There is no `_PREVIOUS`/`_NEXT` slot, so "set new, verify, retire old" **cannot** mean two values live in one slot. The overlap lives in two places this repo already provides:
 
-## 1. Rotation order (do in this sequence)
+1. **Client-side dual-hold.** New values are distributed to every consumer *before* the Worker cutover. During the window each consumer tries the new value first and falls back to the old one. The cutover is then hitless: whichever value the Worker currently holds, every migrated consumer presents a matching one.
+2. **Cross-secret outer gate.** General `/api/v1/*` routes accept *either* secret (`isApiAuthorized`, `src/lib/auth.ts:74-79`). So while `SHADOW_API_TOKEN` rotates, any general-route consumer that also holds the sync secret keeps working even mid-cutover — and the internal chained snapshot sync (which authenticates with the sync secret, `src/lib/snapshot/orchestration.ts:167-175`) is unaffected by an API-token rotation entirely.
 
-| Step | Secret | Why here |
+What is **not** hitless without client cooperation: swapping `CUSTOMER_SNAPSHOT_SYNC_SECRET` while a privileged-route consumer only holds the old value — its next call 401s at the inner check. That is why distribution (§3 step 1) precedes every cutover, and why §2 rehearses the exact probes that prove both values' states.
+
+Related history: `docs/SECURITY-REMEDIATION.md` step 1 (rotate-first-then-purge) was declined 2026-08-07 under single-owner premises and is worth re-taking under new ownership — this runbook is the *how* for that decision, not the decision itself.
+
+## 1. Local rehearsal prerequisites
+
+- Repo root, dependencies installed (`npm ci --include=dev` if `wrangler`/`vitest` are missing).
+- A scratch `.dev.vars` beside `wrangler.toml` with **dummy** values (gitignored, never commit — `npm run dev` runs `check:devvars` first and refuses without a client token):
+  ```
+  LOGIN_USERNAME=rehearsal-user
+  LOGIN_PASSWORD=rehearsal-password-not-real
+  SHADOW_API_TOKEN=rehearsal-api-old
+  CUSTOMER_SNAPSHOT_SYNC_SECRET=rehearsal-sync-old
+  ```
+  (`SESSION_TTL_SECONDS`, `TARGET_ORIGIN`, `LOGIN_URL`, `AUTH_MODE` already have defaults in `wrangler.toml` `[vars]`; only the four keys above are needed.)
+- Two terminals: **A** runs the Worker, **B** runs commands. No D1 migration is needed: every probe below answers at the auth layer without touching D1, R2, or upstream (same hermetic routes `test/dualSecretMatrix.test.ts:127-132` uses).
+
+Terminal A (blocking — leave it running; port `8791` avoids clashing with another checkout's server on the default `8787`, see `docs/BACKFILL-RUNBOOK.md` §1):
+
+```bash
+npx wrangler dev --port 8791
+```
+
+Terminal B, for the rest of the doc:
+
+```bash
+BASE=http://127.0.0.1:8791
+API_OLD=rehearsal-api-old
+SYNC_OLD=rehearsal-sync-old
+```
+
+Restart `wrangler dev` after every `.dev.vars` edit — dev does not hot-reload it (`docs/BACKFILL-RUNBOOK.md` §7). On shutdown, `wrangler dev` may orphan `workerd` listeners on the port: map them by socket inode (`/proc/net/tcp`) and kill only those PIDs, never a broad `pkill`.
+
+## 2. Baseline probes (proves the verification commands before anything changes)
+
+General-route probe — `GET /api/v1/shadow/health` answers 200 directly with no D1/R2/upstream (`src/routes/shadow.ts:25-29`):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $API_OLD" "$BASE/api/v1/shadow/health"
+# expect 200
+curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $SYNC_OLD" "$BASE/api/v1/shadow/health"
+# expect 200 (outer gate accepts either secret)
+```
+
+Privileged-route probe — `GET /api/v1/data/customer` with the id omitted 400s on the missing-id guard **after** the inner check, so the status alone proves auth state with zero side effects:
+
+```bash
+curl -s -H "Authorization: Bearer $SYNC_OLD" "$BASE/api/v1/data/customer"; echo
+# expect 400 {"type":".../bad-request",...,"detail":"Query `id` or `customerId` (customer_id) is required. ..."}
+curl -s -H "Authorization: Bearer $API_OLD" "$BASE/api/v1/data/customer"; echo
+# expect 401 with the INNER detail ("Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>...")
+curl -s -H "Authorization: Bearer wrong-token" "$BASE/api/v1/shadow/health"; echo
+# expect 401 with the OUTER detail (mentions SHADOW_API_TOKEN)
+curl -s "$BASE/api/v1/health"; echo
+# expect 200, no token (control: the server is up)
+```
+
+**Throttle caution (applies to every 401 below):** failed checks count per client IP — 20 failures in 60 s returns `429` for 60 s (`docs/PROBLEMS.md#rate-limited`). A request with a valid token always passes and **resets** the counter. So: issue each expected-401 **once**, then follow with a valid-token request. Never loop a stale-token probe; behind shared-NAT egress one client's bad token burns the whole IP's budget (a valid request from any client on that IP still passes and clears it).
+
+## 3. Production rotation sequence (operator-gated — do not run from this doc alone)
+
+Rotate the two secrets **independently**, one at a time; each is a full distribute → cutover → verify → retire cycle. Avoid the daily cron window (07:00 UTC ± 30 min): the chained sync reads `CUSTOMER_SNAPSHOT_SYNC_SECRET` from env live on each invocation, so no Worker restart is needed, but a cutover landing mid-sync turns that run's subrequests into a mixed old/new sequence that is harder to read in the logs.
+
+### 3a. `SHADOW_API_TOKEN`
+
+1. **Distribute first.** Generate the new token (32+ random bytes, e.g. `openssl rand -hex 32` — never reuse a value that lived in git history). Hand it to every general-route consumer; each stores old+new and tries new first, falling back to old. Consumers that also hold the sync secret are already covered by the outer gate even before they migrate.
+2. **Cutover.** Operator only:
+   ```bash
+   npx wrangler secret put SHADOW_API_TOKEN
+   # paste the NEW value when prompted; never put secrets in wrangler.toml [vars]
+   ```
+3. **Verify (new).** §2 baseline with the new token: general probe → 200 with new, 200 with sync secret (unchanged).
+4. **Verify (old retired).** Exactly one general probe with the old token → 401 outer detail; follow immediately with a new-token 200 to reset the throttle counter. The chained snapshot sync is untouched (it never presents the API token) — confirm tomorrow's `data-snapshot-sync` log line per `docs/CRON-SYNC-ALARM-RUNBOOK.md` §1.
+5. **Retire.** Consumers delete the old token from their stores only after step 4. Operator retains the old value offline until then — rollback is re-putting it (step 2 with the old value).
+
+### 3b. `CUSTOMER_SNAPSHOT_SYNC_SECRET`
+
+Same cycle, wider blast radius: this secret gates all 13 privileged routes **and** the chained cron subrequests, so every privileged consumer (sync clients, `/api/v1/data/*` readers/writers, import pipelines) must hold new+old before cutover.
+
+1. **Distribute first** to every privileged consumer (new-first, old-fallback), same as §3a step 1.
+2. **Cutover.** Operator only: `npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET` with the new value.
+3. **Verify (new).** Privileged probe with new → 400 missing-id (inner check cleared); general probe with new → 200.
+4. **Verify (old retired).** Exactly one privileged probe with the old secret → 401; follow with a new-secret request to reset throttle. Privileged consumers still on old-only will 401 here — that is the signal to finish their migration, not a rollback trigger, provided step 1 covered them.
+5. **Retire + cron watch.** Consumers delete old; operator keeps it offline until the next 07:00 UTC cron logs `success` (not `failed` with a `[chained …] 401` step tag — that tag means a subrequest missed the new secret, `docs/CRON-SYNC-ALARM-RUNBOOK.md` §4).
+
+Update local `.dev.vars` to match after either rotation (gitignored, never commit).
+
+## 4. Failure table
+
+| Symptom | Cause | Fix |
 |---|---|---|
-| 1 | `SHADOW_API_TOKEN` | Smallest blast radius; rehearses the secret-put + verify loop without touching sync automation or the Routeware tenant. |
-| 2 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Widest bearer blast radius. Do it while step 1's token is set and **distinct**, so general `/api/v1/*` access stays up during the privileged cutover (see `src/lib/auth.ts:54-73`). Single-secret deployments must instead accept a combined outage window. |
-| 3 | `LOGIN_USERNAME` + `LOGIN_PASSWORD` together | Routeware tenant credentials. Last because the UI step invalidates upstream sessions immediately and failures are **silent HTML 200, never 401** (`docs/HANDOVER.md` fact 1) — verify on a clean bearer channel from steps 1–2 so bearer and upstream failures are not conflated. |
+| General probe 401s with a token you just distributed | `.dev.vars` edited but dev server not restarted (rehearsal), or `secret put` targeted the wrong environment (production) | Restart `wrangler dev` (§1); check the Worker environment in the dashboard |
+| Privileged probe 401s with a valid API token | Expected — the inner check requires the sync secret specifically (§2). Not a rotation failure | Use the sync secret for privileged routes |
+| `429 rate-limited` during verification | Expected-401 probes burned the 20/min/IP budget (§2 caution) | One valid-token request clears it immediately; otherwise wait 60 s and probe once |
+| Mixed old/new 401s right after cutover | A consumer was missed in step-1 distribution | Finish that consumer's migration; rollback (re-put old) only if a privileged consumer cannot migrate promptly |
+| `[chained <table>] POST … → 401` in the next cron line | Chained subrequest presented a stale sync secret (cutover landed mid-sync or env propagation lagged) | Re-run the named table route manually with the current secret; confirm the following cron (§3b step 5) |
+| `503 misconfigured` on a `.../sync` route | Sync secret blanked rather than replaced | Re-put a non-empty value; blank is unconfigured, not empty-token (`test/dualSecretMatrix.test.ts:96-101`) |
+| Auth tests 401 after a rehearsal (`Using secrets defined in .dev.vars` in the output) | The scratch `.dev.vars` overrides `[env.test.vars]` in the workers test pool, so `test-api-token`/`test-sync-secret` no longer match | Move `.dev.vars` aside (or delete it — it is gitignored scratch) before `npx vitest run`; restore it before the next `wrangler dev` |
 
-Precondition for step 2: confirm a distinct `SHADOW_API_TOKEN` is set (general API answers with it while sync routes require the sync secret). Postcondition for step 3: a fresh upstream login succeeds and the old tenant password is dead at the source.
+## 5. Rehearsal evidence
 
-Avoid the daily cron window (`0 7 * * *` UTC, `wrangler.toml:77`) for step 2 — the chained sync authenticates to the Worker itself with the sync secret (`src/lib/snapshot/orchestration.ts:142-144`).
+2026-09-28, local `wrangler dev` only (never production): dummy `.dev.vars` (§1) → §2 baseline green (200/200/400/inner-401/outer-401/public-200) → edited `.dev.vars` to `-new` dummy values, restarted dev → new-value probes green, old-value probes single-401-then-reset → `npx vitest run test/dualSecretMatrix.test.ts test/snapshotAuth.test.ts` green (no behavior change). Full drill log attached to [TOG-8901](/TOG/issues/TOG-8901). No real secret was created, changed, or transmitted at any point.
 
-## 2. Per-secret blast radius, rotation, and verification
+## 6. Done criteria
 
-### 2.1 `SHADOW_API_TOKEN` — general API bearer
-
-- **Gates:** every `/api/v1/*` route except `GET /api/v1/health` (`src/lib/auth.ts:4-12`). Falls back to `CUSTOMER_SNAPSHOT_SYNC_SECRET` when unset (`.dev.vars.example:6-8`).
-- **Blast radius:** external API clients presenting the dedicated token. **Not** affected: health checks, callers using the sync secret (`isApiAuthorized` accepts the sync secret even when a distinct API token is configured, `src/lib/auth.ts:69-74`), the daily cron (uses the sync secret).
-- **Rotate:** owner generates a new token out-of-band → `npx wrangler secret put SHADOW_API_TOKEN` (this repo's Wrangler via `npx`, not a global Windows install under WSL) → update every API client → update local `.dev.vars`.
-- **Verify (no values in output):**
-  - `GET /api/v1/health` without auth → 200 (still public).
-  - `GET` a read route with the **new** token → 200; with the **old** token → 401 problem+json (`unauthorized`, see `docs/PROBLEMS.md`).
-  - Sync/data routes with the sync secret → still 200 (proves the cutover did not bleed into privileged paths).
-- **Rollback:** `wrangler secret put SHADOW_API_TOKEN` with the previous value (retained out-of-band until verification passes), then re-verify. Fail-closed default (no token → 401) is the safe intermediate, never a committed placeholder.
-
-### 2.2 `CUSTOMER_SNAPSHOT_SYNC_SECRET` — privileged sync/data bearer
-
-- **Gates:** `.../sync`, `.../import`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` via the narrower in-handler check on top of the app-wide gate (`src/routes/shared.ts:26-57`; route copy in `src/routes/customerSnapshot.ts:143-166`, `src/routes/dataEntity.ts:28-48`). Also the general-API fallback when `SHADOW_API_TOKEN` is unset.
-- **Blast radius (largest bearer):** all snapshot automation (daily cron chains per-table subrequests with this bearer), all sync/import callers, all data-entity clients on fallback deployments. D1/R2 contents are unaffected; only access is cut over.
-- **Rotate:** outside the 07:00 UTC cron window → `npx wrangler secret put CUSTOMER_SNAPSHOT_SYNC_SECRET` → update every sync caller, the cron chain needs no code change (same Worker reads the new secret on the next invocation; mode selection in `src/scheduled.ts`) → update local `.dev.vars`.
-- **Verify:**
-  - New secret on a sync route → success sync JSON; old secret → 401; unset Worker → 503 `misconfigured` (`requireSnapshotSecret`, `src/routes/shared.ts:60-73`).
-  - Manual chain: `POST /api/v1/data-snapshot/sync` with the new secret succeeds (customer → address → container order matters for FKs; `CUSTOMER_SNAPSHOT.md` checklist).
-  - Next scheduled run logs `data-snapshot-sync {"outcome":"success",…}` with no auth errors (`npx wrangler tail` or dashboard logs). An `outcome: "unconfigured"` line with `SHADOW_API_PUBLIC_BASE` unset is a config warning, not auth success (`docs/CRON-SYNC-ALARM-RUNBOOK.md` §0).
-- **Rollback:** restore the previous value out-of-band via `wrangler secret put`, re-run the manual chain. Keep the old value recoverable out-of-band until one successful scheduled run completes.
-
-### 2.3 `LOGIN_USERNAME` + `LOGIN_PASSWORD` — Routeware tenant login
-
-- **Gates:** every flow that fetches from Routeware: HTTP form login (`src/lib/httpAuth.ts:58-63`) with Browser Rendering fallback (`src/lib/browserAuth.ts:18-19`), including report `QueryExecuteDownload` syncs (`CUSTOMER_SNAPSHOT.md:30`). Session cookies (`.WebRW`, `RCCApi`, `RCCApiRefresh`) are cached in the `AuthSession` Durable Object and never relayed to clients (`docs/CONVENTIONS.md:88-91`).
-- **Blast radius:** full tenant access — an attacker with these bypasses the Worker entirely. Rotation-side outage: all upstream-authenticated routes fail **silently as HTML 200** (fact 1), so status codes do not diagnose this step.
-- **Rotate (owner-only, Routeware UI first):** change (or create-then-disable) the `API` login in the Routeware tenant UI → `npx wrangler secret put LOGIN_USERNAME` + `npx wrangler secret put LOGIN_PASSWORD` → update local `.dev.vars`. Rotate as a pair; a username change means a new account, not a rename. The next request performs a fresh login — Durable Object state loss is harmless (`docs/HANDOVER.md` § 3B-7); nothing migrates.
-- **Verify:**
-  - An upstream-backed read returns real JSON (not the login page HTML). On doubt, inspect body shape/content-type, not status.
-  - Worker logs show a fresh login then a `data-snapshot-sync {"outcome":"success",…}` line with row counts in `tables`; cookie **names** (never values) are `.WebRW`, `RCCApi`, `RCCApiRefresh`.
-  - Old tenant password no longer logs in at the Routeware UI (revocation at source).
-- **Rollback:** restore the previous tenant credential in the Routeware UI and re-put the previous Worker secrets. If the username was replaced, re-enable the old account rather than reusing a deleted name.
-
-## 3. After all four
-
-- Confirm deployed Worker authenticates end-to-end, then confirm each **old** bearer is rejected with 401 (the Step-1 containment check from `docs/SECURITY-REMEDIATION.md`).
-- One successful scheduled run past the rotation, then shred out-of-band escrow of old values per owner retention policy.
-- Still owed outside this card (owner-only, unchanged): delete `Rick7C2/routeware-shadow-api` — its `refs/pull/*` still disclose the pre-rotation values and PII. Rotation contains the incident even while that repo exists; deletion stops future readers.
+Rotation of one secret is accepted when: every consumer held new+old before cutover (§3 step 1 attested by the operator); new-value probes return §2 baselines; old-value probes return exactly one 401 each followed by a resetting valid request; the next cron after a sync-secret rotation logs `success`; and the old value survives offline until retirement, then is destroyed with the consumers' copies.

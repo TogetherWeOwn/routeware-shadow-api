@@ -2,7 +2,7 @@ import {
   cell,
   emptyToNull,
   mapCsvHeaders,
-  parseBool,
+  parseBoolDefaultTrue,
   parseCsvLine,
   parseInt10
 } from "./csvParse";
@@ -50,10 +50,10 @@ export function parseAddressSnapshotRow(
       cell(cols, row, "FranchiseID", "franchiseid")
     ),
     comments: emptyToNull(cell(cols, row, "Comments", "comments")),
-    extrasAllowed: parseBool(
+    extrasAllowed: parseBoolDefaultTrue(
       cell(cols, row, "ExtrasAllowed", "extrasallowed")
     ),
-    enabled: parseBool(cell(cols, row, "Enabled", "enabled")),
+    enabled: parseBoolDefaultTrue(cell(cols, row, "Enabled", "enabled")),
     driverNote: emptyToNull(cell(cols, row, "DriverNote", "drivernote")),
     latitude: emptyToNull(cell(cols, row, "Latitude", "latitude")),
     longitude: emptyToNull(cell(cols, row, "Longitude", "longitude")),

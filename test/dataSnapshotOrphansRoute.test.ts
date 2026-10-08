@@ -103,6 +103,13 @@ describe("GET /api/v1/data-snapshot/orphans", () => {
 
     // Assert — rejected by the schema, so the lib (and D1) is never reached.
     expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/problem+json");
+    expect(await res.json()).toEqual({
+      type: `${PROBLEM_TYPE_BASE}bad-request`,
+      title: "Bad Request",
+      status: 400,
+      detail: "Invalid request query (sampleLimit). See docs/PROBLEMS.md#bad-request."
+    });
     expect(orphanCalls).toHaveLength(0);
   });
 
@@ -141,7 +148,7 @@ describe("GET /api/v1/data-snapshot/orphans", () => {
     expect(body.type).toBe(UNAUTHORIZED_TYPE);
     expect(body.title).toBe("Unauthorized");
     expect(body.detail).toBe(
-      "Set CUSTOMER_SNAPSHOT_SYNC_SECRET and send Authorization: Bearer <secret>."
+      "Send Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>. See docs/PROBLEMS.md#unauthorized."
     );
     expect(orphanCalls).toHaveLength(0);
   });

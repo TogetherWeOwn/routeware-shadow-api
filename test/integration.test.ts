@@ -215,13 +215,34 @@ describe("HTTP API", () => {
     expect(body.url).toContain("/WebRW/Customer/CustomersRead");
   });
 
-  it("GET /api/v1/routeware/reports/query-request-is-complete forwards query string", async () => {
+  it("GET /api/v1/routeware/reports/query-request-is-complete forwards allowlisted query params", async () => {
     const response = await call(
-      "/api/v1/routeware/reports/query-request-is-complete?rid=abc&x=1"
+      "/api/v1/routeware/reports/query-request-is-complete?requestID=abc-123&_=1776969836738"
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { url: string };
-    expect(body.url).toContain("rid=abc");
+    expect(body.url).toContain("requestID=abc-123");
+    expect(body.url).toContain("_=1776969836738");
+  });
+
+  it("GET /api/v1/routeware/reports/query-request-is-complete drops unknown query params upstream", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call(
+      "/api/v1/routeware/reports/query-request-is-complete?requestID=abc-123&evil=1&requestid=lower&REQUESTID=upper"
+    );
+    expect(response.status).toBe(200);
+    const upstreamCall = fetchMock.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/Reports/QueryRequestIsComplete")
+    );
+    expect(upstreamCall).toBeDefined();
+    const upstreamUrl = new URL(upstreamCall![0] as string);
+    expect(upstreamUrl.searchParams.get("requestID")).toBe("abc-123");
+    expect(upstreamUrl.searchParams.has("evil")).toBe(false);
+    // Allowlist matching is case-sensitive: differently-cased lookalikes stay client-side.
+    expect(upstreamUrl.searchParams.has("requestid")).toBe(false);
+    expect(upstreamUrl.searchParams.has("REQUESTID")).toBe(false);
   });
 
   it("POST /api/v1/routeware/customer/save-long-form forwards to SaveCustomerLongForm", async () => {
@@ -285,6 +306,49 @@ describe("HTTP API", () => {
     const body = (await response.json()) as { url: string };
     expect(body.url).toContain("customerID=99");
     expect(body.url).toContain("LoadLongCustomerModal");
+  });
+
+  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream (TOG-6404)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const response = await call(
+      "/api/v1/routeware/customer/load-long-modal?customerID=99&evilParam=1"
+    );
+    expect(response.status).toBe(200);
+    const upstreamCall = fetchMock.mock.calls.find(
+      (c: unknown[]) =>
+        typeof c[0] === "string" &&
+        (c[0] as string).includes("/WebRW/Customer/LoadLongCustomerModal")
+    );
+    expect(upstreamCall).toBeDefined();
+    const upstreamUrl = new URL(upstreamCall![0] as string);
+    expect(upstreamUrl.searchParams.get("customerID")).toBe("99");
+    expect(upstreamUrl.searchParams.has("evilParam")).toBe(false);
+  });
+
+  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream (TOG-6404)", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const before = fetchMock.mock.calls.length;
+    const response = await call("/api/v1/routeware/customer/load-long-modal");
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    const body = (await response.json()) as { detail?: string };
+    expect(body.detail).toContain("customerID");
+    const upstreamCalls = fetchMock.mock.calls
+      .slice(before)
+      .filter(
+        (c: unknown[]) =>
+          typeof c[0] === "string" &&
+          (c[0] as string).includes("/WebRW/Customer/LoadLongCustomerModal")
+      );
+    expect(upstreamCalls).toHaveLength(0);
+  });
+
+  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID (TOG-6404)", async () => {
+    const response = await call("/api/v1/routeware/customer/load-long-modal?customerID=abc");
+    expect(response.status).toBe(400);
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    const body = (await response.json()) as { detail?: string };
+    expect(body.detail).toContain("customerID");
   });
 
   it("POST /api/v1/routeware/address/save-address-form forwards to SaveAddressForm", async () => {
@@ -400,7 +464,7 @@ describe("HTTP API", () => {
     expect(response.headers.get("content-type")).toContain("problem+json");
     const body = (await response.json()) as { title: string; status: number; detail?: string };
     expect(body.status).toBe(405);
-    expect(body.title).toContain("not supported");
+    expect(body.title).toContain("Method Not Allowed");
     expect(body.detail).toMatch(/save-long-form/i);
   });
 });

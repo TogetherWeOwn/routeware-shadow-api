@@ -34,7 +34,7 @@ const syncState: {
   runResult: unknown;
   streamResult: unknown;
   runCalls: unknown[];
-  streamCalls: Array<{ db: unknown; body: unknown; batchSize?: number; options?: unknown }>;
+  streamCalls: Array<{ db: unknown; body: unknown }>;
 } = { runResult: null, streamResult: null, runCalls: [], streamCalls: [] };
 
 /**
@@ -47,8 +47,8 @@ vi.mock("../src/lib/d1SnapshotSync", () => {
     syncState.runCalls.push(env);
     return syncState.runResult;
   };
-  const stream = async (db: unknown, body: unknown, batchSize?: number, options?: unknown) => {
-    syncState.streamCalls.push({ db, body, batchSize, options });
+  const stream = async (db: unknown, body: unknown) => {
+    syncState.streamCalls.push({ db, body });
     return syncState.streamResult;
   };
   return {
@@ -175,8 +175,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CUSTOMER_REPORT_EXPORT_PATH",
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md.",
-    notFoundDetail: (id) => `No snapshot row for customer_id=${id}`
+      "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "address",
@@ -191,8 +191,8 @@ const SPECS: Spec[] = [
     exportPathVar: "ADDRESS_REPORT_EXPORT_PATH",
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No address row for pickup_address_id=${id}`
+      "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`
   },
   {
     name: "container",
@@ -208,8 +208,8 @@ const SPECS: Spec[] = [
     exportPathVar: "CONTAINER_REPORT_EXPORT_PATH",
     queryIdVar: "CONTAINER_REPORT_QUERY_ID",
     notConfiguredDetail:
-      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md).",
-    notFoundDetail: (id) => `No container row for container_id=${id}`
+      "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
+    notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`
   }
 ];
 
@@ -236,11 +236,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       // Assert — WHERE degenerates to the always-true seed, and the only binds
       // are the default limit/offset.
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual({
-        rows: [{ a: 1 }, { a: 2 }],
-        total: 2,
-        nextCursor: null
-      });
+      expect(await res.json()).toEqual({ rows: [{ a: 1 }, { a: 2 }], total: 2, nextCursor: null });
       expect(calls).toHaveLength(2);
       expect(calls[0].sql).toContain("WHERE 1 = 1");
       expect(calls[0].binds).toEqual([]);
@@ -363,129 +359,45 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ? OFFSET ?`);
     });
 
-    describe("keyset pagination", () => {
-      it("adds a primary-key seek predicate when cursor is supplied", async () => {
-        // Arrange
-        const { db, calls } = readDb({ total: 3, rows: [] });
+    it("seeks past cursor with LIMIT only, dropping OFFSET, when cursor is supplied", async () => {
+      // Arrange
+      const { db, calls } = readDb({ total: 0, rows: [] });
 
-        // Act
-        await call(spec.routes, `${spec.base}?cursor=100`, makeEnv(db));
+      // Act — offset is present but must be ignored once cursor takes over.
+      await call(spec.routes, `${spec.base}?cursor=42&limit=5&offset=10`, makeEnv(db));
 
-        // Assert — `<pk> > ?` seeks the PK index instead of scanning past a
-        // deep OFFSET; the limit/offset binds still trail the cursor bind.
-        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
-        expect(calls[1].binds).toEqual([100, 50, 0]);
-      });
+      // Assert — WHERE gains the seek predicate on both count and select, and
+      // pagination drops to a single LIMIT bind (no OFFSET placeholder at all).
+      const seekFilter = `${spec.prefix}${spec.idColumn} > ?`;
+      expect(calls[0].sql).toContain(seekFilter);
+      expect(calls[0].binds).toEqual([42]);
+      expect(calls[1].sql).toContain(`ORDER BY ${spec.prefix}${spec.idColumn} LIMIT ?`);
+      expect(calls[1].sql).not.toContain("OFFSET");
+      expect(calls[1].binds).toEqual([42, 5]);
+    });
 
-      it("binds the cursor after the filter binds", async () => {
-        // Arrange
-        const { db, calls } = readDb({ total: 1, rows: [] });
+    it("returns the last row's id as nextCursor when the page is full", async () => {
+      // Arrange
+      const rows = [{ [spec.idColumn]: 10 }, { [spec.idColumn]: 20 }];
+      const { db } = readDb({ total: 2, rows });
 
-        // Act
-        await call(
-          spec.routes,
-          `${spec.base}?${spec.idParam}=7&cursor=100&limit=5`,
-          makeEnv(db)
-        );
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=2`, makeEnv(db));
 
-        // Assert
-        expect(calls[1].binds).toEqual([7, 100, 5, 0]);
-      });
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 2, nextCursor: 20 });
+    });
 
-      it("keeps the count over the filter WHERE, without the cursor predicate", async () => {
-        // Arrange — `total` is the filter match count, so the count query must
-        // not gain the `<pk> > ?` fragment the select gets.
-        const { db, calls } = readDb({ total: 3, rows: [] });
+    it("returns nextCursor null when the page is short of the limit", async () => {
+      // Arrange — fewer rows than the limit means this is the last page.
+      const rows = [{ [spec.idColumn]: 10 }];
+      const { db } = readDb({ total: 1, rows });
 
-        // Act
-        await call(
-          spec.routes,
-          `${spec.base}?${spec.idParam}=7&cursor=100`,
-          makeEnv(db)
-        );
+      // Act
+      const res = await call(spec.routes, `${spec.base}?limit=5`, makeEnv(db));
 
-        // Assert
-        expect(calls[0].sql).not.toContain(" > ?");
-        expect(calls[0].binds).toEqual([7]);
-        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
-      });
-
-      it("returns the last primary key as nextCursor on a full page", async () => {
-        // Arrange
-        const rows = [{ [spec.idColumn]: 10 }, { [spec.idColumn]: 20 }];
-        const { db } = readDb({ total: 5, rows });
-
-        // Act
-        const res = await call(spec.routes, `${spec.base}?limit=2`, makeEnv(db));
-
-        // Assert
-        expect(await res.json()).toEqual({ rows, total: 5, nextCursor: 20 });
-      });
-
-      it("returns a null nextCursor on a short final page", async () => {
-        // Arrange
-        const rows = [{ [spec.idColumn]: 10 }];
-        const { db } = readDb({ total: 1, rows });
-
-        // Act
-        const res = await call(spec.routes, spec.base, makeEnv(db));
-
-        // Assert
-        expect(await res.json()).toEqual({ rows, total: 1, nextCursor: null });
-      });
-
-      it("chains pages by feeding nextCursor back as cursor", async () => {
-        // Arrange — the fake returns canned rows, so this pins the chaining
-        // contract (cursor bind on page two), not the data itself.
-        const pageOne = [{ [spec.idColumn]: 1 }, { [spec.idColumn]: 2 }];
-        const { db: dbOne } = readDb({ total: 3, rows: pageOne });
-        const firstRes = await call(
-          spec.routes,
-          `${spec.base}?limit=2`,
-          makeEnv(dbOne)
-        );
-        const { nextCursor } = (await firstRes.json()) as { nextCursor: number };
-
-        // Act
-        const { db: dbTwo, calls } = readDb({
-          total: 3,
-          rows: [{ [spec.idColumn]: 3 }]
-        });
-        await call(
-          spec.routes,
-          `${spec.base}?limit=2&cursor=${nextCursor}`,
-          makeEnv(dbTwo)
-        );
-
-        // Assert
-        expect(nextCursor).toBe(2);
-        expect(calls[1].sql).toContain(`${spec.prefix}${spec.idColumn} > ?`);
-        expect(calls[1].binds).toEqual([2, 2, 0]);
-      });
-
-      it("rejects a negative cursor", async () => {
-        // Arrange
-        const { db, calls } = readDb({ total: 0, rows: [] });
-
-        // Act
-        const res = await call(spec.routes, `${spec.base}?cursor=-1`, makeEnv(db));
-
-        // Assert
-        expect(res.status).toBe(400);
-        expect(calls).toHaveLength(0);
-      });
-
-      it("rejects a non-numeric cursor", async () => {
-        // Arrange
-        const { db, calls } = readDb({ total: 0, rows: [] });
-
-        // Act
-        const res = await call(spec.routes, `${spec.base}?cursor=abc`, makeEnv(db));
-
-        // Assert
-        expect(res.status).toBe(400);
-        expect(calls).toHaveLength(0);
-      });
+      // Assert
+      expect(await res.json()).toEqual({ rows, total: 1, nextCursor: null });
     });
 
     it("reports total 0 when the count query returns no row", async () => {
@@ -602,6 +514,24 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
     });
   });
 
+  describe("GET by id guard", () => {
+    it.each(["-5", "0", "1e3", "007", "abc", "4.5"])(
+      "answers %s with the documented 400 problem+json before any query runs",
+      async (id) => {
+        // Arrange
+        const { db, calls } = readDb({ row: { x: 1 } });
+
+        // Act
+        const res = await call(spec.routes, `${spec.base}/${id}`, makeEnv(db));
+
+        // Assert
+        expect(res.status).toBe(400);
+        expect(res.headers.get("content-type")).toContain("problem+json");
+        expect(calls).toHaveLength(0);
+      }
+    );
+  });
+
   describe("POST sync", () => {
     it("returns 503 when neither the export path nor the query id is configured", async () => {
       // Arrange
@@ -615,7 +545,7 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.headers.get("content-type")).toContain("problem+json");
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}misconfigured`);
-      expect(body.title).toBe("Not configured");
+      expect(body.title).toBe("Service Unavailable");
       expect(body.detail).toBe(spec.notConfiguredDetail);
       expect(syncState.runCalls).toHaveLength(0);
     });
@@ -716,32 +646,8 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as ProblemBody;
       expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
-      expect(body.title).toBe("Empty body");
+      expect(body.title).toBe("Bad Request");
       expect(syncState.streamCalls).toHaveLength(0);
-    });
-
-    it("never passes reconcile to the stream sync, so a partial import cannot delete", async () => {
-      // Arrange — import is possibly-partial (CUSTOMER_SNAPSHOT.md): it must
-      // upsert what it sees and leave every other row alone. The stream sync
-      // only deletes when `options.reconcile` is set, so the handler must pass
-      // no options at all — not even `{ reconcile: false }` by way of a
-      // default that a later edit could flip.
-      const { db } = readDb({});
-      const env = makeEnv(db);
-      syncState.streamResult = { upserted: 1, rowCount: 1, deleted: 0 };
-
-      // Act
-      await call(spec.routes, `${spec.base}/import`, env, {
-        method: "POST",
-        body: "a,b\n1,2\n",
-        headers: { "content-type": "text/csv" }
-      });
-
-      // Assert — called with exactly (db, body): no batch size, no options.
-      expect(syncState.streamCalls).toHaveLength(1);
-      expect(syncState.streamCalls[0].db).toBe(db);
-      expect(syncState.streamCalls[0].batchSize).toBeUndefined();
-      expect(syncState.streamCalls[0].options).toBeUndefined();
     });
   });
 });

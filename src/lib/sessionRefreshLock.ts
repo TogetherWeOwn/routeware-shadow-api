@@ -1,3 +1,5 @@
+import { LOCK_TTL_MS } from "../authSession.do";
+import { problemJsonResponse, problemType } from "./problem";
 import { readSessionState } from "./sessionState";
 
 /**
@@ -12,8 +14,56 @@ import { readSessionState } from "./sessionState";
  * `establishSession` is serialized by the same lock.
  */
 
-const WAIT_TIMEOUT_MS = 20_000;
+/**
+ * How long a waiter polls for the holder's fresh session before failing
+ * closed to 502 (TOG-6527).
+ *
+ * Derived from the lock TTL so the relationship can never drift: the budget
+ * must cover a worst-case browser login (~47s — two 15s selector waits + 15s
+ * navigation + 2s settle in `browserAuth.ts`) with margin, while staying 30s
+ * inside `LOCK_TTL_MS` so every waiter fails before the lock can go stale
+ * and admit a duplicate login. Cold-start waiters previously timed out at
+ * 20s, so any normal browser login outlasted them all.
+ */
+export const WAIT_TIMEOUT_MS = LOCK_TTL_MS - 30_000;
 const WAIT_INTERVAL_MS = 500;
+
+/**
+ * Thrown when a waiter gives up on an in-flight refresh (TOG-6526).
+ *
+ * The message carries only the timeout budget (a fixed PII-free string):
+ * it reaches API clients inside a 502 `bad-gateway` problem+json and the
+ * cron log, so it must never carry a cookie, URL, or body.
+ */
+export class ConcurrentRefreshTimeoutError extends Error {
+  readonly timeoutMs: number;
+  constructor(timeoutMs: number) {
+    super(`Concurrent session refresh timed out after ${timeoutMs}ms`);
+    this.name = "ConcurrentRefreshTimeoutError";
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+export function isConcurrentRefreshTimeout(err: unknown): err is ConcurrentRefreshTimeoutError {
+  return err instanceof ConcurrentRefreshTimeoutError;
+}
+
+/** 502 problem+json for a waiter that gave up on a hung refresh. No cookie, URL, body, or PII. */
+export function concurrentRefreshTimeoutProblem(
+  timeoutMs: number,
+  instance?: string,
+  env?: Env
+): Response {
+  return problemJsonResponse({
+    type: problemType("bad-gateway", env),
+    title: "Session refresh timed out",
+    status: 502,
+    detail:
+      `Another request is refreshing the Routeware session and did not finish within ${timeoutMs}ms. ` +
+      `Retry once; if it persists the upstream login is hung. See docs/PROBLEMS.md#bad-gateway.`,
+    instance
+  });
+}
 
 /** True when this caller now holds the refresh lock. False means someone else does. */
 export async function acquireRefreshLock(stub: DurableObjectStub): Promise<boolean> {
@@ -66,8 +116,9 @@ export async function storeSession(
 /**
  * Wait for the refresh holder to publish a fresh session, instead of proceeding
  * with a stale/empty one. Returns once a non-refreshing session with a cookie is
- * visible, or after the timeout (the caller then reacts to any upstream login
- * redirect).
+ * visible. Throws `ConcurrentRefreshTimeoutError` on deadline (TOG-6526) — the
+ * caller must fail closed to 502 rather than forwarding with the expired
+ * cookie, which would surface upstream login HTML as a 200.
  */
 export async function waitForConcurrentRefresh(
   stub: DurableObjectStub,
@@ -81,7 +132,7 @@ export async function waitForConcurrentRefresh(
       return;
     }
     if (Date.now() >= deadline) {
-      return;
+      throw new ConcurrentRefreshTimeoutError(timeoutMs);
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }

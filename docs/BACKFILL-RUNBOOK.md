@@ -37,11 +37,13 @@ BASE=http://127.0.0.1:8787
 SECRET=<the CUSTOMER_SNAPSHOT_SYNC_SECRET value from .dev.vars>
 ```
 
-Use the **sync secret**, not `SHADOW_API_TOKEN`: the app-wide gate accepts either, but the in-handler check on every `.../import` route (`requireSnapshotAuth`, `src/routes/shared.ts:82-95`) matches the sync secret only — the API token gets a 401 here.
+If the default port is already taken (e.g. another checkout's dev server on a shared host — `Address already in use` while `/api/v1/health` still answers), start your own on a free port (`npx wrangler dev --port 8791`) and point `$BASE` at it. Never import through another checkout's server: its D1 binding belongs to a different worktree.
+
+Use the **sync secret**, not `SHADOW_API_TOKEN`: the app-wide gate accepts either, but the in-handler check on every `.../import` route (`requireSnapshotAuth`, `src/routes/shared.ts:81-93`) matches the sync secret only — the API token gets a 401 here.
 
 ## 2. Import order: customers → addresses → containers
 
-D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and the **local D1 enforces it**: importing an address whose customer is missing (or a container whose address is missing) fails with a 500 (`D1 address_snapshot batch at row offset …: D1_ERROR: FOREIGN KEY constraint failed` in the Worker log, §7). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. (This contradicts `CUSTOMER_SNAPSHOT.md` and the `upsert.ts` header comments, which say D1 does *not* enforce FKs: on the local D1 used to validate this doc — fresh migrate, `wrangler dev`, 2026-09-27 — `PRAGMA foreign_keys` returned `1` and both direct-SQL and Worker-path orphan writes were rejected with `SQLITE_CONSTRAINT_FOREIGNKEY`. Remote-D1 behavior was not verified from here.) The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:102-121`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
+D1 declares the FK chain (`address.customer_id` → customer, `container.pickup_address_id` → address) and D1 **enforces it unconditionally**: importing an address whose customer is missing (or a container whose address is missing) fails with a 400 `bad-request` naming the dangling key (e.g. `Dangling reference: address_snapshot.customer_id=999 has no row in customer_snapshot.customer_id …`). Only the failing batch is lost — earlier batches in the same file still land — but the write never creates silent orphans, so import order is enforced, not just convention: customers first, then addresses, then containers. The combined `POST /api/v1/data-snapshot/sync` and `getDataSnapshotPlan` (`src/lib/snapshot/orchestration.ts:117-136`) enforce the same order the other way: address is skipped unless customer is configured, container unless both are.
 
 Prefer per-table `.../import` (raw CSV body) for backfill: unlike `.../sync` it needs no report path/query vars and never deletes (see §5). One call per table, **in this order**.
 
@@ -62,7 +64,7 @@ curl -s -X POST "$BASE/api/v1/container-snapshot/import" \
 # expect {"upserted":K,"rowCount":K,"deleted":0}
 ```
 
-Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively, or the import throws `... is not valid CSV (missing ... header)` and imports nothing:
+Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. Anything else fails with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7) and imports nothing:
 
 ```csv
 CustomerID,CompanyName,Enabled
@@ -84,7 +86,7 @@ ContainerID,PickupAddressID,Address,SerialNumber,Enabled
 
 (Containers read the street from the `Address` column into `location_address`; `SerialNumber` is optional but useful for §3 spot checks. Booleans accept `true`/`1`/`yes` — and an omitted `Enabled` column imports as **true** (`parseBoolDefaultTrue("")` is true on main, `src/lib/csvParse.ts:78-84`), so a CSV without an `Enabled` column lands every row enabled. Include `Enabled` explicitly to control it.)
 
-**Do not mix a partial `import` with a `sync` mid-backfill:** a `sync` run against a half-loaded chain fails loudly — child rows referencing not-yet-imported parents 500 at the upsert batch, and a parent reconcile whose export dropped still-referenced rows 500s at the delete (§5, §7). Finish all three imports, verify (§3–4), then hand over to the daily cron/`sync` path.
+**Do not mix a partial `import` with a `sync` mid-backfill:** a `sync` run against a half-loaded chain fails loudly — child rows referencing not-yet-imported parents 400 at the upsert batch (dangling-reference `bad-request`), and a parent reconcile whose export dropped still-referenced rows 500s at the delete (§5, §7). Finish all three imports, verify (§3–4), then hand over to the daily cron/`sync` path.
 
 ## 3. Per-table verification
 
@@ -137,7 +139,7 @@ npx wrangler d1 execute routeware-customer-snapshot --local --json \
 
 - **`import` is treated as possibly-partial and never deletes** (`deleted` is always `0`; the reconcile step only runs on the `sync` path with `reconcile: true`). A bad import's rows persist: re-importing the corrected CSVs heals values (upserts overwrite), but rows the bad file *added* stay until a correct full `sync` reconciles them away or you `DELETE` them explicitly.
 - **`sync` deletes rows absent from its export** (`deleted` count in the response) so upstream deletions propagate — but the delete is **skipped when a run yields zero data rows**, so a bad/empty export never wipes a table. An all-zero `rowCount` with `deleted: 0` means "export was empty, table untouched", not success.
-- **No cross-table transaction.** Each table's import is many `db.batch` calls (80 rows per chunk for customers/addresses, 40 for containers: `STREAM_BATCH_*` in `streamSync.ts`); a crash between §2's calls leaves a half-backfilled chain. Within one import, chunks are atomic per batch: a batch containing an FK-violating row 500s and lands nothing, but earlier batches in the same file stay (verified: a 100-row address file with one bad row in batch 2 left 2 + 80 = 82 rows). Recovery is fixing the CSV and re-running the remaining imports in order (upserts are idempotent), not rolling back.
+- **No cross-table transaction.** Each table's import is many `db.batch` calls (80 rows per chunk for customers/addresses, 40 for containers: `STREAM_BATCH_*` in `streamSync.ts`); a crash between §2's calls leaves a half-backfilled chain. Within one import, chunks are atomic per batch: a batch containing an FK-violating row 400s and lands nothing, but earlier batches in the same file stay (verified: a 100-row address file with one bad row in batch 2 left 2 + 80 = 82 rows). Recovery is fixing the CSV and re-running the remaining imports in order (upserts are idempotent), not rolling back.
 - **FKs also block parent deletes.** `DELETE FROM customer_snapshot` fails with `FOREIGN KEY constraint failed` while any address still references the customer (verified direct-SQL, count unchanged) — and the `sync` reconcile path issues the same `DELETE`s (`reconcileDeleteStale`). So on this D1, a customer `sync` whose export dropped a customer that still has addresses fails at reconcile: recover by syncing children first (address, then container — their reconciles remove the referencing rows), then re-running the customer sync.
 - **Large files** can hit D1's ~1000-operations-per-invocation budget through a single import. If an import fails with a D1 limit error, split that table's CSV into smaller files and import them sequentially in the same table order (same-table splits are safe; cross-table splits still need customer → address → container). See `CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests".
 
@@ -153,8 +155,8 @@ There is no undo log — every write is an `INSERT … ON CONFLICT DO UPDATE` ke
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `... is not valid CSV (missing CustomerID / PickupAddressID / ContainerID header)` **in the Worker log** (HTTP body is a generic 500 problem+json) | First CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (check is `startsWith` on the lowercased first cell, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
-| `D1 <table>_snapshot batch at row offset …: D1_ERROR: FOREIGN KEY constraint failed` **in the Worker log** (HTTP body is a generic 500) | Out-of-order import or a child row pointing at a missing parent id | Only the failing batch is lost — fix the CSV, re-import in order (§2) |
+| `Snapshot import body is not valid CSV...` 400 `bad-request` (the `missing ... header` wording lives in the `InvalidSnapshotCsvError` server-side; the HTTP body intentionally carries only the generic message, `src/routes/snapshotImport.ts:57-84`) | Normalized first CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (exact match after trim, BOM-strip, lowercase and CSV unquoting — `"CustomerID"` or padded/lowercase variants pass; `firstHeaderCell`, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
+| `Dangling reference: <table>.<column>=<key> has no row in <parent>.<column> …` 400 `bad-request` (FK details also in the Worker log) | Out-of-order import or a child row pointing at a missing parent id | Only the failing batch is lost — import the parents first, then fix the CSV and re-import in order (§2) |
 | `SQLITE_CANTOPEN` / `unable to open database file` in the Worker log, every import 500s | `.wrangler/state/v3/d1` was wiped while `wrangler dev` was running (§1) | Restart `wrangler dev` |
 | `401` problem+json on import | Bearer missing/wrong, or the API token sent instead of the sync secret (`requireSnapshotAuth` matches the sync secret only) | Use the `.dev.vars` `CUSTOMER_SNAPSHOT_SYNC_SECRET` value for `$SECRET`; restart `wrangler dev` after editing `.dev.vars` |
 | `503 misconfigured` on a `.../sync` route | No `*_REPORT_EXPORT_PATH` / `*_REPORT_QUERY_ID` for that table | Backfill uses `.../import`, not `.../sync`; for sync setup see `CUSTOMER_SNAPSHOT.md` § "Checklist" |

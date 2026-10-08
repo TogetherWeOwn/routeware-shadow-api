@@ -4,12 +4,16 @@
  * `GET /api/v1/health` is an unauthenticated liveness check — it proves the
  * Worker is running and nothing more. This module answers the next question an
  * operator asks after a deploy: is D1 reachable, is the R2 binding present,
- * and are the report sources the snapshot sync needs actually configured?
+ * are the report sources the snapshot sync needs actually configured, and
+ * when did the daily cron last run (the advisory `cron` staleness probe,
+ * TOG-8883 — never flips the overall status)?
  *
  * Only booleans and short status strings leave this module — never secret
  * values, never row data (customer PII flows through the snapshot path, so
  * readiness must not echo configuration values that could leak selectors).
  */
+
+import { readCronState } from "./cronSyncState";
 
 export type ReadinessStatus = "ok" | "degraded";
 
@@ -28,6 +32,34 @@ export type ConfigCheck = {
   detail?: string;
 };
 
+export type CronTableState = {
+  outcome: "success" | "skipped" | "failed";
+  upserted: number | null;
+  rowCount: number | null;
+  deleted: number | null;
+  ranAt: string;
+};
+
+/**
+ * Cron staleness probe (TOG-8883). Reports the last persisted cron run per
+ * table (`cron_sync_state`, written by `src/scheduled.ts` after every run):
+ * `lastRunAt` is the newest row timestamp, `tables` carries each table's own
+ * outcome + timestamp, `stale` is true when no row exists or the newest row
+ * is older than the threshold. Only timestamps, outcomes and counts leave
+ * here — never row data or error text (no PII by column construction).
+ *
+ * Advisory only: `ok` mirrors `stale` (false while fresh) but the overall
+ * readiness status ignores it — a never-yet-run staging Worker is deployable,
+ * and the cron's own `success`/`failed` log line remains the alarm source.
+ */
+export type CronCheck = {
+  ok: boolean;
+  stale: boolean;
+  lastRunAt: string | null;
+  tables: Record<"customer" | "address" | "container", CronTableState | null>;
+  detail?: string;
+};
+
 export type ReadinessReport = {
   status: ReadinessStatus;
   service: "routeware-shadow-api";
@@ -35,8 +67,16 @@ export type ReadinessReport = {
     d1: D1Check;
     r2: R2Check;
     config: ConfigCheck;
+    cron: CronCheck;
   };
 };
+
+/**
+ * A run older than this counts as stale. The cron fires once daily, so 48h
+ * tolerates one missed firing (deploy at 07:00 UTC, platform retry wobble)
+ * without paging; two consecutive misses page.
+ */
+export const CRON_STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
 function reportSourceConfigured(
   env: Env,
@@ -127,10 +167,58 @@ function checkConfig(env: Env): ConfigCheck {
   };
 }
 
+async function checkCron(env: Env, nowMs: number = Date.now()): Promise<CronCheck> {
+  const empty: CronCheck["tables"] = { customer: null, address: null, container: null };
+  const db = (env as Partial<Env>).CUSTOMER_DB;
+  const rows = await readCronState(db);
+  if (!rows || rows.length === 0) {
+    return {
+      ok: false,
+      stale: true,
+      lastRunAt: null,
+      tables: empty,
+      detail: "No cron run recorded yet (cron_sync_state is empty or unreadable)."
+    };
+  }
+  const tables: CronCheck["tables"] = { ...empty };
+  let newest: string | null = null;
+  for (const r of rows) {
+    tables[r.tableName] = {
+      outcome: r.outcome,
+      upserted: r.upserted,
+      rowCount: r.rowCount,
+      deleted: r.deleted,
+      ranAt: r.ranAt
+    };
+    if (newest === null || r.ranAt > newest) {
+      newest = r.ranAt;
+    }
+  }
+  const newestMs = newest === null ? NaN : Date.parse(newest);
+  const stale =
+    newest === null ||
+    Number.isNaN(newestMs) ||
+    newestMs > nowMs ||
+    nowMs - newestMs > CRON_STALE_AFTER_MS;
+  if (stale) {
+    return {
+      ok: false,
+      stale: true,
+      lastRunAt: newest,
+      tables,
+      detail:
+        "Last cron run is older than 48h (or unreadable) — check the cron trigger and the data-snapshot-sync log line."
+    };
+  }
+  return { ok: true, stale: false, lastRunAt: newest, tables };
+}
+
 /**
  * Run every readiness check and fold them into one report.
  * Overall status is `ok` only when D1 answers, R2 is bound (or archiving is
- * explicitly disabled), and all three report sources are configured.
+ * explicitly disabled), and all three report sources are configured. The
+ * `cron` staleness probe is advisory: it never flips the overall status, so
+ * a never-yet-run Worker still deploys.
  */
 export async function checkReadiness(env: Env): Promise<{
   report: ReadinessReport;
@@ -139,12 +227,13 @@ export async function checkReadiness(env: Env): Promise<{
   const d1 = await checkD1(env);
   const r2 = checkR2(env);
   const config = checkConfig(env);
+  const cron = await checkCron(env);
   const ok = d1.ok && r2.ok && config.ok;
   return {
     report: {
       status: ok ? "ok" : "degraded",
       service: "routeware-shadow-api",
-      checks: { d1, r2, config }
+      checks: { d1, r2, config, cron }
     },
     httpStatus: ok ? 200 : 503
   };

@@ -22,14 +22,14 @@ import { validationFailureHook } from "../src/routes/shared";
  * | `GET /api/v1/shadow/health` | — | outer gate | | | shared | | | shared |
  * | Routeware passthroughs (customers-read, detail-full, customer-types-read, add-new-long, load-long-modal, app-settings-get, home/index, login-page, query-request-is-complete) | — (no schemas) | outer gate | | | shared | | | shared; upstream status/body streams through verbatim (R2) |
  * | `POST …/save-long-form` | — | outer gate | | | shared | token-prep + HTML-200 silent failure | | shared |
- * | `POST …/save-address-form`, `…/save-container-form` | — | outer gate | | | shared | token-prep | | shared |
+ * | `POST …/save-address-form`, `…/save-container-form` | create w/o parent id (TOG-8148) | outer gate | | | shared | token-prep | | shared |
  * | `DELETE /api/v1/routeware/customer` | — | outer gate | | anchored | shared | | | shared |
  * | Snapshot lists (customer/address/container) | hook 400 (query) | outer gate | | | shared | | | shared |
  * | Snapshot by-id (×3) | hook 400 (params) | outer gate | anchored (missing row) | | shared | | | shared |
+ * | Snapshot export CSV (×3) | — (no schema) | outer + inner 401 | | | shared | | | shared |
  * | Snapshot sync (×3) | — | outer + inner 401 | | | shared | | secret-unset / report-source-unset | shared |
  * | Snapshot import (×3) | empty body | outer + inner 401 | | | shared | | | shared |
  * | `POST /api/v1/data-snapshot/sync` | — | outer + inner 401 | | | shared | | secret-unset | shared |
- * | `GET /api/v1/data-snapshot/orphans` | hook 400 (sampleLimit) | outer + inner 401 | | | shared | | | shared |
  * | `GET /api/v1/data/*` (×3) | missing/invalid id | outer + inner 401 | anchored (not in D1) | | shared | | | shared |
  * | `POST /api/v1/data/*` (×3) | empty body | outer + inner 401 | | | shared | token-prep | | shared |
  * | `GET /openapi.json`, `/docs` | — | — | anchored `forbidden` (404, docs disabled) | | | | | |
@@ -47,8 +47,9 @@ import { validationFailureHook } from "../src/routes/shared";
  *   DO rewrite: HTML-200 silent failures become 502).
  * - R3: `src/authSession.do.ts` plain-text 400/404/423s are the Durable
  *   Object's internal stub protocol, unreachable from the public API surface.
- * - R4: `POST /api/v1/data/*` echoes the caller's own `posted` fields and
- *   `localSync.reason` (OpenAPI-documented, bearer-gated to the submitter).
+ * - R4: `POST /api/v1/data/*` returns ids + `upstreamBytes` + fixed
+ *   `localSync.code` only — never submitted fields or the upstream body
+ *   (TOG-6535; pinned by `test/dataEntityPostHandlers.test.ts`).
  *
  * The `type` assertions below compare against string literals, never against
  * `problemType(...)` output: recomputing the expected value with the function
@@ -63,7 +64,7 @@ const SYNC_SECRET = "test-sync-secret";
 // Top-level await, house pattern (see test/snapshotRoutes.test.ts): the route
 // modules are imported once so every describe below shares them.
 const { customerSnapshotRoutes } = await import("../src/routes/customerSnapshot");
-const { dataSnapshotRoutes } = await import("../src/routes/dataSnapshot");
+const { addressSnapshotRoutes } = await import("../src/routes/addressSnapshot");
 const { dataEntityRoutes } = await import("../src/routes/dataEntity");
 
 type ProblemBody = {
@@ -247,13 +248,18 @@ describe("schema rejections arrive anchored (were raw {success:false} before)", 
     expect(body.type).toBe(`${BASE}bad-request`);
   });
 
-  it("pins an out-of-range orphans sampleLimit as bad-request", async () => {
+  it("pins an out-of-range address-list limit as bad-request", async () => {
+    // Backport note (TOG-6461): the shared-branch original pinned
+    // `/api/v1/data-snapshot/orphans?sampleLimit=501`, but the orphans route
+    // (TOG-5814) has not merged to main yet — the same hook path is pinned
+    // here against the address list's bounded `limit` instead.
     const res = await callModule(
-      dataSnapshotRoutes,
-      "/api/v1/data-snapshot/orphans?sampleLimit=501",
+      addressSnapshotRoutes,
+      "/api/v1/address-snapshot?limit=501",
       moduleEnv()
     );
     expect(res.status).toBe(400);
+    expect(res.headers.get("content-type")).toContain("application/problem+json");
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-request`);
   });
@@ -315,10 +321,10 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-request`);
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
   });
 
-  it("body-less snapshot import: 400 bad-request Empty body", async () => {
+  it("body-less snapshot import: 400 bad-request", async () => {
     const res = await customerSnapshotRoutes.fetch(
       new Request("http://test.local/api/v1/customer-snapshot/import", {
         method: "POST",
@@ -330,7 +336,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-request`);
-    expect(body.title).toBe("Empty body");
+    expect(body.title).toBe("Bad Request");
   });
 
   it("body-less data-entity POST: 400 bad-request", async () => {
@@ -359,7 +365,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.headers.get("content-type")).toContain("application/problem+json");
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}not-found`);
-    expect(body.detail).toBe("No snapshot row for customer_id=9999");
+    expect(body.detail).toBe("No snapshot row for customer_id=9999. See docs/PROBLEMS.md#not-found.");
   });
 
   it("unconfigured sync: 503 misconfigured", async () => {
@@ -379,7 +385,7 @@ describe("handler-level errors anchor verbatim (matrix spot-checks)", () => {
     expect(res.status).toBe(503);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}misconfigured`);
-    expect(body.title).toBe("Not configured");
+    expect(body.title).toBe("Service Unavailable");
   });
 });
 
@@ -505,7 +511,7 @@ describe("app-level errors anchor verbatim (through the full stack)", () => {
     expect(res.status).toBe(502);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(`${BASE}bad-gateway`);
-    expect(body.title).toBe("Upstream save failed");
+    expect(body.title).toBe("Bad Gateway");
   });
 
   it("throwing handler: 500 internal without leaking internals", async () => {

@@ -15,38 +15,57 @@ type LineBreak = { end: number; nextStart: number };
  * Scan `buffer` from `from` for the next unquoted line terminator, tracking quote
  * state as it goes.
  *
+ * A `"` opens a quoted field only at field start (line start or just after a
+ * delimiter comma, tolerating spaces/tabs); a mid-field `"` is a literal stray
+ * (inch mark), not a multiline open — otherwise one bad cell silently swallows
+ * every following row (TOG-8536). `""` inside a quoted field is still an
+ * escaped literal, and a `"` while already quoted still closes.
+ *
  * Returns the break position, or `null` when the buffer is exhausted (or ends on a
- * bare `\r` whose `\n` may still be coming) and more input is needed. `scannedTo`
+ * bare `\r` whose `\n` may still be coming, or ends on a `"` inside quotes that
+ * may be half of a straddling `""` pair) and more input is needed. `scannedTo`
  * is how far the scan got — the caller must resume from there rather than
  * rescanning, or already-seen quotes would be counted twice and flip the state.
+ * `fieldStart` (whether position `from` starts a field) is carried the same way.
  */
 function scanForLineBreak(
   buffer: string,
   from: number,
-  inQuotes: boolean
-): { at: LineBreak | null; scannedTo: number; inQuotes: boolean } {
+  inQuotes: boolean,
+  fieldStart: boolean
+): { at: LineBreak | null; scannedTo: number; inQuotes: boolean; fieldStart: boolean } {
   let i = from;
   let quoted = inQuotes;
+  let start = fieldStart;
 
   while (i < buffer.length) {
     const ch = buffer[i];
 
     if (ch === '"') {
-      // A doubled quote inside a quoted field is an escaped literal, not a toggle.
-      //
-      // Unlike the `\r` case below, this deliberately needs NO end-of-buffer
-      // guard, even though `buffer[i + 1]` may be undefined mid-stream when the
-      // two halves of a `""` pair straddle a chunk boundary. If the trailing `"`
-      // really was half of a pair, we toggle here and toggle straight back on the
-      // next `"` when more data arrives — same net state as consuming the pair,
-      // because nothing sits between them to be judged under the wrong state. If
-      // it was a genuine closing quote, the toggle was right to begin with.
-      // Either way the result matches parsing the same bytes unchunked.
-      if (quoted && buffer[i + 1] === '"') {
-        i += 2;
+      if (quoted) {
+        if (i + 1 >= buffer.length) {
+          // Can't tell a closing quote from half of a `""` escape pair
+          // straddling a chunk boundary yet; resume here once more data
+          // arrives so the pair is judged exactly as unchunked input.
+          return { at: null, scannedTo: i, inQuotes: quoted, fieldStart: start };
+        }
+        // A doubled quote inside a quoted field is an escaped literal, not a toggle.
+        if (buffer[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        quoted = false;
+        start = false;
+        i += 1;
         continue;
       }
-      quoted = !quoted;
+      if (start) {
+        quoted = true;
+        start = false;
+        i += 1;
+        continue;
+      }
+      // Literal stray quote mid-field (e.g. `5" widget`): no state change.
       i += 1;
       continue;
     }
@@ -57,22 +76,27 @@ function scanForLineBreak(
     }
 
     if (ch === "\n") {
-      return { at: { end: i, nextStart: i + 1 }, scannedTo: i, inQuotes: quoted };
+      return { at: { end: i, nextStart: i + 1 }, scannedTo: i, inQuotes: quoted, fieldStart: start };
     }
 
     if (ch === "\r") {
       if (i + 1 >= buffer.length) {
         // Can't tell CR from CRLF yet; resume here once more data arrives.
-        return { at: null, scannedTo: i, inQuotes: quoted };
+        return { at: null, scannedTo: i, inQuotes: quoted, fieldStart: start };
       }
       const nextStart = buffer[i + 1] === "\n" ? i + 2 : i + 1;
-      return { at: { end: i, nextStart }, scannedTo: i, inQuotes: quoted };
+      return { at: { end: i, nextStart }, scannedTo: i, inQuotes: quoted, fieldStart: start };
     }
 
+    if (ch === ",") {
+      start = true;
+    } else if (ch !== " " && ch !== "\t") {
+      start = false;
+    }
     i += 1;
   }
 
-  return { at: null, scannedTo: i, inQuotes: quoted };
+  return { at: null, scannedTo: i, inQuotes: quoted, fieldStart: start };
 }
 
 /**
@@ -91,23 +115,27 @@ export async function* streamCsvLines(
   const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
   let buffer = "";
   let inQuotes = false;
-  // First byte of `buffer` not yet scanned. Carried across reads: restarting at 0
-  // would re-toggle quote state over the already-scanned prefix and split lines
-  // inside quoted fields whenever a chunk boundary lands mid-field.
+  // First byte of `buffer` not yet scanned, plus whether it starts a field.
+  // Carried across reads: restarting at 0 would re-toggle quote state over the
+  // already-scanned prefix and split lines inside quoted fields whenever a
+  // chunk boundary lands mid-field.
   let scanFrom = 0;
+  let scanFieldStart = true;
 
   try {
     for (;;) {
       for (;;) {
-        const scan = scanForLineBreak(buffer, scanFrom, inQuotes);
+        const scan = scanForLineBreak(buffer, scanFrom, inQuotes, scanFieldStart);
         inQuotes = scan.inQuotes;
         if (!scan.at) {
           scanFrom = scan.scannedTo;
+          scanFieldStart = scan.fieldStart;
           break;
         }
         const line = buffer.slice(0, scan.at.end);
         buffer = buffer.slice(scan.at.nextStart);
         scanFrom = 0;
+        scanFieldStart = true;
         if (line.length > 0) {
           yield line;
         }

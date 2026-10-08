@@ -18,6 +18,19 @@ export default defineConfig({
      */
     testTimeout: 30_000,
     hookTimeout: 30_000,
+    /**
+     * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
+     * spawns a worker per core per CI job, and several CI jobs share each
+     * self-hosted runner; under istanbul instrumentation the workers-pool
+     * tests then stall past the 30s timeout (red main 3657b4f, run
+     * 36357586974: 7 files, every failure a timeout; PR #85 the same).
+     * Capping at 2 workers cleared it with no test, assertion or timeout
+     * change (PR #89: the unrestricted run timed out 2 throttle tests, the
+     * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
+     * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
+     * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+     */
+    maxWorkers: process.env.CI ? 2 : undefined,
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
@@ -41,16 +54,21 @@ export default defineConfig({
        * below are the first hermetic measurement of coverage that was always
        * this high in truth.
        *
-       * Branches at 79.48% now sits just under the ECC 80% standard (user-scope
-       * ~/.claude/rules/ecc/common/engineering.md § "The non-negotiable sequence"
-       * step 2). Recovering it is the top open task — see
+       * Branches recovered above the ECC 80% standard on 2026-09-27 (TOG-5484):
+       * `test/d1TestMigrations.ts` applies the D1 migrations to the test
+       * `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the
+       * login → download → parse → upsert path with assertions. See
        * docs/TEST-INVARIANTS.md § "The coverage ratchet".
+       *
+       * Re-measured hermetically 2026-09-28 at `2d61255` (TOG-5826):
+       * statements 90.98% (2160/2374), branches 88.27% (1416/1604),
+       * functions 93.67% (311/332), lines 91.51% (2103/2298).
        */
       thresholds: {
-        statements: 87,
-        branches: 81,
-        functions: 91,
-        lines: 87
+        statements: 90,
+        branches: 88,
+        functions: 93,
+        lines: 91
       }
     }
   }

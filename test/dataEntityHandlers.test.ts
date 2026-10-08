@@ -139,8 +139,8 @@ describe("handleGetDataCustomer", () => {
     // Assert
     expect(res.status).toBe(404);
     const body = (await res.json()) as { title: string; detail: string };
-    expect(body.title).toBe("Not found");
-    expect(body.detail).toBe("No snapshot data for customer_id=999 (import/sync first).");
+    expect(body.title).toBe("Not Found");
+    expect(body.detail).toBe("No snapshot data for customer_id=999 (import/sync first). See docs/PROBLEMS.md#not-found.");
   });
 
   it("returns 200 with a quoted ETag and private caching headers", async () => {
@@ -257,7 +257,7 @@ describe("handleGetDataAddress", () => {
     // Assert
     expect(res.status).toBe(404);
     const body = (await res.json()) as { detail: string };
-    expect(body.detail).toBe("No snapshot for pickup_address_id=42.");
+    expect(body.detail).toBe("No snapshot for pickup_address_id=42. See docs/PROBLEMS.md#not-found.");
   });
 
   it("returns 304 for a matching ETag on its own 304 branch", async () => {
@@ -304,7 +304,7 @@ describe("handleGetDataContainer", () => {
     // Assert
     expect(res.status).toBe(404);
     const body = (await res.json()) as { detail: string };
-    expect(body.detail).toBe("No snapshot for container_id=7.");
+    expect(body.detail).toBe("No snapshot for container_id=7. See docs/PROBLEMS.md#not-found.");
   });
 
   it("returns 304 for a matching ETag on its own 304 branch", async () => {

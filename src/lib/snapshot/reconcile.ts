@@ -1,17 +1,15 @@
 /**
  * FK reconciliation reads for the D1 snapshot tables.
  *
- * `customer_snapshot` → `address_snapshot` → `container_snapshot` declares
- * foreign keys, but D1 does not enforce them (no `PRAGMA foreign_keys`) and a
- * streamed sync spans many `db.batch` calls rather than one transaction — so
- * an address row can point at a customer that was never imported (or has since
- * been reconciled away), and a container row can point at a missing address.
- * Import order (`getDataSnapshotPlan`) prevents *new* orphans; these queries
- * detect the ones already in the tables.
+ * D1 enforces `customer_snapshot` → `address_snapshot` → `container_snapshot`
+ * foreign keys on writes and parent deletes. Normal streamed syncs cannot
+ * strand child rows. This defensive audit detects legacy or out-of-band rows
+ * in a database whose schema did not enforce those constraints; a nonzero
+ * report warrants investigating the schema and data provenance, not import order.
+ * Source: https://developers.cloudflare.com/d1/sql-api/foreign-keys/
  *
- * Both queries are `LEFT JOIN ... IS NULL` anti-joins over indexed PK columns,
- * so they stay cheap at snapshot scale. Sample ids are ordered by primary key
- * so repeated reads page deterministically.
+ * Counts and samples use `LEFT JOIN ... IS NULL` anti-joins over indexed PK
+ * columns. Sample ids are ordered by primary key for deterministic sampling.
  */
 
 /** One side of the orphan report: how many, plus a deterministic id sample. */
@@ -43,11 +41,11 @@ function clampSampleLimit(sampleLimit: number): number {
 }
 
 /**
- * Count and sample orphan rows on both FK edges.
+ * Count and sample orphan rows on both FK edges in one read-only transaction.
  *
- * Four read-only statements: one `COUNT(*)` and one ordered, limited id
- * select per edge. `first()`/`all()` fall back to zero/empty when D1 answers
- * with no row, so the report degrades to zeros rather than throwing.
+ * A single D1 batch keeps all four reads on the same database state, even if
+ * a concurrent import supplies missing parents while the report is running.
+ * Source: https://developers.cloudflare.com/d1/worker-api/d1-database/#batch
  */
 export async function getSnapshotOrphans(
   db: D1Database,
@@ -55,54 +53,44 @@ export async function getSnapshotOrphans(
 ): Promise<SnapshotOrphanReport> {
   const limit = clampSampleLimit(sampleLimit);
 
-  const orphanAddressCount =
-    (
-      await db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM address_snapshot a
-           LEFT JOIN customer_snapshot c ON c.customer_id = a.customer_id
-           WHERE c.customer_id IS NULL`
-        )
-        .first<{ n: number }>()
-    )?.n ?? 0;
-  const { results: orphanAddressRows } = await db
-    .prepare(
+  const [addressCount, addressRows, containerCount, containerRows] = await db.batch([
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM address_snapshot a
+       LEFT JOIN customer_snapshot c ON c.customer_id = a.customer_id
+       WHERE c.customer_id IS NULL`
+    ),
+    db.prepare(
       `SELECT a.pickup_address_id AS id FROM address_snapshot a
        LEFT JOIN customer_snapshot c ON c.customer_id = a.customer_id
        WHERE c.customer_id IS NULL
        ORDER BY a.pickup_address_id LIMIT ?`
-    )
-    .bind(limit)
-    .all<{ id: number }>();
-
-  const orphanContainerCount =
-    (
-      await db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM container_snapshot t
-           LEFT JOIN address_snapshot a ON a.pickup_address_id = t.pickup_address_id
-           WHERE a.pickup_address_id IS NULL`
-        )
-        .first<{ n: number }>()
-    )?.n ?? 0;
-  const { results: orphanContainerRows } = await db
-    .prepare(
+    ).bind(limit),
+    db.prepare(
+      `SELECT COUNT(*) AS n FROM container_snapshot t
+       LEFT JOIN address_snapshot a ON a.pickup_address_id = t.pickup_address_id
+       WHERE a.pickup_address_id IS NULL`
+    ),
+    db.prepare(
       `SELECT t.container_id AS id FROM container_snapshot t
        LEFT JOIN address_snapshot a ON a.pickup_address_id = t.pickup_address_id
        WHERE a.pickup_address_id IS NULL
        ORDER BY t.container_id LIMIT ?`
-    )
-    .bind(limit)
-    .all<{ id: number }>();
+    ).bind(limit)
+  ]) as [
+    D1Result<{ n: number }>,
+    D1Result<{ id: number }>,
+    D1Result<{ n: number }>,
+    D1Result<{ id: number }>
+  ];
 
   return {
     orphanAddresses: {
-      count: orphanAddressCount,
-      sampleIds: (orphanAddressRows ?? []).map((r) => r.id)
+      count: addressCount.results[0]?.n ?? 0,
+      sampleIds: addressRows.results.map((r) => r.id)
     },
     orphanContainers: {
-      count: orphanContainerCount,
-      sampleIds: (orphanContainerRows ?? []).map((r) => r.id)
+      count: containerCount.results[0]?.n ?? 0,
+      sampleIds: containerRows.results.map((r) => r.id)
     }
   };
 }

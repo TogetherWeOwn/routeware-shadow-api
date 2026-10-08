@@ -5,10 +5,11 @@ import {
   isPlaceholderAntiForgeryToken,
   lastUrlEncodedValue
 } from "../src/lib/customerSaveAutoToken";
-import { isLoginRedirect } from "../src/lib/loginRedirect";
+import { isLoginPageResponse, isLoginRedirect, looksLikeLoginPageHtml } from "../src/lib/loginRedirect";
 import {
   routewareWebRwUrl,
-  routewareWebRwUrlWithIncomingSearch
+  routewareWebRwUrlWithIncomingSearch,
+  routewareWebRwUrlWithQueryAllowlist
 } from "../src/lib/upstreamUrl";
 import { problemJsonResponse } from "../src/lib/problem";
 import { parseAddressSnapshotRow } from "../src/lib/csvAddressSnapshot";
@@ -62,6 +63,64 @@ describe("isLoginRedirect", () => {
   });
 });
 
+describe("looksLikeLoginPageHtml (TOG-6515)", () => {
+  it("matches a password field plus the login path", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<form action="/WebRW/Account/Login"><input name="Password" type="password" /></form>'
+      )
+    ).toBe(true);
+  });
+
+  it("matches Ext.NET login markers (Password-inputEl + UserName + token)", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<div id="Password-inputEl"></div><div>UserName</div>' +
+          '<input name="__RequestVerificationToken" value="FAKE" />'
+      )
+    ).toBe(true);
+  });
+
+  it("rejects anti-forgery modal HTML (token but no password field)", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        '<form><input name="__RequestVerificationToken" type="hidden" value="abc+123" /></form>'
+      )
+    ).toBe(false);
+  });
+
+  it("rejects an error page with no login structure", () => {
+    expect(
+      looksLikeLoginPageHtml(
+        "<!DOCTYPE html><html><body>Object reference not set to an instance of an object</body></html>"
+      )
+    ).toBe(false);
+  });
+});
+
+describe("isLoginPageResponse (TOG-6515)", () => {
+  it("returns false without reading JSON/CSV 200 bodies", async () => {
+    const json = new Response('{"Password":"UserName"}', {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+    expect(await isLoginPageResponse(json)).toBe(false);
+    const csv = new Response("Password,UserName", {
+      status: 200,
+      headers: { "content-type": "text/csv" }
+    });
+    expect(await isLoginPageResponse(csv)).toBe(false);
+  });
+
+  it("detects an HTML 200 login page", async () => {
+    const login = new Response(
+      '<form action="/WebRW/Account/Login"><input name="Password" type="password" /></form>',
+      { status: 200, headers: { "content-type": "text/html" } }
+    );
+    expect(await isLoginPageResponse(login)).toBe(true);
+  });
+});
+
 describe("routewareWebRwUrl", () => {
   it("joins base path and resource path", () => {
     const url = routewareWebRwUrl(
@@ -86,6 +145,46 @@ describe("routewareWebRwUrlWithIncomingSearch", () => {
     );
     expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
     expect(url.search).toBe("?job=1&flag=yes");
+  });
+});
+
+describe("routewareWebRwUrlWithQueryAllowlist", () => {
+  it("forwards allowlisted params and drops the rest", () => {
+    const incoming = new Request(
+      "https://shadow.test/api/v1/routeware/reports/query-request-is-complete?requestID=abc&_=1&evil=2"
+    );
+    const url = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      incoming,
+      ["requestID", "_"]
+    );
+    expect(url.pathname).toBe("/WebRW/Reports/QueryRequestIsComplete");
+    expect(url.searchParams.get("requestID")).toBe("abc");
+    expect(url.searchParams.get("_")).toBe("1");
+    expect(url.searchParams.has("evil")).toBe(false);
+  });
+
+  it("keeps repeated allowlisted values and emits no query when none match", () => {
+    const repeated = new Request("https://shadow.test/q?requestID=a&requestID=b");
+    const url = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      repeated,
+      ["requestID", "_"]
+    );
+    expect(url.searchParams.getAll("requestID")).toEqual(["a", "b"]);
+    const empty = new Request("https://shadow.test/q?evil=1");
+    const bare = routewareWebRwUrlWithQueryAllowlist(
+      "https://example.com",
+      "/WebRW",
+      "/Reports/QueryRequestIsComplete",
+      empty,
+      ["requestID", "_"]
+    );
+    expect(bare.search).toBe("");
   });
 });
 

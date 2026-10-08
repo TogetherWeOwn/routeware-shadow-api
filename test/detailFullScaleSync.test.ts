@@ -56,6 +56,10 @@ vi.mock("../src/lib/upstreamForward", () => ({
   }
 }));
 
+vi.mock("../src/lib/snapshot/upsert", () => ({
+  reconcileCustomerChildren: async () => ({ addressIds: [], containerIds: [] })
+}));
+
 vi.mock("../src/lib/d1SnapshotSync", () => ({
   upsertCustomerSnapshotRows: async (_db: unknown, rows: unknown[]) => {
     calls.customers.push(rows);

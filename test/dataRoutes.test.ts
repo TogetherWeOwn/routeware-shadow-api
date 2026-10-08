@@ -14,12 +14,13 @@ import { problemType } from "../src/lib/problem";
  *    per-table sync routes, and it must derive the origin from the **incoming
  *    request**. A hardcoded or misread origin would send the chained calls to
  *    the wrong Worker — or to production from a preview deployment.
- * 2. The `id` guards are asymmetric between the customer route and the other
- *    two, and both halves are reachable. The customer route accepts `id` **or**
- *    the `customerId` alias and 400s only when both are absent; address and
- *    container require `id` and additionally reject `0` and negatives, which
- *    the zod `int()` schema alone lets through. An id of `0` reaching D1 is a
- *    silent empty result, not an error.
+ * 2. The `id` guards unify the `customerId`-style alias across all three
+ *    GETs, and both halves are reachable. Each route accepts `id` **or** its
+ *    alias (`customerId` / `pickupAddressId` / `containerId`), prefers `id`
+ *    when both are supplied, and 400s when both are absent; address and
+ *    container additionally reject `0` and negatives, which the zod `int()`
+ *    schema alone lets through. An id of `0` reaching D1 is a silent empty
+ *    result, not an error.
  *
  * The route modules are fetched directly rather than through `src/app.ts`, so
  * the app-wide `/api/v1/*` gate is out of the picture and only the narrower
@@ -217,8 +218,8 @@ describe("GET /api/v1/data/customer", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as ProblemBody;
     expect(body.type).toBe(BAD_REQUEST_TYPE);
-    expect(body.title).toBe("Bad request");
-    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required.");
+    expect(body.title).toBe("Bad Request");
+    expect(body.detail).toBe("Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.");
     expect(calls.getCustomer).toBeUndefined();
   });
 
@@ -244,22 +245,25 @@ describe("GET /api/v1/data/customer", () => {
 });
 
 /**
- * Address and container share an id guard the customer route does not have:
- * `id` is required by the schema, and `0`/negatives are rejected by the handler
- * on top of it. Both halves are live — `z.coerce.number().int()` accepts `0`.
+ * Address and container unify the customer route's alias pattern: `id` or the
+ * camelCase alias, with `id` winning when both are supplied. `0`/negatives
+ * are rejected by the handler on top of the schema. Both halves are live —
+ * `z.coerce.number().int()` accepts `0`.
  */
 describe.each([
   {
     name: "address",
     path: "/api/v1/data/address",
     handler: "getAddress",
-    detail: "Query `id` (pickup_address_id) is required and must be a positive integer."
+    alias: "pickupAddressId",
+    detail: "Query `id` or `pickupAddressId` (pickup_address_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request."
   },
   {
     name: "container",
     path: "/api/v1/data/container",
     handler: "getContainer",
-    detail: "Query `id` (container_id) is required and must be a positive integer."
+    alias: "containerId",
+    detail: "Query `id` or `containerId` (container_id) is required and must be a positive integer. See docs/PROBLEMS.md#bad-request."
   }
 ])("GET $path", (spec) => {
   it("delegates a positive id", async () => {
@@ -269,6 +273,26 @@ describe.each([
     // Assert
     expect(res.status).toBe(200);
     expect(calls[spec.handler][0].args[1]).toBe(42);
+  });
+
+  it("accepts the documented camelCase alias", async () => {
+    // Arrange / Act
+    const res = await call(dataEntityRoutes, `http://test.local${spec.path}?${spec.alias}=7`);
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls[spec.handler][0].args[1]).toBe(7);
+  });
+
+  it("prefers `id` when both spellings are supplied", async () => {
+    // Arrange — `q.id ?? q.alias`; a swap here would silently serve a
+    // different record's PII than the one the caller asked for.
+    // Act
+    const res = await call(dataEntityRoutes, `http://test.local${spec.path}?id=1&${spec.alias}=2`);
+
+    // Assert
+    expect(res.status).toBe(200);
+    expect(calls[spec.handler][0].args[1]).toBe(1);
   });
 
   it("rejects id=0, which the int schema accepts but D1 never matches", async () => {
@@ -285,6 +309,15 @@ describe.each([
     expect(calls[spec.handler]).toBeUndefined();
   });
 
+  it("rejects a negative alias id", async () => {
+    // Arrange / Act
+    const res = await call(dataEntityRoutes, `http://test.local${spec.path}?${spec.alias}=-5`);
+
+    // Assert
+    expect(res.status).toBe(400);
+    expect(calls[spec.handler]).toBeUndefined();
+  });
+
   it("rejects a negative id", async () => {
     // Arrange / Act
     const res = await call(dataEntityRoutes, `http://test.local${spec.path}?id=-5`);
@@ -294,12 +327,15 @@ describe.each([
     expect(calls[spec.handler]).toBeUndefined();
   });
 
-  it("rejects a missing id at the schema, since it is not optional here", async () => {
+  it("returns 400 problem+json when neither spelling is supplied", async () => {
     // Arrange / Act
     const res = await call(dataEntityRoutes, `http://test.local${spec.path}`);
 
     // Assert
     expect(res.status).toBe(400);
+    const body = (await res.json()) as ProblemBody;
+    expect(body.type).toBe(BAD_REQUEST_TYPE);
+    expect(body.detail).toBe(spec.detail);
     expect(calls[spec.handler]).toBeUndefined();
   });
 });

@@ -42,12 +42,17 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"
 
 /** Every operation the Worker publishes, as `METHOD path`. */
 const EXPECTED_OPERATIONS = [
+  "DELETE /api/v1/customer-snapshot/{customerId}",
   "DELETE /api/v1/routeware/customer",
   "GET /api/v1/address-snapshot",
+  "GET /api/v1/address-snapshot/export",
   "GET /api/v1/address-snapshot/{pickupAddressId}",
   "GET /api/v1/container-snapshot",
+  "GET /api/v1/container-snapshot/export",
   "GET /api/v1/container-snapshot/{containerId}",
   "GET /api/v1/customer-snapshot",
+  "GET /api/v1/customer-snapshot/changes",
+  "GET /api/v1/customer-snapshot/export",
   "GET /api/v1/customer-snapshot/{customerId}",
   "GET /api/v1/data-snapshot/orphans",
   "GET /api/v1/data/address",
@@ -61,6 +66,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/routeware/home/index",
   "GET /api/v1/routeware/reports/query-request-is-complete",
   "GET /api/v1/shadow/health",
+  "GET /api/v1/snapshots/{table}/{date}",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",
@@ -145,9 +151,12 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each, even though `CustomerSnapshotList` is shared by the
-    // customer, address and container snapshot list routes.
+    // Registered once each: `CustomerSnapshotList` is shared by the customer,
+    // address and container snapshot list routes, and `CustomerSnapshotChanges`
+    // (TOG-8877) carries the composite `{since, since_id}` cursor instead of
+    // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+      "CustomerSnapshotChanges",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
@@ -158,6 +167,111 @@ describe("published OpenAPI document", () => {
     ]);
     expect(Object.keys(doc.components?.securitySchemes ?? {})).toEqual(["bearerAuth"]);
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
+  });
+
+  it("documents 400 on snapshot imports, lists and the orphan audit", async () => {
+    // Arrange — TOG-6522: imports return 400 on an empty body and lists
+    // return 400 on out-of-range query params, but neither branch was in the
+    // document, so generated clients never surfaced them.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const operations = [
+      "POST /api/v1/customer-snapshot/import",
+      "POST /api/v1/address-snapshot/import",
+      "POST /api/v1/container-snapshot/import",
+      "GET /api/v1/customer-snapshot",
+      "GET /api/v1/address-snapshot",
+      "GET /api/v1/container-snapshot",
+      "GET /api/v1/data-snapshot/orphans"
+    ];
+    const missing = operations.filter((op) => {
+      const [method, path] = op.split(" ");
+      const responses = (
+        doc.paths[path]?.[method.toLowerCase()] as
+          | { responses?: Record<string, unknown> }
+          | undefined
+      )?.responses;
+      return !responses || !("400" in responses);
+    });
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(missing).toEqual([]);
+  });
+
+  it("publishes the orphan audit's invalid-sampleLimit problem+json schema", async () => {
+    const doc = await fetchOpenApiDocument();
+    const operation = doc.paths["/api/v1/data-snapshot/orphans"]?.get as {
+      responses: Record<string, unknown>;
+    };
+
+    expect(operation.responses["400"]).toMatchObject({
+      content: {
+        "application/problem+json": {
+          schema: {
+            type: "object",
+            required: ["type", "title", "status", "detail"],
+            properties: {
+              type: { type: "string" },
+              title: { type: "string" },
+              status: { type: "number", enum: [400] },
+              detail: { type: "string" }
+            }
+          }
+        }
+      }
+    });
+  });
+
+  it("documents the id alias on all three data-entity GETs", async () => {
+    // Arrange — TOG-6525: customer GET accepted `id|customerId` while address
+    // and container accepted only `id`. The alias must be visible on all three
+    // so generated clients offer the same spelling.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const paramsOf = (path: string): string[] => {
+      const get = doc.paths[path]?.["get"] as
+        | { parameters?: Array<{ in?: string; name?: string }> }
+        | undefined;
+      return (get?.parameters ?? [])
+        .filter((p) => p.in === "query")
+        .map((p) => p.name ?? "");
+    };
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "id"]);
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["id", "pickupAddressId"]);
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "id"]);
+  });
+
+  it("tags the routeware meta routes and documents their 401", async () => {
+    // Arrange — TOG-6525: login-page/home-index carried no 401 docs despite
+    // sitting behind the `/api/v1/*` bearer gate.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const operations = [
+      "GET /api/v1/routeware/account/login-page",
+      "GET /api/v1/routeware/home/index"
+    ];
+    const problems = operations.filter((op) => {
+      const [method, path] = op.split(" ");
+      const operation = doc.paths[path]?.[method.toLowerCase()] as
+        | { responses?: Record<string, unknown>; tags?: string[] }
+        | undefined;
+      return (
+        !operation?.tags?.includes("routeware") ||
+        !operation?.responses ||
+        !("401" in operation.responses)
+      );
+    });
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(problems).toEqual([]);
   });
 
   it("matches the recorded document byte for byte", async () => {

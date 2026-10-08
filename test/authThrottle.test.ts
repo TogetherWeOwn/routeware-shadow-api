@@ -8,6 +8,7 @@ import {
   clearAuthFailures,
   clientIpFromRequest,
   recordAuthFailure,
+  resetAuthThrottleFailOpenLogForTests,
   throttleCheckVerdict,
   throttleObjectName,
   throttleRecordFailure,
@@ -58,22 +59,40 @@ async function call(path: string, opts: CallOpts = {}): Promise<Response> {
 }
 
 describe("clientIpFromRequest", () => {
+  // TOG-8888: XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
+  // opt-in (dev/test). Production (flag absent/"false") ignores XFF so an
+  // attacker value can neither evade the throttle nor frame a victim bucket.
+  const TRUST_XFF = { THROTTLE_TRUST_XFF: "true" };
+  const PROD = { THROTTLE_TRUST_XFF: "false" };
+
   it("prefers CF-Connecting-IP (authoritative, set by Cloudflare)", () => {
     expect(
       clientIpFromRequest(
-        reqWith({ "CF-Connecting-IP": "203.0.113.1", "X-Forwarded-For": "198.51.100.1" })
+        reqWith({ "CF-Connecting-IP": "203.0.113.1", "X-Forwarded-For": "198.51.100.1" }),
+        TRUST_XFF
       )
     ).toBe("203.0.113.1");
   });
 
-  it("falls back to the first X-Forwarded-For entry", () => {
+  it("honors the first X-Forwarded-For entry when THROTTLE_TRUST_XFF=true", () => {
     expect(
-      clientIpFromRequest(reqWith({ "X-Forwarded-For": "198.51.100.1, 70.41.3.18" }))
+      clientIpFromRequest(
+        reqWith({ "X-Forwarded-For": "198.51.100.1, 70.41.3.18" }),
+        TRUST_XFF
+      )
     ).toBe("198.51.100.1");
   });
 
+  it("ignores XFF without the flag: prod-like envs bucket XFF-only callers as unknown", () => {
+    for (const env of [undefined, {}, PROD, { THROTTLE_TRUST_XFF: "" }]) {
+      expect(
+        clientIpFromRequest(reqWith({ "X-Forwarded-For": "198.51.100.1" }), env)
+      ).toBe("unknown");
+    }
+  });
+
   it("buckets headerless callers as unknown", () => {
-    expect(clientIpFromRequest(reqWith({}))).toBe("unknown");
+    expect(clientIpFromRequest(reqWith({}), TRUST_XFF)).toBe("unknown");
   });
 
   it("namespaces DO instances per IP", () => {
@@ -224,6 +243,25 @@ describe("throttle fail-open paths", () => {
     } as unknown as Env;
   }
 
+  // `console.error` is swapped directly rather than with `vi.spyOn`: under
+  // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
+  // so reading `console.error` back does not return the installed spy (same
+  // pattern as test/dataEntityPostHandlers.test.ts).
+  const loggedErrors: unknown[][] = [];
+  const realConsoleError = console.error;
+
+  beforeEach(() => {
+    resetAuthThrottleFailOpenLogForTests();
+    loggedErrors.length = 0;
+    console.error = (...args: unknown[]) => {
+      loggedErrors.push(args);
+    };
+  });
+
+  afterEach(() => {
+    console.error = realConsoleError;
+  });
+
   it("records open when the DO fetch rejects (auth still enforced by the caller)", async () => {
     // Arrange
     const env = envWithStub({
@@ -268,6 +306,50 @@ describe("throttle fail-open paths", () => {
     // Act / Assert — resolves, does not reject.
     await expect(clearAuthFailures(env, req)).resolves.toBeUndefined();
   });
+
+  it("logs exactly one error line per window when the DO is down (TOG-6530)", async () => {
+    // Arrange — the throttle DO is dead; caller still enforces auth (open verdict).
+    const env = envWithStub({
+      fetch: async () => {
+        throw new Error("DO unreachable");
+      }
+    });
+
+    // Act — a burst of failures inside one window.
+    const now = 1_000_000;
+    for (let i = 0; i < 5; i++) {
+      const verdict = await recordAuthFailure(env, req, now + i);
+      expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
+    }
+
+    // Assert — exactly one line, fixed category, no IP/token/PII.
+    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+  });
+
+  it("logs non-OK and malformed fail-opens once per window, then again after the window", async () => {
+    // Arrange
+    const badStatus = envWithStub({ fetch: async () => new Response("x", { status: 500 }) });
+    const malformed = envWithStub({
+      fetch: async () => Response.json({ blocked: "yes-ish" })
+    });
+
+    // Act — both failure kinds inside one window.
+    const now = 2_000_000;
+    await recordAuthFailure(badStatus, req, now);
+    await recordAuthFailure(malformed, req, now + 1);
+
+    // Assert — the first line wins; the second is deduped within the window.
+    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"]]);
+
+    // Act — past the window edge the alarm fires again.
+    await recordAuthFailure(malformed, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
+
+    // Assert
+    expect(loggedErrors).toEqual([
+      ["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"],
+      ["AUTH THROTTLE FAIL-OPEN do_malformed"]
+    ]);
+  });
 });
 
 describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
@@ -306,6 +388,10 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(throttled.headers.get("content-type")).toContain("problem+json");
     const retryAfter = throttled.headers.get("retry-after");
     expect(retryAfter).toMatch(/^\d+$/);
+    // Browser clients can only read Retry-After cross-origin when exposed.
+    expect(throttled.headers.get("access-control-expose-headers")).toMatch(
+      /retry-after/i
+    );
     expect(Number(retryAfter)).toBeGreaterThan(0);
     expect(Number(retryAfter)).toBeLessThanOrEqual(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
     const body = (await throttled.json()) as {
@@ -318,8 +404,9 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(body.title).toBe("Too Many Requests");
     expect(body.status).toBe(429);
     expect(body.detail).toContain("PROBLEMS.md#rate-limited");
-    // The 429 still carries the CORS/hardening stamp so browsers surface it.
-    expect(throttled.headers.get("access-control-allow-origin")).toBeTruthy();
+    // Port note (TOG-5820 onto main without sibling TOG-5809): main has no
+    // CORS layer yet, so no ACAO stamp is asserted here. The scope-branch
+    // version asserts the stamp; TOG-5809's merge restores it.
   });
 
   it("a valid token from the throttled IP still passes and resets the counter", async () => {
@@ -356,6 +443,28 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     // Assert
     expect(res.status).toBe(404);
     expect(res.headers.get("content-type")).toContain("problem+json");
+  });
+
+  it("CORS preflight never consumes throttle budget", async () => {
+    // Arrange — TOG-5809 answers OPTIONS with a 204 preflight before the
+    // bearer gate; it must not burn throttle budget doing so.
+    const PREFLIGHT_IP = "192.0.2.71";
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+      const res = await call("/api/v1/routeware/home/index", {
+        token: "wrong",
+        ip: PREFLIGHT_IP,
+        method: "OPTIONS"
+      });
+      expect(res.status).toBe(204);
+      expect(res.headers.get("access-control-allow-origin")).toBeTruthy();
+    }
+
+    // Assert — the IP's first real gated failure is still a 401, not a 429.
+    const gated = await call("/api/v1/routeware/home/index", {
+      token: "wrong",
+      ip: PREFLIGHT_IP
+    });
+    expect(gated.status).toBe(401);
   });
 
   it("the public health probe never consumes throttle budget", async () => {

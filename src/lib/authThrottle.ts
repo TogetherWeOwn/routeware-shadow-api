@@ -42,19 +42,39 @@ export type AuthThrottleVerdict = {
 type HeaderReader = { header: (name: string) => string | undefined };
 
 /**
- * Best-effort client IP for throttle bucketing. `CF-Connecting-IP` is
- * authoritative (Cloudflare overwrites it, clients cannot spoof it);
- * `X-Forwarded-For` is a fallback for local dev/test only. Absent both, all
- * callers share the `"unknown"` bucket.
+ * Whether the throttle may trust `X-Forwarded-For` for bucketing. Explicit
+ * opt-in only (`THROTTLE_TRUST_XFF === "true"`, set in `[env.test.vars]` and
+ * local `.dev.vars`): production leaves it absent/`"false"`, so an
+ * attacker-controlled XFF value can neither evade the throttle by rotation
+ * nor burn a victim's budget (TOG-8888; probes in
+ * test/authThrottleXffProbe.test.ts).
  */
-export function clientIpFromRequest(req: HeaderReader): string {
+function throttleTrustsXff(env: { THROTTLE_TRUST_XFF?: unknown } | undefined): boolean {
+  return env?.THROTTLE_TRUST_XFF === "true";
+}
+
+/**
+ * Best-effort client IP for throttle bucketing. `CF-Connecting-IP` is
+ * authoritative (Cloudflare overwrites it, clients cannot spoof it).
+ * `X-Forwarded-For` is honored only when `THROTTLE_TRUST_XFF="true"`
+ * (dev/test): in production XFF-only callers share the `"unknown"` bucket,
+ * so rotating XFF cannot evade the throttle and no victim bucket can be
+ * framed. Absent both (or XFF without the flag), all callers share
+ * `"unknown"`.
+ */
+export function clientIpFromRequest(
+  req: HeaderReader,
+  env?: { THROTTLE_TRUST_XFF?: unknown }
+): string {
   const cfIp = req.header("CF-Connecting-IP")?.trim();
   if (cfIp) {
     return cfIp;
   }
-  const forwarded = req.header("X-Forwarded-For")?.split(",")[0]?.trim();
-  if (forwarded) {
-    return forwarded;
+  if (throttleTrustsXff(env)) {
+    const forwarded = req.header("X-Forwarded-For")?.split(",")[0]?.trim();
+    if (forwarded) {
+      return forwarded;
+    }
   }
   return "unknown";
 }
@@ -66,6 +86,32 @@ export function throttleObjectName(ip: string): string {
 
 function retryAfterSec(blockedUntilMs: number, nowMs: number): number {
   return Math.max(1, Math.ceil((blockedUntilMs - nowMs) / 1000));
+}
+
+/**
+ * Process-wide timestamp of the last fail-open log line. A down throttle DO
+ * would otherwise emit one line per failed request (up to brute-force volume);
+ * dedup to one line per `AUTH_THROTTLE_WINDOW_MS` keeps the alarm without
+ * spamming the log.
+ */
+let lastFailOpenLogMs: number | null = null;
+
+/**
+ * Log a throttle fail-open exactly once per window. `reason` is one of the
+ * fixed categories (`do_error`, `do_non_ok status=N`, `do_malformed`) — never
+ * an IP, token, header, or body (CONVENTIONS.md §1 fact 2, §4).
+ */
+function logFailOpenOnce(reason: string, nowMs: number): void {
+  if (lastFailOpenLogMs !== null && nowMs - lastFailOpenLogMs < AUTH_THROTTLE_WINDOW_MS) {
+    return;
+  }
+  lastFailOpenLogMs = nowMs;
+  console.error(`AUTH THROTTLE FAIL-OPEN ${reason}`);
+}
+
+/** Test-only: reset the per-window fail-open log dedup. */
+export function resetAuthThrottleFailOpenLogForTests(): void {
+  lastFailOpenLogMs = null;
 }
 
 export function throttleCheckVerdict(
@@ -85,28 +131,36 @@ export function throttleCheckVerdict(
  * Record one failed outer-gate check for the request's IP and report whether
  * the IP is now throttled. Never throws: storage errors fail OPEN to the
  * pre-throttle 401 behavior (auth itself is still enforced by the caller).
+ *
+ * Fail-open is logged exactly once per `AUTH_THROTTLE_WINDOW_MS` (process-wide,
+ * so a down throttle DO cannot spam the log): the line is a fixed string with
+ * a reason category (and status code for non-OK) — never IP, token, or body.
  */
 export async function recordAuthFailure(
   env: Env,
-  req: HeaderReader
+  req: HeaderReader,
+  nowMs: number = Date.now()
 ): Promise<AuthThrottleVerdict> {
   const open: AuthThrottleVerdict = { blocked: false, retryAfterSec: 0 };
   try {
     const stub = env.AUTH_SESSION.get(
-      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req)))
+      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
     );
     const res = await stub.fetch("https://throttle.local/throttle/failure", {
       method: "POST"
     });
     if (!res.ok) {
+      logFailOpenOnce(`do_non_ok status=${res.status}`, nowMs);
       return open;
     }
     const verdict = (await res.json()) as Partial<AuthThrottleVerdict>;
     if (typeof verdict.blocked !== "boolean" || typeof verdict.retryAfterSec !== "number") {
+      logFailOpenOnce("do_malformed", nowMs);
       return open;
     }
     return { blocked: verdict.blocked, retryAfterSec: verdict.retryAfterSec };
   } catch {
+    logFailOpenOnce("do_error", nowMs);
     return open;
   }
 }
@@ -120,7 +174,7 @@ export async function recordAuthFailure(
 export async function clearAuthFailures(env: Env, req: HeaderReader): Promise<void> {
   try {
     const stub = env.AUTH_SESSION.get(
-      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req)))
+      env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
     );
     await stub.fetch("https://throttle.local/throttle/clear", { method: "POST" });
   } catch {

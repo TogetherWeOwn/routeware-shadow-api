@@ -51,6 +51,26 @@ export function readReportTimeoutMs(env?: Env): number {
   return override ?? REPORT_UPSTREAM_TIMEOUT_MS;
 }
 
+/**
+ * Chained-sync budget (TOG-6547): one `POST` to our own per-table sync route
+ * runs a full table sync server-side (report download + D1 streaming + R2
+ * archive), so its budget must clear the 60s report budget with headroom.
+ * 180s bounds a hung table well below the 300s platform CPU limit while
+ * leaving the observed ~41s jobs (runbook §0) ~4x headroom. Overridable per
+ * deploy via optional `CHAINED_SYNC_TIMEOUT_MS` (absent/invalid → default),
+ * same pattern as the upstream bindings above. The caller tags the timeout
+ * `[chained <table>]`; the error itself carries only the budget (PII-free).
+ */
+export const DEFAULT_CHAINED_SYNC_TIMEOUT_MS = 180_000;
+
+/** Chained-subrequest budget, honoring an optional `CHAINED_SYNC_TIMEOUT_MS` binding. */
+export function readChainedSyncTimeoutMs(env: Env): number {
+  const override = readPositiveMs(
+    (env as unknown as Record<string, unknown>).CHAINED_SYNC_TIMEOUT_MS
+  );
+  return override ?? DEFAULT_CHAINED_SYNC_TIMEOUT_MS;
+}
+
 /** Thrown when a Routeware fetch exceeds its timeout budget. Never carries URL/body. */
 export class UpstreamTimeoutError extends Error {
   readonly timeoutMs: number;
@@ -134,9 +154,13 @@ export async function fetchWithUpstreamTimeout(
 }
 
 /** 502 problem+json for a timed-out upstream step. No URL, no body, no PII. */
-export function upstreamTimeoutProblem(timeoutMs: number, instance?: string): Response {
+export function upstreamTimeoutProblem(
+  timeoutMs: number,
+  instance?: string,
+  env?: Env
+): Response {
   return problemJsonResponse({
-    type: problemType("bad-gateway"),
+    type: problemType("bad-gateway", env),
     title: "Upstream timed out",
     status: 502,
     detail:

@@ -158,10 +158,12 @@ instead of a log line.
 
 ### `getDataSnapshotPlan` — the referential-integrity guard
 
-`test/snapshotOrchestration.test.ts` pins it. D1 does not enforce `address.customer_id` or
-`container.pickup_address_id`, and a streamed sync spans many `db.batch` calls rather than one
-transaction, so **import order (customer → address → container) is the only thing preventing orphan
-rows.** Address only runs if customer is configured; container only if both are.
+`test/snapshotOrchestration.test.ts` pins it. D1 enforces `address.customer_id` and
+`container.pickup_address_id` unconditionally (a dangling reference is rejected with
+400 `bad-request`, never written as an orphan), and a streamed sync spans many
+`db.batch` calls rather than one transaction, so **import order
+(customer → address → container) is enforced both by the database and by the plan.**
+Address only runs if customer is configured; container only if both are.
 
 That file also pins the `[step]` error tagging, which is what tells you which table a scheduled-run
 failure came from.
@@ -234,12 +236,43 @@ an assertion. The `*.sql?raw` / `cloudflare:test` declarations live in
 `test/sqlRaw.d.ts` (no precedent existed; the `?raw` import was probe-verified
 in-pool before use).
 
+TOG-7383 full-table audit (2026-09-27): every list/filter shape in
+`src/routes/{customer,address,container}Snapshot.ts` (23 shapes: plain list,
+id lookups, `q`-alone, `enabled`-alone, `enabled + q` SELECT + COUNT, and the
+container `customerId` join composed with `enabled + q`) was run through
+`EXPLAIN QUERY PLAN` before and after 0003 under `node:sqlite`
+(SQLite 3.53.4, same engine family as D1; full 146-line matrix attached to
+[TOG-7383](/TOG/issues/TOG-7383)). Post-0003 plans: customer `enabled + q`
+`SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled
+(enabled=?)` — 0001 already served it, 0003 is a no-op there (pinned by
+before/after equality assertions); address `enabled + q` `SEARCH
+address_snapshot USING INDEX idx_address_snapshot_enabled_address_lower
+(enabled=?)` (COUNT is covering); container `enabled + q` `SEARCH c USING
+INDEX idx_container_snapshot_enabled_serial_lower (enabled=?)`; the container
+join shape seeks the serial composite on `c` and `SEARCH a USING COVERING
+INDEX idx_address_snapshot_customer_id` on `a`. All three `q`-alone shapes
+still SCAN. Verdict: **no missing-index gaps, no migration 0004** — the
+deliverable is this doc note plus the extended pins. Two cautions for the next
+reader: (1) SEARCH here means fewer rows examined on skewed `enabled`, not
+lower latency — at 100k synthetic rows with uniform 95/5 data the post-0003
+container `enabled + q` SELECT timed ~15–26ms vs ~13ms pre-0003 (noise +
+rowid hops); the `enabled=0` minority shape did improve 13→3.5ms. (2)
+`idx_customer_snapshot_company_lower` (0001) and `idx_address_snapshot_zip`
+(0002) match no current WHERE clause — dead weight kept, not dropped, in this
+change; removing them is a separate decision.
+
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 13 routes, and
-`test/snapshotAuth.test.ts` pins each route's exact problem+json body. The `detail` wording is
-deliberately a per-call-site argument rather than fixed in the helper — it is inconsistent between
-routes today, and unifying it would change what clients see, so that belongs in its own change.
+`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
+routes (13 at TOG-7030 plus the 3 `GET ...-snapshot/export` downloads,
+TOG-8361), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
+body every route shares. The per-call-site `detail` wording was unified in
+the helpers by TOG-7030 (one 401 detail naming the sync secret, one 503
+detail naming the secret config, each with the remedy-doc link and
+`instance`). `test/authGateResweep.test.ts` (TOG-8386) pins the privileged
+inventory itself from the live router, so a new sync/import/export/data route
+without `requireSnapshotAuth` fails there instead of slipping past the outer
+gate on the general API token.
 
 ### `src/app.ts` and the `src/routes/` module rules
 

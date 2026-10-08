@@ -24,11 +24,41 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 ## Quick start (local)
 
 ```bash
-npm install
-cp .dev.vars.example .dev.vars   # then fill in LOGIN_* and a client token
-npm run db:migrate:local          # create the local D1 tables
-npm run dev                       # http://localhost:8787
+nvm use                             # Node 20+, per .nvmrc (engines: >=20)
+npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
+npm run types                       # generate worker-configuration.d.ts (gitignored, TOG-8373) — rerun after any wrangler.toml binding/key change
+cp .dev.vars.example .dev.vars      # then fill in values (see below)
+npm run db:migrate:local            # create the local D1 tables (once per clone)
+npm run db:seed                     # load the synthetic customer→address→container fixture (idempotent, local D1 only)
+npm run dev                         # http://localhost:8787 (runs check:devvars first)
 ```
+
+**Filling in `.dev.vars`** (one `KEY=value` per line, no spaces around `=`): `SHADOW_API_TOKEN`
+can be any local-only string you invent — it is *your* bearer for `/api/v1/*`, so dummy
+values work for local dev. `LOGIN_USERNAME` / `LOGIN_PASSWORD` must be real Routeware tenant
+credentials for any upstream-backed route; dummy values are fine up to and including the
+verify step below, which never touches upstream. Run `npm run check:devvars` to verify keys
+exist (values are never printed); `npm run dev` runs it automatically and fails fast.
+
+**Verify with your first calls** — public health needs no token, the shadow probe needs yours:
+
+```bash
+curl http://localhost:8787/api/v1/health
+curl -H "Authorization: Bearer <SHADOW_API_TOKEN>" http://localhost:8787/api/v1/shadow/health
+# or both at once (token is read from .dev.vars, never printed):
+npm run probe:post-deploy -- http://localhost:8787
+```
+
+Expect `{"status":"ok",...}` and HTTP 200 from each. A 401 on the second call means
+`.dev.vars` has no non-empty `SHADOW_API_TOKEN` (falling back to
+`CUSTOMER_SNAPSHOT_SYNC_SECRET`); re-check it with `npm run check:devvars` and restart
+`wrangler dev` after editing.
+
+For the full five-rung ladder with copy-paste commands and exact expected
+bodies — health → bearer-gate 401 → token load from `.dev.vars` →
+shadow/health → readiness — see
+[`docs/CONSUMER-QUICKSTART.md`](./docs/CONSUMER-QUICKSTART.md#smoke-ladder-five-copy-paste-commands-fresh-clone--green)
+(it runs verbatim on a fresh clone).
 
 `npm run dev` runs `check:devvars` first and fails fast if `.dev.vars` is missing a
 required key. Local dev uses the browser-free HTTP login, so **no `--remote` is needed**;
@@ -87,11 +117,13 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run dev` | `wrangler dev` — local Worker + Miniflare (runs `check:devvars` first). With `AUTH_MODE=auto`/`http`, HTTP login needs no Browser Rendering, so this works **without** `--remote` |
 | `npm run dev:remote` | `wrangler dev --remote` — use to exercise the Browser Rendering / Puppeteer login fallback |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
+| `npm run db:seed` | Load the synthetic customer→address→container fixture into the **local** D1 (idempotent UPSERTs — safe to re-run; never touches remote) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
-| `npm run types` | Regenerate [`worker-configuration.d.ts`](./worker-configuration.d.ts) from Wrangler |
+| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run once after cloning, and after any `wrangler.toml` binding/key change) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
+| `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
 ## Deploy
@@ -167,11 +199,18 @@ Example mappings from a typical harvest (SPA + ExtJS):
 | `POST /api/v1/routeware/customer/customers-read` | `POST /Customer/CustomersRead` |
 | `POST /api/v1/routeware/customer/detail-full` | `POST /Customer/GetCustomerDetailFull` |
 | `POST /api/v1/routeware/data/app-settings-get` | `POST /Data/appSettingsGet` |
-| `GET /api/v1/routeware/reports/query-request-is-complete` | `GET /Reports/QueryRequestIsComplete` (client query string forwarded) |
+| `GET /api/v1/routeware/reports/query-request-is-complete` | `GET /Reports/QueryRequestIsComplete` (`requestID` + `_` forwarded; other query params dropped — see `docs/PROBLEMS.md` § query-param allowlist) |
 
 ## Project rules
 
 - Conventions, invariants and the verification loop: [`docs/CONVENTIONS.md`](./docs/CONVENTIONS.md) — read before any change.
+- How to contribute: [`CONTRIBUTING.md`](./CONTRIBUTING.md) — dev setup, PR checks, conventional commits.
+- Security policy: [`SECURITY.md`](./SECURITY.md) — how to report a vulnerability privately (report channel, scope, response SLA, safe harbor).
+- Code of conduct: [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) (Contributor Covenant 2.1).
+
+## License
+
+[MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
 
 ## Layout
 

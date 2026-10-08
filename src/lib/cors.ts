@@ -22,7 +22,52 @@
 
 const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
 const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
+// Allowlist for `Access-Control-Allow-Headers` (TOG-8368 audit): the API only
+// reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
+// `If-None-Match` (conditional GETs on the data-entity ETag cache). Anything
+// else the browser asks for is dropped instead of reflected.
+const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
 const MAX_AGE_SECONDS = "86400";
+
+/**
+ * Resolve the `Access-Control-Allow-Headers` value for a preflight: the
+ * intersection of what the browser asked for with the allowlist above.
+ * Falls back to the default pair when nothing (allowlisted) was requested.
+ */
+export function resolveAllowedRequestHeaders(requested: string | null): string {
+  const tokens = (requested ?? "")
+    .split(",")
+    .map((h) => h.trim())
+    .filter((h) => h.length > 0);
+  const seen = new Set<string>();
+  const allowed = tokens.filter((h) => {
+    const lower = h.toLowerCase();
+    if (!ALLOWED_REQUEST_HEADERS.includes(lower) || seen.has(lower)) {
+      return false;
+    }
+    seen.add(lower);
+    return true;
+  });
+  return allowed.length > 0 ? allowed.join(", ") : DEFAULT_ALLOW_HEADERS;
+}
+
+/** Hardening headers stamped on every API, spec and docs response. */
+export function applySecurityHeaders(headers: Headers): void {
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "no-referrer");
+}
+
+/** Return `res` with hardening headers applied, preserving status and body. */
+export function withSecurityHeaders(res: Response): Response {
+  const headers = new Headers(res.headers);
+  applySecurityHeaders(headers);
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers
+  });
+}
 
 /**
  * 204 response to an `OPTIONS /api/v1/*` preflight. When the request carries
@@ -34,10 +79,9 @@ export function corsPreflightResponse(req: Request): Response {
   const headers = new Headers();
   applyCorsHeaders(headers, req.headers.get("origin"));
   headers.set("Access-Control-Allow-Methods", ALLOW_METHODS);
-  const requested = req.headers.get("access-control-request-headers")?.trim();
   headers.set(
     "Access-Control-Allow-Headers",
-    requested ? requested : DEFAULT_ALLOW_HEADERS
+    resolveAllowedRequestHeaders(req.headers.get("access-control-request-headers"))
   );
   headers.set("Access-Control-Max-Age", MAX_AGE_SECONDS);
   return new Response(null, { status: 204, headers });
@@ -52,11 +96,12 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   headers.set("Access-Control-Allow-Origin", clean ? clean : "*");
   appendVary(headers, "Origin");
   // The data-entity GETs version with ETag; expose it so browser clients can
-  // do conditional reads.
-  headers.set("Access-Control-Expose-Headers", "ETag");
-  headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
-  headers.set("Referrer-Policy", "no-referrer");
+  // do conditional reads. Retry-After is exposed so browser clients can honor
+  // the auth-throttle 429 backoff (TOG-7380) instead of retry-spinning blind.
+  // Content-Disposition is exposed so a fetch-based CSV download
+  // (`GET ...-snapshot/export`, TOG-8361) can read the attachment filename.
+  headers.set("Access-Control-Expose-Headers", "ETag, Retry-After, Content-Disposition");
+  applySecurityHeaders(headers);
 }
 
 /** Return `res` with CORS + hardening headers applied, preserving status and body. */

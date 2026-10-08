@@ -25,6 +25,8 @@ const shadowHealthRoute = createRoute({
   path: "/api/v1/shadow/health",
   tags: ["shadow"],
   summary: "Shadow API liveness probe (versioned, staging slice)",
+  description:
+    "Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns `{status, service, version}` when the Worker is running; it does not check D1, R2, or report config.",
   responses: {
     200: {
       description: "Shadow API is running",

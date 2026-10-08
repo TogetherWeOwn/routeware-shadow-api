@@ -3,20 +3,13 @@ import { describe, expect, it } from "vitest";
 import { getSnapshotOrphans } from "../src/lib/snapshot/reconcile";
 
 /**
- * `src/lib/snapshot/reconcile.ts` is the detection half of the FK-integrity
- * story: `getDataSnapshotPlan` stops *new* orphans from being written, and
- * these queries find the ones already sitting in D1.
+ * D1 enforces both snapshot FK edges on writes and parent deletes. This is a
+ * defensive audit for legacy or out-of-band rows in a schema without those
+ * constraints, not a failure expected from normal streamed syncs.
  *
- * D1 declares `address.customer_id` → `customer_snapshot` and
- * `container.pickup_address_id` → `address_snapshot` but enforces neither, and
- * a streamed sync spans many batches rather than one transaction — so a
- * customer deleted upstream (reconciled away) strands its addresses, and an
- * address deleted upstream strands its containers. No query reported that
- * before this module.
- *
- * The fake answers the two query shapes the module issues (`COUNT(*)` via
- * `first()`, id lists via `all()`), keyed off which table the SQL names and
- * whether the orphan predicate names customers or addresses.
+ * The fake evaluates count and sample query shapes in a single batch, keyed
+ * off the parent table in each anti-join. The real D1 regression lives in
+ * `test/snapshotOrphansD1.test.ts`.
  */
 
 type OrphanFixture = {
@@ -55,30 +48,29 @@ function orphanDb(fixture: OrphanFixture): {
       .sort((a, b) => a - b);
   }
 
+  type Statement = { sql: string; limit?: number };
   const db = {
     prepare(sql: string) {
       queries.push(sql);
-      const edge = edgeOf(sql);
-      const ids = orphans(edge);
+      const statement: Statement = { sql };
       return {
+        ...statement,
         bind(...binds: unknown[]) {
           queries.push(`BIND ${binds.join(",")}`);
-          const limit = Number(binds[0]);
-          return {
-            async all<T>() {
-              return { results: ids.slice(0, limit).map((id) => ({ id })) } as unknown as T;
-            }
-          };
-        },
-        async first<T>() {
-          return { n: ids.length } as unknown as T;
-        },
-        async all<T>() {
-          // No-bind path is unreachable in the module (samples always bind a
-          // limit), but D1Database requires the method to exist.
-          return { results: ids.map((id) => ({ id })) } as unknown as T;
+          return { ...statement, limit: Number(binds[0]) };
         }
       };
+    },
+    async batch(statements: Statement[]) {
+      queries.push(`BATCH ${statements.length}`);
+      return statements.map(({ sql, limit }) => {
+        const ids = orphans(edgeOf(sql));
+        return {
+          results: sql.includes("COUNT(*)")
+            ? [{ n: ids.length }]
+            : ids.slice(0, limit).map((id) => ({ id }))
+        };
+      });
     }
   };
   return { db: db as unknown as D1Database, queries };
@@ -90,7 +82,7 @@ const MIXED: OrphanFixture = {
   addresses: [
     [10, 1], // healthy: customer 1 exists
     [11, 2], // orphan: customer 2 was never imported
-    [12, 3] // orphan: customer 3 was reconciled away
+    [12, 3] // orphan: legacy row written without FK enforcement
   ],
   containers: [
     [100, 10], // healthy: address 10 exists
@@ -104,7 +96,7 @@ describe("getSnapshotOrphans", () => {
     // Arrange — addresses 11/12 lack customers; container 102 lacks an
     // address. Container 101's parent exists, so it is not reported even
     // though its grandparent is missing.
-    const { db } = orphanDb(MIXED);
+    const { db, queries } = orphanDb(MIXED);
 
     // Act
     const report = await getSnapshotOrphans(db);
@@ -114,6 +106,7 @@ describe("getSnapshotOrphans", () => {
       orphanAddresses: { count: 2, sampleIds: [11, 12] },
       orphanContainers: { count: 1, sampleIds: [102] }
     });
+    expect(queries.filter((q) => q.startsWith("BATCH"))).toEqual(["BATCH 4"]);
   });
 
   it("reports zeros when every row has its parent", async () => {
@@ -166,6 +159,26 @@ describe("getSnapshotOrphans", () => {
     // Assert — the bind carries 500, not 10000; the fixture still resolves.
     expect(queries.filter((q) => q === "BIND 500")).toHaveLength(2);
     expect(report.orphanAddresses.count).toBe(2);
+  });
+
+  it.each([
+    [0, 1],
+    [-5, 1],
+    [2.9, 2],
+    [Number.NaN, 100],
+    [Number.POSITIVE_INFINITY, 100]
+  ])("clamps library sampleLimit %s to %s", async (requested, expected) => {
+    const { db, queries } = orphanDb(MIXED);
+    await getSnapshotOrphans(db, requested);
+    expect(queries.filter((q) => q === `BIND ${expected}`)).toHaveLength(2);
+  });
+
+  it("propagates a failed batch instead of reporting a healthy zero", async () => {
+    const { db } = orphanDb(MIXED);
+    db.batch = async () => {
+      throw new Error("D1 audit unavailable");
+    };
+    await expect(getSnapshotOrphans(db)).rejects.toThrow("D1 audit unavailable");
   });
 
   it("uses anti-joins so containers with present addresses are never reported", async () => {
