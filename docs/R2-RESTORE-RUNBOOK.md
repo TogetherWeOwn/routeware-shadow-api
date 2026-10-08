@@ -463,11 +463,44 @@ in a separately approved, privately isolated rehearsal; never use the public
 fixture Worker for real PII.
 
 The HTTP imports cap **each body at 50 MiB** (`SNAPSHOT_IMPORT_MAX_BYTES`); archive
-writers have no equivalent cap. Before the first deployed write, export
-`RECOVERY_TABLES` as the approved space-separated table names in FK order (for
-example, `customer address container`). Run this all-files preflight. Stop on an
-oversized archive and obtain an approved alternative; do not begin a partial
-chain or improvise CSV splitting during an incident.
+writers have no equivalent cap. A small body can still exceed the deployed
+Worker's D1 invocation budget. Before the first deployed write, export:
+
+- `RECOVERY_TABLES`: approved space-separated table names in FK order, for example
+  `customer address container`.
+- `RECOVERY_WORKERS_PLAN`: exactly `free` or `paid`, **confirmed for the approved
+  target**, not inferred from local Wrangler or the source bucket.
+- `RECOVERY_D1_BUDGET`: the approved positive integer per-import invocation budget,
+  no greater than that plan's limit (Free: 50; Paid: 1,000). Unknown plan/budget
+  means **STOP**, not a default to Paid or a request to upgrade.
+
+[D1 invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
+are separate from the body ceiling. The gate below conservatively counts SQL statements and batch calls, adds one
+possible child foreign-key diagnostic D1 query, and checks **each table
+separately**: each HTTP import is a new invocation. Confirm that the deployed
+importer matches this checked-out source before relying on its batch model. The
+general [Workers subrequest page](https://developers.cloudflare.com/workers/platform/limits/#subrequests)
+currently lists different internal-service limits and does not specify D1 batch
+accounting; this runbook uses the lower D1-specific ceiling and charges every SQL
+statement rather than assuming a batch is one query. Also confirm available daily
+row quotas, storage and the approved Worker's runtime limits privately; this
+offline gate cannot prove those or parent FK compatibility. Passing it is
+necessary, not a promise of runtime success.
+
+Run the all-files preflight before **any table write**. It uses the existing
+stream-sync parsers with `dryRun: true`, `requireDataRows: true` and a throwing D1
+stub, so malformed/missing id headers and zero importable rows fail without D1
+access. It does not count physical newlines or use the non-streaming CSV parser:
+quoted multiline fields follow the actual import dialect. Stop on an oversized,
+over-budget or unimportable archive and obtain an approved alternative; do not
+begin a partial chain or improvise CSV splitting during an incident.
+
+**Legitimate empty archives:** header-only/blank/zero-valid-row files stop the
+whole selection before even the customer import. They cannot clear a table:
+imports are upserts, not deletions. If an empty table should remain unchanged,
+the incident owner must explicitly revise the approved selection to skip it and
+confirm child dependencies; then rerun the all-files gate. Never auto-skip, post an
+empty CSV, or infer permission to delete rows from an empty archive.
 
 ```bash
 (
@@ -478,35 +511,110 @@ source "$RUN/deployed-context.bash"
 node --input-type=module <<'JS'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { dirname, relative } from 'node:path';
+import { build } from 'esbuild';  // lockfile's installed Wrangler dependency; no download
 try {
-  const { RUN, DATE, RECOVERY_TABLES } = process.env;
+  const { ROOT, RUN, DATE, BUCKET, RECOVERY_BASE, RECOVERY_TABLES,
+    RECOVERY_WORKERS_PLAN: plan, RECOVERY_D1_BUDGET: budgetText } = process.env;
+  // Invalidate any old gate receipt before checking a revised selection.
+  writeFileSync(`${RUN}/approved-recovery-tables.json`, 'null');
+  const limit = plan === 'free' ? 50 : plan === 'paid' ? 1000 : 0;
+  const budget = Number(budgetText);
+  if (!limit || !/^[1-9]\d*$/.test(budgetText ?? '') ||
+      !Number.isSafeInteger(budget) || budget > limit) throw new Error();
+  const base = new URL(RECOVERY_BASE);
+  if (base.protocol !== 'https:' || base.username || base.password ||
+      base.pathname !== '/' || base.search || base.hash) throw new Error();
   const order = ['customer', 'address', 'container'];
   const tables = RECOVERY_TABLES?.trim().split(/\s+/);
   if (!tables?.length || tables.some((t, i) => !order.includes(t) ||
       (i > 0 && order.indexOf(t) <= order.indexOf(tables[i - 1])))) throw new Error();
+  const head = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  // Bundle committed parsers, not sibling working-tree edits. No DB/HTTP is used.
+  const { outputFiles } = await build({
+    stdin: { contents: 'export * from "./src/lib/snapshot/streamSync.ts"; export * from "./src/lib/snapshot/tableSql.ts";', resolveDir: ROOT },
+    bundle: true, platform: 'node', format: 'esm', write: false, logLevel: 'silent',
+    plugins: [{ name: 'committed-source', setup(b) {
+      b.onLoad({ filter: /\.ts$/ }, ({ path }) => ({
+        contents: execFileSync('git', ['-C', ROOT, 'show', `${head}:${relative(ROOT, path)}`],
+          { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
+        loader: 'ts', resolveDir: dirname(path)
+      }));
+    }}]
+  });
+  const source = await import(`data:text/javascript;base64,${Buffer.from(outputFiles[0].contents).toString('base64')}`);
+  const specs = {
+    customer: [source.syncCustomerSnapshotFromStream, source.STREAM_BATCH_CUST, source.CUST_R_PER_STMT],
+    address: [source.syncAddressSnapshotFromStream, source.STREAM_BATCH_ADDR, source.ADDR_R_PER_STMT],
+    container: [source.syncContainerSnapshotFromStream, source.STREAM_BATCH_CONT, source.CONT_R_PER_STMT]
+  };
+  if (source.STREAM_BATCH_CUST !== 80 || source.STREAM_BATCH_ADDR !== 80 ||
+      source.STREAM_BATCH_CONT !== 40 || source.CUST_R_PER_STMT !== 7 ||
+      source.ADDR_R_PER_STMT !== 6 || source.CONT_R_PER_STMT !== 3 ||
+      source.SNAPSHOT_IMPORT_MAX_BYTES !== 50 * 1024 * 1024) {
+    throw new Error();  // a source change needs a freshly reviewed budget model
+  }
+  const noD1 = new Proxy({}, { get() { throw new Error('D1 forbidden in preflight'); } });
   const manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
   if (manifest?.version !== 1 || manifest.date !== DATE) throw new Error();
+  const files = {};
   for (const table of tables) {
     const entry = manifest.files?.[`${table}.csv`];
     const csv = readFileSync(`${RUN}/${table}.csv`);
-    if (csv.length > 50 * 1024 * 1024 || entry?.bytes !== csv.length || csv.length === 0 ||
-        entry.key !== `snapshots/${DATE}/${table}.csv` ||
-        entry.sha256 !== createHash('sha256').update(csv).digest('hex')) throw new Error();
+    const sha256 = createHash('sha256').update(csv).digest('hex');
+    if (!Number.isInteger(entry?.bytes) || entry.bytes !== csv.length || csv.length === 0 ||
+        csv.length > source.SNAPSHOT_IMPORT_MAX_BYTES ||
+        entry.key !== `snapshots/${DATE}/${table}.csv` || entry.sha256 !== sha256) throw new Error();
+    const [parse, batchRows, sqlRows] = specs[table];
+    const { rowCount } = await parse(noD1, new Response(csv).body, undefined, {
+      dryRun: true, requireDataRows: true, maxBytes: source.SNAPSHOT_IMPORT_MAX_BYTES
+    });
+    if (!Number.isSafeInteger(rowCount) || rowCount <= 0) throw new Error();
+    const batchCalls = Math.ceil(rowCount / batchRows);
+    const statements = Math.floor(rowCount / batchRows) * Math.ceil(batchRows / sqlRows) +
+      Math.ceil((rowCount % batchRows) / sqlRows);
+    const upperBound = Math.max(batchCalls, statements) + (table === 'customer' ? 0 : 1);
+    if (upperBound > budget) throw new Error();
+    files[table] = { bytes: csv.length, sha256, rowCount, batchCalls, statements, upperBound };
   }
-  writeFileSync(`${RUN}/approved-recovery-tables.json`, JSON.stringify(tables));
-  console.log('PASS: all selected archives satisfy integrity and the 50 MiB import ceiling');
+  writeFileSync(`${RUN}/approved-recovery-tables.json`, JSON.stringify({
+    version: 1, head, date: DATE, bucket: BUCKET, base: RECOVERY_BASE, plan, budget, tables, files
+  }));
+  console.log('PASS: every selected archive is importable and within the approved invocation budget');
 } catch {
-  console.error('STOP: selected archive integrity, order or size preflight failed');
-  process.exit(1);
+  console.error('STOP: all-files integrity, order, size, parser or invocation-budget preflight failed');
+  process.exit(1);  // never print downloaded content or parser errors
 }
 JS
 )
 ```
 
+The private gate receipt binds the committed parser SHA, target origin, bucket,
+date, approved plan/budget, ordered selection and each file's bytes/digest,
+accepted-row count and budget calculation. Customer/address streams flush every
+80 accepted rows; containers every 40. SQL packs at most 7/6/3 rows respectively,
+restarting at each flush (`streamSync.ts`, `tableSql.ts`, `upsert.ts`). The bound
+is the greater of batch calls and SQL statements, plus one possible
+FK-diagnostic D1 query for a child import. The shared auth throttle uses a
+Durable Object, not D1, so its Worker subrequest is outside this D1 query
+budget. For example, 40,001 container rows need 1,001 batch calls and 14,001
+statements; the conservative bound is 14,002, so the file fails the Paid 1,000
+gate before any write.
+Do not edit the receipt. A failed preflight invalidates any earlier receipt.
+
+Row counts follow importer behavior: invalid-id/blank rows are skipped and
+duplicate ids count repeatedly. A positive parser count is **not** proof that all
+CSV rows were valid, ids are distinct or parents exist; reconcile distinct ids,
+skips and FK compatibility privately before proceeding.
+
 For each table in that order, export `RECOVERY_TABLE` as exactly `customer`,
-`address` or `container` in terminal B and run this block. It rechecks the exact
-bytes immediately before the import. Only the secret already injected into the
-operator's environment is used; it never appears in process arguments or output.
+`address` or `container` in terminal B and run this block. It rechecks **all
+selected files** against the receipt immediately before each import and requires
+its result to match the preflight's accepted-row count. If files, target, source
+SHA or approval change, stop and rerun the all-files gate; never reuse a stale
+receipt. Only the secret already injected into the operator's environment is
+used; it never appears in process arguments or output.
 
 ```bash
 (
@@ -518,33 +626,51 @@ source "$RUN/deployed-context.bash"
 node --input-type=module <<'JS'
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 try {
-  const { RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table, BUCKET, SOURCE_BUCKET,
+  const { ROOT, RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table, BUCKET, SOURCE_BUCKET,
     CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } = process.env;
-  const tables = JSON.parse(readFileSync(`${RUN}/approved-recovery-tables.json`, 'utf8'));
-  if (!['customer', 'address', 'container'].includes(table) || !secret ||
-      BUCKET !== SOURCE_BUCKET || !Array.isArray(tables) || !tables.includes(table)) {
+  const approval = JSON.parse(readFileSync(`${RUN}/approved-recovery-tables.json`, 'utf8'));
+  const order = ['customer', 'address', 'container'];
+  const tables = approval?.tables;
+  const limit = approval?.plan === 'free' ? 50 : approval?.plan === 'paid' ? 1000 : 0;
+  if (!order.includes(table) || !secret || BUCKET !== SOURCE_BUCKET ||
+      approval?.version !== 1 || approval.date !== DATE || approval.bucket !== BUCKET ||
+      approval.base !== RECOVERY_BASE || !Number.isSafeInteger(approval.budget) ||
+      !limit || approval.budget <= 0 || approval.budget > limit ||
+      !Array.isArray(tables) || !tables.length || !tables.includes(table) ||
+      tables.some((t, i) => !order.includes(t) ||
+        (i > 0 && order.indexOf(t) <= order.indexOf(tables[i - 1]))) ||
+      approval.head !== execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()) {
     throw new Error();
   }
   const base = new URL(RECOVERY_BASE);
   if (base.protocol !== 'https:' || base.username || base.password ||
       base.pathname !== '/' || base.search || base.hash) throw new Error();
   const manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
-  const entry = manifest?.files?.[`${table}.csv`];
-  const csv = readFileSync(`${RUN}/${table}.csv`);
-  if (manifest?.version !== 1 || manifest.date !== DATE ||
-      entry?.key !== `snapshots/${DATE}/${table}.csv` ||
-      !Number.isInteger(entry?.bytes) || entry.bytes <= 0 || entry.bytes !== csv.length ||
-      csv.length > 50 * 1024 * 1024 ||
-      !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '') ||
-      entry.sha256 !== createHash('sha256').update(csv).digest('hex')) throw new Error();
+  if (manifest?.version !== 1 || manifest.date !== DATE) throw new Error();
+  let csv;
+  // Recheck ALL selected bytes, not only this table: later files must remain gated.
+  for (const selected of tables) {
+    const approved = approval.files?.[selected];
+    const entry = manifest.files?.[`${selected}.csv`];
+    const bytes = readFileSync(`${RUN}/${selected}.csv`);
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (!Number.isSafeInteger(approved?.rowCount) || approved.rowCount <= 0 ||
+        !Number.isSafeInteger(approved.upperBound) || approved.upperBound > approval.budget ||
+        approved.upperBound <= 0 || approved.bytes !== bytes.length || approved.sha256 !== sha256 ||
+        bytes.length === 0 || bytes.length > 50 * 1024 * 1024 ||
+        entry?.key !== `snapshots/${DATE}/${selected}.csv` ||
+        entry.bytes !== bytes.length || entry.sha256 !== sha256) throw new Error();
+    if (selected === table) csv = bytes;
+  }
   const response = await fetch(new URL(`/api/v1/${table}-snapshot/import`, base), {
     method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'text/csv' }, body: csv
   });
   if (!response.ok) throw new Error();
   const result = await response.json();
-  if (!Number.isInteger(result.rowCount) || result.rowCount <= 0 ||
+  if (result.rowCount !== approval.files[table].rowCount ||
       result.upserted !== result.rowCount || result.deleted !== 0) throw new Error();
   writeFileSync(`${RUN}/deployed-${table}-import.json`, JSON.stringify({
     rowCount: result.rowCount, upserted: result.upserted, deleted: result.deleted
@@ -626,5 +752,7 @@ discarding its new scratch state; there is no production change to roll back.
 
 - [R2 object GET/PUT and lifecycle list](https://developers.cloudflare.com/workers/wrangler/commands/r2/)
 - [D1 execute and migrations commands](https://developers.cloudflare.com/d1/wrangler-commands/)
+- [D1 limits and batch limits](https://developers.cloudflare.com/d1/platform/limits/)
+- [esbuild's installed JavaScript build API](https://esbuild.github.io/api/#build)
 - [Local data: use the same persistence directory for every command](https://developers.cloudflare.com/workers/local-development/local-data/)
 - [Wrangler dev](https://developers.cloudflare.com/workers/wrangler/commands/workers/)
