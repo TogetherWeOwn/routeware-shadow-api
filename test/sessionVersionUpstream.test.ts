@@ -383,6 +383,8 @@ describe("routewareWebRwUrlWithQueryAllowlist edge cases", () => {
 
 describe("applyBrowserHeaders", () => {
   const ORIGIN = "https://killeen.routeware.com";
+  const EXPECTED_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
 
   function headersWithPresets(): Headers {
     const headers = new Headers();
@@ -391,7 +393,7 @@ describe("applyBrowserHeaders", () => {
     return headers;
   }
 
-  it("sets the full browser-mimicry header set", () => {
+  it("pins the current User-Agent and sets the full browser-mimicry header set", () => {
     // Arrange
     const headers = new Headers();
 
@@ -399,7 +401,7 @@ describe("applyBrowserHeaders", () => {
     applyBrowserHeaders(headers, ORIGIN);
 
     // Assert
-    expect(headers.get("User-Agent")).toContain("Chrome/121");
+    expect(headers.get("User-Agent")).toBe(EXPECTED_USER_AGENT);
     expect(headers.get("Accept")).toBe("*/*");
     expect(headers.get("Accept-Language")).toBe("en-US,en;q=0.9");
     expect(headers.get("Accept-Encoding")).toBe("gzip, deflate, br");
@@ -431,7 +433,7 @@ describe("applyBrowserHeaders", () => {
     applyBrowserHeaders(headers, ORIGIN);
 
     // Assert — the caller's User-Agent is replaced, other headers survive.
-    expect(headers.get("User-Agent")).toContain("Chrome/121");
+    expect(headers.get("User-Agent")).toBe(EXPECTED_USER_AGENT);
     expect(headers.get("Authorization")).toBe("Bearer keep-me");
   });
 
