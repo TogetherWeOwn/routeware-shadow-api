@@ -13,7 +13,33 @@
  * the suite runs inside the workers pool with no `node:fs`).
  */
 
-import { marked } from "marked";
+import { Marked } from "marked";
+
+// Marked 18.1.0 accepts mixed-character closing fences. Override only that
+// tokenizer so code examples stay opaque, including inside lists/blockquotes.
+// https://github.github.com/gfm/#fenced-code-blocks
+// https://marked.js.org/using_pro#tokenizer
+const markdown = new Marked({
+  gfm: true,
+  tokenizer: {
+    fences(src) {
+      const opening = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)/.exec(src);
+      if (!opening) return;
+      const fence = opening[1];
+      const content = src.slice(opening[0].length);
+      // Match normalized LF boundaries, not JS multiline ^/$ (also U+2028/2029).
+      // https://github.github.com/gfm/#characters-and-lines
+      const closing = new RegExp(`(?:^|\\n) {0,3}${fence[0]}{${fence.length},}[ \\t]*(?:\\n|(?![\\s\\S]))`).exec(content);
+      const end = closing ? opening[0].length + closing.index + closing[0].length : src.length;
+      return {
+        type: "code",
+        raw: src.slice(0, end),
+        lang: opening[2].trim(),
+        text: closing ? content.slice(0, closing.index) : content,
+      };
+    },
+  },
+});
 
 export const CHECK_NAME = "problems-anchor-coverage";
 
@@ -118,7 +144,7 @@ export function extractDocAnchors(markdownText) {
   const anchors = [];
   // Walk parsed GFM tokens, including table cells, not raw markup in examples.
   // https://marked.js.org/using_pro#lexer
-  marked.walkTokens(marked.lexer(String(markdownText), { gfm: true }), (token) => {
+  markdown.walkTokens(markdown.lexer(String(markdownText)), (token) => {
     // Image alt text is not rendered HTML; do not visit its inline tokens.
     if (token.type === "image") {
       token.tokens = [];
