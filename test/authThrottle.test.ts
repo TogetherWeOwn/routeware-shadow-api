@@ -132,8 +132,13 @@ describe("throttle window math", () => {
     // Assert
     expect(verdict.blocked).toBe(true);
     expect(verdict.retryAfterSec).toBe(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
+    expect(verdict.resetAtSec).toBe(Math.ceil((now + AUTH_THROTTLE_BLOCK_MS) / 1000));
     expect(next.blockedUntilMs).toBe(now + AUTH_THROTTLE_BLOCK_MS);
-    expect(throttleCheckVerdict(next, now).blocked).toBe(true);
+    expect(throttleCheckVerdict(next, now)).toEqual({
+      blocked: true,
+      retryAfterSec: Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000),
+      resetAtSec: Math.ceil((now + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    });
   });
 
   it("starts a fresh window after the old one expires", () => {
@@ -388,9 +393,25 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(throttled.headers.get("content-type")).toContain("problem+json");
     const retryAfter = throttled.headers.get("retry-after");
     expect(retryAfter).toMatch(/^\d+$/);
-    // Browser clients can only read Retry-After cross-origin when exposed.
-    expect(throttled.headers.get("access-control-expose-headers")).toMatch(
-      /retry-after/i
+    expect(throttled.headers.get("x-ratelimit-limit")).toBe(String(AUTH_THROTTLE_MAX_FAILURES));
+    expect(throttled.headers.get("x-ratelimit-remaining")).toBe("0");
+    const resetAtSec = Number(throttled.headers.get("x-ratelimit-reset"));
+    expect(Number.isSafeInteger(resetAtSec)).toBe(true);
+    expect(resetAtSec).toBeGreaterThan(Date.now() / 1000);
+    expect(resetAtSec).toBeLessThanOrEqual(
+      Math.ceil((Date.now() + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    );
+    // Browser clients can only read the retry and rate-limit headers cross-origin.
+    const exposedHeaders = (throttled.headers.get("access-control-expose-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim().toLowerCase());
+    expect(exposedHeaders).toEqual(
+      expect.arrayContaining([
+        "retry-after",
+        "x-ratelimit-limit",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset"
+      ])
     );
     expect(Number(retryAfter)).toBeGreaterThan(0);
     expect(Number(retryAfter)).toBeLessThanOrEqual(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));

@@ -12,9 +12,9 @@
  *   always passes and resets the IP's counter (legitimate traffic unaffected,
  *   even from an IP that previously failed).
  * - After `MAX_FAILURES` failures inside `WINDOW_MS`, further failed attempts
- *   from that IP get `429 rate-limited` (problem+json, `Retry-After`) for
- *   `BLOCK_MS`. The block is per-IP, not per-token, so rotating candidate
- *   tokens does not evade it.
+ *   from that IP get `429 rate-limited` (problem+json, `Retry-After`, and
+ *   `X-RateLimit-*` headers) for `BLOCK_MS`. The block is per-IP, not per-token,
+ *   so rotating candidate tokens does not evade it.
  * - The public health probe and CORS preflight never touch the throttle.
  * - Throttle storage errors fail OPEN (the 401/429 decision degrades to the
  *   pre-throttle 401 behavior) — auth itself is still enforced; only the
@@ -37,6 +37,7 @@ export type AuthThrottleState = {
 export type AuthThrottleVerdict = {
   blocked: boolean;
   retryAfterSec: number;
+  resetAtSec?: number;
 };
 
 type HeaderReader = { header: (name: string) => string | undefined };
@@ -88,6 +89,10 @@ function retryAfterSec(blockedUntilMs: number, nowMs: number): number {
   return Math.max(1, Math.ceil((blockedUntilMs - nowMs) / 1000));
 }
 
+function rateLimitResetAtSec(blockedUntilMs: number): number {
+  return Math.ceil(blockedUntilMs / 1000);
+}
+
 /**
  * Process-wide timestamp of the last fail-open log line. A down throttle DO
  * would otherwise emit one line per failed request (up to brute-force volume);
@@ -122,7 +127,11 @@ export function throttleCheckVerdict(
     return { blocked: false, retryAfterSec: 0 };
   }
   if (state.blockedUntilMs !== null && nowMs < state.blockedUntilMs) {
-    return { blocked: true, retryAfterSec: retryAfterSec(state.blockedUntilMs, nowMs) };
+    return {
+      blocked: true,
+      retryAfterSec: retryAfterSec(state.blockedUntilMs, nowMs),
+      resetAtSec: rateLimitResetAtSec(state.blockedUntilMs)
+    };
   }
   return { blocked: false, retryAfterSec: 0 };
 }
@@ -154,11 +163,24 @@ export async function recordAuthFailure(
       return open;
     }
     const verdict = (await res.json()) as Partial<AuthThrottleVerdict>;
-    if (typeof verdict.blocked !== "boolean" || typeof verdict.retryAfterSec !== "number") {
+    if (
+      typeof verdict.blocked !== "boolean" ||
+      typeof verdict.retryAfterSec !== "number" ||
+      !Number.isFinite(verdict.retryAfterSec)
+    ) {
       logFailOpenOnce("do_malformed", nowMs);
       return open;
     }
-    return { blocked: verdict.blocked, retryAfterSec: verdict.retryAfterSec };
+    if (!verdict.blocked) {
+      return { blocked: false, retryAfterSec: verdict.retryAfterSec };
+    }
+    // Older DO code may omit the absolute reset field during a rolling deploy.
+    // Keep the throttle response usable while deriving a conservative fallback.
+    const resetAtSec =
+      typeof verdict.resetAtSec === "number" && Number.isFinite(verdict.resetAtSec)
+        ? verdict.resetAtSec
+        : Math.ceil((Date.now() + verdict.retryAfterSec * 1000) / 1000);
+    return { blocked: true, retryAfterSec: verdict.retryAfterSec, resetAtSec };
   } catch {
     logFailOpenOnce("do_error", nowMs);
     return open;
