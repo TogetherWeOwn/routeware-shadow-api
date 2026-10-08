@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-9232: Readiness D1/R2 and advisory cron observations use a 20-second
+  in-memory cache per Worker isolate; concurrent probes share two D1 queries.
+  Authentication, report configuration, and the 200/503 payload are unchanged.
+
 - TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
   defensive audit for legacy or out-of-band rows, not normal streamed syncs:
   D1 enforces the snapshot FK chain on writes and parent deletes. Returns
