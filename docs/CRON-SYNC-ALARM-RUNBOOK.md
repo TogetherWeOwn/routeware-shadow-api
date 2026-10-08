@@ -24,8 +24,8 @@ data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"cha
 
 | `outcome` | Meaning | Alarm action |
 |---|---|---|
-| `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
-| `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
+| `success` | At least one dependency-eligible table ran. Non-run tables are explicit `null` in `tables`; the summary's skipped note is generic and can appear even when a configured child table lacks its parent source (see dependency note below). | None, unless a table you expect is `null` (config drift or missing dependency — see §3). |
+| `unconfigured` | No dependency-eligible table ran. This includes no report sources and child-only config (for example, address without customer) — a config state, not a pass. | Configure the required source chain (§3), do not celebrate. |
 | `failed` | The sync threw before any table result was recorded. `error` carries the step tag (e.g. `[customer snapshot] …`, `[chained address] …`) with the message only — never row data. | Triage per §4. |
 | `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (guard TOG-9216). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
@@ -38,8 +38,10 @@ warning still says “is not set.”
 
 | Cron log fields | Path and D1 budget boundary |
 |---|---|
-| `mode="chained-http"`, `configSource="SHADOW_API_PUBLIC_BASE"`, `d1LimitRisk=false` | The base passed validation as a bare HTTP(S) origin (no userinfo, path, query, or fragment); this checks syntax, not that it points to this Worker. Cron attempts sequential authenticated per-table POSTs to that origin. Each POST that reaches the intended handler runs in its own invocation/budget; only dependency-eligible configured tables run, and a failed step stops later steps. |
-| `mode="single-invocation"`, `configSource="fallback-single-invocation"`, `d1LimitRisk=true` | The base was missing, blank, or rejected. Configured table runners run in-process, sharing one invocation's D1 budget. |
+| `mode="chained-http"`, `configSource="SHADOW_API_PUBLIC_BASE"`, `d1LimitRisk=false` | The base passed validation as a bare HTTP(S) origin (no userinfo, path, query, or fragment); this checks syntax, not that it points to this Worker. Cron attempts sequential authenticated per-table POSTs to that origin. Each eligible POST that reaches the intended handler runs in its own invocation/budget; a failed step stops later steps. |
+| `mode="single-invocation"`, `configSource="fallback-single-invocation"`, `d1LimitRisk=true` | The base was missing, blank, or rejected. Only dependency-eligible configured table runners run in-process, sequentially, sharing one invocation's D1 budget. |
+
+Both modes use the same dependency chain: customer requires a customer source; address requires both customer and address sources; container requires customer, address, and container sources. Thus address-only configuration with a missing/invalid base selects fallback but runs no table (`outcome="unconfigured"`, all `tables` null). With a valid base it still runs no table, but mode is chained.
 
 Cloudflare documents **1,000 D1 queries per Worker invocation on Workers Paid / 50
 on Free** ([official limits](https://developers.cloudflare.com/d1/platform/limits/)).
@@ -53,10 +55,17 @@ budgets. The current per-table estimates still exceed 1,000.
 
 **Accounting caveat:** Cloudflare says per-query limits apply to each statement
 inside a `db.batch()`, but does not explicitly state whether each batched
-statement counts separately toward the per-invocation cap. The project
-calculator also reports SQL statement totals (15,700 / 18,604 / 129,579 INSERTs,
-plus a reconcile `DELETE` each); if statements are the cap unit, usage is higher.
-Treat the figures above as the repo estimator, not a Cloudflare-confirmed count.
+statement counts separately toward the per-invocation cap. The calculator's
+`stmts-total` uses `ceil(rows / rowsPerStmt)`, assuming packing continues across
+batch boundaries; its 15,700 / 18,604 / 129,579 INSERT counts are ideal-packing
+lower bounds. The upsert loops restart packing at each 80/80/40-row chunk, so the
+cited row counts produce 16,484 / 19,534 / 136,057 INSERT statements instead.
+A nonempty sync also issues one reconcile `DELETE` per table (add one SQL
+statement to each total). These are statement counts, not confirmed invocation
+usage: the repo's D1 estimator remains `ceil(rows / STREAM_BATCH_*) + 1` under
+its explicit assumption that each `db.batch()` call is one operation plus one
+reconcile `DELETE`; Cloudflare's per-invocation accounting for statements inside
+batches is not explicit.
 `d1LimitRisk=false` identifies chained mode; it does not certify that a table
 fits. Run `node scripts/check-sync-batch-budget.mjs` to recompute both counts;
 see `CUSTOMER_SNAPSHOT.md` § “Sync batch sizing vs the D1 budget” for details.
