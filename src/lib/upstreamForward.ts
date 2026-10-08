@@ -2,7 +2,8 @@ import type { SessionState } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import {
   DEFAULT_UPSTREAM_TIMEOUT_MS,
-  fetchWithUpstreamTimeout
+  fetchWithUpstreamTimeout,
+  inheritUpstreamController
 } from "./upstreamTimeout";
 
 export type ForwardOptions = {
@@ -83,9 +84,9 @@ function stripUpstreamSetCookie(res: Response): Response {
   }
   const headers = new Headers(res.headers);
   headers.delete("set-cookie");
-  return new Response(res.body, {
+  return inheritUpstreamController(res, new Response(res.body, {
     status: res.status,
     statusText: res.statusText,
     headers
-  });
+  }));
 }

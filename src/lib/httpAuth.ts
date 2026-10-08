@@ -1,5 +1,6 @@
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
+import { readUpstreamText } from "./upstreamBody";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeout";
 
@@ -79,7 +80,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     timeoutMs
   );
   mergeSetCookies(jar, pageRes);
-  const html = await pageRes.text();
+  const html = await readUpstreamText(pageRes, timeoutMs);
 
   // 2) GET the Ext.NET init script (same session) for the anti-forgery token.
   let token = extractAntiForgeryFromExtNet(html);
@@ -94,7 +95,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
       timeoutMs
     );
     mergeSetCookies(jar, axRes);
-    token = extractAntiForgeryFromExtNet(await axRes.text());
+    token = extractAntiForgeryFromExtNet(await readUpstreamText(axRes, timeoutMs));
   }
   if (!token) {
     throw new Error("Anti-forgery token not found on login page/init script.");
