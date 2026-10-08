@@ -36,11 +36,16 @@ describe("spreadsheet-safe CSV cells", () => {
       .toBe(value.trim());
   });
 
-  it.each(["", "Acme Co", "a=b", "555-0101", "a,b", 'say "hi"', "line1\nline2"])(
+  it.each(["", "Acme Co", "a=b", "555-0101", "a,b", 'say "hi"', "line1\nline2", "safe;=1+1;tail", "safe\t=1+1"])(
     "keeps ordinary cells unchanged after RFC 4180 parsing: %j", (value) => {
       expect(parseCsvLine(escapeCsvCell(value))).toEqual([value]);
     }
   );
+
+  it("also quotes embedded semicolons and tabs without changing comma-CSV cells", () => {
+    expect(escapeCsvCell("safe;=1+1;tail")).toBe('"safe;=1+1;tail"');
+    expect(escapeCsvCell("safe\t=1+1")).toBe('"safe\t=1+1"');
+  });
 
   it("does not confuse an original apostrophe with an inserted one", () => {
     expect(escapeCsvCell("=1+1")).not.toBe(escapeCsvCell("'=1+1"));

@@ -164,6 +164,10 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 ### Spreadsheet-safe snapshot CSV exports
 
+Open these downloads as **comma-delimited CSV with double-quote text
+delimiters**. Other delimiter guesses (such as semicolon or tab) are not a
+supported spreadsheet-safety boundary; select comma explicitly when importing.
+
 All three `/export` downloads prefix formula-leading cells (`=`, `+`, `-`, `@`),
 leading tabs/CR/LF, whitespace-hidden operators, and their full-width variants
 with an apostrophe inside a double-quoted CSV field. Double quotes are doubled
