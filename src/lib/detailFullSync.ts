@@ -10,6 +10,7 @@ import {
 import { isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
 import { reconcileCustomerChildren } from "./snapshot/upsert";
+import { readUpstreamText } from "./upstreamBody";
 import { forwardToUpstream } from "./upstreamForward";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
@@ -275,7 +276,7 @@ export async function fetchGetCustomerDetailFull(
         `skipping D1 refresh`
     );
   }
-  const text = await resp.text();
+  const text = await readUpstreamText(resp, timeoutMs);
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > DETAIL_FULL_MAX_RESPONSE_BYTES) {
     throw new Error(

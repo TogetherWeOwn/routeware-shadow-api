@@ -8,6 +8,7 @@ import {
   forwardWithSessionRetry,
   type ModalRetryContext
 } from "./forwardWithSessionRetry";
+import { readUpstreamText } from "./upstreamBody";
 import { forwardToUpstream } from "./upstreamForward";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import { routewareWebRwUrl } from "./upstreamUrl";
@@ -113,7 +114,7 @@ export async function prepareSaveAddressFormBody(
   if (!modalResp.ok) {
     throw new Error(`Load address modal (${modalPath}): HTTP ${modalResp.status}`);
   }
-  const html = await modalResp.text();
+  const html = await readUpstreamText(modalResp, readUpstreamTimeoutMs(env));
   const token = extractRequestVerificationTokenFromHtml(html);
   if (!token) {
     throw new Error("No __RequestVerificationToken in address modal HTML");
@@ -182,7 +183,7 @@ export async function prepareSaveContainerFormBody(
   if (!modalResp.ok) {
     throw new Error(`Load container modal (${modalPath}): HTTP ${modalResp.status}`);
   }
-  const html = await modalResp.text();
+  const html = await readUpstreamText(modalResp, readUpstreamTimeoutMs(env));
   const token = extractRequestVerificationTokenFromHtml(html);
   if (!token) {
     throw new Error("No __RequestVerificationToken in container modal HTML");

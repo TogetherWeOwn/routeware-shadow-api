@@ -6,6 +6,8 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
 import { readSessionState } from "../lib/sessionState";
+import { readUpstreamText } from "../lib/upstreamBody";
+import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import { routewareWebRwUrl } from "../lib/upstreamUrl";
 import { containerSaveFormDocs, createRouteModule } from "./shared";
 
@@ -92,7 +94,7 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
   // Routeware signals a failed save silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the save
   // worked when it did not. Same heuristic as the save-long-form route.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     // TOG-6463: refresh D1 + evict the data-entity cache after a successful
     // save so shadow reads stop serving the pre-save record. Never throws.

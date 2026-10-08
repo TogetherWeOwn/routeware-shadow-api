@@ -27,16 +27,21 @@ approval gates unchanged. No new paid plan or service is part of this recipe.
 
 ## 1. Prepare a new name and an independent config (local only)
 
-Run the blocks in the same Bash session, from the reviewed checkout. Set `PR_NUMBER`
-to the actual PR number. Outside Paperclip, set `PAPERCLIP_RUN_SCRATCH_DIR` to an
+Run the blocks in the same Bash session from the exact reviewed PR head commit, with
+a clean checkout. Set `PR_NUMBER` to the actual PR number and `PR_HEAD_SHA` to its
+full reviewed head SHA. Outside Paperclip, set `PAPERCLIP_RUN_SCRATCH_DIR` to an
 approved private scratch directory outside the checkout before starting.
 
 ```bash
 set -euo pipefail
 : "${PR_NUMBER:?Set the actual PR number}"
 [[ "$PR_NUMBER" =~ ^[1-9][0-9]{0,8}$ ]]
+: "${PR_HEAD_SHA:?Set the full reviewed PR head SHA}"
+[[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-PREVIEW_SHA="$(git rev-parse --short=12 HEAD)"
+[[ "$(git -C "$REPO_ROOT" rev-parse HEAD)" == "$PR_HEAD_SHA" ]]
+[[ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ]]
+PREVIEW_SHA="$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD)"
 PREVIEW_NONCE="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(4).toString("hex"))')"
 PREVIEW_WORKER="routeware-shadow-api-pr-${PR_NUMBER}-${PREVIEW_SHA}-${PREVIEW_NONCE}"
 PREVIEW_DIR="$(mktemp -d "${PAPERCLIP_RUN_SCRATCH_DIR:?}/worker-preview.XXXXXX")"
@@ -128,14 +133,16 @@ Save the PR/head, Worker name, config and dry-run result as reviewer evidence.
 Only after the staging authorization and dry-run review above: use already-granted
 credentials through the approved credential mechanism, not a file in this repo.
 Set `CLOUDFLARE_ACCOUNT_ID` to the verified preview account through that mechanism.
-Keep the config/name unchanged; never substitute the stable production name.
+Set `PREVIEW_ACCOUNT_SUBDOMAIN` to that account's `workers.dev` subdomain, verified in
+its dashboard. This is the account subdomain, not the account ID. Keep the config/name
+unchanged; never substitute the stable production name.
 
 ```bash
 : "${CLOUDFLARE_ACCOUNT_ID:?Verified preview account required}"
 (
   cd "$PREVIEW_DIR"
   CLOUDFLARE_ACCOUNT_ID="$CLOUDFLARE_ACCOUNT_ID" WRANGLER_SEND_METRICS=false \
-    CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+    CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false CLOUDFLARE_INCLUDE_PROCESS_ENV=false \
     node "$WRANGLER" deploy --config "$PREVIEW_CONFIG" --name "$PREVIEW_WORKER"
 )
 ```
@@ -154,9 +161,9 @@ before issuing requests. Never substitute a production or generic staging URL.
 
 ```bash
 : "${PREVIEW_URL:?Set the URL emitted by this deployment}"
-node - "$PREVIEW_URL" "$PREVIEW_WORKER" <<'NODE'
+node - "$PREVIEW_URL" "$PREVIEW_WORKER" "$PREVIEW_ACCOUNT_SUBDOMAIN" <<'NODE'
 const assert = require('node:assert/strict');
-const [raw, worker] = process.argv.slice(2);
+const [raw, worker, accountSubdomain] = process.argv.slice(2);
 const u = new URL(raw);
 assert.equal(u.protocol, 'https:');
 assert.equal(u.port, '');
@@ -164,6 +171,7 @@ assert.equal(raw, u.origin);
 const labels = u.hostname.split('.');
 assert.equal(labels.length, 4);
 assert.equal(labels[0], worker);
+assert.equal(labels[1], accountSubdomain);
 assert.equal(labels.slice(2).join('.'), 'workers.dev');
 NODE
 curl --disable --fail --silent --show-error --max-time 15 \
@@ -195,7 +203,7 @@ node <<'NODE'
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const c = JSON.parse(fs.readFileSync(process.env.PREVIEW_CONFIG, 'utf8'));
-assert.match(process.env.PREVIEW_WORKER, /^routeware-shadow-api-pr-[1-9][0-9]{0,8}-[0-9a-f]{12}-[0-9a-f]{8}$/);
+assert.match(process.env.PREVIEW_WORKER, /^routeware-shadow-api-pr-[1-9][0-9]{0,8}-[0-9a-f]{12,40}-[0-9a-f]{8}$/);
 assert.equal(c.name, process.env.PREVIEW_WORKER);
 assert.deepEqual(c.routes, []);
 assert.deepEqual(c.triggers.crons, []);
@@ -211,7 +219,10 @@ NODE
 
 The block above **does not delete anything**. Keep `--dry-run`: Wrangler 4.84.1
 can auto-confirm deletion in noninteractive/CI mode, including a dependency warning
-that would force deletion even without `--force`. Do not automate live CLI deletion.
+that would force deletion even without `--force`. These local assertions and the CLI
+dry-run do not verify that the remote Worker exists in this account or has no
+consumers; verify those live facts in the dashboard below. Do not automate live CLI
+deletion.
 
 For actual removal, use the already-authorized account's Cloudflare dashboard:
 **Workers & Pages → exact recorded temporary Worker → Settings → Delete**. Verify
@@ -230,15 +241,17 @@ routes, credentials and activation gates remain untouched throughout.
 ## Reviewer-checkable acceptance
 
 - [ ] Only documentation changed; production activation/approval gates are unchanged.
+- [ ] The checkout is clean and its full HEAD SHA equals the reviewed PR head.
 - [ ] Name includes PR, reviewed SHA and random suffix; first-deploy collision check is required.
 - [ ] Independent config contains synthetic vars, `.invalid` upstream, fresh same-Worker DO, empty routes/cron and no production resources/secrets.
 - [ ] Credential-free `deploy --dry-run` passes before any separately authorized manual deployment.
-- [ ] Smoke is explicitly limited to liveness/auth rejection, with no data/readiness/parity claim.
-- [ ] Teardown validates the exact temporary target with CLI dry-run only; live removal requires dashboard name confirmation and records removal.
+- [ ] Smoke checks the verified account's `workers.dev` subdomain and is limited to liveness/auth rejection, with no data/readiness/parity claim.
+- [ ] Teardown local checks and CLI dry-run are non-deleting and do not inspect remote state; dashboard verification of account, exact Worker/version and consumers precedes exact-name removal.
 
 ## Official references
 
 - [Wrangler configuration](https://developers.cloudflare.com/workers/wrangler/configuration/): explicit config, routes, `workers_dev`, cron, vars and same-script DO bindings.
+- [`workers.dev` subdomains](https://developers.cloudflare.com/workers/configuration/routing/workers-dev/): account subdomain and `<worker>.<subdomain>.workers.dev` URL format.
 - [Wrangler deploy/delete commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/): `--config`, `--name`, `--dry-run`, `--outdir` and deletion semantics. Use the pinned executable's `--help` for version-specific options.
 - [Local and deployed secrets](https://developers.cloudflare.com/workers/configuration/secrets/): config-directory dotenv loading and preservation of existing deployed secrets.
 - [Wrangler system environment variables](https://developers.cloudflare.com/workers/wrangler/system-environment-variables/): CLI authentication variables; pinned Wrangler also loads cwd dotenv during argument processing.
