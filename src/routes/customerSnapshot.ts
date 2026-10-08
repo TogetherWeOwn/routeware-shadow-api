@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { customerRowExample, customerExportExample } from "./payloadExamples";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -40,17 +41,22 @@ const customerSnapshotListRoute = createRoute({
     "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Company name substring (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      q: z.string().optional().describe("Company name substring (case-insensitive)").openapi({ example: "ExampleCo" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 })
     })
   },
   responses: {
     200: {
       description: "Rows and total count for pagination",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [customerRowExample], total: 1 }
+        }
+      }
     }
   }
 });
@@ -101,7 +107,7 @@ const customerSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: customerExportExample } }
     },
     401: { description: "Unauthorized" }
   }
@@ -124,14 +130,15 @@ const customerSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ customerId: z.coerce.number().int() })
+    params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
   responses: {
     200: {
       description: "Row",
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown())
+          schema: z.record(z.string(), z.unknown()),
+          example: customerRowExample
         }
       }
     },

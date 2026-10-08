@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { containerRowExample, containerExportExample } from "./payloadExamples";
 import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
@@ -21,7 +22,8 @@ import {
   foreignKeyProblem,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse
+  snapshotListResponse,
+  snapshotWriteResultExample
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -40,19 +42,24 @@ const containerSnapshotListRoute = createRoute({
     "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      pickupAddressId: z.coerce.number().int().optional(),
-      containerId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Substring on location or serial (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0)
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      containerId: z.coerce.number().int().optional().openapi({ example: 100 }),
+      q: z.string().optional().describe("Substring on location or serial (case-insensitive)").openapi({ example: "C-100" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 })
     })
   },
   responses: {
     200: {
       description: "Rows and total",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [containerRowExample], total: 1 }
+        }
+      }
     }
   }
 });
@@ -122,7 +129,7 @@ const containerSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: containerExportExample } }
     },
     401: { description: "Unauthorized" }
   }
@@ -145,12 +152,17 @@ const containerSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `containerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ containerId: z.coerce.number().int() })
+    params: z.object({ containerId: z.coerce.number().int().openapi({ example: 100 }) })
   },
   responses: {
     200: {
       description: "Row",
-      content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
+      content: {
+        "application/json": {
+          schema: z.record(z.string(), z.unknown()),
+          example: containerRowExample
+        }
+      }
     },
     400: {
       description: "Invalid id (application/problem+json)"
@@ -211,7 +223,8 @@ const containerSnapshotSyncRoute = createRoute({
             rowCount: z.number().int(),
             deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
-          })
+          }),
+          example: snapshotWriteResultExample
         }
       }
     },
@@ -273,7 +286,8 @@ const containerSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() }),
+          example: snapshotWriteResultExample
         }
       }
     },

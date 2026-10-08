@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8372: OpenAPI now includes synthetic request and response examples for
+  snapshot, data-entity, and general Routeware operations. Proxy bodies remain
+  unvalidated and existing runtime schemas are unchanged.
+
 ## [1.0.0] - 2026-09-27
 
 Initial release of the Routeware Shadow API (Cloudflare Worker): shadow

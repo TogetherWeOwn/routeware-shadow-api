@@ -1,4 +1,10 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import type { RouteConfig } from "@hono/zod-openapi";
+import {
+  customerBundleExample,
+  addressBundleExample,
+  containerBundleExample
+} from "./payloadExamples";
 import {
   handleGetDataAddress,
   handleGetDataContainer,
@@ -28,14 +34,14 @@ const dataCustomerGetRoute = createRoute({
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`).",
   request: {
     query: z.object({
-      id: z.coerce.number().int().optional(),
-      customerId: z.coerce.number().int().optional()
+      id: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 })
     })
   },
   responses: {
     200: {
-      description: "customer + nested addresses with containers",
-      content: { "application/json": { schema: z.unknown() } }
+      description: "customer + nested addresses with containers (synthetic example)",
+      content: { "application/json": { schema: z.unknown(), example: customerBundleExample } }
     },
     304: { description: "Not modified" },
     400: { description: "Missing id" },
@@ -69,11 +75,11 @@ const dataAddressGetRoute = createRoute({
   summary: "Get address (D1) with customer and containers",
   description:
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id`.",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  request: { query: z.object({ id: z.coerce.number().int().openapi({ example: 10 }) }) },
   responses: {
     200: {
-      description: "address, customer, containers",
-      content: { "application/json": { schema: z.unknown() } }
+      description: "address, customer, containers (synthetic example)",
+      content: { "application/json": { schema: z.unknown(), example: addressBundleExample } }
     },
     304: { description: "Not modified" },
     400: { description: "Invalid id (application/problem+json)" },
@@ -106,11 +112,11 @@ const dataContainerGetRoute = createRoute({
   summary: "Get container (D1) with address and customer",
   description:
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id`.",
-  request: { query: z.object({ id: z.coerce.number().int() }) },
+  request: { query: z.object({ id: z.coerce.number().int().openapi({ example: 100 }) }) },
   responses: {
     200: {
-      description: "container, address, customer",
-      content: { "application/json": { schema: z.unknown() } }
+      description: "container, address, customer (synthetic example)",
+      content: { "application/json": { schema: z.unknown(), example: containerBundleExample } }
     },
     304: { description: "Not modified" },
     400: { description: "Invalid id (application/problem+json)" },
@@ -136,16 +142,25 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id);
 });
 
-const dataEntityPostResponse = {
-  200: {
-    description:
-      "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
-    content: { "application/json": { schema: z.unknown() } }
-  },
-  400: { description: "Bad Request" },
-  401: { description: "Unauthorized" },
-  502: { description: "Bad Gateway" }
-} as const;
+function dataEntityPostResponse(example: Record<string, unknown>): RouteConfig["responses"] {
+  return {
+    200: {
+      description:
+        "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+      content: { "application/json": { schema: z.unknown(), example } }
+    },
+    400: { description: "Bad Request" },
+    401: { description: "Unauthorized" },
+    502: { description: "Bad Gateway" }
+  };
+}
+
+const localSyncExample = {
+  done: true,
+  customerId: 345734,
+  addressIds: [10],
+  containerIds: [100]
+};
 
 const dataCustomerPostRoute = createRoute({
   method: "post",
@@ -185,7 +200,13 @@ const dataCustomerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse
+  responses: dataEntityPostResponse({
+    ok: true,
+    routewareStatus: 200,
+    customerId: 345734,
+    upstreamBytes: 36,
+    localSync: localSyncExample
+  })
 });
 
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
@@ -222,7 +243,14 @@ const dataAddressPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse
+  responses: dataEntityPostResponse({
+    ok: true,
+    routewareStatus: 200,
+    customerId: 5,
+    pickupAddressId: null,
+    upstreamBytes: 16,
+    localSync: { ...localSyncExample, customerId: 5 }
+  })
 });
 
 dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
@@ -259,7 +287,15 @@ const dataContainerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse
+  responses: dataEntityPostResponse({
+    ok: true,
+    routewareStatus: 200,
+    customerId: 345734,
+    pickupAddressId: 10,
+    containerId: null,
+    upstreamBytes: 16,
+    localSync: localSyncExample
+  })
 });
 
 dataEntityRoutes.openapi(dataContainerPostRoute, async (c) => {
