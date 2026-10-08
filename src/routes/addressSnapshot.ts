@@ -332,6 +332,7 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
     // not forward extra args anyway.
     const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

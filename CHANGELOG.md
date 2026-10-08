@@ -5,6 +5,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
+  cell content before D1 binding, with a PII-free row-numbered 400. Upstream
+  report sync parsing stays permissive; earlier valid import batches may remain.
 - TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
   lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
   jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`

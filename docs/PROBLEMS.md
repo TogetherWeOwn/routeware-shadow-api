@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
+| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
 | `unauthorized` | 401 | Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
@@ -16,6 +16,32 @@ section below.
 | `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `internal` | 500 | An unexpected error. Details are logged, not returned. |
+
+## CSV control characters (`bad-request`)
+
+All three snapshot `.../import` routes reject NUL, vertical tab, other C0
+controls (U+0000–U+001F except tab/LF/CR), DEL/C1 controls (U+007F–U+009F),
+and lone CR inside a cell. Headers, unused columns, and whitespace-only
+records are checked before trimming or binding any values to D1. The error
+names the logical CSV row without echoing submitted values:
+
+```
+CSV row 2 contains a disallowed control character.
+See docs/PROBLEMS.md#bad-request.
+```
+
+The header is row 1; embedded quoted newlines do not advance the row number.
+Empty records are skipped by the stream reader, but whitespace-only and
+invalid-ID records count. Tabs and quoted LF/CRLF remain supported. CR-only
+record separators remain supported; a lone CR **inside a quoted cell** is
+rejected, not silently removed. This is the API's import policy, stricter
+for cell CR than [RFC 4180 §2](https://datatracker.ietf.org/doc/html/rfc4180#section-2).
+Upstream report syncs and the default shared parser retain their permissive
+behavior; import routes explicitly enable control rejection.
+
+Fix the named record (remove forbidden controls or replace cell CR with LF)
+and retry. No rejected record is written, and import never reconciles/deletes.
+Earlier flushed batches of valid rows may remain; the upload is not atomic.
 
 ## Dangling snapshot references (`bad-request`)
 
