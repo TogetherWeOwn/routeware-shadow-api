@@ -114,6 +114,24 @@ describe("problems anchor check: doc extraction", () => {
     expect(extractDocAnchors('| `payload-too-large` | 413 | Too big. |\n## Oversized (`payload-too-large`)')).toEqual([]);
   });
 
+  it.each([
+    ["space", " "],
+    ["tab", "\t"],
+    ["line feed", "\n"],
+    ["form feed", "\f"],
+    ["carriage return", "\r"],
+  ])("accepts HTML ASCII %s between the tag name and attribute", (_label, separator) => {
+    expect(extractDocAnchors(`<a${separator}name="payload-too-large"></a>`)).toEqual(["payload-too-large"]);
+  });
+
+  it.each([
+    ["non-breaking space", "\u00a0"],
+    ["line separator", "\u2028"],
+    ["paragraph separator", "\u2029"],
+  ])("rejects %s between the tag name and attribute", (_label, separator) => {
+    expect(extractDocAnchors(`<a${separator}name="payload-too-large"></a>`)).toEqual([]);
+  });
+
   it("requires a named target for the newest upstream-error slug", () => {
     const row = '| `upstream-error` | 400–599 | An upstream error. |';
     const target = '<a name="upstream-error"></a>\n\n## Loud upstream errors';
@@ -269,6 +287,21 @@ describe("problems anchor check: real tree", () => {
     expect(result.unknown).toEqual([]);
     expect(result.unreferenced).toEqual([]);
     expect(result.missingAnchors).toEqual([slug]);
+  });
+
+  it.each([
+    ["non-breaking space", "\u00a0"],
+    ["line separator", "\u2028"],
+    ["paragraph separator", "\u2029"],
+  ])("does not count the payload target when %s separates the tag and attribute", (_label, separator) => {
+    const malformedTarget = problemsMd.replace(
+      '<a name="payload-too-large"></a>',
+      `<a${separator}name="payload-too-large"></a>`,
+    );
+    expect(malformedTarget).not.toBe(problemsMd);
+    const result = checkTree(malformedTarget);
+    expect(result.ok).toBe(false);
+    expect(result.missingAnchors).toEqual(["payload-too-large"]);
   });
 
   it.each([

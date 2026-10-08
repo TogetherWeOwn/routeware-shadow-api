@@ -67,9 +67,13 @@ const DEFINITION_PREFIX_RE = /\bfunction\s*$/;
 /** Doc table rows: `| `slug` | status | ...` at line start. */
 const DOC_ROW_RE = /^\|\s*`([a-z0-9-]+)`\s*\|/gm;
 /** GitHub's custom-anchor syntax (not an automatically slugged heading).
+ * Use HTML ASCII whitespace here; JS `\s` also matches Unicode separators
+ * that GitHub does not treat as tag/attribute whitespace.
+ * https://html.spec.whatwg.org/multipage/syntax.html#start-tags
+ * https://github.github.com/gfm/#whitespace-character
  * https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors
  */
-const DOC_ANCHOR_RE = /^<a\s+name=(["'])([a-z0-9-]+)\1\s*>/;
+const DOC_ANCHOR_RE = /^<a[ \t\n\f\r]+name=(["'])([a-z0-9-]+)\1[ \t\n\f\r]*>/;
 
 function lineOf(text, index) {
   return text.slice(0, index).split("\n").length;
