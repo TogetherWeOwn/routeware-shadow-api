@@ -169,16 +169,23 @@ describe.each(SPECS)("$name import byte limits", (spec) => {
       ""
     ].join("\n"));
     expect(firstBatch.byteLength).toBeLessThan(cap);
-    const pending = `9999${spec.rowPrefix.slice(4)}${PII_PROBE}`;
-    const tail = ENCODER.encode(pending + "x".repeat(
-      cap + 1 - firstBatch.byteLength - ENCODER.encode(pending).byteLength
+    const pending = ENCODER.encode(`9999${spec.rowPrefix.slice(4)}${PII_PROBE}\n`);
+    expect(firstBatch.byteLength + pending.byteLength).toBeLessThan(cap);
+    const overflow = ENCODER.encode(" ".repeat(
+      cap + 1 - firstBatch.byteLength - pending.byteLength
     ));
-    const bytes = new Uint8Array(cap + 1);
-    bytes.set(firstBatch);
-    bytes.set(tail, firstBatch.byteLength);
+    const chunks = [firstBatch, pending, overflow];
+    let nextChunk = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (nextChunk === chunks.length) controller.close();
+        else controller.enqueue(chunks[nextChunk++]!);
+      }
+    }, { highWaterMark: 0 });
 
+    // Parse a complete pending row before a separate chunk exceeds the cap.
     // Partial imports are batch-atomic, not file-atomic (BACKFILL-RUNBOOK §5).
-    const error = await spec.sync(recorded.db, chunked(bytes, firstBatch.byteLength), undefined, {
+    const error = await spec.sync(recorded.db, body, undefined, {
       maxBytes: cap,
       requireDataRows: true
     }).catch((e: unknown) => e);
