@@ -13,6 +13,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   CONTAINER_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -157,7 +158,9 @@ const containerSnapshotExportRoute = createRoute({
 containerSnapshotRoutes.openapi(containerSnapshotExportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return snapshotCsvResponse(c.env.CUSTOMER_DB, CONTAINER_SNAPSHOT_EXPORT);
+  return snapshotCsvResponse(
+    c.env.CUSTOMER_DB, CONTAINER_SNAPSHOT_EXPORT, readSnapshotExportPageSize(c.env)
+  );
 });
 
 const containerSnapshotByIdRoute = createRoute({

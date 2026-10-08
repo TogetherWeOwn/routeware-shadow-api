@@ -49,13 +49,21 @@ export type SnapshotExportSpec = {
   columns: SnapshotExportColumn[];
 };
 
-/**
- * Rows per D1 page. 500 keeps every page far under D1's 100-bind /
- * 100 KB-per-statement ceilings (the widest table here is 29 columns) while
- * a full-table export stays inside the ~1000-op per-invocation budget for
- * today's row counts (see CUSTOMER_SNAPSHOT.md § batch sizing).
- */
+/** Default rows per D1 page; smaller pages trade memory for more queries. */
 export const SNAPSHOT_EXPORT_PAGE_SIZE = 500;
+export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
+
+/** Optional plain-text Worker binding; invalid values keep the safe default. */
+export function readSnapshotExportPageSize(env: Env): number {
+  const raw = (env as unknown as Record<string, unknown>).SNAPSHOT_EXPORT_PAGE_SIZE;
+  if (typeof raw !== "string" || !/^[0-9]+$/.test(raw.trim())) {
+    return SNAPSHOT_EXPORT_PAGE_SIZE;
+  }
+  const size = Number(raw.trim());
+  return Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE
+    ? size
+    : SNAPSHOT_EXPORT_PAGE_SIZE;
+}
 
 export const CUSTOMER_SNAPSHOT_EXPORT: SnapshotExportSpec = {
   table: "customer_snapshot",
@@ -269,9 +277,10 @@ export function streamSnapshotCsv(
  */
 export function snapshotCsvResponse(
   db: D1Database,
-  spec: SnapshotExportSpec
+  spec: SnapshotExportSpec,
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
 ): Response {
-  return new Response(streamSnapshotCsv(db, spec), {
+  return new Response(streamSnapshotCsv(db, spec, pageSize), {
     status: 200,
     headers: {
       "content-type": "text/csv; charset=utf-8",
