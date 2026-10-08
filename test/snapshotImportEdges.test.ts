@@ -154,6 +154,52 @@ describe("snapshot import edges (TOG-6279)", () => {
       expect(raw).not.toContain("Sign in");
     });
 
+    it.each([
+      { name: "NUL", char: "\u0000" },
+      { name: "vertical tab", char: "\u000b" },
+      { name: "lone CR", char: "\r" },
+      { name: "form feed", char: "\u000c" },
+      { name: "DEL", char: "\u007f" },
+      { name: "C1", char: "\u0085" }
+    ])("rejects $name cell content with a PII-free row number and no D1 write", async ({ char }) => {
+      const before = await db().prepare(`SELECT * FROM ${spec.table} ORDER BY ${spec.pk}`).all();
+      const cells = spec.row.split(",");
+      cells[spec.name === "customer" ? 2 : 3] = `"${PII_PROBE}${char}"`;
+
+      const res = await postImport(spec.base, `${spec.header}\n${cells.join(",")}`);
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toContain("problem+json");
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(BAD_REQUEST);
+      expect(body.status).toBe(400);
+      expect(body.detail).toBe("CSV row 2 contains a disallowed control character. See docs/PROBLEMS.md#bad-request.");
+      expect(JSON.stringify(body)).not.toContain(PII_PROBE);
+      const after = await db().prepare(`SELECT * FROM ${spec.table} ORDER BY ${spec.pk}`).all();
+      expect(after.results).toEqual(before.results);
+    });
+
+    it.each([
+      { name: "header", row: 1 },
+      { name: "unused column", row: 2 }
+    ])("rejects controls in the $name", async ({ row }) => {
+      const csv = row === 1
+        ? `${spec.header},Unused\u0000\n${spec.row}`
+        : `${spec.header},Unused\n${spec.row},\u0000`;
+      const res = await postImport(spec.base, csv);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(BAD_REQUEST);
+      expect(body.detail).toContain(`CSV row ${row} contains`);
+    });
+
+    it("rejects a control-only whitespace record instead of silently skipping it", async () => {
+      const res = await postImport(spec.base, `${spec.header}\n\u000b\n${spec.row}`);
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(BAD_REQUEST);
+      expect(body.detail).toContain("CSV row 2 contains");
+    });
+
     it("leaves the table untouched when the import is rejected", async () => {
       // Arrange — seed one live row directly.
       const seed =

@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
+  cell content before D1 binding, with a PII-free row-numbered 400. Upstream
+  report sync parsing stays permissive; earlier valid import batches may remain.
+
 - TOG-6516: Keep the Routeware-tier customer, address, and container save forms'
   modal token fetch and save POST on the same upstream session. Refresh before
   token preparation and re-prepare the original form once after a login rejection;
