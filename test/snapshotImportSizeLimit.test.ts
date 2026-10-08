@@ -1,9 +1,12 @@
 import { env } from "cloudflare:workers";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 import {
   SNAPSHOT_IMPORT_MAX_BYTES,
+  STREAM_BATCH_ADDR,
+  STREAM_BATCH_CONT,
+  STREAM_BATCH_CUST,
   isSnapshotTooLarge,
   syncAddressSnapshotFromStream,
   syncContainerSnapshotFromStream,
@@ -24,6 +27,7 @@ const SPECS = [
     path: "/api/v1/customer-snapshot/import",
     header: "CustomerID,CompanyName",
     rowPrefix: "9001,",
+    batchSize: STREAM_BATCH_CUST,
     sync: syncCustomerSnapshotFromStream
   },
   {
@@ -31,6 +35,7 @@ const SPECS = [
     path: "/api/v1/address-snapshot/import",
     header: "PickupAddressID,CustomerID,Address",
     rowPrefix: "9001,9001,",
+    batchSize: STREAM_BATCH_ADDR,
     sync: syncAddressSnapshotFromStream
   },
   {
@@ -38,6 +43,7 @@ const SPECS = [
     path: "/api/v1/container-snapshot/import",
     header: "ContainerID,PickupAddressID,ContainerNote",
     rowPrefix: "9001,9001,",
+    batchSize: STREAM_BATCH_CONT,
     sync: syncContainerSnapshotFromStream
   }
 ];
@@ -94,7 +100,28 @@ function importRequest(path: string, body: ReadableStream<Uint8Array>): Request 
   });
 }
 
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Unexpected upstream request")));
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it("observes buffering on a non-import request (spy control)", async () => {
+  const recorded = fakeDb();
+  const request = importRequest("/api/v1/import-size-control", chunked(ENCODER.encode("control"), 1));
+  const buffered = vi.spyOn(request, "arrayBuffer");
+
+  // A truthy RequestInit clones the Request in Hono 4.12.14, losing its spy.
+  const response = await app.request(request, undefined, requestEnv(recorded.db));
+
+  expect(buffered).toHaveBeenCalledTimes(1);
+  expect(response.status).toBe(404);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(recorded.batches).toEqual([]);
+});
 
 describe.each(SPECS)("$name import byte limits", (spec) => {
   it.each([UNIT_CAP - 1, UNIT_CAP])("accepts %i cumulative bytes", async (size) => {
@@ -109,6 +136,11 @@ describe.each(SPECS)("$name import byte limits", (spec) => {
 
     expect(result).toEqual({ upserted: 1, rowCount: 1, deleted: 0 });
     expect(recorded.batches).toHaveLength(1);
+    const expectedField = new TextDecoder().decode(bytes).slice(
+      `${spec.header}\n${spec.rowPrefix}`.length
+    );
+    expect(recorded.batches.flatMap((batch) => batch.flatMap((s) => s.binds)))
+      .toContain(expectedField);
     expect(recorded.runs).toEqual([]);
   });
 
@@ -123,6 +155,39 @@ describe.each(SPECS)("$name import byte limits", (spec) => {
     expect(isSnapshotTooLarge(error)).toBe(true);
     expect(recorded.batches).toEqual([]);
     expect(recorded.selects).toEqual([]);
+    expect(recorded.runs).toEqual([]);
+  });
+
+  it("rejects late overflow without reconciling or losing an earlier flushed batch", async () => {
+    const recorded = fakeDb();
+    const cap = 4096;
+    const firstBatch = ENCODER.encode([
+      spec.header,
+      ...Array.from({ length: spec.batchSize }, (_, i) =>
+        `${9100 + i}${spec.rowPrefix.slice(4)}${PII_PROBE}`
+      ),
+      ""
+    ].join("\n"));
+    expect(firstBatch.byteLength).toBeLessThan(cap);
+    const pending = `9999${spec.rowPrefix.slice(4)}${PII_PROBE}`;
+    const tail = ENCODER.encode(pending + "x".repeat(
+      cap + 1 - firstBatch.byteLength - ENCODER.encode(pending).byteLength
+    ));
+    const bytes = new Uint8Array(cap + 1);
+    bytes.set(firstBatch);
+    bytes.set(tail, firstBatch.byteLength);
+
+    // Partial imports are batch-atomic, not file-atomic (BACKFILL-RUNBOOK §5).
+    const error = await spec.sync(recorded.db, chunked(bytes, firstBatch.byteLength), undefined, {
+      maxBytes: cap,
+      requireDataRows: true
+    }).catch((e: unknown) => e);
+
+    expect(isSnapshotTooLarge(error)).toBe(true);
+    expect(recorded.batches).toHaveLength(1);
+    const bindings = recorded.batches.flatMap((batch) => batch.flatMap((s) => s.binds));
+    expect(bindings).toContain(9100 + spec.batchSize - 1);
+    expect(bindings).not.toContain(9999);
     expect(recorded.runs).toEqual([]);
   });
 
@@ -175,7 +240,7 @@ describe.each(SPECS)("$name import byte limits", (spec) => {
     expect(request.headers.get("content-length")).toBeNull();
     const buffered = vi.spyOn(request, "arrayBuffer");
 
-    const response = await app.request(request, {}, requestEnv(recorded.db));
+    const response = await app.request(request, undefined, requestEnv(recorded.db));
 
     expect(buffered).not.toHaveBeenCalled();
     expect(emitted).toBeGreaterThan(SNAPSHOT_IMPORT_MAX_BYTES);
@@ -194,7 +259,7 @@ describe.each(SPECS)("$name import byte limits", (spec) => {
     const request = importRequest(spec.path + suffix, chunked(csvBytes(spec, 256), 17));
     const buffered = vi.spyOn(request, "arrayBuffer");
 
-    const response = await app.request(request, {}, requestEnv(recorded.db));
+    const response = await app.request(request, undefined, requestEnv(recorded.db));
 
     expect(buffered).not.toHaveBeenCalled();
     expect(response.status).toBe(200);
