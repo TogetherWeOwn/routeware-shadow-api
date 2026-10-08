@@ -159,8 +159,8 @@ probe skips contract execution.
    **fails closed** (every `/api/v1/*` route except `GET /api/v1/health` returns 401)
    rather than trusting a committed placeholder.
 4. **Repository variable last** — set `PRODUCTION_DEPLOY_ENABLED` to `true` only after the
-   environment, API token, resources and Worker secrets are ready. Delete or change the variable to
-   stop deploys without disabling PR checks. See [`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--enable-pr-ci-before-enabling-production-deploys).
+   environment, API token, resources and Worker secrets are ready. Delete it or set it to `false`
+   to stop future deploys without disabling PR checks. See [`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--verify-pr-ci-before-enabling-production-deploys).
 
 Manual production deploy commands are intentionally outside the ordinary development loop; follow
 the handover runbook rather than running them opportunistically.
