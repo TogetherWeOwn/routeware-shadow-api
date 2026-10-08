@@ -54,6 +54,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/customer-snapshot/changes",
   "GET /api/v1/customer-snapshot/export",
   "GET /api/v1/customer-snapshot/{customerId}",
+  "GET /api/v1/data-snapshot/orphans",
   "GET /api/v1/data/address",
   "GET /api/v1/data/container",
   "GET /api/v1/data/customer",
@@ -160,13 +161,15 @@ describe("published OpenAPI document", () => {
       "DataSnapshotSyncResult",
       "HealthResponse",
       "ReadinessResponse",
-      "ShadowHealthResponse"
+      "ShadowHealthResponse",
+      "SnapshotOrphanReport",
+      "SnapshotOrphanSample"
     ]);
     expect(Object.keys(doc.components?.securitySchemes ?? {})).toEqual(["bearerAuth"]);
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
   });
 
-  it("documents 400 on all snapshot imports and lists", async () => {
+  it("documents 400 on snapshot imports, lists and the orphan audit", async () => {
     // Arrange — TOG-6522: imports return 400 on an empty body and lists
     // return 400 on out-of-range query params, but neither branch was in the
     // document, so generated clients never surfaced them.
@@ -179,7 +182,8 @@ describe("published OpenAPI document", () => {
       "POST /api/v1/container-snapshot/import",
       "GET /api/v1/customer-snapshot",
       "GET /api/v1/address-snapshot",
-      "GET /api/v1/container-snapshot"
+      "GET /api/v1/container-snapshot",
+      "GET /api/v1/data-snapshot/orphans"
     ];
     const missing = operations.filter((op) => {
       const [method, path] = op.split(" ");
@@ -194,6 +198,30 @@ describe("published OpenAPI document", () => {
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
     expect(missing).toEqual([]);
+  });
+
+  it("publishes the orphan audit's invalid-sampleLimit problem+json schema", async () => {
+    const doc = await fetchOpenApiDocument();
+    const operation = doc.paths["/api/v1/data-snapshot/orphans"]?.get as {
+      responses: Record<string, unknown>;
+    };
+
+    expect(operation.responses["400"]).toMatchObject({
+      content: {
+        "application/problem+json": {
+          schema: {
+            type: "object",
+            required: ["type", "title", "status", "detail"],
+            properties: {
+              type: { type: "string" },
+              title: { type: "string" },
+              status: { type: "number", enum: [400] },
+              detail: { type: "string" }
+            }
+          }
+        }
+      }
+    });
   });
 
   it("documents the id alias on all three data-entity GETs", async () => {
