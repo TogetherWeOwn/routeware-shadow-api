@@ -120,12 +120,21 @@ const dataSnapshotOrphansRoute = createRoute({
         .describe(
           "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched."
         )
+        .openapi({ example: ORPHAN_SAMPLE_LIMIT_DEFAULT })
     })
   },
   responses: {
     200: {
       description: "Orphan counts and id samples per FK edge",
-      content: { "application/json": { schema: snapshotOrphanReportSchema } }
+      content: {
+        "application/json": {
+          schema: snapshotOrphanReportSchema,
+          example: {
+            orphanAddresses: { count: 0, sampleIds: [] },
+            orphanContainers: { count: 0, sampleIds: [] }
+          }
+        }
+      }
     },
     400: {
       description:

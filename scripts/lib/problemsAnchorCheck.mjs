@@ -2,8 +2,8 @@
  * Pure helpers for the PROBLEMS.md anchor coverage check (TOG-6281).
  *
  * Every problem+json `type` is `PROBLEM_TYPE_BASE + slug`
- * (`src/lib/problem.ts`), and every slug must resolve to a row in
- * `docs/PROBLEMS.md` — and every doc row must be referenced by code — so a
+ * (`src/lib/problem.ts`), and every slug must resolve to a named anchor and
+ * row in `docs/PROBLEMS.md` — and every doc row must be referenced by code — so a
  * renamed or invented slug fails the suite instead of shipping a dead link.
  *
  * Every function here is pure (strings/objects in, data out) so the whole
@@ -13,14 +13,42 @@
  * the suite runs inside the workers pool with no `node:fs`).
  */
 
+import { Marked } from "marked";
+
+// Marked 18.1.0 accepts mixed-character closing fences. Override only that
+// tokenizer so code examples stay opaque, including inside lists/blockquotes.
+// https://github.github.com/gfm/#fenced-code-blocks
+// https://marked.js.org/using_pro#tokenizer
+const markdown = new Marked({
+  gfm: true,
+  tokenizer: {
+    fences(src) {
+      const opening = /^ {0,3}(`{3,}(?=[^`\n]*(?:\n|$))|~{3,})([^\n]*)(?:\n|$)/.exec(src);
+      if (!opening) return;
+      const fence = opening[1];
+      const content = src.slice(opening[0].length);
+      // Match normalized LF boundaries, not JS multiline ^/$ (also U+2028/2029).
+      // https://github.github.com/gfm/#characters-and-lines
+      const closing = new RegExp(`(?:^|\\n) {0,3}${fence[0]}{${fence.length},}[ \\t]*(?:\\n|(?![\\s\\S]))`).exec(content);
+      const end = closing ? opening[0].length + closing.index + closing[0].length : src.length;
+      return {
+        type: "code",
+        raw: src.slice(0, end),
+        lang: opening[2].trim(),
+        text: closing ? content.slice(0, closing.index) : content,
+      };
+    },
+  },
+});
+
 export const CHECK_NAME = "problems-anchor-coverage";
 
 /**
  * @typedef {{ path: string, text: string }} SourceFile
  * @typedef {{ path: string, line: number }} DynamicUsage
  * @typedef {{ slugs: string[], bySlug: Record<string, string[]>, dynamic: DynamicUsage[] }} CodeSlugs
- * @typedef {{ codeSlugs: string[], docSlugs: string[], dynamicUsages?: DynamicUsage[] }} AnchorInputs
- * @typedef {{ ok: boolean, unknown: string[], unreferenced: string[], dynamicUsages: DynamicUsage[] }} AnchorResult
+ * @typedef {{ codeSlugs: string[], docSlugs: string[], anchorSlugs: string[], dynamicUsages?: DynamicUsage[] }} AnchorInputs
+ * @typedef {{ ok: boolean, unknown: string[], unreferenced: string[], missingAnchors: string[], dynamicUsages: DynamicUsage[] }} AnchorResult
  */
 
 /**
@@ -38,6 +66,14 @@ const CODE_CALL_RE = /problemType\(/g;
 const DEFINITION_PREFIX_RE = /\bfunction\s*$/;
 /** Doc table rows: `| `slug` | status | ...` at line start. */
 const DOC_ROW_RE = /^\|\s*`([a-z0-9-]+)`\s*\|/gm;
+/** GitHub's custom-anchor syntax (not an automatically slugged heading).
+ * Use HTML ASCII whitespace here; JS `\s` also matches Unicode separators
+ * that GitHub does not treat as tag/attribute whitespace.
+ * https://html.spec.whatwg.org/multipage/syntax.html#start-tags
+ * https://github.github.com/gfm/#whitespace-character
+ * https://docs.github.com/en/get-started/writing-on-github/getting-started-with-writing-and-formatting-on-github/basic-writing-and-formatting-syntax#custom-anchors
+ */
+const DOC_ANCHOR_RE = /^<a[ \t\n\f\r]+name=(["'])([a-z0-9-]+)\1[ \t\n\f\r]*>/;
 
 function lineOf(text, index) {
   return text.slice(0, index).split("\n").length;
@@ -102,23 +138,52 @@ export function extractDocSlugs(markdownText) {
 }
 
 /**
- * Compare the two directions: code slugs with no doc row, doc rows no code
- * references, and non-literal call sites. `ok` is true only when all three
- * are empty.
+ * Read explicit custom anchors; a table row or heading mentioning a slug
+ * is not itself a target for `#<slug>`.
  *
- * @param {AnchorInputs} inputs extracted slugs plus non-literal call sites
+ * @param {string} markdownText full PROBLEMS.md text
+ * @returns {string[]} sorted unique named anchors
+ */
+export function extractDocAnchors(markdownText) {
+  const anchors = [];
+  // Walk parsed GFM tokens, including table cells, not raw markup in examples.
+  // https://marked.js.org/using_pro#lexer
+  markdown.walkTokens(markdown.lexer(String(markdownText)), (token) => {
+    // Image alt text is not rendered HTML; do not visit its inline tokens.
+    if (token.type === "image") {
+      token.tokens = [];
+      return;
+    }
+    if (token.type !== "html") return;
+    const match = DOC_ANCHOR_RE.exec(token.text);
+    if (match) anchors.push(match[2]);
+  });
+  return sortedUnique(anchors);
+}
+
+/**
+ * Compare code slugs, doc rows and named targets, plus non-literal calls.
+ * `ok` is true only when all offender lists are empty.
+ *
+ * @param {AnchorInputs} inputs extracted slugs, anchors and non-literal calls
  * @returns {AnchorResult} comparison with sorted offender lists
  */
-export function compareAnchors({ codeSlugs, docSlugs, dynamicUsages = [] }) {
+export function compareAnchors({ codeSlugs, docSlugs, anchorSlugs = [], dynamicUsages = [] }) {
   const code = new Set(codeSlugs);
   const doc = new Set(docSlugs);
+  const anchors = new Set(anchorSlugs);
+  const unknown = sortedUnique([...code].filter((s) => !doc.has(s)));
+  const unreferenced = sortedUnique([...doc].filter((s) => !code.has(s)));
+  const missingAnchors = sortedUnique([...new Set([...code, ...doc])].filter((s) => !anchors.has(s)));
   return {
     ok:
       dynamicUsages.length === 0 &&
-      [...code].every((s) => doc.has(s)) &&
-      [...doc].every((s) => code.has(s)),
-    unknown: sortedUnique([...code].filter((s) => !doc.has(s))),
-    unreferenced: sortedUnique([...doc].filter((s) => !code.has(s))),
+      unknown.length === 0 &&
+      unreferenced.length === 0 &&
+      missingAnchors.length === 0,
+    unknown,
+    unreferenced,
+    missingAnchors,
     dynamicUsages,
   };
 }
@@ -137,6 +202,9 @@ export function formatAnchorReport(result) {
   }
   for (const s of result.unreferenced) {
     lines.push(`PROBLEMS.md row no code references: ${s}`);
+  }
+  for (const s of result.missingAnchors) {
+    lines.push(`slug with no PROBLEMS.md named anchor: ${s}`);
   }
   for (const d of result.dynamicUsages) {
     lines.push(`non-literal problemType( usage: ${d.path}:${d.line}`);

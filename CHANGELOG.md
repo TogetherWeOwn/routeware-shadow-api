@@ -8,10 +8,31 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
   cell content before D1 binding, with a PII-free row-numbered 400. Upstream
   report sync parsing stays permissive; earlier valid import batches may remain.
+
+- TOG-6516: Keep the Routeware-tier customer, address, and container save forms'
+  modal token fetch and save POST on the same upstream session. Refresh before
+  token preparation and re-prepare the original form once after a login rejection;
+  do not replay timed-out saves or upstream 401/429 responses.
+
+- TOG-18135: Buffered upstream read/save, token-modal, and login bodies now
+  have a separate `UPSTREAM_TIMEOUT_MS` deadline after headers arrive.
+  Timeouts abort/cancel pending reads without replaying saves. Continuously
+  ready body chunks yield to timer tasks so they cannot starve the deadline;
+  successful passthrough bodies and long-running report CSV streams remain unchanged.
+
+- TOG-6517: Customer, address and container snapshot list `q` parameters now
+  reject more than 100 Unicode code points with value-free 400 problem+json
+  before D1 access. Accepted searches are not truncated; validation applies
+  before whitespace trimming, with the same limit published in OpenAPI.
+
 - TOG-7577: Client-facing retry passthroughs replace upstream HTTP 400–599
   bodies, headers and status text with fixed `upstream-error` problem+json,
   preserving the HTTP status and containing possible customer/session data.
   Successful responses, login retry and internal data-save envelopes are unchanged.
+
+- TOG-9232: Readiness D1/R2 and advisory cron observations use a 20-second
+  in-memory cache per Worker isolate; concurrent probes share two D1 queries.
+  Authentication, report configuration, and the 200/503 payload are unchanged.
 
 - TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
   defensive audit for legacy or out-of-band rows, not normal streamed syncs:
@@ -30,6 +51,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   composite `since` + `since_id` cursor pair (served by the
   `idx_customer_snapshot_synced_at` index), so same-timestamp rows past a page
   boundary are never skipped.
+- TOG-8372: OpenAPI now includes synthetic request and response examples for
+  snapshot, data-entity, and general Routeware operations. Proxy bodies remain
+  unvalidated and existing runtime schemas are unchanged.
 
 ## [1.0.0] - 2026-09-27
 

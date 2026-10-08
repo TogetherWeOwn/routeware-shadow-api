@@ -1,4 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { customerRowExample, customerExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -45,26 +47,32 @@ const customerSnapshotListRoute = createRoute({
     "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Company name substring (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0),
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()
         .int()
         .optional()
         .describe("Last customer_id from the previous page's nextCursor; takes precedence over offset")
+        .openapi({ example: 345733 })
     })
   },
   responses: {
     200: {
       description: "Rows and total count for pagination",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [customerRowExample], total: 1, nextCursor: null }
+        }
+      }
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -163,20 +171,27 @@ const customerSnapshotChangesRoute = createRoute({
           (v) => (v === "" || v === undefined ? undefined : v),
           z.string().datetime().optional()
         )
-        .describe("ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page."),
+        .describe("ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page.")
+        .openapi({ example: "2025-12-31T00:00:00.000Z" }),
       since_id: z.coerce
         .number()
         .int()
         .min(0)
         .optional()
-        .describe("Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare `since`."),
-      limit: z.coerce.number().int().min(1).max(500).default(50)
+        .describe("Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare `since`.")
+        .openapi({ example: 345733 }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 })
     })
   },
   responses: {
     200: {
       description: "Changed rows in (synced_at, customer_id) order with nextCursor",
-      content: { "application/json": { schema: customerSnapshotChangesResponse } }
+      content: {
+        "application/json": {
+          schema: customerSnapshotChangesResponse,
+          example: { rows: [customerRowExample], total: 1, nextCursor: null }
+        }
+      }
     }
   }
 });
@@ -231,7 +246,7 @@ const customerSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: customerExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
@@ -259,14 +274,15 @@ const customerSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ customerId: z.coerce.number().int() })
+    params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
   responses: {
     200: {
       description: "Row",
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown())
+          schema: z.record(z.string(), z.unknown()),
+          example: customerRowExample
         }
       }
     },
@@ -472,14 +488,15 @@ const customerSnapshotDeleteRoute = createRoute({
   description:
     "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
   request: {
-    params: z.object({ customerId: z.coerce.number().int() })
+    params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
   responses: {
     200: {
       description: "Deleted row id and count",
       content: {
         "application/json": {
-          schema: z.object({ customerId: z.number().int(), deleted: z.number().int() })
+          schema: z.object({ customerId: z.number().int(), deleted: z.number().int() }),
+          example: { customerId: 345734, deleted: 1 }
         }
       }
     },

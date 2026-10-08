@@ -506,6 +506,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -517,6 +518,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "pickupAddressId",
             "required": false,
             "schema": {
+              "example": 10,
               "type": [
                 "integer",
                 "null",
@@ -524,12 +526,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Address line substring (case-insensitive)",
+            "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Address line substring (case-insensitive)",
+              "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
+              "example": "Main",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -544,6 +548,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "false",
                 "any",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -553,6 +558,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
+              "example": 50,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -564,6 +570,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "example": 0,
               "minimum": 0,
               "type": [
                 "integer",
@@ -578,6 +585,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "Last pickup_address_id from the previous page's nextCursor; takes precedence over offset",
+              "example": 9,
               "type": [
                 "integer",
                 "null",
@@ -589,6 +597,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "nextCursor": null,
+                  "rows": [
+                    {
+                      "address": "1 Main St",
+                      "city": "Example City",
+                      "comments": null,
+                      "customer_id": 345734,
+                      "driver_note": null,
+                      "enabled": 1,
+                      "extras_allowed": 0,
+                      "franchise_id": "1",
+                      "last_audit_date": null,
+                      "latitude": null,
+                      "longitude": null,
+                      "pickup_address_id": 10,
+                      "route_id": 1,
+                      "state": "TX",
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                      "zip": "76541",
+                    },
+                  ],
+                  "total": 1,
+                },
                 "schema": {
                   "$ref": "#/components/schemas/CustomerSnapshotList",
                 },
@@ -597,7 +629,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -613,6 +645,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
+                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at
+10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,2026-01-01T00:00:00.000Z
+",
                 "schema": {
                   "type": "string",
                 },
@@ -648,6 +683,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -668,6 +704,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -718,6 +759,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -726,6 +768,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -773,6 +820,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "pickupAddressId",
             "required": false,
             "schema": {
+              "example": 10,
               "type": [
                 "integer",
                 "null",
@@ -784,6 +832,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "address": "1 Main St",
+                  "city": "Example City",
+                  "comments": null,
+                  "customer_id": 345734,
+                  "driver_note": null,
+                  "enabled": 1,
+                  "extras_allowed": 0,
+                  "franchise_id": "1",
+                  "last_audit_date": null,
+                  "latitude": null,
+                  "longitude": null,
+                  "pickup_address_id": 10,
+                  "route_id": 1,
+                  "state": "TX",
+                  "synced_at": "2026-01-01T00:00:00.000Z",
+                  "zip": "76541",
+                },
                 "schema": {
                   "additionalProperties": {},
                   "type": "object",
@@ -814,6 +880,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -825,6 +892,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "pickupAddressId",
             "required": false,
             "schema": {
+              "example": 10,
               "type": [
                 "integer",
                 "null",
@@ -836,6 +904,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "containerId",
             "required": false,
             "schema": {
+              "example": 100,
               "type": [
                 "integer",
                 "null",
@@ -843,12 +912,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Substring on location or serial (case-insensitive)",
+            "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Substring on location or serial (case-insensitive)",
+              "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
+              "example": "C-100",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -863,6 +934,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "false",
                 "any",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -872,6 +944,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
+              "example": 50,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -883,6 +956,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "example": 0,
               "minimum": 0,
               "type": [
                 "integer",
@@ -897,6 +971,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "Last container_id from the previous page's nextCursor; takes precedence over offset",
+              "example": 99,
               "type": [
                 "integer",
                 "null",
@@ -908,6 +983,43 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "nextCursor": null,
+                  "rows": [
+                    {
+                      "city": "Example City",
+                      "color": "Blue",
+                      "container_id": 100,
+                      "container_note": null,
+                      "container_type_id": 1,
+                      "enabled": 1,
+                      "event_code": null,
+                      "frequency_ids": null,
+                      "gps_locked": 0,
+                      "latitude": null,
+                      "location_address": "1 Main St",
+                      "longitude": null,
+                      "oncall": 0,
+                      "pickup_address_id": 10,
+                      "rfid": null,
+                      "route_ids": null,
+                      "serial_number": "C-100-A",
+                      "service_code": null,
+                      "service_code_input": null,
+                      "service_code_type": null,
+                      "service_date": null,
+                      "state": "TX",
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                      "ud_cost_share_ud": null,
+                      "ud_enclosure_doors_ud": null,
+                      "ud_last_compactor_inspection_ud": null,
+                      "ud_last_enclosure_inspection_ud": null,
+                      "ud_material_stream_ud": null,
+                      "zip": "76541",
+                    },
+                  ],
+                  "total": 1,
+                },
                 "schema": {
                   "$ref": "#/components/schemas/CustomerSnapshotList",
                 },
@@ -916,7 +1028,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -932,6 +1044,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
+                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at
+100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,2026-01-01T00:00:00.000Z
+",
                 "schema": {
                   "type": "string",
                 },
@@ -967,6 +1082,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -987,6 +1103,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -1037,6 +1158,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -1045,6 +1167,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "deleted": 0,
+                  "rowCount": 2,
+                  "upserted": 2,
+                },
                 "schema": {
                   "properties": {
                     "deleted": {
@@ -1092,6 +1219,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "containerId",
             "required": false,
             "schema": {
+              "example": 100,
               "type": [
                 "integer",
                 "null",
@@ -1103,6 +1231,37 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "city": "Example City",
+                  "color": "Blue",
+                  "container_id": 100,
+                  "container_note": null,
+                  "container_type_id": 1,
+                  "enabled": 1,
+                  "event_code": null,
+                  "frequency_ids": null,
+                  "gps_locked": 0,
+                  "latitude": null,
+                  "location_address": "1 Main St",
+                  "longitude": null,
+                  "oncall": 0,
+                  "pickup_address_id": 10,
+                  "rfid": null,
+                  "route_ids": null,
+                  "serial_number": "C-100-A",
+                  "service_code": null,
+                  "service_code_input": null,
+                  "service_code_type": null,
+                  "service_date": null,
+                  "state": "TX",
+                  "synced_at": "2026-01-01T00:00:00.000Z",
+                  "ud_cost_share_ud": null,
+                  "ud_enclosure_doors_ud": null,
+                  "ud_last_compactor_inspection_ud": null,
+                  "ud_last_enclosure_inspection_ud": null,
+                  "ud_material_stream_ud": null,
+                  "zip": "76541",
+                },
                 "schema": {
                   "additionalProperties": {},
                   "type": "object",
@@ -1133,6 +1292,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -1140,12 +1300,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Company name substring (case-insensitive)",
+            "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Company name substring (case-insensitive)",
+              "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
+              "example": "ExampleCo",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -1160,6 +1322,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "false",
                 "any",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -1169,6 +1332,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
+              "example": 50,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -1180,6 +1344,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 0,
+              "example": 0,
               "minimum": 0,
               "type": [
                 "integer",
@@ -1194,6 +1359,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "Last customer_id from the previous page's nextCursor; takes precedence over offset",
+              "example": 345733,
               "type": [
                 "integer",
                 "null",
@@ -1205,6 +1371,28 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "nextCursor": null,
+                  "rows": [
+                    {
+                      "comments": null,
+                      "company_name": "ExampleCo",
+                      "customer_id": 345734,
+                      "customer_number": "C-1001",
+                      "customer_type_id": 1,
+                      "enabled": 1,
+                      "first_name": "Jane",
+                      "last_name": "Doe",
+                      "middle_initial": null,
+                      "name_suffix": null,
+                      "phone1": "555-0100",
+                      "phone2": null,
+                      "sub_customer_number": null,
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                    },
+                  ],
+                  "total": 1,
+                },
                 "schema": {
                   "$ref": "#/components/schemas/CustomerSnapshotList",
                 },
@@ -1213,7 +1401,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",
@@ -1233,6 +1421,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page.",
+              "example": "2025-12-31T00:00:00.000Z",
               "format": "date-time",
               "type": "string",
             },
@@ -1244,6 +1433,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare \`since\`.",
+              "example": 345733,
               "minimum": 0,
               "type": [
                 "integer",
@@ -1257,6 +1447,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
+              "example": 50,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -1267,6 +1458,28 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "nextCursor": null,
+                  "rows": [
+                    {
+                      "comments": null,
+                      "company_name": "ExampleCo",
+                      "customer_id": 345734,
+                      "customer_number": "C-1001",
+                      "customer_type_id": 1,
+                      "enabled": 1,
+                      "first_name": "Jane",
+                      "last_name": "Doe",
+                      "middle_initial": null,
+                      "name_suffix": null,
+                      "phone1": "555-0100",
+                      "phone2": null,
+                      "sub_customer_number": null,
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                    },
+                  ],
+                  "total": 1,
+                },
                 "schema": {
                   "$ref": "#/components/schemas/CustomerSnapshotChanges",
                 },
@@ -1288,6 +1501,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
+                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at
+345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,2026-01-01T00:00:00.000Z
+",
                 "schema": {
                   "type": "string",
                 },
@@ -1325,6 +1541,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -1402,6 +1619,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -1462,6 +1680,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -1473,6 +1692,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "customerId": 345734,
+                  "deleted": 1,
+                },
                 "schema": {
                   "properties": {
                     "customerId": {
@@ -1512,6 +1735,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -1523,6 +1747,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "comments": null,
+                  "company_name": "ExampleCo",
+                  "customer_id": 345734,
+                  "customer_number": "C-1001",
+                  "customer_type_id": 1,
+                  "enabled": 1,
+                  "first_name": "Jane",
+                  "last_name": "Doe",
+                  "middle_initial": null,
+                  "name_suffix": null,
+                  "phone1": "555-0100",
+                  "phone2": null,
+                  "sub_customer_number": null,
+                  "synced_at": "2026-01-01T00:00:00.000Z",
+                },
                 "schema": {
                   "additionalProperties": {},
                   "type": "object",
@@ -1556,6 +1796,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "schema": {
               "default": 100,
               "description": "Max ids sampled per edge (counts are unaffected). Out-of-range values are rejected before D1 is touched.",
+              "example": 100,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -1566,6 +1807,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "orphanAddresses": {
+                    "count": 0,
+                    "sampleIds": [],
+                  },
+                  "orphanContainers": {
+                    "count": 0,
+                    "sampleIds": [],
+                  },
+                },
                 "schema": {
                   "$ref": "#/components/schemas/SnapshotOrphanReport",
                 },
@@ -1633,6 +1884,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -1681,6 +1933,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "id",
             "required": false,
             "schema": {
+              "example": 10,
               "type": [
                 "integer",
                 "null",
@@ -1692,6 +1945,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "pickupAddressId",
             "required": false,
             "schema": {
+              "example": 10,
               "type": [
                 "integer",
                 "null",
@@ -1703,10 +1957,79 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "address": {
+                    "address": "1 Main St",
+                    "city": "Example City",
+                    "comments": null,
+                    "customer_id": 345734,
+                    "driver_note": null,
+                    "enabled": 1,
+                    "extras_allowed": 0,
+                    "franchise_id": "1",
+                    "last_audit_date": null,
+                    "latitude": null,
+                    "longitude": null,
+                    "pickup_address_id": 10,
+                    "route_id": 1,
+                    "state": "TX",
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                    "zip": "76541",
+                  },
+                  "containers": [
+                    {
+                      "city": "Example City",
+                      "color": "Blue",
+                      "container_id": 100,
+                      "container_note": null,
+                      "container_type_id": 1,
+                      "enabled": 1,
+                      "event_code": null,
+                      "frequency_ids": null,
+                      "gps_locked": 0,
+                      "latitude": null,
+                      "location_address": "1 Main St",
+                      "longitude": null,
+                      "oncall": 0,
+                      "pickup_address_id": 10,
+                      "rfid": null,
+                      "route_ids": null,
+                      "serial_number": "C-100-A",
+                      "service_code": null,
+                      "service_code_input": null,
+                      "service_code_type": null,
+                      "service_date": null,
+                      "state": "TX",
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                      "ud_cost_share_ud": null,
+                      "ud_enclosure_doors_ud": null,
+                      "ud_last_compactor_inspection_ud": null,
+                      "ud_last_enclosure_inspection_ud": null,
+                      "ud_material_stream_ud": null,
+                      "zip": "76541",
+                    },
+                  ],
+                  "customer": {
+                    "comments": null,
+                    "company_name": "ExampleCo",
+                    "customer_id": 345734,
+                    "customer_number": "C-1001",
+                    "customer_type_id": 1,
+                    "enabled": 1,
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "middle_initial": null,
+                    "name_suffix": null,
+                    "phone1": "555-0100",
+                    "phone2": null,
+                    "sub_customer_number": null,
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                  },
+                },
                 "schema": {},
               },
             },
-            "description": "address, customer, containers",
+            "description": "address, customer, containers (synthetic example)",
           },
           "304": {
             "description": "Not modified",
@@ -1761,10 +2084,27 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "customerId": 5,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                    ],
+                    "containerIds": [
+                      100,
+                    ],
+                    "customerId": 5,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": null,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 16,
+                },
                 "schema": {},
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad Request",
@@ -1791,6 +2131,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "id",
             "required": false,
             "schema": {
+              "example": 100,
               "type": [
                 "integer",
                 "null",
@@ -1802,6 +2143,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "containerId",
             "required": false,
             "schema": {
+              "example": 100,
               "type": [
                 "integer",
                 "null",
@@ -1813,10 +2155,77 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "address": {
+                    "address": "1 Main St",
+                    "city": "Example City",
+                    "comments": null,
+                    "customer_id": 345734,
+                    "driver_note": null,
+                    "enabled": 1,
+                    "extras_allowed": 0,
+                    "franchise_id": "1",
+                    "last_audit_date": null,
+                    "latitude": null,
+                    "longitude": null,
+                    "pickup_address_id": 10,
+                    "route_id": 1,
+                    "state": "TX",
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                    "zip": "76541",
+                  },
+                  "container": {
+                    "city": "Example City",
+                    "color": "Blue",
+                    "container_id": 100,
+                    "container_note": null,
+                    "container_type_id": 1,
+                    "enabled": 1,
+                    "event_code": null,
+                    "frequency_ids": null,
+                    "gps_locked": 0,
+                    "latitude": null,
+                    "location_address": "1 Main St",
+                    "longitude": null,
+                    "oncall": 0,
+                    "pickup_address_id": 10,
+                    "rfid": null,
+                    "route_ids": null,
+                    "serial_number": "C-100-A",
+                    "service_code": null,
+                    "service_code_input": null,
+                    "service_code_type": null,
+                    "service_date": null,
+                    "state": "TX",
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                    "ud_cost_share_ud": null,
+                    "ud_enclosure_doors_ud": null,
+                    "ud_last_compactor_inspection_ud": null,
+                    "ud_last_enclosure_inspection_ud": null,
+                    "ud_material_stream_ud": null,
+                    "zip": "76541",
+                  },
+                  "customer": {
+                    "comments": null,
+                    "company_name": "ExampleCo",
+                    "customer_id": 345734,
+                    "customer_number": "C-1001",
+                    "customer_type_id": 1,
+                    "enabled": 1,
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "middle_initial": null,
+                    "name_suffix": null,
+                    "phone1": "555-0100",
+                    "phone2": null,
+                    "sub_customer_number": null,
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                  },
+                },
                 "schema": {},
               },
             },
-            "description": "container, address, customer",
+            "description": "container, address, customer (synthetic example)",
           },
           "304": {
             "description": "Not modified",
@@ -1870,10 +2279,28 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "containerId": null,
+                  "customerId": 345734,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                    ],
+                    "containerIds": [
+                      100,
+                    ],
+                    "customerId": 345734,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": 10,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 16,
+                },
                 "schema": {},
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad Request",
@@ -1900,6 +2327,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "id",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -1911,6 +2339,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "customerId",
             "required": false,
             "schema": {
+              "example": 345734,
               "type": [
                 "integer",
                 "null",
@@ -1922,10 +2351,81 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "addresses": [
+                    {
+                      "address": "1 Main St",
+                      "city": "Example City",
+                      "comments": null,
+                      "containers": [
+                        {
+                          "city": "Example City",
+                          "color": "Blue",
+                          "container_id": 100,
+                          "container_note": null,
+                          "container_type_id": 1,
+                          "enabled": 1,
+                          "event_code": null,
+                          "frequency_ids": null,
+                          "gps_locked": 0,
+                          "latitude": null,
+                          "location_address": "1 Main St",
+                          "longitude": null,
+                          "oncall": 0,
+                          "pickup_address_id": 10,
+                          "rfid": null,
+                          "route_ids": null,
+                          "serial_number": "C-100-A",
+                          "service_code": null,
+                          "service_code_input": null,
+                          "service_code_type": null,
+                          "service_date": null,
+                          "state": "TX",
+                          "synced_at": "2026-01-01T00:00:00.000Z",
+                          "ud_cost_share_ud": null,
+                          "ud_enclosure_doors_ud": null,
+                          "ud_last_compactor_inspection_ud": null,
+                          "ud_last_enclosure_inspection_ud": null,
+                          "ud_material_stream_ud": null,
+                          "zip": "76541",
+                        },
+                      ],
+                      "customer_id": 345734,
+                      "driver_note": null,
+                      "enabled": 1,
+                      "extras_allowed": 0,
+                      "franchise_id": "1",
+                      "last_audit_date": null,
+                      "latitude": null,
+                      "longitude": null,
+                      "pickup_address_id": 10,
+                      "route_id": 1,
+                      "state": "TX",
+                      "synced_at": "2026-01-01T00:00:00.000Z",
+                      "zip": "76541",
+                    },
+                  ],
+                  "customer": {
+                    "comments": null,
+                    "company_name": "ExampleCo",
+                    "customer_id": 345734,
+                    "customer_number": "C-1001",
+                    "customer_type_id": 1,
+                    "enabled": 1,
+                    "first_name": "Jane",
+                    "last_name": "Doe",
+                    "middle_initial": null,
+                    "name_suffix": null,
+                    "phone1": "555-0100",
+                    "phone2": null,
+                    "sub_customer_number": null,
+                    "synced_at": "2026-01-01T00:00:00.000Z",
+                  },
+                },
                 "schema": {},
               },
             },
-            "description": "customer + nested addresses with containers",
+            "description": "customer + nested addresses with containers (synthetic example)",
           },
           "304": {
             "description": "Not modified",
@@ -1992,10 +2492,26 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "customerId": 345734,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                    ],
+                    "containerIds": [
+                      100,
+                    ],
+                    "customerId": 345734,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 36,
+                },
                 "schema": {},
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary. Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
           },
           "400": {
             "description": "Bad Request",
@@ -2037,7 +2553,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/readiness": {
       "get": {
-        "description": "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). Returns 200 when every check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
+        "description": "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). D1, R2, and cron observations are cached in memory for 20 seconds per Worker isolate; concurrent hits share a refresh, and binding changes invalidate the cache. Config and bearer checks are never cached. Returns 200 when every required check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
         "responses": {
           "200": {
             "content": {
@@ -2076,12 +2592,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/html": {
+                "example": "<!DOCTYPE html><html><body><form action="/Account/Login" method="post">Login</form></body></html>",
                 "schema": {
                   "type": "string",
                 },
               },
             },
-            "description": "Upstream HTML for the Routeware login page (unauthenticated fetch)",
+            "description": "Upstream HTML for the Routeware login page (unauthenticated fetch; synthetic excerpt)",
           },
           "401": {
             "description": "Unauthorized",
@@ -2713,6 +3230,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {},
                 "schema": {},
               },
               "text/html": {
@@ -2726,7 +3244,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 },
               },
             },
-            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+            "description": "Upstream app settings (illustrative JSON; keys vary by tenant)",
           },
           "502": {
             "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
@@ -2745,15 +3263,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": {},
                 "schema": {},
               },
               "text/html": {
+                "example": "<!DOCTYPE html><html><body>Routeware home</body></html>",
                 "schema": {
                   "type": "string",
                 },
               },
             },
-            "description": "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types)",
+            "description": "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types; synthetic excerpt)",
           },
           "401": {
             "description": "Unauthorized",
@@ -2774,6 +3294,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "requestID",
             "required": false,
             "schema": {
+              "example": "00000000-0000-4000-8000-000000000001",
               "type": "string",
             },
           },
@@ -2782,6 +3303,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "name": "_",
             "required": false,
             "schema": {
+              "example": "1767225600000",
               "type": "string",
             },
           },
@@ -2790,6 +3312,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
+                "example": true,
                 "schema": {},
               },
               "text/html": {
@@ -2798,12 +3321,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 },
               },
               "text/plain": {
+                "example": "true",
                 "schema": {
                   "type": "string",
                 },
               },
             },
-            "description": "Upstream Routeware response (JSON, form-encoded, HTML, or other)",
+            "description": "Report completion poll (illustrative JSON boolean or plain text)",
           },
           "502": {
             "description": "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body.",
@@ -2853,6 +3377,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "address",
                 "container",
               ],
+              "example": "customer",
               "type": "string",
             },
           },
@@ -2863,6 +3388,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": true,
             "schema": {
               "description": "UTC archive date (YYYY-MM-DD)",
+              "example": "2026-01-01",
               "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
               "type": "string",
             },
@@ -2872,12 +3398,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
+                "example": "CustomerID,CompanyName,Enabled
+345734,ExampleCo,true
+",
                 "schema": {
                   "type": "string",
                 },
               },
             },
-            "description": "Archived CSV bytes (header line plus one line per row)",
+            "description": "Archived CSV bytes (synthetic customer-report excerpt)",
           },
           "400": {
             "description": "Invalid table or date (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum or not shaped \`YYYY-MM-DD\` before any R2 read runs.",

@@ -162,16 +162,20 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 ### Deploys are not yours to run
 
 `.github/workflows/ci.yml` can deploy to production on a push to `main`, but only when the
-repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. That job targets production only.
-Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
+job-level `vars.PRODUCTION_DEPLOY_ENABLED == 'true'` condition matches (case-insensitively). The
+`vars` context may include organization-, repository-, or environment-level configuration; do not
+infer that the gate is off from a repository-only variable listing. See [`HANDOVER.md`](HANDOVER.md)
+§&nbsp;0 for the scope checks. That job targets production only. Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-CI uses self-hosted runners labeled `two-selfhosted`. The build and hygiene jobs are credential-free;
-`shadow-api-v1` evaluates an optional `CF_TOKEN` gate and skips contract execution without it.
-Deploy remains skipped while `PRODUCTION_DEPLOY_ENABLED` is absent. Read
-[`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased enable procedure and rollback. If Actions is
-disabled or runners are unavailable, local verification is not a substitute for exact-head CI.
+CI uses self-hosted runners labeled `two-selfhosted`. On PRs, changed-area detection selects the
+credential-free `build` and optional `shadow-api-v1` jobs; `hygiene` always runs. Without `CF_TOKEN`,
+the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
+matches `true`; an unset repository variable alone does not prove that no applicable organization
+variable can enable it. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased scope verification,
+enable and stop procedures. If Actions is disabled or runners are unavailable, local verification is not a substitute
+for exact-head CI.
 
 ### Verification loop
 
