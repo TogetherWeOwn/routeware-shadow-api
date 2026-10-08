@@ -210,6 +210,10 @@ Example mappings from a typical harvest (SPA + ExtJS):
 
 ## Layout
 
+For the request, session, snapshot and cron paths, start with
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), including a step-by-step trace of a
+`data/*` POST.
+
 - [`src/worker.ts`](./src/worker.ts) — Worker entry (re-exports `AuthSession` + Hono `app`).
 - [`src/app.ts`](./src/app.ts) — Routes and OpenAPI.
 - [`src/lib/`](./src/lib/) — Upstream helpers, problem+json, session retry, browser auth.
