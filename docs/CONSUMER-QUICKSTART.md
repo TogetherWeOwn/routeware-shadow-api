@@ -2,8 +2,9 @@
 
 Read production Routeware data through the shadow API: authenticate, read
 snapshots, write through Routeware, and handle the no-DELETE rule. Every
-command below was validated against local dev (`wrangler dev`,
-`http://localhost:8787` — replace the origin with your deployment).
+happy-path command below was validated against local dev (`wrangler dev`,
+`http://localhost:8787` — replace the origin with your deployment for normal
+use). Keep the deliberate error recipes in step 6 local-only.
 
 Operator setup (secrets, D1 migrations, report sync) is out of scope here:
 see [`README.md`](../README.md) and [`CUSTOMER_SNAPSHOT.md`](../CUSTOMER_SNAPSHOT.md).
@@ -32,7 +33,8 @@ check needs `Authorization: Bearer <token>`:
 | `SHADOW_API_TOKEN` (general) | Snapshot list reads, all `/api/v1/routeware/*` forwards, `GET /api/v1/shadow/health` |
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` (privileged) | Everything above, **plus** `.../sync`, `.../import`, and all `/api/v1/data/*` reads/writes |
 
-Rule of thumb: **start with the sync secret** — it passes every gate. The
+Rule of thumb: **use the general token for ordinary reads** and the sync
+secret only for privileged routes. When their values are distinct, the
 general token 401s on privileged routes even when it is otherwise valid.
 
 ```bash
@@ -152,7 +154,9 @@ HTML page with HTTP 200 — the Worker converts that, never passes it through
 as success). On the `/api/v1/data/*` saves above, the same silent upstream
 failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 `routewareStatus` and `upstreamBytes`) — check the `ok` field, not just the
-status code. (`502` on `/data/*` only covers the anti-forgery prep path.)
+status code. Anti-forgery preparation failures return `502` problem+json,
+but a forwarded failure can also return `502` with the ordinary `ok:false`
+save envelope. See the [502 recipe](#502-distinguish-upstream-failure-from-client-authentication).
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
@@ -184,20 +188,197 @@ curl -X POST http://localhost:8787/api/v1/routeware/customer/save-long-form \
   --data-urlencode "Enabled=false"
 ```
 
+## 6. Error-path recipes: 401, 429, 502
+
+**Local-only drills:** the commands in this section must not be pointed at
+production or shared staging. Repeated invalid bearer requests can trigger
+per-IP authentication throttling. Reproduce upstream errors with the mocked
+tests below, not real tenant writes. Do not share tokens, cookies, raw upstream
+HTML, or customer data when reporting a failure.
+
+Use `curl -sS -i` to see the HTTP status, headers, and error body together;
+`curl` normally exits successfully even for HTTP 401/429/502. The JSON below
+is representative: `type` uses the default problem catalog URL, but an
+operator can override its base with `PROBLEM_TYPE_BASE`. Match the status and
+anchor, not the hostname. See [`PROBLEMS.md`](./PROBLEMS.md).
+
+### 401: fix the bearer or use the correct gate
+
+With the local Worker running, omit the bearer on a D1-only read:
+
+```bash
+curl -sS -i "http://localhost:8787/api/v1/customer-snapshot?limit=1"
+# HTTP 401; Content-Type: application/problem+json
+```
+
+Expected body (unless this IP is already throttled):
+
+```json
+{
+  "type": "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized",
+  "title": "Unauthorized",
+  "status": 401,
+  "detail": "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized.",
+  "instance": "/api/v1/customer-snapshot"
+}
+```
+
+`instance` contains the path, not `?limit=1`. The privileged gate uses the
+same envelope but names `<CUSTOMER_SNAPSHOT_SYNC_SECRET>` in `detail`.
+
+**Fix:** retry the same read with the general token already loaded in step 1:
+
+```bash
+curl -sS -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?limit=1"
+# HTTP 200 once the local D1 migrations are applied; empty rows are OK.
+```
+
+If the same token works for that read but returns 401 on `/api/v1/data/*`,
+use the privileged `$SYNC` value instead:
+
+```bash
+curl -sS -i -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/customer?id=42"
+# HTTP 200 for a seeded id, or 404 not-found (auth passed, id is absent).
+```
+
+Do not repeatedly guess tokens or automatically escalate every read to the
+sync secret. If the correct value still 401s, ask the operator to check the
+server-side token configuration; local `.dev.vars` changes need a Worker
+restart. Catalog: [`unauthorized`](./PROBLEMS.md#unauthorized).
+
+### 429: stop invalid-auth retries
+
+The 20th failed outer-gate check in a fresh 60-second window returns 429.
+This bounded **local-only** drill first uses a valid token to attempt a reset
+of a synthetic IP bucket, then makes exactly 20 unauthenticated GETs. The
+probe must return 200 before proceeding, but 200 proves authentication, not
+that storage accepted the reset. The expected threshold assumes a fresh
+bucket and healthy throttle storage. `/shadow/health` does not touch upstream.
+`CF-Connecting-IP` below selects the local test bucket; Cloudflare supplies
+that header on deployed requests. Do not spoof it on a deployed origin or
+change the throttle configuration for this drill.
+
+```bash
+(
+  set -e
+  curl -fsS --max-time 2 -o /dev/null -H "Authorization: Bearer $TOKEN" \
+    -H "CF-Connecting-IP: 192.0.2.21" \
+    "http://localhost:8787/api/v1/shadow/health"
+  for attempt in {1..19}; do
+    curl -sS --max-time 2 -o /dev/null -H "CF-Connecting-IP: 192.0.2.21" \
+      "http://localhost:8787/api/v1/shadow/health"
+  done
+  curl -sS --max-time 2 -i -H "CF-Connecting-IP: 192.0.2.21" \
+    "http://localhost:8787/api/v1/shadow/health"
+)
+# First 19 failed checks: HTTP 401. Final check: HTTP 429.
+# Content-Type: application/problem+json; Retry-After: 60
+```
+
+```json
+{
+  "type": "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#rate-limited",
+  "title": "Too Many Requests",
+  "status": 429,
+  "detail": "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited.",
+  "instance": "/api/v1/shadow/health"
+}
+```
+
+`Retry-After` is a positive integer number of seconds (up to 60 here), not
+an HTTP date. **Fix:** stop the invalid-auth loop and honor the returned delay
+before another unauthenticated attempt; repeated failures can renew the
+block. If you already have a valid token, it passes the outer gate immediately
+and attempts to clear the bucket; a 200 does not confirm the reset:
+
+```bash
+curl -sS -i -H "Authorization: Bearer $TOKEN" \
+  -H "CF-Connecting-IP: 192.0.2.21" \
+  "http://localhost:8787/api/v1/shadow/health"
+# HTTP 200, not 429. A later privileged gate can still reject this token.
+```
+
+If 429 arrives early, the bucket may not have reset or other local requests
+may share it. If the drill remains at 401, counting may have failed open;
+authentication still fails closed. Do not disable the gate to make the
+example pass. The mocked threshold/recovery tests are the deterministic
+alternative:
+
+```bash
+npm test -- test/authThrottle.test.ts
+```
+
+Catalog: [`rate-limited`](./PROBLEMS.md#rate-limited).
+
+### 502: distinguish upstream failure from client authentication
+
+An upstream HTTP 200 can still contain an HTML error page. For example,
+`GET /api/v1/routeware/reports/query-request-is-complete?requestID=abc-123`
+returns the following **only when upstream answers with that failure**, not
+because `abc-123` is a magic error trigger:
+
+```json
+{
+  "type": "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway",
+  "title": "Bad Gateway",
+  "status": 502,
+  "detail": "Upstream read failed: Routeware answered QueryRequestIsComplete with HTTP 200 but the body looks like an HTML error page (silent failure). The poll did not succeed. See docs/PROBLEMS.md#bad-gateway.",
+  "instance": "/api/v1/routeware/reports/query-request-is-complete"
+}
+```
+
+The Worker returns HTTP 502 with `Content-Type: application/problem+json`
+and no `Retry-After` for this case. **Copy-paste reproduction:** the existing
+fixture supplies fake session state and HTML, so it never calls the tenant:
+
+```bash
+npm test -- test/readRoutesSilentFailure.test.ts \
+  -t "surfaces an upstream query-request-is-complete HTML-200 error page as 502 problem\+json"
+# 1 matching test passes by asserting HTTP 502, not by returning 200.
+```
+
+Do not run an upstream-backed curl merely to force a 502: even local
+`wrangler dev` forwards to Routeware. For timeout behavior, use the mocked
+GET fixture instead:
+
+```bash
+npm test -- test/upstreamTimeout.test.ts \
+  -t "a hung upstream answers 502 problem\+json with exactly one attempt"
+```
+
+A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
+the `detail` names the configured timeout budget. **Fix:** for a read timeout,
+retry once after a short backoff. If it persists, ask the operator to check
+Routeware availability, the session, and the login path. Changing the client
+bearer or raising the timeout does not repair an upstream failure. For the
+HTML error above, have the operator inspect the upstream session/report
+request before retrying; the problem body never includes the raw HTML.
+
+For saves, **do not blindly replay the write**: verify the outcome first.
+The `/routeware/*` silent-save failures described in step 4 use 502
+problem+json, while `/data/*` saves can return ordinary JSON with `ok:false`
+(and a 200 or upstream error status). Anti-forgery preparation failures use
+problem+json separately. Check both HTTP status and the save envelope;
+not every `/data/*` 502 is an anti-forgery failure. Catalog:
+[`bad-gateway`](./PROBLEMS.md#bad-gateway).
+
 ## Troubleshooting
 
 | Symptom | Meaning |
 |---|---|
-| 401 on everything except `/health` | Missing/wrong bearer, or no token configured server-side (fails closed). General token on a privileged route also 401s — retry with the sync secret. |
-| 429 | Too many failed auth attempts from your IP; wait 60 s, then use a valid token. |
+| 401 on everything except `/health` | Missing/wrong bearer, or no token configured server-side (fails closed). General token on a privileged route also 401s — use the sync secret only for that gate. See [401 recipe](#401-fix-the-bearer-or-use-the-correct-gate). |
+| 429 | Too many failed auth attempts from your IP; stop the bad requests and honor `Retry-After`. See [429 recipe](#429-stop-invalid-auth-retries). |
 | 200 with `"rows":[]` | Auth works; D1 has no snapshot data yet (operator runs the sync). |
 | 404 `not-found` on `/data/*` | That id is not in D1. |
 | 502 on a `/routeware/*` save | Routeware rejected the save upstream; see the problem+json `detail`. |
 | 200 with `"ok":false` on a `/data/*` save | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`, fix the form, retry. |
 | 405 on `DELETE` | By design — disable via save (step 5). |
 
-All errors are `application/problem+json` with a `type` URL pointing at the
-[`PROBLEMS.md`](./PROBLEMS.md) section that explains them.
+Worker-generated problem responses are `application/problem+json` with a
+`type` URL pointing at the [`PROBLEMS.md`](./PROBLEMS.md) section that explains
+them. The ordinary `/data/*` save envelope is the exception described above.
 
 ## Smoke ladder: five copy-paste commands (fresh clone → green)
 
