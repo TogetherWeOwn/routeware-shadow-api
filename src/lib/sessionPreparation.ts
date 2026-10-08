@@ -26,8 +26,8 @@ export class SessionBodyPreparationError extends Error {
   }
 }
 
-export async function requireAuthenticatedModal(response: Response): Promise<void> {
-  if (isLoginRedirect(response) || await isLoginPageResponse(response)) {
+export async function requireAuthenticatedModal(response: Response, timeoutMs: number): Promise<void> {
+  if (isLoginRedirect(response) || await isLoginPageResponse(response, timeoutMs)) {
     throw new SessionRejectedDuringPreparation(response.status);
   }
 }

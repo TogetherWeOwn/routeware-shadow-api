@@ -8,6 +8,7 @@ import {
   forwardWithSessionRetry,
   type ModalRetryContext
 } from "./forwardWithSessionRetry";
+import { readUpstreamText } from "./upstreamBody";
 import { forwardToUpstream } from "./upstreamForward";
 import { requireAuthenticatedModal } from "./sessionPreparation";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
@@ -135,11 +136,11 @@ export async function prepareSaveAddressFormBody(
     }
   });
   const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
-  await requireAuthenticatedModal(modalResp);
+  await requireAuthenticatedModal(modalResp, readUpstreamTimeoutMs(env));
   if (!modalResp.ok) {
     throw new Error(`Load address modal (${modalPath}): HTTP ${modalResp.status}`);
   }
-  const html = await modalResp.text();
+  const html = await readUpstreamText(modalResp, readUpstreamTimeoutMs(env));
   const token = extractRequestVerificationTokenFromHtml(html);
   if (!token) {
     throw new Error("No __RequestVerificationToken in address modal HTML");
@@ -205,11 +206,11 @@ export async function prepareSaveContainerFormBody(
     }
   });
   const modalResp = await fetchAntiForgeryModal(env, session, modalReq, modalUrl, retry);
-  await requireAuthenticatedModal(modalResp);
+  await requireAuthenticatedModal(modalResp, readUpstreamTimeoutMs(env));
   if (!modalResp.ok) {
     throw new Error(`Load container modal (${modalPath}): HTTP ${modalResp.status}`);
   }
-  const html = await modalResp.text();
+  const html = await readUpstreamText(modalResp, readUpstreamTimeoutMs(env));
   const token = extractRequestVerificationTokenFromHtml(html);
   if (!token) {
     throw new Error("No __RequestVerificationToken in container modal HTML");

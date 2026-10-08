@@ -85,6 +85,8 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
   let rejectEveryAttempt: boolean;
   let saveStatus: number;
   let hangOnSave: boolean;
+  let stallBodyHop: "modal" | "save" | null;
+  let stalledBody: { cancel: ReturnType<typeof vi.fn>; signal: AbortSignal | null; close: () => void } | null;
 
   beforeEach(() => {
     if ("clearAntiForgeryTokenCache" in customerTokens && typeof customerTokens.clearAntiForgeryTokenCache === "function") {
@@ -101,6 +103,8 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
     rejectEveryAttempt = false;
     saveStatus = 200;
     hangOnSave = false;
+    stallBodyHop = null;
+    stalledBody = null;
     session = {
       cookieHeader: "session=FAKE-OLD",
       expiresAtMs: Date.now() + 600_000,
@@ -150,6 +154,24 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
       if (hop === rejectedHop && (rejectEveryAttempt || cookie === "session=FAKE-OLD")) {
         return loginResponse(rejectionShape);
       }
+      if (hop === stallBodyHop) {
+        let controller!: ReadableStreamDefaultController<Uint8Array>;
+        const cancel = vi.fn();
+        const body = new ReadableStream<Uint8Array>({
+          start(c) { controller = c; },
+          cancel
+        });
+        stalledBody = {
+          cancel,
+          signal: init?.signal ?? null,
+          close() {
+            try { controller.close(); } catch { /* Already canceled. */ }
+          }
+        };
+        return new Response(body, {
+          headers: { "content-type": hop === "modal" ? "text/html" : "application/json" }
+        });
+      }
       if (hop === "modal") {
         if (rotateAfterModal) {
           session = { ...session, cookieHeader: "session=FAKE-ROTATED" };
@@ -174,7 +196,10 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
     }) as typeof fetch;
   });
 
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  afterEach(() => {
+    stalledBody?.close();
+    globalThis.fetch = originalFetch;
+  });
 
   function save(authorization = "Bearer test-api-token", body = form.body): Promise<Response> {
     return Promise.resolve(app.fetch(new Request(`http://test.local${form.path}`, {
@@ -350,6 +375,42 @@ describe.each(forms)("single-session modal + save: $path", (form) => {
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     expect(calls.map((call) => call.hop)).toEqual(["modal", "save"]);
     expect(login.calls).toBe(0);
+  });
+
+  it.each([
+    { hop: "modal", afterLogin: false },
+    { hop: "modal", afterLogin: true },
+    { hop: "save", afterLogin: false },
+    { hop: "save", afterLogin: true }
+  ] as const)("bounds the $hop body without replay (afterLogin=$afterLogin)", async ({ hop, afterLogin }) => {
+    testEnv = { ...testEnv, UPSTREAM_TIMEOUT_MS: "50" } as Env;
+    stallBodyHop = hop;
+    rejectedHop = afterLogin ? hop : null;
+    rotateAfterModal = hop === "save";
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([
+        save(),
+        new Promise<never>((_, reject) => {
+          watchdog = setTimeout(() => reject(new Error("Body exceeded the configured budget")), 1000);
+        })
+      ]);
+      expect(response.status).toBe(502);
+      expect(response.headers.get("content-type")).toContain("application/problem+json");
+      const problem = await response.json() as { type: string; detail: string };
+      expect(problem.type).toMatch(/#bad-gateway$/);
+      expect(problem.detail).toContain("50ms");
+      expect(calls.map((call) => call.hop)).toEqual(hop === "modal"
+        ? afterLogin ? ["modal", "modal"] : ["modal"]
+        : afterLogin ? ["modal", "save", "modal", "save"] : ["modal", "save"]);
+      expect(login.calls).toBe(afterLogin ? 1 : 0);
+      expect(stalledBody?.signal?.aborted).toBe(true);
+      expect(stalledBody?.cancel).toHaveBeenCalledTimes(1);
+      if (hop === "save") {
+        expect(calls.at(-1)?.cookie).toBe(calls.at(-2)?.cookie);
+        expect(calls.at(-1)?.token).toBe(`FAKE-TOKEN-${calls.at(-1)?.cookie}`);
+      }
+    } finally { clearTimeout(watchdog); }
   });
 
   it.each([false, true])("keeps the bearer gate ahead of token/session reads (blocked=%s)", async (throttled) => {

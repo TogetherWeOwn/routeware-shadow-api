@@ -195,7 +195,7 @@ export async function forwardWithSessionRetry(
   // re-login + retry as a login redirect; every other response (including
   // 401/429) is returned as-is and never retried.
   if (response && !isLoginRedirect(response)) {
-    if (response.status !== 200 || !(await isLoginPageResponse(response))) {
+    if (response.status !== 200 || !(await isLoginPageResponse(response, timeoutMs))) {
       return mapUpstreamResponse(response);
     }
   }
