@@ -78,6 +78,28 @@ export type ReadinessReport = {
  */
 export const CRON_STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
+/** Dependency observations can lag by 20s; hits never extend this window. */
+export const READINESS_CACHE_TTL_MS = 20_000;
+
+type DependencyChecks = Pick<ReadinessReport["checks"], "d1" | "r2" | "cron">;
+type CachedDependencies = {
+  db: D1Database | undefined;
+  bucket: R2Bucket | undefined;
+  r2Enabled: boolean;
+  startedAt: number;
+  pending: boolean;
+  checks: Promise<DependencyChecks>;
+};
+
+// Best-effort, isolate-local only; weak keys do not retain retired environments.
+// Binding-only deploys can reuse isolates, so validate binding identities on hits.
+// Source: https://developers.cloudflare.com/workers/runtime-apis/bindings/#making-changes-to-bindings
+const dependencyCache = new WeakMap<Env, CachedDependencies>();
+
+function r2Enabled(env: Env): boolean {
+  return String((env as Partial<Env>).SNAPSHOTS_R2_ENABLED ?? "true").toLowerCase() !== "false";
+}
+
 function reportSourceConfigured(
   env: Env,
   pathKey:
@@ -111,8 +133,7 @@ async function checkD1(env: Env): Promise<D1Check> {
 function checkR2(env: Env): R2Check {
   const partial = env as Partial<Env>;
   const bound = partial.SNAPSHOTS !== undefined && partial.SNAPSHOTS !== null;
-  const enabled =
-    String(partial.SNAPSHOTS_R2_ENABLED ?? "true").toLowerCase() !== "false";
+  const enabled = r2Enabled(env);
   if (!enabled) {
     // Archiving is deliberately off — the binding is not needed.
     return {
@@ -213,6 +234,36 @@ async function checkCron(env: Env, nowMs: number = Date.now()): Promise<CronChec
   return { ok: true, stale: false, lastRunAt: newest, tables };
 }
 
+async function cachedDependencyChecks(env: Env): Promise<DependencyChecks> {
+  const { CUSTOMER_DB: db, SNAPSHOTS: bucket } = env as Partial<Env>;
+  const enabled = r2Enabled(env);
+  const nowMs = Date.now();
+  const cached = dependencyCache.get(env);
+  if (
+    cached &&
+    cached.db === db &&
+    cached.bucket === bucket &&
+    cached.r2Enabled === enabled &&
+    (cached.pending ||
+      (nowMs >= cached.startedAt &&
+        nowMs - cached.startedAt < READINESS_CACHE_TTL_MS))
+  ) {
+    return cached.checks;
+  }
+
+  const r2 = checkR2(env);
+  // Cache the pending promise before yielding, so a cold burst shares both D1
+  // queries (ping + advisory cron read). Successes and failures have the same TTL.
+  const entry: CachedDependencies = {
+    db, bucket, r2Enabled: enabled, startedAt: nowMs, pending: true,
+    checks: Promise.all([checkD1(env), checkCron(env, nowMs)])
+      .then(([d1, cron]) => ({ d1, r2, cron }))
+      .finally(() => { entry.pending = false; })
+  };
+  dependencyCache.set(env, entry);
+  return entry.checks;
+}
+
 /**
  * Run every readiness check and fold them into one report.
  * Overall status is `ok` only when D1 answers, R2 is bound (or archiving is
@@ -224,10 +275,9 @@ export async function checkReadiness(env: Env): Promise<{
   report: ReadinessReport;
   httpStatus: 200 | 503;
 }> {
-  const d1 = await checkD1(env);
-  const r2 = checkR2(env);
+  // Never hand mutable cache objects to callers. Config and auth are not cached.
+  const { d1, r2, cron } = structuredClone(await cachedDependencyChecks(env));
   const config = checkConfig(env);
-  const cron = await checkCron(env);
   const ok = d1.ok && r2.ok && config.ok;
   return {
     report: {

@@ -130,7 +130,9 @@ export function isValidChainedBase(value) {
   if (parsed.pathname !== "/" && parsed.pathname !== "") {
     return false;
   }
-  if (parsed.search || parsed.hash) {
+  // URL.search/hash hide empty delimiters; the cron rejects them before
+  // appending sync paths to the original string.
+  if (trimmed.includes("?") || trimmed.includes("#")) {
     return false;
   }
   return true;

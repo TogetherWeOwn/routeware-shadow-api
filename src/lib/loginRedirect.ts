@@ -1,3 +1,6 @@
+import { readUpstreamText } from "./upstreamBody";
+import { DEFAULT_UPSTREAM_TIMEOUT_MS, isUpstreamTimeout } from "./upstreamTimeout";
+
 export function isLoginRedirect(response: Response): boolean {
   if (response.status !== 302) {
     return false;
@@ -35,13 +38,18 @@ export function looksLikeLoginPageHtml(text: string): boolean {
 }
 
 /**
- * True when a 200 response carries a login-page body. Never throws and never
- * logs the body (PII): a read failure means "not a login page".
+ * True when a 200 response carries a login-page body. Never logs the body
+ * (PII). A timeout throws; other read failures mean "not a login page".
+ * Report downloads explicitly pass null to preserve their existing sniff
+ * without imposing a total deadline on CSV with a nonstandard content type.
  *
  * JSON/CSV/octet-stream 200s are real payloads — the body is not read at
  * all (which also avoids buffering large JSON graphs just to check).
  */
-export async function isLoginPageResponse(response: Response): Promise<boolean> {
+export async function isLoginPageResponse(
+  response: Response,
+  timeoutMs: number | null = DEFAULT_UPSTREAM_TIMEOUT_MS
+): Promise<boolean> {
   if (response.status !== 200) {
     return false;
   }
@@ -54,9 +62,14 @@ export async function isLoginPageResponse(response: Response): Promise<boolean> 
     return false;
   }
   try {
-    const text = await response.clone().text();
+    const text = timeoutMs === null
+      ? await response.clone().text()
+      : await readUpstreamText(response, timeoutMs, true);
     return looksLikeLoginPageHtml(text);
-  } catch {
+  } catch (err) {
+    if (isUpstreamTimeout(err)) {
+      throw err;
+    }
     return false;
   }
 }

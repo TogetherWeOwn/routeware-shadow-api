@@ -2,7 +2,8 @@ import { forwardToUpstream } from "./upstreamForward";
 import { establishSession } from "./establishSession";
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
 import { readSessionState } from "./sessionState";
-import { readReportTimeoutMs } from "./upstreamTimeout";
+import { readUpstreamText } from "./upstreamBody";
+import { readReportTimeoutMs, readUpstreamTimeoutMs } from "./upstreamTimeout";
 
 const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
@@ -58,7 +59,8 @@ async function forwardSessionAware(
   env: Env,
   makeReq: () => Request,
   url: URL,
-  body: ArrayBuffer | null
+  body: ArrayBuffer | null,
+  bodyTimeoutMs: number | null = null
 ): Promise<Response> {
   // Report budget (TOG-5835): full-table CSV downloads get 60s per attempt
   // (vs 15s interactive) — worst case 2x with the single login-redirect retry.
@@ -72,7 +74,7 @@ async function forwardSessionAware(
   // and `forwardWithSessionRetry` (TOG-6515) — one re-login + retry.
   // `isLoginPageResponse` never throws/logs the body (PII) and skips
   // JSON/CSV/octet-stream without reading.
-  if (resp.status !== 200 || isLoginRedirect(resp) || (await isLoginPageResponse(resp))) {
+  if (resp.status !== 200 || isLoginRedirect(resp) || (await isLoginPageResponse(resp, bodyTimeoutMs))) {
     await establishSession(env, stub, env.LOGIN_URL);
     session = await readSessionState(stub);
     resp = await forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
@@ -140,15 +142,16 @@ async function pollQueryRequestIsComplete(env: Env, requestId: string): Promise<
       }
     });
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const resp = await forwardSessionAware(env, pollReq, pollUrl, null);
+    const bodyTimeoutMs = readUpstreamTimeoutMs(env);
+    const resp = await forwardSessionAware(env, pollReq, pollUrl, null, bodyTimeoutMs);
     if (
       resp.status !== 200 ||
       isLoginRedirect(resp) ||
-      (await isLoginPageResponse(resp))
+      (await isLoginPageResponse(resp, bodyTimeoutMs))
     ) {
       throw new Error(`QueryRequestIsComplete failed: HTTP ${resp.status}`);
     }
-    if (parseQueryRequestIsCompleteResponse(await resp.text())) {
+    if (parseQueryRequestIsCompleteResponse(await readUpstreamText(resp, bodyTimeoutMs))) {
       return;
     }
     if (attempt < maxAttempts) {
@@ -204,7 +207,7 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
   const downResp = await forwardSessionAware(env, downReq, downUrl, null);
   // A retry that still sees a login page throws instead of returning HTML as
   // CSV. Body never embedded (TOG-5821).
-  if (downResp.status !== 200 || isLoginRedirect(downResp) || (await isLoginPageResponse(downResp))) {
+  if (downResp.status !== 200 || isLoginRedirect(downResp) || (await isLoginPageResponse(downResp, null))) {
     // The body is upstream-controlled and may carry customer PII — never embed
     // it in the message: this error reaches the cron log wrapped in `[step]`
     // context (TOG-5821).

@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { addressRowExample, addressExportExample } from "./payloadExamples";
 import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
@@ -24,7 +25,8 @@ import {
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
-  parsePositiveIdParam
+  parsePositiveIdParam,
+  snapshotWriteResultExample
 } from "./shared";
 import {
   mapSnapshotImportError,
@@ -43,23 +45,29 @@ const addressSnapshotListRoute = createRoute({
     "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      pickupAddressId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Address line substring (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0),
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      q: z.string().optional().describe("Address line substring (case-insensitive)").openapi({ example: "Main" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()
         .int()
         .optional()
         .describe("Last pickup_address_id from the previous page's nextCursor; takes precedence over offset")
+        .openapi({ example: 9 })
     })
   },
   responses: {
     200: {
       description: "Rows and total",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [addressRowExample], total: 1, nextCursor: null }
+        }
+      }
     },
     400: {
       description:
@@ -132,7 +140,7 @@ const addressSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: addressExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
@@ -160,12 +168,17 @@ const addressSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `pickupAddressId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ pickupAddressId: z.coerce.number().int() })
+    params: z.object({ pickupAddressId: z.coerce.number().int().openapi({ example: 10 }) })
   },
   responses: {
     200: {
       description: "Row",
-      content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
+      content: {
+        "application/json": {
+          schema: z.record(z.string(), z.unknown()),
+          example: addressRowExample
+        }
+      }
     },
     400: {
       description: "Invalid id (application/problem+json)"
@@ -227,7 +240,8 @@ const addressSnapshotSyncRoute = createRoute({
             rowCount: z.number().int(),
             deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
-          })
+          }),
+          example: snapshotWriteResultExample
         }
       }
     },
@@ -294,7 +308,8 @@ const addressSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() }),
+          example: snapshotWriteResultExample
         }
       }
     },
