@@ -175,9 +175,11 @@ per RFC 4180. Original apostrophe-leading cells receive an extra apostrophe,
 so `=1+1` and the literal `'=1+1` cannot collide.
 
 Exports insert `_shadow_csv_encoding` before the final `synced_at`, with `apostrophe-v1`
-on every row. Re-importing the **original downloaded bytes**, including that
-column, removes exactly one inserted apostrophe before the existing import
-normalization. Ordinary unmarked Routeware CSV and unknown encoding versions
+on every row. Decoding the **original encoded cells**, including that column,
+removes exactly one inserted apostrophe before the existing import normalization.
+A direct HTTP re-import additionally requires a non-empty, import-compatible
+body within the unchanged **52,428,800-byte (50 MiB)** limit. Exports are uncapped;
+metadata and quoting can push a formerly admissible download over that limit. Ordinary unmarked Routeware CSV and unknown encoding versions
 are not decoded. Machine consumers must honor this marker rather than treat
 spreadsheet-escaped values as raw business data; export widths are now
 15 customer / 17 address / 30 container columns.
@@ -186,6 +188,44 @@ This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/atta
 for text-cell escaping. It is not a promise of safety or losslessness after a
 spreadsheet saves, converts, or reopens the CSV: spreadsheet programs can strip
 escaping or alter values. Keep the original download for programmatic re-import.
+
+#### Bounded upsert recovery for oversized exports
+
+Use `batchSnapshotExportCsv` from `src/lib/snapshot/exportImportBatches.ts` in a
+local preparation tool. It accepts the original download's UTF-8 byte stream
+and yields CSV bodies of at most **5 MiB / 500 data rows** by default. Each body
+repeats the complete original header and copies complete logical records,
+including the encoding marker and apostrophes, without decoding or re-escaping
+cells. Only record separators become LF. RFC 4180 quoted multiline cells stay
+intact; physical-line or arbitrary-byte splitting is not safe.
+
+1. Keep the immutable original. Consume the helper to completion, persisting
+   each part privately rather than collecting the whole export in memory.
+   Do not upload any part before preparation and validation of **all** parts
+   succeeds. This helper is not a CSV/control validator or an upload driver.
+2. Preflight each part's UTF-8 byte length, parsed row count and safe control
+   content before any upload; the helper does not validate or reject controls.
+   Check compatibility with the target import's current policy and compare the
+   concatenated decoded business rows with the original. Preserve the complete
+   header and every marker. A header plus one indivisible row exceeding the
+   configured budget throws a content-free error; never truncate a row or raise
+   the HTTP cap. Larger helper byte budgets are permitted only up to 50 MiB;
+   smaller byte/row budgets are available when needed.
+3. For an authorized recovery, send parts sequentially to the matching
+   `...-snapshot/import`, completing customers before addresses before containers.
+   Check every response and row count; stop on any error. Imports are upsert-only:
+   do not use reconciliation or `/sync` between parts. Existing rows absent from
+   the download remain, and `synced_at` is restamped rather than restored.
+4. A late preparation or import failure can follow earlier yielded parts or
+   committed D1 batches. There is no all-or-nothing restore or deletion rollback;
+   retain the original and receipts and resume/retry only after investigating the
+   failure. Size bounds do not validate controls, CSV shape or FK/D1 constraints.
+
+For the synthetic 6,000-row boundary regression, metadata grows the download
+from 52,386,156 to 52,470,177 bytes: direct import correctly returns 413. The
+helper emits 12 admissible parts while preserving all 6,000 decoded rows
+(`test/snapshotExportImportBatches.test.ts`). This is a bounded recovery path,
+not a promise that every uncapped export can be imported as one request.
 
 ### D1: “Too many API requests by single Worker invocation”
 

@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8894: Snapshot CSV exports reversibly escape formula-leading values with
+  `apostrophe-v1` and add `_shadow_csv_encoding` before the final `synced_at`
+  column (15 customer / 17 address / 30 container columns). First-open spreadsheet
+  safety requires comma separators and double-quote text delimiters. Decoding
+  requires the original encoded cells and marker; existing normalization and the
+  HTTP import 50 MiB cap still apply. Batch preparation needs separate control
+  preflight (see CUSTOMER_SNAPSHOT.md).
 - TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
   cell content before D1 binding, with a PII-free row-numbered 400. Upstream
   report sync parsing stays permissive; earlier valid import batches may remain.
