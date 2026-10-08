@@ -4,7 +4,7 @@ import { parseContainerSnapshotRow } from "../csvContainerSnapshot";
 import type { ContainerSnapshotRow } from "../csvContainerSnapshot";
 import { parseCustomerSnapshotRow } from "../csvCustomerSnapshot";
 import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
-import { mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
+import { assertCsvControlCharacters, mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
@@ -88,14 +88,21 @@ function firstHeaderCell(line: string): string {
   return normHeader(parseCsvLine(line)[0] ?? "");
 }
 
-/** CSV lines, optionally enforcing a cumulative byte cap without buffering. */
-function cappedLines(
+/** Imports validate raw records before trimming/D1; reports keep legacy parsing. */
+async function* cappedLines(
   body: ReadableStream<Uint8Array>,
-  maxBytes?: number
+  options: StreamSyncOptions
 ): AsyncGenerator<string, void, undefined> {
-  return streamCsvLines(
-    maxBytes === undefined ? body : withByteCap(body, maxBytes)
-  );
+  let rowNumber = 0;
+  for await (const line of streamCsvLines(
+    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes)
+  )) {
+    rowNumber += 1;
+    if (options.rejectControlCharacters) {
+      assertCsvControlCharacters(line, rowNumber);
+    }
+    yield line;
+  }
 }
 
 /**
@@ -140,7 +147,7 @@ export async function syncCustomerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
@@ -234,7 +241,7 @@ export async function syncAddressSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
@@ -328,7 +335,7 @@ export async function syncContainerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options.maxBytes)) {
+  for await (const line of cappedLines(body, options)) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(
