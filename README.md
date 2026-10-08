@@ -4,14 +4,14 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 > ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
-> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. PR `build` and `hygiene`
-> jobs are credential-free; the optional `shadow-api-v1` probe reports a gated result when
-> `CF_TOKEN` is absent. Production deploys remain skipped unless `PRODUCTION_DEPLOY_ENABLED`
-> is exactly `true`. Repository settings and credentials must be verified separately at handover.
+> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On PRs, changed-area
+> detection selects credential-free `build` and optional `shadow-api-v1` jobs; `hygiene` always runs.
+> Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
+> Repository settings and credentials must be verified separately at handover.
 >
-> **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--enable-pr-ci-before-enabling-production-deploys)
-> has the phased procedure** — enable Actions and verify a throwaway PR first; configure the
-> `production` environment and token later; set the repository variable last.
+> **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--verify-pr-ci-before-enabling-production-deploys)
+> has the phased procedure** — check Actions and effective branch rules, then verify PR checks;
+> configure the `production` environment and token later; set the repository variable last.
 >
 > That file is also the handover document generally: what lives outside this repo (Cloudflare
 > account, resource ids, the Routeware tenant), the transfer runbook, and the open tasks.
@@ -129,12 +129,14 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 ## Deploy
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) always keeps PR verification separate from
-production authorization: the credential-free `build` job (workflow invariant check + typecheck +
-test + `wrangler deploy --dry-run`) and `hygiene` job run on PRs, while the `deploy` job runs only on
-a push to `main` when `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. Deploy then applies remote D1
-migrations and runs `wrangler deploy` using the `production` environment. All jobs use self-hosted
-runners labeled `two-selfhosted`; the additional `shadow-api-v1` probe skips contract execution when
-its optional `CF_TOKEN` is absent.
+production authorization. On PRs, changed-area detection selects the credential-free `build` job
+(workflow invariant check + typecheck + test + `wrangler deploy --dry-run`) and optional
+`shadow-api-v1`; `hygiene` always runs, and `ci-ok` accepts intentional skips. Docs-only PRs
+intentionally skip `build` and `shadow-api-v1`. The production `deploy` job runs only on a push to
+`main` when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively). Deploy then applies
+remote D1 migrations and runs `wrangler deploy` using the `production` environment. All jobs use
+self-hosted runners labeled `two-selfhosted`; without its optional `CF_TOKEN`, the `shadow-api-v1`
+probe skips contract execution.
 
 **Enable production only after the full setup is ready:**
 
