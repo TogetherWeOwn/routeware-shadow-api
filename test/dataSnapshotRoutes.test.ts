@@ -47,7 +47,8 @@ const behavior: {
  * rejection under `@cloudflare/vitest-pool-workers`. Calls are recorded by
  * hand, and the throwing path is driven by `behavior.error`.
  */
-vi.mock("../src/lib/d1SnapshotSync", () => ({
+vi.mock("../src/lib/d1SnapshotSync", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/d1SnapshotSync")>()),
   runDataSnapshotSyncChainedHttp: async (origin: string, env: unknown) => {
     if (behavior.error) {
       throw behavior.error;
