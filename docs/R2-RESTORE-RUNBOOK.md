@@ -1,8 +1,10 @@
 # R2 snapshot restore runbook — recover D1 from the CSV archive
 
-**Scope:** manual archive recovery to a **new, isolated local D1**. No deploy,
-remote D1 write, upstream sync, or production drill is part of this procedure.
-Run from the repository root with Node >=20, Python 3, curl and the lockfile's
+**Scope:** §§2–5 are the credential-free reviewer drill to a **new, isolated local
+D1**. They never deploy, write remote D1, or sync upstream. §7 separately documents
+an **authorized incident recovery** to a deployed target; it is not a production
+test and must not be executed as part of review or ordinary development.
+Run from the repository root with Bash, Node >=20, Python 3, curl and the lockfile's
 Wrangler installed (`npm ci --include=dev`). Commands were checked with Wrangler
 4.84.1. Use two terminals: A for the local Worker, B for the recovery commands.
 
@@ -52,13 +54,36 @@ policy from the key's date. [R2 lifecycle documentation](https://developers.clou
 ## 2. Create private scratch state (terminal B)
 
 In Paperclip use the run-owned scratch directory. Outside Paperclip, set
-`PAPERCLIP_RUN_SCRATCH_DIR` to an approved private scratch parent first. Keep the
-same exported `RUN` in both terminals. Do **not** erase `.wrangler/state`, point
-at an existing dev server, or substitute the repository's production config.
+`PAPERCLIP_RUN_SCRATCH_DIR` to an approved private scratch parent first. Do **not**
+erase `.wrangler/state`, point at an existing dev server, or substitute the
+repository's production config.
+
+Terminal B: create a private context file once in your ordinary Bash shell.
+This block does not enable strict mode or call `exit` in your interactive shell.
 
 ```bash
+if RECOVERY_CONTEXT="$(mktemp "${PAPERCLIP_RUN_SCRATCH_DIR:?set a private scratch parent}/r2-context.XXXXXX")"; then
+  export RECOVERY_CONTEXT
+  export SOURCE=local
+  printf 'Private recovery context: %s\n' "$RECOVERY_CONTEXT"
+else
+  printf 'STOP: recovery context creation failed; do not continue\n' >&2
+fi
+```
+
+Each following recovery block runs in a **subshell** `( ... )`: a failed command
+stops that block, not your terminal. Stop the procedure on any failure; do not
+paste the next block. The context file preserves only explicitly listed,
+non-secret recovery settings, including the exact `RUN`. Later blocks source
+that file, never downloaded archive content. After a STOP, inspect the cause and
+resume only the failed step with the same context; do not repeat scratch creation
+against existing state. Keep the context path private and available for cleanup.
+
+```bash
+(
 set -euo pipefail
 umask 077
+: "${RECOVERY_CONTEXT:?create the private context file first}"
 export ROOT="$PWD"
 RUN="$(mktemp -d "${PAPERCLIP_RUN_SCRATCH_DIR:?set a private scratch parent}/r2-recovery.XXXXXX")"
 [ -n "$RUN" ] && [ -d "$RUN" ] || { printf 'STOP: scratch creation failed\n' >&2; exit 1; }
@@ -105,8 +130,10 @@ new_classes = ["AuthSession"]
 ''')
 PY
 
+declare -p ROOT RUN DATE BUCKET PORT WRANGLER_SEND_METRICS > "$RECOVERY_CONTEXT"
 npx wrangler d1 migrations apply CUSTOMER_DB --local \
   --config "$RUN/wrangler.toml" --persist-to "$RUN/state"
+)
 ```
 
 The generated config has a dummy D1 id, public **synthetic** local-only bearer
@@ -122,6 +149,9 @@ It neither reads nor writes a remote bucket. Never manufacture a replacement
 manifest for a real archive that is missing one.
 
 ```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 node --input-type=module <<'JS'
 import { writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -140,7 +170,7 @@ npx wrangler r2 object put "$BUCKET/snapshots/$DATE/customer.csv" \
   --local --persist-to "$RUN/state" --file "$RUN/seed.csv"
 npx wrangler r2 object put "$BUCKET/snapshots/$DATE.manifest.json" \
   --local --persist-to "$RUN/state" --file "$RUN/seed.manifest.json"
-export SOURCE=local
+)
 ```
 
 ## 4. Download and verify the exact files that will be imported
@@ -152,6 +182,9 @@ this doc, commands, or evidence. Do not use a production archive for the reviewe
 drill. Local R2 objects are not visible remotely and vice versa.
 
 ```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 case "${SOURCE:?set local or remote}" in
   local) R2_FLAGS=(--local --persist-to "$RUN/state") ;;
   remote) R2_FLAGS=(--remote) ;;
@@ -186,6 +219,7 @@ if (manifest.version !== 1 || manifest.date !== DATE ||
     entry.sha256 !== digest) throw new Error('STOP: customer archive integrity mismatch');
 console.log(`PASS customer.csv: ${csv.length} bytes, SHA-256 ${digest}`);
 JS
+)
 ```
 
 **Stop before any import** on a missing CSV/manifest, parse error, missing entry,
@@ -198,8 +232,12 @@ On main, the optional whole-date audit verifies every manifest entry in the
 **selected** local bucket and persistence directory:
 
 ```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 node scripts/verify-r2-manifest.mjs --date="$DATE" --bucket="$BUCKET" \
   --persist-to "$RUN/state"
+)
 ```
 
 For an authorized remote audit, replace `--persist-to "$RUN/state"` with
@@ -210,16 +248,20 @@ is not a substitute for verifying the **specific downloaded bytes** imported her
 
 ## 5. Recover the customer table into scratch D1
 
-Terminal A: from the same repository root, export the **exact** `RUN` and `PORT`
-from terminal B, then run the following in the foreground. No `--remote`, `-e test`
+Terminal A: from the same repository root, export the **exact** `RECOVERY_CONTEXT`
+path printed in terminal B (not its contents), then run the following in the
+foreground. The file supplies the exact `RUN` and `PORT`. No `--remote`, `-e test`
 or repository config. If startup fails, stop; do not import through an older
 server already answering that port.
 
 ```bash
-export WRANGLER_SEND_METRICS=false
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?export the exact context path from terminal B}"
 CLOUDFLARE_INCLUDE_PROCESS_ENV=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
   npx wrangler dev --local --config "$RUN/wrangler.toml" \
   --persist-to "$RUN/state" --ip 127.0.0.1 --port "$PORT"
+)
 ```
 
 The command-local overrides disable process-env and `.env` secret loading even
@@ -231,6 +273,9 @@ See [Wrangler's local environment controls](https://developers.cloudflare.com/wo
 Wait for `Ready on http://127.0.0.1:<PORT>`. Terminal B:
 
 ```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 BASE="http://127.0.0.1:$PORT"
 curl --noproxy 127.0.0.1 --fail-with-body --silent --show-error \
   "$BASE/api/v1/customer-snapshot/import" \
@@ -262,11 +307,15 @@ if [x['results'][0] for x in counts] != [
     raise SystemExit('STOP: D1 count mismatch or nonempty scratch target')
 print(f'PASS: restored {expected} customers; address/container remain empty; deleted=0')
 PY
+)
 ```
 
 For the synthetic fixture, additionally verify values, not just counts:
 
 ```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 npx wrangler d1 execute CUSTOMER_DB --local --config "$RUN/wrangler.toml" \
   --persist-to "$RUN/state" --json --command \
   'SELECT customer_id, company_name, enabled FROM customer_snapshot ORDER BY customer_id' \
@@ -281,6 +330,7 @@ if rows != [
     raise SystemExit('STOP: recovered values differ')
 print('PASS: both synthetic rows match ids, quoted CSV values and booleans')
 PY
+)
 ```
 
 For a real archive, compare sampled ids/values to its CSV **privately** instead of
@@ -314,7 +364,182 @@ that stream into the existing per-table stream-sync functions in FK order.
 This helper is not a standalone HTTP R2-to-D1 restore endpoint and does not
 replace manifest verification or recovery authorization.
 
-## 7. Evidence, cleanup and undo
+## 7. Deployed incident recovery — separately authorized, never a drill
+
+**Do not execute this section during review.** Production recovery requires the
+incident owner's explicit authorization and CEO sign-off for remote data writes,
+as required by [the D1 runbook](D1-BACKUP-RESTORE-RUNBOOK.md). Record the approved
+account, Worker URL, D1 id, environment, archive date, affected tables and undo
+plan privately. Approval to read R2 or run a scratch drill is **not** approval to
+write a deployed database. If authority or target identity is uncertain, stop.
+
+Before writes, the operator must arrange an approved maintenance window that
+quiesces the snapshot cron and other D1 writers. Do not disable a security gate,
+probe an import route, run `/sync`, migrate schema, or wipe tables. This is an
+upsert recovery, **not** a point-in-time rewind: existing ids are updated, missing
+ids are inserted, and ids absent from the CSV remain. For an empty lost table,
+post-import count must equal its distinct valid CSV ids. A nonempty target needs
+an approved merge plan (expected union of ids and retained rows); do not assume
+its count equals the archive's count. Whole-database rewind is a different,
+separately approved operation.
+
+### 7.1 Bind the approved deployed target and capture an undo point
+
+Use the maintained repo config, **not** `$RUN/wrangler.toml`. Match the approved
+Worker's `CUSTOMER_DB` binding to the same D1 id in that config; the Worker URL
+alone does not establish identity. The `test` environment is not evidence of a
+staging deployment or permission to write it.
+
+| Approved environment | Wrangler environment flag | D1 name | Source R2 bucket |
+|---|---|---|---|
+| Default production | none | `routeware-customer-snapshot` | `routeware-csv-snapshots` |
+| `test` | `--env test` | `routeware-customer-snapshot-test` | `routeware-csv-snapshots-test` |
+
+In terminal B, export `RECOVERY_ENV` as exactly `default` or `test`, and
+`RECOVERY_BASE` as the approved HTTPS Worker origin, with no path/query. Obtain
+Wrangler authorization and `CUSTOMER_SNAPSHOT_SYNC_SECRET` from the approved
+secret store/environment injection. Never type its value in a command, put it in
+the context file, use a CLI token flag, or print it. Do not retrieve a secret from
+git history or change credentials if authorization fails.
+
+```bash
+(
+set +x
+set -euo pipefail
+umask 077
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
+DEPLOYED_FLAGS=(--config "$ROOT/wrangler.toml")
+case "${RECOVERY_ENV:?export the explicitly approved environment}" in
+  default) D1_NAME=routeware-customer-snapshot ;;
+  test) D1_NAME=routeware-customer-snapshot-test; DEPLOYED_FLAGS+=(--env test) ;;
+  *) printf 'STOP: unapproved environment\n' >&2; exit 1 ;;
+esac
+: "${RECOVERY_BASE:?export the approved Worker origin}"
+declare -p D1_NAME DEPLOYED_FLAGS RECOVERY_BASE > "$RUN/deployed-context.bash"
+npx wrangler d1 info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/deployed-d1-info.json"
+npx wrangler d1 time-travel info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/pre-recovery-bookmark.json"
+npx wrangler d1 execute "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --remote --json --command \
+  'SELECT COUNT(*) AS customers FROM customer_snapshot;
+   SELECT COUNT(*) AS addresses FROM address_snapshot;
+   SELECT COUNT(*) AS containers FROM container_snapshot;' > "$RUN/deployed-before.json"
+)
+```
+
+Inspect these private files **before proceeding**: account/id must match the
+approved target and the bookmark must be usable within its retention window.
+[Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) is
+always on for the current D1 backend (7 days Free / 30 days Paid); do not infer
+the current plan or backend from this repo. If a usable bookmark cannot be
+captured, stop and obtain a different approved backup/undo plan. Time Travel
+restores the **whole database in place**, cancels in-flight queries and can undo
+unrelated writes; it is not a table-scoped rollback. The SQL-export alternative
+is described in [D1-BACKUP-RESTORE-RUNBOOK.md](D1-BACKUP-RESTORE-RUNBOOK.md).
+
+### 7.2 Download, gate and import each approved table in FK order
+
+Use authorized `SOURCE=remote` reads in §4 against the approved source bucket.
+For each affected table, substitute its name for `customer` in the CSV key,
+destination filename and manifest entry: `address.csv` or `container.csv` as
+needed. Keep the same sidecar and verify **every** selected CSV before the first
+write. Recover parents before children: **customer → address → container**;
+unchanged parents must already exist. A same-date manifest is not proof of a
+consistent chain. Confirm compatible parent ids in the scratch drill before
+approving a multi-table incident recovery.
+
+For each table in that order, export `RECOVERY_TABLE` as exactly `customer`,
+`address` or `container` in terminal B and run this block. It rechecks the exact
+bytes immediately before the import. Only the secret already injected into the
+operator's environment is used; it never appears in process arguments or output.
+
+```bash
+(
+set +x
+set -euo pipefail
+umask 077
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
+source "$RUN/deployed-context.bash"
+node --input-type=module <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+try {
+  const { RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table,
+    CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } = process.env;
+  if (!['customer', 'address', 'container'].includes(table) || !secret) {
+    throw new Error();
+  }
+  const base = new URL(RECOVERY_BASE);
+  if (base.protocol !== 'https:' || base.username || base.password ||
+      base.pathname !== '/' || base.search || base.hash) throw new Error();
+  const manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
+  const entry = manifest?.files?.[`${table}.csv`];
+  const csv = readFileSync(`${RUN}/${table}.csv`);
+  if (manifest?.version !== 1 || manifest.date !== DATE ||
+      entry?.key !== `snapshots/${DATE}/${table}.csv` ||
+      !Number.isInteger(entry?.bytes) || entry.bytes <= 0 || entry.bytes !== csv.length ||
+      !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '') ||
+      entry.sha256 !== createHash('sha256').update(csv).digest('hex')) throw new Error();
+  const response = await fetch(new URL(`/api/v1/${table}-snapshot/import`, base), {
+    method: 'POST', redirect: 'error',
+    headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'text/csv' }, body: csv
+  });
+  if (!response.ok) throw new Error();
+  const result = await response.json();
+  if (!Number.isInteger(result.rowCount) || result.rowCount <= 0 ||
+      result.upserted !== result.rowCount || result.deleted !== 0) throw new Error();
+  writeFileSync(`${RUN}/deployed-${table}-import.json`, JSON.stringify({
+    rowCount: result.rowCount, upserted: result.upserted, deleted: result.deleted
+  }));
+  console.log(`Import acknowledged for ${table}; D1 count/value verification still required`);
+} catch {
+  console.error('STOP: incident recovery gate or import failed; inspect privately, no blind retry');
+  process.exit(1);
+}
+JS
+)
+```
+
+On any failure, stop the chain. A failed/partial import may already have written
+batches; do not blindly re-run it or automatically roll back. Keep the maintenance
+window open while the incident owner chooses the approved undo or repair.
+
+### 7.3 Verify deployed D1 and conclude the incident
+
+```bash
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
+source "$RUN/deployed-context.bash"
+npx wrangler d1 execute "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --remote --json --command \
+  'SELECT COUNT(*) AS customers FROM customer_snapshot;
+   SELECT COUNT(*) AS addresses FROM address_snapshot;
+   SELECT COUNT(*) AS containers FROM container_snapshot;
+   SELECT COUNT(*) AS orphan_addresses FROM address_snapshot a
+     LEFT JOIN customer_snapshot c ON c.customer_id = a.customer_id WHERE c.customer_id IS NULL;
+   SELECT COUNT(*) AS orphan_containers FROM container_snapshot t
+     LEFT JOIN address_snapshot a ON a.pickup_address_id = t.pickup_address_id WHERE a.pickup_address_id IS NULL;' \
+  > "$RUN/deployed-after.json"
+)
+```
+
+Compare per-table import counts to CSV row counts as in §5; compare D1 counts to
+the approved empty-table/union expectations and both orphan counts to zero.
+Privately query sampled primary keys with `d1 execute --remote --command SELECT…`
+and compare their values to the verified CSV; unaffected tables must match their
+pre-recovery state. A 200 or import acknowledgment alone is not incident closure.
+
+Only after this evidence passes may the operator restore normal writers under
+the approved maintenance plan. For an authorized undo, obtain explicit approval
+for the whole-D1 impact, then use `wrangler d1 time-travel restore <D1_NAME>
+--bookmark=<saved-pre-recovery-bookmark>` with the **same config/environment flags**
+from §7.1 (Time Travel does not use `--local`/`--remote`). Reverify counts, values
+and orphans after undo. Do not execute a Time Travel restore during a drill.
+
+**Verification limits:** the deployed recovery steps were checked against source
+and Wrangler's CLI, not executed against a remote resource. No live target,
+current plan, retention window, secret availability or production recovery is
+claimed verified here.
+
+## 8. Evidence, cleanup and undo
 
 Acceptance: reviewer follows §§2–5 on the **exact proposed head SHA**, recovers
 2 synthetic customers from local R2 to the new local D1, reconciles the import
@@ -328,9 +553,11 @@ and compared pre/post values. It is not proof of current live bucket availabilit
 or current-head acceptance; the manual drill above is independently repeatable.
 
 Stop terminal A with Ctrl-C **before** removing state. Verify its port is closed
-(and stop only leftover processes belonging to this scratch run). Inspect `RUN`
-before deleting it; remove only this run-owned directory according to the data
-handling policy. Never delete the source archive or shared `.wrangler/state`.
+(and stop only leftover processes belonging to this scratch run). In terminal B,
+read the exact `RUN` from the private context file in a subshell; the interactive
+shell did not inherit the recovery blocks' variables. Inspect that `RUN` before
+deleting it; remove only this run-owned directory and its own `RECOVERY_CONTEXT`
+file according to the data handling policy. Never delete the source archive or shared `.wrangler/state`.
 Downloaded CSVs and scratch D1 can contain PII: do not commit, upload or retain
 them as issue evidence. Undo for this drill is stopping the local Worker and
 discarding its new scratch state; there is no production change to roll back.
