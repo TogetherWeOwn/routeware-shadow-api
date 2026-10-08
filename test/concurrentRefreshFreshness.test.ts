@@ -185,7 +185,9 @@ describe("concurrent refresh requires a validated unexpired session", () => {
     "%s forwarding fails closed after the real failed holder unlocks",
     async (leg) => {
       const { stub, values, fetch } = harness();
-      await storeSession(stub, COOKIE, Date.now() - 1);
+      // A live cookie within the refresh skew triggers the proactive leg even
+      // when expired-session eviction is enabled. It expires while the holder waits.
+      await storeSession(stub, COOKIE, Date.now() + (leg === "proactive" ? 1000 : -1));
       if (leg === "reactive") values.delete("expiresAtMs");
       await stub.fetch("https://auth/lock");
       const seenCookies: string[] = [];
@@ -201,11 +203,15 @@ describe("concurrent refresh requires a validated unexpired session", () => {
         env, stub, new Request("https://shadow.invalid/api/test"),
         new URL("https://upstream.invalid/data"), null, establishSession
       );
+      const settled = pending.then((response) => response, (error: unknown) => error);
       await vi.advanceTimersByTimeAsync(0);
+      if (leg === "proactive") await vi.advanceTimersByTimeAsync(1000);
       await releaseRefreshLock(stub);
       // Covers both the inherited 20s budget and current main's unchanged 90s budget.
       await vi.advanceTimersByTimeAsync(120_000);
-      const response = await pending;
+      const result = await settled;
+      expect(result).toBeInstanceOf(Response);
+      const response = result as Response;
 
       expect(response.status).toBe(502);
       expect(response.headers.get("content-type")).toContain("problem+json");
