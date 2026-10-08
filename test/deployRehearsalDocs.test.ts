@@ -10,12 +10,17 @@ function shellBlocks(markdown: string): string[] {
 }
 
 function hasSafeDryRun(markdown: string): boolean {
-  const deployLines = shellBlocks(markdown).join("\n").split("\n")
-    .filter((line) => /\bwrangler\s+deploy\b/.test(line));
-  return deployLines.length === 1 && deployLines.every((line) =>
-    /(?:^|\s)--dry-run(?:=true)?(?=\s|$)/.test(line) &&
-    !/(?:^|\s)--no-dry-run\b|--dry-run(?:=|\s+)(?:false|0)\b/.test(line),
-  );
+  const commands = shellBlocks(markdown).join("\n");
+  const toolScript = commands.match(/sh -c '\n([\s\S]*?)\n\s*'/)?.[1];
+  if (!toolScript || [...commands.matchAll(/\bwrangler\b/g)].length !== 1 ||
+      [...commands.matchAll(/\bnpm\s+run\b/g)].length !== 3) return false;
+  // Deliberately allow only this simple chain, not arbitrary shell syntax.
+  const steps = toolScript.split("&&").map((step) => step.trim());
+  return steps.length === 4 &&
+    steps[0] === "npm run check:ci-workflow" &&
+    steps[1] === "npm run check:vars-parity" &&
+    steps[2] === "npm run check:d1-drift" &&
+    /^npx --no-install wrangler deploy --dry-run(?:=true)? --env="" --outdir "\$PAPERCLIP_RUN_SCRATCH_DIR\/worker-dry-run"$/.test(steps[3]);
 }
 
 function safetyBoundary(markdown: string): boolean {
@@ -63,7 +68,9 @@ describe("production deploy rehearsal documentation", () => {
     const allocation = /^rehearsal_home=\$\(mktemp -d "\$PAPERCLIP_RUN_SCRATCH_DIR\/rehearsal-home\.XXXXXX"\) \|\| exit 1$/m;
     expect(commands).toMatch(allocation);
     expect(commands.replace('rehearsal-home.XXXXXX") || exit 1', 'rehearsal-home.XXXXXX")')).not.toMatch(allocation);
-    expect(commands.indexOf("rehearsal_home=$(mktemp")).toBeLessThan(commands.indexOf("env -i"));
+    expect(commands).toContain('env -i PATH="$PATH" PAPERCLIP_RUN_SCRATCH_DIR="${PAPERCLIP_RUN_SCRATCH_DIR:-}" sh -eu <<\'REHEARSAL\'');
+    expect(commands).toContain("\nREHEARSAL\n");
+    expect(commands.indexOf("rehearsal_home=$(mktemp")).toBeLessThan(commands.indexOf('env -i PATH="$PATH" HOME='));
   });
 
   it("rejects missing and explicitly disabled dry-run flags", () => {
@@ -73,12 +80,30 @@ describe("production deploy rehearsal documentation", () => {
     expect(hasSafeDryRun(checklist.replace("--dry-run --env", "--dry-run=true --env"))).toBe(true);
   });
 
+  it("rejects additional deployments and unsupported compound commands", () => {
+    for (const extra of [
+      " && npx --no-install wrangler deploy",
+      "; npx --no-install wrangler deploy",
+      " || npx --no-install wrangler deploy",
+      " | npx --no-install wrangler deploy",
+      " && npm run deploy",
+      " && npx wrangler versions upload && npx wrangler versions deploy --yes",
+    ]) {
+      expect(hasSafeDryRun(checklist.replace('/worker-dry-run"', `/worker-dry-run"${extra}`))).toBe(false);
+    }
+    expect(hasSafeDryRun(checklist.replace("npm run check:ci-workflow &&", "npm run deploy && npm run check:ci-workflow &&"))).toBe(false);
+  });
+
   it("does not equate local checks, missing metadata or skipped probes with live readiness", () => {
     expect(checklist).toContain("Organization variables can apply");
     expect(checklist).toContain("alone does not prove effective absence");
     expect(checklist).toMatch(/Local success does\s+not establish that production migrations are current/);
     expect(checklist).toContain("Authed probes skipped for missing credentials are **SKIPPED**, never green");
     expect(checklist).toContain("an unknown cron verdict is **NOT VERIFIED**");
+    expect(checklist).toContain("summary and exit 0, readiness HTTP 200 with `status: \"ok\"`");
+    expect(checklist).toContain("`PASS cron freshness -> fresh`");
+    expect(checklist).toContain("degraded/503 readiness or stale cron is **FAIL**");
+    expect(checklist).toContain("overall exit 0, readiness HTTP 200/ok and fresh cron");
     expect(checklist).toContain("This is not a\nproduction-readiness PASS");
     expect(checklist).toContain("does not roll back an already");
     for (const path of ["/api/v1/health", "/api/v1/shadow/health", "/api/v1/readiness"]) {

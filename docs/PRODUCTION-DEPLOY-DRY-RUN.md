@@ -68,17 +68,29 @@ never try another credential. Secret-name presence does not prove a usable value
 
 ## 3. Rehearse the local bundle and migrations
 
-Run only in a clean checkout without local credential files. Use a pre-existing
-throwaway directory outside the repository for output and local D1 state:
+Run from the root of a clean checkout without local credential files. Set
+`PAPERCLIP_RUN_SCRATCH_DIR` to an existing absolute throwaway directory outside the
+repository for output and local D1 state. Paste this as one invocation; a rejected
+precondition exits only the subprocess, not the interactive caller:
 
 ```bash
-: "${PAPERCLIP_RUN_SCRATCH_DIR:?set an external throwaway rehearsal directory}"
+env -i PATH="$PATH" PAPERCLIP_RUN_SCRATCH_DIR="${PAPERCLIP_RUN_SCRATCH_DIR:-}" sh -eu <<'REHEARSAL'
+case "$PAPERCLIP_RUN_SCRATCH_DIR" in
+  /*) [ -d "$PAPERCLIP_RUN_SCRATCH_DIR" ] || exit 1 ;;
+  *) printf '%s\n' 'Set an existing absolute external scratch directory; stop.' >&2; exit 1 ;;
+esac
+PAPERCLIP_RUN_SCRATCH_DIR=$(CDPATH= cd "$PAPERCLIP_RUN_SCRATCH_DIR" && pwd -P)
+checkout_root=$(pwd -P)
+case "$PAPERCLIP_RUN_SCRATCH_DIR/" in
+  //|"$checkout_root/"*) printf '%s\n' 'Scratch must be outside the checkout; stop.' >&2; exit 1 ;;
+esac
 for file in .env .env.* .dev.vars .dev.vars.*; do
-  [ ! -e "$file" ] || [ "$file" = .dev.vars.example ] || {
+  if { [ -e "$file" ] || [ -L "$file" ]; } && [ "$file" != .dev.vars.example ]; then
     printf '%s\n' 'Local credential files present; stop.' >&2
     exit 1
-  }
+  fi
 done
+[ ! -L .dev.vars.example ] || exit 1
 export PAPERCLIP_RUN_SCRATCH_DIR
 rehearsal_home=$(mktemp -d "$PAPERCLIP_RUN_SCRATCH_DIR/rehearsal-home.XXXXXX") || exit 1
 env -i PATH="$PATH" HOME="$rehearsal_home" \
@@ -91,12 +103,16 @@ env -i PATH="$PATH" HOME="$rehearsal_home" \
     npm run check:d1-drift &&
     npx --no-install wrangler deploy --dry-run --env="" --outdir "$PAPERCLIP_RUN_SCRATCH_DIR/worker-dry-run"
   '
+REHEARSAL
 ```
 
-`env -i` drops inherited credentials (including legacy `CF_API_TOKEN`,
-`CF_API_KEY`, and `CF_EMAIL`); the fresh HOME/XDG directories isolate Wrangler's
-OAuth cache. Rejecting all local dotenv/dev-vars files except the committed
-example also blocks `.env.local` and environment-specific credential loading.
+The first `env -i` starts a noninteractive shell without inherited glob settings,
+so `GLOBIGNORE` or disabled globbing cannot hide local credential files. It validates
+the physical scratch path before allocation or tools, including symlinks back into
+the checkout. Both `env -i` invocations drop inherited credentials (including legacy
+`CF_API_TOKEN`, `CF_API_KEY`, and `CF_EMAIL`); fresh HOME/XDG directories isolate
+Wrangler's OAuth cache. Rejecting all local dotenv/dev-vars files except the committed
+non-symlink example also blocks `.env.local` and environment-specific credential loading.
 The explicit empty environment selects the top-level production configuration
 for **bundling only**; it does not execute or deploy the Worker.
 
@@ -119,7 +135,10 @@ for **bundling only**; it does not execute or deploy the Worker.
 - [ ] Inspect an existing approved **staging** probe receipt with target, head SHA,
   UTC time and individual results for `GET /api/v1/health`,
   `GET /api/v1/shadow/health`, and `GET /api/v1/readiness`.
-  Require each to run and PASS and inspect the readiness verdict/cron freshness;
+  Require all three to run, the overall `post-deploy probe: all three probes passed`
+  summary and exit 0, readiness HTTP 200 with `status: "ok"`, and
+  `PASS cron freshness -> fresh`. Individual endpoint PASS lines are insufficient:
+  degraded/503 readiness or stale cron is **FAIL**;
   an unknown cron verdict is **NOT VERIFIED**, not proof of fresh cron.
 - [ ] Authed probes skipped for missing credentials are **SKIPPED**, never green
   readiness. A `shadow-api-v1` job whose credential-gated contract step was skipped
@@ -152,7 +171,7 @@ Fill this out in the review work product, not with sensitive values in this file
 | CI/configuration | Candidate SHA, gate review, vars parity, binding/secret-name inventory | PASS / NOT READY / NOT VERIFIED |
 | Bundle rehearsal | Dry-run command, exit status, output location | PASS / FAIL |
 | Migrations | Manifest + fresh local journal; production journal evidence separately | Local PASS / FAIL; production NOT VERIFIED unless evidenced |
-| Probe readiness | Approved staging receipt; each probe ran, readiness and cron verdict recorded | PASS / FAIL / SKIPPED / NOT VERIFIED |
+| Probe readiness | Approved staging receipt; all three ran, overall exit 0, readiness HTTP 200/ok and fresh cron | PASS / FAIL / SKIPPED / NOT VERIFIED |
 | Hypothetical ordering | Remote migrations before Worker deploy; gates and rollback limits unchanged | PASS / FAIL |
 
 Report **REHEARSAL COMPLETE — PRODUCTION STILL OFF** only when the offline checks
