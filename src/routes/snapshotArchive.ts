@@ -25,17 +25,23 @@ const snapshotArchiveRoute = createRoute({
     "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`, same bytes as the D1 sync). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh `...-snapshot/export` to verify an archive before recovery.",
   request: {
     params: z.object({
-      table: z.enum(["customer", "address", "container"]),
+      table: z.enum(["customer", "address", "container"]).openapi({ example: "customer" }),
       date: z
         .string()
         .regex(/^\d{4}-\d{2}-\d{2}$/)
         .describe("UTC archive date (YYYY-MM-DD)")
+        .openapi({ example: "2026-01-01" })
     })
   },
   responses: {
     200: {
-      description: "Archived CSV bytes (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      description: "Archived CSV bytes (synthetic customer-report excerpt)",
+      content: {
+        "text/csv": {
+          schema: z.string(),
+          example: "CustomerID,CompanyName,Enabled\r\n345734,ExampleCo,true\r\n"
+        }
+      }
     },
     400: {
       description:

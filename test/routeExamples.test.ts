@@ -16,26 +16,44 @@ const API_TOKEN = "test-api-token";
  * validation gate on the proxy path.
  */
 
-type MediaExample = { schema?: { type?: string }; example?: unknown };
+type ExampleSchema = {
+  $ref?: string;
+  type?: string | string[];
+  properties?: Record<string, ExampleSchema>;
+  required?: string[];
+  items?: ExampleSchema;
+  example?: unknown;
+  enum?: unknown[];
+  minimum?: number;
+  maximum?: number;
+};
+type MediaExample = { schema?: ExampleSchema; example?: unknown };
 type Operation = {
+  tags?: string[];
+  parameters?: Array<{ name: string; in: string; schema?: ExampleSchema; example?: unknown }>;
   requestBody?: { content?: Record<string, MediaExample> };
   responses?: Record<string, { content?: Record<string, MediaExample> }>;
 };
+type ExampleDoc = {
+  paths: Record<string, Record<string, Operation>>;
+  components?: { schemas?: Record<string, ExampleSchema> };
+};
 
-async function fetchDoc(): Promise<{ paths: Record<string, Record<string, Operation>> }> {
+async function fetchDoc(): Promise<ExampleDoc> {
   const res = await exports.default.fetch("http://test.local/openapi.json");
   expect(res.status).toBe(200);
-  return (await res.json()) as { paths: Record<string, Record<string, Operation>> };
+  return (await res.json()) as ExampleDoc;
 }
 
 function op(
   doc: { paths: Record<string, Record<string, Operation>> },
-  path: string
+  path: string,
+  method = "post"
 ): Operation {
   const item = doc.paths[path];
   expect(item, `missing path ${path}`).toBeDefined();
-  const operation = item.post;
-  expect(operation, `missing POST ${path}`).toBeDefined();
+  const operation = item[method];
+  expect(operation, `missing ${method.toUpperCase()} ${path}`).toBeDefined();
   return operation;
 }
 
@@ -43,17 +61,58 @@ function op(
 function assertExampleMatchesSchema(
   route: string,
   mediaType: string,
-  media: MediaExample | undefined
+  media: MediaExample | undefined,
+  schemas: Record<string, ExampleSchema> = {}
 ): void {
   expect(media, `${route} ${mediaType} media`).toBeDefined();
   const { schema, example } = media!;
   expect(schema, `${route} ${mediaType} schema`).toBeDefined();
   expect(example, `${route} ${mediaType} example`).toBeDefined();
-  if (schema!.type === "object") {
-    expect(
-      typeof example,
-      `${route} ${mediaType} example shape`
-    ).toBe("object");
+  assertValueMatchesSchema(schema!, example, `${route} ${mediaType}`, schemas);
+}
+
+function assertValueMatchesSchema(
+  schema: ExampleSchema,
+  value: unknown,
+  label: string,
+  schemas: Record<string, ExampleSchema> = {}
+): void {
+  if (schema.$ref) {
+    const referenced = schemas[schema.$ref.replace("#/components/schemas/", "")];
+    expect(referenced, `${label} reference`).toBeDefined();
+    return assertValueMatchesSchema(referenced, value, label, schemas);
+  }
+  if (schema.enum) expect(schema.enum, label).toContain(value);
+  const type = Array.isArray(schema.type)
+    ? schema.type.find((candidate) => candidate !== "null")
+    : schema.type;
+  if (Array.isArray(schema.type) && schema.type.includes("null") && value === null) return;
+  if (typeof value === "number") {
+    if (schema.minimum !== undefined) expect(value, label).toBeGreaterThanOrEqual(schema.minimum);
+    if (schema.maximum !== undefined) expect(value, label).toBeLessThanOrEqual(schema.maximum);
+  }
+  if (type === "object") {
+    expect(value, label).not.toBeNull();
+    expect(typeof value, label).toBe("object");
+    expect(Array.isArray(value), label).toBe(false);
+    const object = value as Record<string, unknown>;
+    for (const key of schema.required ?? []) {
+      expect(Object.hasOwn(object, key), `${label}.${key}`).toBe(true);
+    }
+    for (const [key, property] of Object.entries(schema.properties ?? {})) {
+      if (Object.hasOwn(object, key)) {
+        assertValueMatchesSchema(property, object[key], `${label}.${key}`, schemas);
+      }
+    }
+  } else if (type === "array") {
+    expect(Array.isArray(value), label).toBe(true);
+    for (const [index, item] of (value as unknown[]).entries()) {
+      if (schema.items) assertValueMatchesSchema(schema.items, item, `${label}[${index}]`, schemas);
+    }
+  } else if (type === "integer") {
+    expect(Number.isInteger(value), label).toBe(true);
+  } else if (type) {
+    expect(typeof value, label).toBe(type);
   }
 }
 
@@ -146,6 +205,99 @@ describe("OpenAPI example payloads (TOG-6272)", () => {
   });
 });
 
+const REMAINING_RESPONSES = [
+  ...["customer", "address", "container"].flatMap((entity) => [
+    { path: `/api/v1/${entity}-snapshot`, method: "get", mediaType: "application/json" },
+    {
+      path: `/api/v1/${entity}-snapshot/{${entity === "address" ? "pickupAddress" : entity}Id}`,
+      method: "get",
+      mediaType: "application/json"
+    },
+    { path: `/api/v1/${entity}-snapshot/export`, method: "get", mediaType: "text/csv" },
+    { path: `/api/v1/${entity}-snapshot/import`, method: "post", mediaType: "application/json" },
+    { path: `/api/v1/${entity}-snapshot/sync`, method: "post", mediaType: "application/json" },
+    { path: `/api/v1/data/${entity}`, method: "get", mediaType: "application/json" },
+    { path: `/api/v1/data/${entity}`, method: "post", mediaType: "application/json" }
+  ]),
+  { path: "/api/v1/snapshots/{table}/{date}", method: "get", mediaType: "text/csv" },
+  { path: "/api/v1/customer-snapshot/changes", method: "get", mediaType: "application/json" },
+  { path: "/api/v1/customer-snapshot/{customerId}", method: "delete", mediaType: "application/json" },
+  { path: "/api/v1/data-snapshot/sync", method: "post", mediaType: "application/json" },
+  { path: "/api/v1/data-snapshot/orphans", method: "get", mediaType: "application/json" },
+  { path: "/api/v1/routeware/home/index", method: "get", mediaType: "text/html" },
+  { path: "/api/v1/routeware/account/login-page", method: "get", mediaType: "text/html" },
+  { path: "/api/v1/routeware/data/app-settings-get", method: "post", mediaType: "application/json" },
+  { path: "/api/v1/routeware/reports/query-request-is-complete", method: "get", mediaType: "application/json" }
+];
+
+const REMAINING_REQUESTS = [
+  ...["customer", "address", "container"].flatMap((entity) => [
+    { path: `/api/v1/${entity}-snapshot/import`, mediaType: "text/csv" },
+    { path: `/api/v1/data/${entity}`, mediaType: "application/x-www-form-urlencoded" }
+  ]),
+  { path: "/api/v1/routeware/data/app-settings-get", mediaType: "application/json" }
+];
+
+describe("snapshot, data-entity and Routeware examples", () => {
+  it.each(REMAINING_RESPONSES)(
+    "$method $path publishes a 200 $mediaType example",
+    async ({ path, method, mediaType }) => {
+      const doc = await fetchDoc();
+      const media = op(doc, path, method).responses?.["200"]?.content?.[mediaType];
+      assertExampleMatchesSchema(path, mediaType, media, doc.components?.schemas);
+    }
+  );
+
+  it("pins the complete operation inventory of the remaining route modules", async () => {
+    const doc = await fetchDoc();
+    const tags = new Set([
+      "customer-snapshot", "address-snapshot", "container-snapshot", "data-snapshot",
+      "data-entity", "routeware", "data", "reports"
+    ]);
+    const operations = Object.entries(doc.paths).flatMap(([path, methods]) =>
+      Object.entries(methods)
+        .filter(([, operation]) => operation.tags?.some((tag) => tags.has(tag)))
+        .map(([method]) => `${method} ${path}`)
+    );
+    expect(operations.sort()).toEqual(
+      REMAINING_RESPONSES.map(({ method, path }) => `${method} ${path}`).sort()
+    );
+  });
+
+  it("publishes schema-compatible examples for every query and path parameter", async () => {
+    const doc = await fetchDoc();
+    let checked = 0;
+    for (const { method, path } of REMAINING_RESPONSES) {
+      for (const parameter of op(doc, path, method).parameters ?? []) {
+        if (parameter.in !== "query" && parameter.in !== "path") continue;
+        const example = parameter.example ?? parameter.schema?.example;
+        expect(example, `${method} ${path} ${parameter.name}`).toBeDefined();
+        assertValueMatchesSchema(parameter.schema!, example, `${path} ${parameter.name}`);
+        checked++;
+      }
+    }
+    expect(checked).toBe(46);
+  });
+
+  it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
+    const doc = await fetchDoc();
+    for (const path of ["customer-snapshot", "address-snapshot", "container-snapshot", "data-snapshot"]) {
+      expect(op(doc, `/api/v1/${path}/sync`).requestBody).toBeUndefined();
+    }
+    for (const entity of ["customer", "address", "container"]) {
+      expect(op(doc, `/api/v1/data/${entity}`, "get").responses?.["304"].content).toBeUndefined();
+    }
+  });
+
+  it.each(REMAINING_REQUESTS)(
+    "POST $path publishes a $mediaType request example",
+    async ({ path, mediaType }) => {
+      const doc = await fetchDoc();
+      assertExampleMatchesSchema(path, mediaType, op(doc, path).requestBody?.content?.[mediaType]);
+    }
+  );
+});
+
 describe("example bodies install no runtime validators (TOG-6272)", () => {
   const originalFetch = globalThis.fetch;
   const forwarded: string[] = [];
@@ -192,6 +344,48 @@ describe("example bodies install no runtime validators (TOG-6272)", () => {
     // Assert — still proxied, never a 400 from a docs schema.
     expect(res.status).toBe(200);
     expect(forwarded.some((u) => u.includes("/WebRW/Customer/CustomersRead"))).toBe(true);
+  });
+
+  it("forwards an app-settings body outside the documented example", async () => {
+    const res = await post("/api/v1/routeware/data/app-settings-get", "foreign=1");
+    expect(res.status).toBe(200);
+    expect(forwarded.some((url) => url.includes("/WebRW/Data/appSettingsGet"))).toBe(true);
+  });
+
+  it("forwards non-object JSON app-settings bytes without validation", async () => {
+    // A matching Content-Type exercises JSON validation; an optional object
+    // validator would reject null instead of forwarding it.
+    // Source: https://hono.dev/docs/guides/validation
+    const res = await exports.default.fetch("http://test.local/api/v1/routeware/data/app-settings-get", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${API_TOKEN}`,
+        "content-type": "application/json"
+      },
+      body: "null"
+    });
+    expect(res.status).toBe(200);
+    expect(forwarded.some((url) => url.includes("/WebRW/Data/appSettingsGet"))).toBe(true);
+    const upstreamCall = vi.mocked(globalThis.fetch).mock.calls.find(
+      ([input]) => typeof input === "string" && input.includes("/WebRW/Data/appSettingsGet")
+    );
+    expect(upstreamCall).toBeDefined();
+    const upstreamBody = upstreamCall![1]?.body;
+    expect(upstreamBody).toBeInstanceOf(ArrayBuffer);
+    expect(new Uint8Array(upstreamBody as ArrayBuffer)).toStrictEqual(new TextEncoder().encode("null"));
+  });
+
+  it("keeps data-entity form examples docs-only", async () => {
+    const res = await exports.default.fetch("http://test.local/api/v1/data/customer", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-sync-secret",
+        "content-type": "application/x-www-form-urlencoded"
+      },
+      body: "foreign=1&__RequestVerificationToken=client-token"
+    });
+    expect(res.status).toBe(200);
+    expect(forwarded.some((url) => url.includes("/WebRW/Customer/SaveCustomerLongForm"))).toBe(true);
   });
 
   it("forwards the save routes with a foreign form body", async () => {

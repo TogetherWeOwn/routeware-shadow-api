@@ -6,10 +6,14 @@ import {
 import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
+import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
-import { readSessionState } from "../lib/sessionState";
+import { SessionBodyPreparationError } from "../lib/sessionPreparation";
+import { isLoginPageResponse } from "../lib/loginRedirect";
+import { readUpstreamText } from "../lib/upstreamBody";
+import { readUpstreamTimeoutMs } from "../lib/upstreamTimeout";
 import {
   routewareWebRwUrl,
   routewareWebRwUrlWithQueryAllowlist
@@ -72,7 +76,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
   // Routeware signals a failed read silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the read
   // worked when it did not. Same heuristic as the save-long-form route.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -123,7 +127,7 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): an HTML
   // error page with HTTP 200. A detail payload is always JSON, so HTML here
   // means the read failed.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -173,7 +177,7 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
   );
   // Same silent-failure shape as the save routes (CONVENTIONS.md §1): a
   // dropdown store read is always JSON, so HTML here means the read failed.
-  const upText = await up.clone().text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText)) {
     return up;
   }
@@ -223,20 +227,42 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const session = await readSessionState(c.var.sessionStub);
   let bodyBuffer: ArrayBuffer | null = rawBody;
+  const upstreamUrl = routewareWebRwUrl(
+    c.env.TARGET_ORIGIN,
+    c.env.TARGET_BASE_PATH,
+    "/Customer/SaveCustomerLongForm"
+  );
+  let up: Response;
   try {
-    bodyBuffer = await prepareSaveCustomerLongFormBody(
+    const options: SessionForwardOptions = {
+      prepareBody: async (session, originalBody) => {
+        bodyBuffer = await prepareSaveCustomerLongFormBody(
+          c.env,
+          session,
+          c.req.raw,
+          originalBody,
+          c.req.raw.headers.get("content-type")
+        );
+        return bodyBuffer;
+      }
+    };
+    up = await forwardPassthrough(
       c.env,
-      session,
+      c.var.sessionStub,
       c.req.raw,
-      bodyBuffer,
-      c.req.raw.headers.get("content-type"),
-      { sessionStub: c.var.sessionStub, establishSession }
+      upstreamUrl,
+      rawBody,
+      establishSession,
+      options
     );
   } catch (err) {
-    console.error("prepareSaveCustomerLongFormBody", err);
-    const msg = err instanceof Error ? err.message : String(err);
+    if (!(err instanceof SessionBodyPreparationError)) {
+      throw err;
+    }
+    const cause = err.preparationCause;
+    console.error("prepareSaveCustomerLongFormBody", cause);
+    const msg = cause instanceof Error ? cause.message : String(cause);
     return problemJsonResponse({
       type: problemType("bad-gateway", c.env),
       title: "Bad Gateway",
@@ -245,24 +271,11 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  const upstreamUrl = routewareWebRwUrl(
-    c.env.TARGET_ORIGIN,
-    c.env.TARGET_BASE_PATH,
-    "/Customer/SaveCustomerLongForm"
-  );
-  const up = await forwardPassthrough(
-    c.env,
-    c.var.sessionStub,
-    c.req.raw,
-    upstreamUrl,
-    bodyBuffer,
-    establishSession
-  );
   // Routeware signals a failed save silently: an HTML error page with HTTP 200
   // (CONVENTIONS.md §1). Passing that through as 200 tells the client the save
   // worked when it did not. Same heuristic as the /data/* write path.
-  const upText = await up.clone().text();
-  if (routewarePostLooksSuccessful(up.status, upText)) {
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
+  if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up, readUpstreamTimeoutMs(c.env)))) {
     // TOG-6463: a successful routeware-tier save must refresh D1 + evict the
     // data-entity cache, or shadow reads keep serving the pre-save record.
     // Never throws: a local refresh failure must not turn the passthrough 200
