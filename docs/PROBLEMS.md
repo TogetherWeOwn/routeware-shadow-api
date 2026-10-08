@@ -43,6 +43,13 @@ Fix the named record (remove forbidden controls or replace cell CR with LF)
 and retry. No rejected record is written, and import never reconciles/deletes.
 Earlier flushed batches of valid rows may remain; the upload is not atomic.
 
+This policy also applies to the API's own exports and raw R2 report archives:
+report-origin controls are retained by sync/export, so those CSVs may not be
+HTTP-importable. Do not discover compatibility through a partial restore.
+For recovery without control sanitization, use the integrity-verified in-code
+report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-programmatic-restore-in-code-path).
+Export → HTTP import is lossless only for import-compatible business cells.
+
 ## Dangling snapshot references (`bad-request`)
 
 D1 enforces the snapshot FK chain (`address.customer_id` →

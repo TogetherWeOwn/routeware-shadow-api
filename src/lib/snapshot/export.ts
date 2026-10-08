@@ -51,10 +51,10 @@ export type SnapshotExportColumn = {
   /** D1 column, selected verbatim into the CSV, in order. */
   db: string;
   /**
-   * Header label. Routeware PascalCase wherever the column round-trips
-   * through import (`cell()` looks columns up by name, so an export pasted
-   * back into `...-snapshot/import` parses); `synced_at` stays lowercase —
-   * it is Worker metadata the import parsers ignore.
+   * Header label. Routeware PascalCase matches import's `cell()` lookups;
+   * `synced_at` stays lowercase because import ignores this Worker metadata.
+   * Compatible headers do not bypass HTTP import's control-character policy:
+   * report-origin control content needs the in-code archive restore path.
    */
   header: string;
   /** Render 0/1 as `false`/`true`, the canonical export spelling. */

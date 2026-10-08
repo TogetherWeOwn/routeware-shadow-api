@@ -10,11 +10,14 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 /**
  * TOG-8887 (R3-11) — export → reimport round-trip idempotence.
  *
- * Every `*-snapshot/export` route (customer, address, container — `data-snapshot`
- * runs a chained sync but serves no export route) must paste back into its
- * matching `...-snapshot/import` with no loss: export → import → export keeps
- * the row count and every business cell, across boolean spellings, RFC 4180
- * quoting, and unicode cells.
+ * Import-compatible data from each `*-snapshot/export` route (customer,
+ * address, container — `data-snapshot` serves no export route) must paste back
+ * into its matching import with no loss: export → import → export keeps every
+ * business cell across booleans, RFC 4180 quoting and Unicode.
+ * Report-origin controls and lone cell CR remain in exports but are rejected
+ * by HTTP import. Lossless recovery of those rows uses the in-code archive
+ * restore in docs/R2-RESTORE-RUNBOOK.md §6, pinned separately by
+ * snapshotRestoreControlBoundary.test.ts; these assertions remain unchanged.
  *
  * Shape per table: POST import (edge-case seed) → GET export (A) → POST import
  * (A verbatim, `synced_at` column included — the row parsers ignore it by
