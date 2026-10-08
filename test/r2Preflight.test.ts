@@ -54,6 +54,12 @@ describe("wrangler.toml parsing", () => {
     expect(parseVarsValue(FIXTURE_TOML, "NO_SUCH_KEY")).toBeNull();
   });
 
+  it("does not inherit a disabled flag from a named environment when [vars] is absent", () => {
+    const tomlText = '[env.test.vars]\nSNAPSHOTS_R2_ENABLED = "false"\n';
+    expect(parseVarsValue(tomlText, R2_ENABLED_KEY)).toBeNull();
+    expect(resolvePreflightInput({ tomlText })).toEqual({ enabled: true, bucket: null });
+  });
+
   it("reads the production [[r2_buckets]] name, not the test one", () => {
     expect(parseBucketName(FIXTURE_TOML, R2_BINDING)).toBe("routeware-csv-snapshots");
   });
@@ -66,25 +72,27 @@ describe("wrangler.toml parsing", () => {
 
 describe("resolvePreflightInput", () => {
   it("resolves production defaults from wrangler.toml", () => {
-    expect(resolvePreflightInput({ env: {}, tomlText: FIXTURE_TOML })).toEqual({
+    expect(resolvePreflightInput({ tomlText: FIXTURE_TOML })).toEqual({
       enabled: true,
       bucket: "routeware-csv-snapshots",
     });
   });
 
-  it("lets the environment override toml (dashboard-Variable semantics)", () => {
-    expect(
-      resolvePreflightInput({
-        env: { [R2_ENABLED_KEY]: "false" },
-        tomlText: FIXTURE_TOML,
-      })
-    ).toEqual({ enabled: false, bucket: "routeware-csv-snapshots" });
-    expect(
-      resolvePreflightInput({
-        env: { SNAPSHOTS_BUCKET: "custom-bucket" },
-        tomlText: FIXTURE_TOML,
-      })
-    ).toEqual({ enabled: true, bucket: "custom-bucket" });
+  it("ignores shell overrides that Wrangler does not deploy", () => {
+    const input = {
+      env: { [R2_ENABLED_KEY]: "false", SNAPSHOTS_BUCKET: "custom-bucket" },
+      tomlText: FIXTURE_TOML,
+    };
+    expect(resolvePreflightInput(input)).toEqual({
+      enabled: true,
+      bucket: "routeware-csv-snapshots",
+    });
+  });
+
+  it("skips only when the deployed config disables R2", () => {
+    expect(resolvePreflightInput({
+      tomlText: FIXTURE_TOML.replace(`${R2_ENABLED_KEY} = "true"`, `${R2_ENABLED_KEY} = "false"`),
+    })).toEqual({ enabled: false, bucket: "routeware-csv-snapshots" });
   });
 });
 

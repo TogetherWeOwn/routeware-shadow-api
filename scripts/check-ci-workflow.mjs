@@ -14,6 +14,11 @@ function jobBlock(name) {
 assert.match(workflow, /^  pull_request:\n    branches: \[main\]$/m, "CI must run for pull requests targeting main");
 
 const build = jobBlock("build");
+assert.match(
+  build,
+  /^        run: node scripts\/check-r2-deploy-config\.mjs$/m,
+  "build must verify R2 preflight against Wrangler's offline deployed bindings",
+);
 // Vitest thresholds fail the run on regression; the ratchet step fails it on
 // improvement without a floor raise. Pin it present so coverage can never
 // climb a full point without moving the floors with it.
@@ -82,11 +87,15 @@ assert.match(deploy, /^    environment: production$/m, "deploy must use the prod
 // The R2 bucket preflight runs read-only in deploy before migrations go live:
 // a missing SNAPSHOTS bucket fails closed naming the fix; R2-disabled deploys
 // skip cleanly. Pin it present so the archive leg can never ship unverified.
-assert.match(
-  deploy,
-  /node scripts\/check-r2-preflight\.mjs/,
-  "deploy must run the R2 bucket-existence preflight (TOG-6290)"
-);
+assert.match(deploy, /^      WRANGLER_CONFIG: wrangler\.toml$/m, "deploy must pin its shared top-level TOML config");
+const preflightRun = '        run: node scripts/check-r2-preflight.mjs --config="$WRANGLER_CONFIG"';
+const deployRun = '        run: npx wrangler deploy --config "$WRANGLER_CONFIG"';
+assert.ok(deploy.includes(preflightRun), "R2 preflight must use the shared deploy config");
+assert.ok(deploy.includes(deployRun), "Worker deployment must use the shared preflight config");
+const preflightAt = deploy.indexOf(preflightRun);
+const migrationsAt = deploy.indexOf("        run: npm run db:migrate:remote");
+assert.ok(migrationsAt > preflightAt, "R2 preflight must run before remote migrations");
+assert.ok(deploy.indexOf(deployRun) > migrationsAt, "Worker deployment must follow migrations");
 assert.match(
   deploy,
   /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,

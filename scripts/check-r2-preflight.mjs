@@ -1,23 +1,24 @@
 #!/usr/bin/env node
 /**
- * R2 bucket-existence preflight (TOG-6290). Deploy-time, read-only:
+ * R2 bucket-existence preflight. Deploy-time, read-only:
  * `wrangler r2 bucket info <name> --json` (a head/lookup, never a write).
  *
- * - `SNAPSHOTS_R2_ENABLED=false` (wrangler.toml `[vars]`, dashboard
- *   Variable, or env) → SKIPPED, exit 0. The archive leg is off by design.
+ * - `SNAPSHOTS_R2_ENABLED="false"` in the deployed config's `[vars]` → SKIPPED.
  * - Bucket missing/unreadable → FAIL with the exact fix, exit 1.
  * - Bucket present → PASS, exit 0.
  *
- * Auth comes from the environment (`CLOUDFLARE_API_TOKEN` in CI); the token
- * value is never printed. Pure logic lives in `./lib/r2Preflight.mjs` and is
- * unit-tested; this wrapper is intentionally thin.
+ * Pass the same top-level TOML config to this command and `wrangler deploy`.
+ * Shell variables and dashboard Variables cannot disable this check or replace
+ * the configured bucket: they are not deploy-time overrides of Wrangler vars.
+ * Auth still comes from CLOUDFLARE_API_TOKEN; the token is never printed.
  *
  * Usage:
- *   npm run check:r2-preflight [-- --bucket=<name>]
+ *   npm run check:r2-preflight [-- --config=wrangler.toml]
  */
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { argv, env, exit } from "node:process";
+import { resolve } from "node:path";
+import { argv, exit } from "node:process";
 import {
   CHECK_NAME,
   formatMissingBucketError,
@@ -29,40 +30,40 @@ import {
 
 function usage() {
   return [
-    "Usage: node scripts/check-r2-preflight.mjs [--bucket=NAME]",
+    "Usage: node scripts/check-r2-preflight.mjs [--config=FILE]",
     "",
-    "  --bucket=NAME  Override the SNAPSHOTS bucket name (default: wrangler.toml",
-    "                 [[r2_buckets]] binding, or SNAPSHOTS_BUCKET from the environment).",
+    "  --config=FILE  Top-level TOML config also passed to wrangler deploy.",
+    "                 Default: wrangler.toml in the working directory.",
     "",
-    "Reads SNAPSHOTS_R2_ENABLED from the environment first, then wrangler.toml [vars].",
+    'To disable R2, set SNAPSHOTS_R2_ENABLED="false" in that config\'s [vars].',
+    "Shell SNAPSHOTS_R2_ENABLED / SNAPSHOTS_BUCKET and --bucket are not deploy overrides.",
   ].join("\n");
 }
 
 function main() {
-  let bucketOverride = null;
+  let config = "wrangler.toml";
   for (const arg of argv.slice(2)) {
     if (arg === "--help" || arg === "-h") {
       console.log(usage());
       exit(0);
-    } else if (arg.startsWith("--bucket=")) {
-      bucketOverride = arg.slice("--bucket=".length).trim() || null;
+    } else if (arg.startsWith("--config=") && arg.slice("--config=".length).trim()) {
+      config = arg.slice("--config=".length);
     } else {
-      console.error(`Unknown flag: ${arg}\n\n${usage()}`);
+      console.error(`Unknown or empty flag: ${arg}\n\n${usage()}`);
       exit(1);
     }
   }
 
+  const configPath = resolve(config);
   let toml;
   try {
-    toml = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+    toml = readFileSync(configPath, "utf8");
   } catch {
-    console.error(`${CHECK_NAME}: FAIL — cannot read wrangler.toml`);
+    console.error(`${CHECK_NAME}: FAIL — cannot read config ${config}`);
     exit(1);
   }
 
-  const mergedEnv = bucketOverride ? { ...env, SNAPSHOTS_BUCKET: bucketOverride } : env;
-  const { enabled, bucket } = resolvePreflightInput({ env: mergedEnv, tomlText: toml });
-
+  const { enabled, bucket } = resolvePreflightInput({ tomlText: toml });
   if (!enabled) {
     console.log(formatSkipLog());
     exit(0);
@@ -73,8 +74,8 @@ function main() {
   }
 
   try {
-    // Read-only lookup; auth via CLOUDFLARE_API_TOKEN in the environment.
-    execFileSync("npx", ["wrangler", "r2", "bucket", "info", bucket, "--json"], {
+    // Use the deploy config for account selection as well as vars/bindings.
+    execFileSync("npx", ["wrangler", "r2", "bucket", "info", bucket, "--json", "--config", configPath], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: 120_000,
