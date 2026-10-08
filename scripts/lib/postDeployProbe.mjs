@@ -12,6 +12,7 @@
 
 export const CHECK_NAME = "post-deploy-probe";
 export const SKIP_FLAG = "--skip-if-no-token";
+export const SCHEDULED_FLAG = "--scheduled";
 export const BASE_ENV = "SHADOW_API_BASE";
 export const DEFAULT_BASE = "http://localhost:8787";
 
@@ -30,15 +31,32 @@ export const ALL_PROBE_PATHS = Object.freeze([
 /**
  * Resolve the probe base origin: explicit positional arg wins, then the
  * SHADOW_API_BASE environment variable (same name as
- * scripts/smoke-readiness.mjs), then the local-dev default. Blank inputs
- * fall through so an unset scheduled var never pins an empty origin.
+ * scripts/smoke-readiness.mjs), then the local-dev default for manual runs.
+ * Scheduled runs require an explicit remote HTTPS target before any fetch.
  */
-export function resolveBase({ positional = "", env = {} } = {}) {
-  const fromArg = (positional ?? "").trim();
-  if (fromArg) return fromArg;
-  const fromEnv = String(env[BASE_ENV] ?? "").trim();
-  if (fromEnv) return fromEnv;
-  return DEFAULT_BASE;
+export function resolveBase({ positional = "", env = {}, scheduled = false } = {}) {
+  const configured = (positional ?? "").trim() || String(env[BASE_ENV] ?? "").trim();
+  if (!scheduled && env.GITHUB_EVENT_NAME !== "schedule") return configured || DEFAULT_BASE;
+  if (!configured) {
+    throw new Error(`scheduled probe requires ${BASE_ENV} or <base-url>; configure an approved staging origin (no localhost fallback)`);
+  }
+  let url;
+  try {
+    url = new URL(configured);
+  } catch {
+    throw new Error("scheduled probe requires a valid staging HTTPS origin");
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  const local = host === "localhost" || host.endsWith(".localhost") ||
+    /^127(?:\.\d{1,3}){3}$/.test(host) || host === "0.0.0.0" || host === "[::1]" || host === "[::]" ||
+    /^\[::ffff:(7f[0-9a-f]{2}:|0:0\])/.test(host);
+  if (url.protocol !== "https:" || local || url.username || url.password) {
+    throw new Error("scheduled probe requires a remote staging HTTPS origin without URL credentials (local targets are not allowed)");
+  }
+  if (url.pathname !== "/" || configured.includes("?") || configured.includes("#")) {
+    throw new Error("scheduled probe requires a bare staging HTTPS origin (no non-root path, query, or fragment)");
+  }
+  return configured;
 }
 
 /**
