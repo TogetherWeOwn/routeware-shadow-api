@@ -5,8 +5,8 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 > ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
 > GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On pull requests targeting
-> `main`, changed-area detection selects credential-free `build` and optional `shadow-api-v1` jobs;
-> `hygiene` always runs.
+> `main`, changed-area detection selects credential-free `build` and optional `shadow-api-v1` jobs
+> when relevant paths change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs.
 > Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
 > Check applicable organization/repository scopes and the `production` environment at handover; a
 > repository-only variable listing does not establish that the effective gate is off.
