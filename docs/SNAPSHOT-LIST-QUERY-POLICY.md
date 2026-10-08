@@ -44,6 +44,9 @@ These exact GET routes are explicitly classified as non-list operations:
   `/api/v1/container-snapshot/export`: full CSV downloads, not paginated JSON lists.
 - `/api/v1/data/customer`, `/api/v1/data/address`, `/api/v1/data/container`:
   single-entity aggregate reads selected by id, not collection list endpoints.
+- `/api/v1/data-snapshot/orphans`: integrity-audit report with per-edge counts
+  and bounded id samples, not a paginated row collection. `sampleLimit` bounds
+  diagnostic samples; there is no offset, continuation cursor or page of rows.
 - `/api/v1/snapshots/:table/:date`: one archived CSV object, not an archive list.
 
 These classifications **do not declare unknown-key behavior for non-list

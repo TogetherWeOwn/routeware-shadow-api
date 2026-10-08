@@ -41,6 +41,7 @@ const NON_LIST_ROUTES: Record<string, string> = {
   "/api/v1/data/customer": "Single-customer aggregate selected by id",
   "/api/v1/data/address": "Single-address aggregate selected by id",
   "/api/v1/data/container": "Single-container aggregate selected by id",
+  "/api/v1/data-snapshot/orphans": "Integrity report with counts and bounded id samples, not collection pagination",
   "/api/v1/snapshots/:table/:date": "One archived CSV object by table and date"
 };
 
@@ -106,6 +107,7 @@ describe("snapshot/data list unknown-query-param policy", () => {
   it.each([
     "/api/v1/widget-snapshot",
     "/api/v1/customer-snapshot/recent",
+    "/api/v1/data-snapshot/orphans/recent",
     "/api/v1/data/items",
     "/api/v1/data/:customerId/items"
   ])("fails coverage when an unclassified list is registered at %s", (path) => {
