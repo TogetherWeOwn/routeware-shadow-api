@@ -6,17 +6,17 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
-| `unauthorized` | 401 | Missing or invalid `Authorization: Bearer <token>`. See below. |
-| `forbidden` | 404 | A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
-| `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
-| `method-not-allowed` | 405 | The upstream does not support the HTTP method (e.g. customer hard delete). |
-| `rate-limited` | 429 | Too many failed bearer-auth attempts from one IP. See below. |
-| `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
-| `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
-| `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
+| `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
+| `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
+| `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
+| `method-not-allowed` | 405 | <a name="method-not-allowed"></a>The upstream does not support the HTTP method (e.g. customer hard delete). |
+| `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
+| `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
+| `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
+| `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
-| `internal` | 500 | An unexpected error. Details are logged, not returned. |
+| `internal` | 500 | <a name="internal"></a>An unexpected error. Details are logged, not returned. |
 
 ## Dangling snapshot references (`bad-request`)
 
@@ -174,7 +174,7 @@ block expires on its own after 60 seconds. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
 
-<a id="upstream-error"></a>
+<a name="upstream-error"></a>
 
 ## Loud upstream errors (`upstream-error`)
 
