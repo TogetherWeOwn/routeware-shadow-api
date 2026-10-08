@@ -8,6 +8,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
   cell content before D1 binding, with a PII-free row-numbered 400. Upstream
   report sync parsing stays permissive; earlier valid import batches may remain.
+- TOG-7577: Client-facing retry passthroughs replace upstream HTTP 400–599
+  bodies, headers and status text with fixed `upstream-error` problem+json,
+  preserving the HTTP status and containing possible customer/session data.
+  Successful responses, login retry and internal data-save envelopes are unchanged.
+
 - TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
   defensive audit for legacy or out-of-band rows, not normal streamed syncs:
   D1 enforces the snapshot FK chain on writes and parent deletes. Returns

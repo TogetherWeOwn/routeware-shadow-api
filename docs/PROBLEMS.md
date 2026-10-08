@@ -15,6 +15,7 @@ section below.
 | `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
 | `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
+| `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | An unexpected error. Details are logged, not returned. |
 
 ## CSV control characters (`bad-request`)
@@ -205,6 +206,37 @@ current token (one good request clears the block immediately); otherwise the
 block expires on its own after 60 seconds. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
+
+<a id="upstream-error"></a>
+
+## Loud upstream errors (`upstream-error`)
+
+Client-facing routes using `forwardPassthrough` retain upstream HTTP 400–599,
+including 401, 429 and 503, but replace the response with local
+`application/problem+json` titled "Upstream request failed" and the fixed detail:
+"Routeware returned an error. Its response body has been withheld."
+The body is never inspected, buffered or logged; upstream headers (including
+`Set-Cookie`, `Location` and debug headers) and status text are not relayed.
+A fixed local `Cache-Control: no-store` prevents caching the replacement error,
+including heuristically cacheable 404/410 statuses, without copying upstream headers.
+This contains possible customer/session material in HTML, JSON, text or binary
+error pages on both the first forward and the single post-login retry.
+
+The eleven retry passthroughs are home/index, app-settings-get,
+query-request-is-complete, customers-read, detail-full, customer-types-read,
+add-new-long, load-long-modal and the customer/address/container save routes.
+Successful responses and redirects keep their existing contracts; silent
+HTML-200 failure guards remain in place. Loud errors do not trigger another
+login or retry. Internal `/api/v1/data/*` save consumers continue to use the raw
+retry helper and their own sanitized envelope, preserving byte-count diagnostics.
+The sessionless login-page probe is a direct forward, not a retry passthrough,
+and is outside this control's scope.
+
+Pinned by `test/passthroughLoudFailure.test.ts`, with synthetic customer, phone
+and session markers only. This is an intentional compatibility change: clients
+must use the HTTP status and local problem fields, not upstream error text or
+headers (including upstream `Retry-After`). Worker-generated timeout and
+session-refresh problems retain their existing types and details.
 
 ## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
 

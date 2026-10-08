@@ -145,7 +145,7 @@ describe("address/container save negative-path contract (TOG-7377)", () => {
     expect(body.type).toBe(BAD_GATEWAY_TYPE);
   });
 
-  it("address upstream 503 passes through unchanged (loud failures are not rewritten)", async () => {
+  it("address upstream 503 preserves status but replaces the loud body", async () => {
     // Arrange
     behavior.saveStatus = 503;
     behavior.saveBody = "upstream down";
@@ -160,10 +160,11 @@ describe("address/container save negative-path contract (TOG-7377)", () => {
 
     // Assert
     expect(response.status).toBe(503);
-    expect(await response.text()).toBe("upstream down");
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    expect(await response.json()).toMatchObject({ title: "Upstream request failed", status: 503 });
   });
 
-  it("container upstream 503 passes through unchanged (loud failures are not rewritten)", async () => {
+  it("container upstream 503 preserves status but replaces the loud body", async () => {
     // Arrange
     behavior.saveStatus = 503;
     behavior.saveBody = "upstream down";
@@ -178,6 +179,7 @@ describe("address/container save negative-path contract (TOG-7377)", () => {
 
     // Assert
     expect(response.status).toBe(503);
-    expect(await response.text()).toBe("upstream down");
+    expect(response.headers.get("content-type")).toContain("problem+json");
+    expect(await response.json()).toMatchObject({ title: "Upstream request failed", status: 503 });
   });
 });
