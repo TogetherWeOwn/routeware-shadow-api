@@ -38,6 +38,13 @@ const DOC_FIXTURE = [
   "",
 ].join("\n");
 
+const UNICODE_FENCES = [
+  ["line separator with tildes", String.fromCodePoint(0x2028), "~~~"],
+  ["paragraph separator with tildes", String.fromCodePoint(0x2029), "~~~"],
+  ["line separator with backticks", String.fromCodePoint(0x2028), "```"],
+  ["paragraph separator with backticks", String.fromCodePoint(0x2029), "```"],
+];
+
 function checkTree(markdownText: string) {
   const files = Object.entries(srcModules).map(([key, text]) => ({
     path: key.replace(/^\.\.\//, ""),
@@ -123,6 +130,44 @@ describe("problems anchor check: doc extraction", () => {
       '<a name="real"></a>',
     ].join("\n\n");
     expect(extractDocAnchors(examples)).toEqual(["real"]);
+  });
+
+  it.each([
+    ["tilde fence", "~~~html", "~~~"],
+    ["backtick fence", "```html", "```"],
+    ["longer tilde closer", "~~~html", "~~~~~"],
+    ["longer backtick closer", "```html", "`````"],
+    ["indented closer with whitespace", "   ~~~html", "  ~~~ \t"],
+    ["backticks in tilde info string", "~~~html```", "~~~"],
+  ])("counts only the anchor after a valid %s", (_label, opening, closing) => {
+    const markdown = [opening, '<a name="inside"></a>', closing, '<a name="real"></a>'].join("\n");
+    expect(extractDocAnchors(markdown)).toEqual(["real"]);
+  });
+
+  it.each(UNICODE_FENCES)("does not treat %s as a fence-line boundary", (_label, separator, fence) => {
+    for (const invalidCloser of [`example${separator}${fence}`, `${fence}${separator}`]) {
+      const markdown = [
+        `${fence}html`,
+        invalidCloser,
+        '<a name="inside"></a>',
+        fence,
+        '<a name="real"></a>',
+      ].join("\n");
+      expect(extractDocAnchors(markdown)).toEqual(["real"]);
+    }
+  });
+
+  it.each(["~~~", "```"])("keeps a %s fence open past a mixed suffix until its genuine closer", (fence) => {
+    const opposite = fence === "~~~" ? "```" : "~~~";
+    const markdown = [
+      `${fence}html`,
+      "example",
+      fence + opposite,
+      '<a name="inside"></a>',
+      fence,
+      '<a name="real"></a>',
+    ].join("\n");
+    expect(extractDocAnchors(markdown)).toEqual(["real"]);
   });
 });
 
@@ -216,11 +261,28 @@ describe("problems anchor check: real tree", () => {
     ["CRLF tilde fence", '~~~html\r\n<a name="payload-too-large"></a>\r\n~~~'],
     ["unequal inline backtick runs", '`before `` <a name="payload-too-large"></a> `` after`'],
     ["comment-looking fence suffix", '```html\n```<!-- note -->\n<a name="payload-too-large"></a>\n```'],
+    ["mixed tilde/backtick closer", '~~~html\nexample\n~~~```\n<a name="payload-too-large"></a>'],
+    ["mixed backtick/tilde closer", '```html\nexample\n```~~~\n<a name="payload-too-large"></a>'],
+    ["opposite-character closer", '~~~html\nexample\n```\n<a name="payload-too-large"></a>'],
+    ["shorter closer", '~~~~html\nexample\n~~~\n<a name="payload-too-large"></a>'],
+    ["four-space-indented closer", '~~~html\nexample\n    ~~~\n<a name="payload-too-large"></a>'],
+    ["mixed closer in a blockquote", '> ~~~html\n> example\n> ~~~```\n> <a name="payload-too-large"></a>'],
+    ["mixed closer in a list item", '- ~~~html\n  example\n  ~~~```\n  <a name="payload-too-large"></a>'],
   ])("does not replace a missing target with %s", (_label, example) => {
     const withoutTarget = problemsMd.replace('<a name="payload-too-large"></a>', "");
     const result = checkTree(`${withoutTarget}\n\n${example}\n`);
     expect(result.ok).toBe(false);
     expect(result.missingAnchors).toEqual(["payload-too-large"]);
+  });
+
+  it.each(UNICODE_FENCES)("does not replace a missing target using %s", (_label, separator, fence) => {
+    const withoutTarget = problemsMd.replace('<a name="payload-too-large"></a>', "");
+    for (const invalidCloser of [`example${separator}${fence}`, `${fence}${separator}`]) {
+      const example = [`${fence}html`, invalidCloser, '<a name="payload-too-large"></a>'].join("\n");
+      const result = checkTree(`${withoutTarget}\n\n${example}\n`);
+      expect(result.ok).toBe(false);
+      expect(result.missingAnchors).toEqual(["payload-too-large"]);
+    }
   });
 
   it("does not count the table's targets inside an unterminated HTML comment", () => {

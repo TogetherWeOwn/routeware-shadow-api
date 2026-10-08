@@ -59,13 +59,14 @@ function probePath(path: string): string {
     .replace(":date", "2026-09-27");
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 18 share the canonical inner 401 body. */
+/** Every route guarded by the narrower snapshot-secret check. All 19 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
   { method: "POST", path: "/api/v1/customer-snapshot/import" },
   { method: "GET", path: "/api/v1/customer-snapshot/export" },
   { method: "POST", path: "/api/v1/data-snapshot/sync" },
+  { method: "GET", path: "/api/v1/data-snapshot/orphans" },
   { method: "POST", path: "/api/v1/address-snapshot/sync" },
   { method: "POST", path: "/api/v1/address-snapshot/import" },
   { method: "GET", path: "/api/v1/address-snapshot/export" },
@@ -130,7 +131,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(18);
+    expect(GUARDED_ROUTES).toHaveLength(19);
   });
 
   for (const route of GUARDED_ROUTES) {

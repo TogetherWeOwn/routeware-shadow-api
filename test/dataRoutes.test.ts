@@ -61,6 +61,12 @@ vi.mock("../src/lib/dataEntityHandlers", () => ({
 }));
 
 vi.mock("../src/lib/d1SnapshotSync", () => ({
+  ORPHAN_SAMPLE_LIMIT_DEFAULT: 100,
+  ORPHAN_SAMPLE_LIMIT_MAX: 500,
+  getSnapshotOrphans: async () => ({
+    orphanAddresses: { count: 0, sampleIds: [] },
+    orphanContainers: { count: 0, sampleIds: [] }
+  }),
   runDataSnapshotSyncChainedHttp: async (origin: string, env: unknown) => {
     (calls.chained ??= []).push({ args: [origin, env] });
     return chainedResult;
