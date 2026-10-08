@@ -10,6 +10,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   token preparation and re-prepare the original form once after a login rejection;
   do not replay timed-out saves or upstream 401/429 responses.
 
+- TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
+  defensive audit for legacy or out-of-band rows, not normal streamed syncs:
+  D1 enforces the snapshot FK chain on writes and parent deletes. Returns
+  `orphanAddresses` (address rows with no customer) and `orphanContainers`
+  (container rows with no pickup address), each as a count plus ordered id
+  sample from one read-only transaction (`sampleLimit` 1–500; invalid values
+  return 400 `application/problem+json`). Snapshot-secret auth, read-only.
 - TOG-6537: HTTP login fails fast with 503 `misconfigured` when the runtime
   lacks `Headers.getSetCookie`, instead of silently collecting an empty cookie
   jar (which flipped `auto` mode to Browser Rendering or hard-outaged `http`
