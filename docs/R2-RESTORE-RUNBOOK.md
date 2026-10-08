@@ -166,7 +166,16 @@ node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 const { RUN, DATE } = process.env;
-const manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
+let manifest;
+try {
+  manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
+  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    throw new Error('invalid manifest shape');
+  }
+} catch {
+  console.error('STOP: unreadable or invalid archive manifest');
+  process.exit(1);  // never echo downloaded content or the parser's error
+}
 const entry = manifest.files?.['customer.csv'];
 const csv = readFileSync(`${RUN}/customer.csv`);
 const digest = createHash('sha256').update(csv).digest('hex');
@@ -185,10 +194,19 @@ support cannot pass this gate; choose a known-good manifested archive or
 escalate the recovery gap. Do not print CSV bodies/headers as an existence check.
 Leave verified downloads unchanged; re-run the gate if you replace a file.
 
-On main, `node scripts/verify-r2-manifest.mjs --date="$DATE"` also verifies all
-entries in a local date's manifest (add `--persist-to "$RUN/state"`); `--remote`
-selects remote read-only GETs. That whole-date audit re-downloads objects. It is
-not a substitute for verifying the **specific downloaded bytes** imported here.
+On main, the optional whole-date audit verifies every manifest entry in the
+**selected** local bucket and persistence directory:
+
+```bash
+node scripts/verify-r2-manifest.mjs --date="$DATE" --bucket="$BUCKET" \
+  --persist-to "$RUN/state"
+```
+
+For an authorized remote audit, replace `--persist-to "$RUN/state"` with
+`--remote`. This script specifically requires `CLOUDFLARE_API_TOKEN` already
+available in the environment; Wrangler OAuth alone does not satisfy its gate.
+Never pass the token as a flag or print it. The audit re-downloads objects and
+is not a substitute for verifying the **specific downloaded bytes** imported here.
 
 ## 5. Recover the customer table into scratch D1
 
@@ -199,9 +217,16 @@ server already answering that port.
 
 ```bash
 export WRANGLER_SEND_METRICS=false
-npx wrangler dev --local --config "$RUN/wrangler.toml" \
+CLOUDFLARE_INCLUDE_PROCESS_ENV=false CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false \
+  npx wrangler dev --local --config "$RUN/wrangler.toml" \
   --persist-to "$RUN/state" --ip 127.0.0.1 --port "$PORT"
 ```
+
+The command-local overrides disable process-env and `.env` secret loading even
+if inherited settings enable them. Otherwise an ambient sync secret can override
+the synthetic binding (or expose unrelated process credentials to the Worker).
+The new config has no `secrets.required`, and its directory has no `.dev.vars`.
+See [Wrangler's local environment controls](https://developers.cloudflare.com/workers/local-development/environment-variables/#controlling-env-handling).
 
 Wait for `Ready on http://127.0.0.1:<PORT>`. Terminal B:
 
