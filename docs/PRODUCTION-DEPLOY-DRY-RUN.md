@@ -1,8 +1,10 @@
 # Production deploy dry-run checklist
 
-**Production stays OFF.** Leave `PRODUCTION_DEPLOY_ENABLED` unset throughout this
-rehearsal. This checklist is not go-live approval: it neither enables deployment
-nor authorizes production tests, migrations, probes, credential changes, or spend.
+**Production stays OFF.** Keep the repository-scoped
+`PRODUCTION_DEPLOY_ENABLED` variable set to `false` throughout this rehearsal; it
+overrides an applicable organization-level value for this repository. This checklist
+is not go-live approval: it neither enables deployment nor authorizes production tests,
+migrations, probes, credential changes, or spend.
 
 Use a clean, disposable checkout of the candidate with locked development
 dependencies. Do not run the handover's activation steps. Record the candidate
@@ -11,11 +13,13 @@ credential values, request/response bodies, customer rows, or raw CSVs.
 
 ## 1. Confirm the gate remains off
 
-- [ ] Inspect applicable repository and organization variable **names only**.
-  `PRODUCTION_DEPLOY_ENABLED` must be absent, not merely set to `false`.
-  Organization variables can apply to this repository; an empty repository list
-  alone does not prove effective absence. If either scope is inaccessible, record
-  **NOT VERIFIED**, not absent. Do not add, edit or delete a variable to pass.
+- [ ] Verify that the repository-scoped `PRODUCTION_DEPLOY_ENABLED` value is
+  `false`; it overrides an applicable organization-level value for this repository.
+  An absent repository value does not establish that the effective gate is off.
+  Inspect other applicable repository and organization variable **names only**.
+  If the repository value is present and not `false`, record **NOT READY**; if it
+  is missing or inaccessible, record **NOT VERIFIED**. Stop in either case. Do not
+  add, edit or delete a variable as part of this rehearsal.
 - [ ] Inspect the candidate's [CI workflow](../.github/workflows/ci.yml).
   The deploy job must require successful `build` and `hygiene`, the exact condition
   `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'`,
@@ -31,14 +35,22 @@ credential values, request/response bodies, customer rows, or raw CSVs.
   trigger is excluded, not that the enable variable is absent. A queued run has
   no verdict; an older successful run is not evidence for the candidate head.
 
-Read-only repository metadata commands (substitute the repository, not a token):
+Read-only metadata commands (substitute the repository, not a token). The first
+command prints only a status label, not the deploy variable value; the others print
+names only:
 
 ```bash
+gh api repos/<owner>/<repo>/actions/variables/PRODUCTION_DEPLOY_ENABLED --jq 'if .value == "false" then "repository gate: false" else "repository gate: NOT FALSE" end'
 gh api repos/<owner>/<repo>/actions/variables --paginate --jq '.variables[].name'
+gh api orgs/<org>/actions/variables --paginate --jq '.variables[].name'
 gh api repos/<owner>/<repo>/environments/production/variables --paginate --jq '.variables[].name'
 gh api repos/<owner>/<repo>/actions/secrets --paginate --jq '.secrets[].name'
 gh api repos/<owner>/<repo>/environments/production/secrets --paginate --jq '.secrets[].name'
 ```
+
+A missing repository variable or denied read is **NOT VERIFIED**; do not fall back to
+an organization-level setting for a one-repository stop. Have an authorized
+administrator set the repository-scoped value to `false` before the rehearsal.
 
 Have an authorized operator attest applicable organization-variable names and
 repository visibility if that scope is unavailable. Environment variables are

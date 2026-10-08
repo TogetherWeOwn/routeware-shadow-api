@@ -169,8 +169,9 @@ infer that the gate is off from a repository-only variable listing. See [`HANDOV
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-CI uses self-hosted runners labeled `two-selfhosted`. On PRs, changed-area detection selects the
-credential-free `build` and optional `shadow-api-v1` jobs; `hygiene` always runs. Without `CF_TOKEN`,
+CI uses self-hosted runners labeled `two-selfhosted`. On pull requests targeting `main`, changed-area
+detection selects the credential-free `build` and optional `shadow-api-v1` jobs when relevant paths
+change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs. Without `CF_TOKEN`,
 the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
 matches `true`; an unset repository variable alone does not prove that no applicable organization
 variable can enable it. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased scope verification,

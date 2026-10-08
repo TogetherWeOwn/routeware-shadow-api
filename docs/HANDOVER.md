@@ -19,9 +19,9 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 **Verification and production authorization are separate.** CI uses self-hosted runners labeled
 `two-selfhosted`. On PRs to `main`, changed-area detection selects the credential-free `build` and
-optional `shadow-api-v1` jobs; `hygiene` always runs. Docs-only PRs skip build and shadow, while
-pushes to `main` and nightly runs select the full verification suite. `ci-ok` aggregates these jobs,
-accepting intentional skips but failing on failures or cancellations. When selected, `shadow-api-v1`
+optional `shadow-api-v1` jobs; `hygiene` always runs. Docs-only PRs targeting `main` skip build and
+shadow. Pushes to `main` and nightly runs select the full verification suite; `ci-ok` aggregates these
+jobs, accepting intentional skips but failing on failures or cancellations. When selected, `shadow-api-v1`
 evaluates an optional `CF_TOKEN` gate and skips its contract step without that token. The `deploy`
 job requires successful build and hygiene, a push to `main`, and the expression
 `vars.PRODUCTION_DEPLOY_ENABLED == 'true'`; it never runs on PRs or nightly schedules. GitHub
@@ -30,8 +30,11 @@ so `TRUE` and `True` also enable this gate. The [`vars` context](https://docs.gi
 can include organization-, repository-, and environment-level configuration variables. Since a job-level
 `if` is evaluated before a runner is assigned, and GitHub documents environment variables as becoming
 available after environment declaration, do not infer the gate's effective value from a repository-only
-listing; check applicable organization/repository scopes and inspect `production` separately. Keep the
-organization/repository values unset or set to `false` until production is approved.
+listing; check applicable organization/repository scopes and inspect `production` separately. For a
+repository-scoped stop, set this repository's variable to `false`; that overrides an organization-level
+value for this repository. Do not change a shared organization variable unless an organization-wide
+stop is intended. An environment-level variable is unavailable to this job-level `if`, so do not rely on
+an environment value to disable the gate.
 
 The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5), but
 `GET actions/permissions` returned `enabled: true` on 2026-10-08. Re-check the current repository or
@@ -71,12 +74,13 @@ production readiness from successful runs; keep production deploys disabled unti
 
 ### Phase 1 — verify credential-free PR checks after a transfer
 
-1. **Keep `PRODUCTION_DEPLOY_ENABLED` unset or `false` at repository and any applicable organization scope.** An empty repository-variable list does not rule out an
-   organization variable available to this workflow. Inspect the `production` environment scope
-   separately; GitHub documents that environment variables become available after environment
-   declaration, while this job's `if` is evaluated before a runner is assigned, so do not rely on an
-   environment value as the stop control. If you cannot verify an applicable organization scope, have
-   an authorized administrator check it before continuing.
+1. **Keep this repository's production gate off.** Set the repository-scoped
+   `PRODUCTION_DEPLOY_ENABLED` variable to `false`; it overrides an organization-level value for this
+   repository. Do not change a shared organization variable unless an organization-wide stop is
+   intended. An empty repository-variable list does not rule out an organization value becoming
+   effective. Inspect `production` separately for secrets and protections; because the job-level `if`
+   is evaluated before a runner is assigned, an environment-level variable cannot stop this gate. If
+   you cannot verify the applicable organization scope, have an authorized administrator check it.
 2. **Check whether Actions are enabled:**
    ```bash
    gh api repos/<owner>/<repo>/actions/permissions --jq .enabled     # expect: true
@@ -91,16 +95,18 @@ production readiness from successful runs; keep production deploys disabled unti
    General as well.
 
    **Re-enabling does not retroactively build anything.** Verified 2026-08-22 by toggling it on this
-   repo: no runs were created for the pushes made while it was off. Nothing will run until the next
-   push or PR.
-3. **Verify without shipping anything.** Inspect a recent PR run for the reviewed head, or use a
-   documentation-only PR after a transfer. Expect changed-area detection, `Repo hygiene & secret scan`
-   and `ci-ok` to pass on the self-hosted runners; docs-only PRs intentionally skip build and shadow.
-   For a PR selecting build/shadow, confirm build passes and, without `CF_TOKEN`, the shadow gate
-   reports its reason and skips contract execution. The deploy job must be skipped on every PR
-   and remain skipped on pushes to `main` while `PRODUCTION_DEPLOY_ENABLED` is unset or `false`
-   at repository and applicable organization scopes. Any failed or cancelled required check blocks
-   merging; do not interpret optional skips as executed tests.
+   repo: no runs were created for pushes made while it was off, and GitHub does not replay those missed
+   push events after re-enabling. Future scheduled workflows run independently: CI is nightly and the
+   post-deploy probe is daily; the probe also supports manual `workflow_dispatch`.
+3. **Verify without shipping anything.** Inspect a recent run from a pull request targeting `main` for
+   the reviewed head, or use a documentation-only pull request targeting `main` after a transfer.
+   Expect changed-area detection, `Repo hygiene & secret scan`, and `ci-ok` to pass on the self-hosted
+   runners; docs-only PRs targeting `main` intentionally skip build and shadow. For a PR selecting
+   build/shadow, confirm build passes and, without `CF_TOKEN`, the shadow gate reports its reason and
+   skips contract execution. The deploy job must be skipped on pull requests targeting `main` and remain
+   skipped on pushes to `main` unless the effective repository/organization value matches `true`
+   case-insensitively. Any failed or cancelled required check blocks merging; do not interpret optional
+   skips as executed tests.
 4. **Verify effective rules on `main`**, including organization rulesets:
    ```bash
    gh api repos/<owner>/<repo>/rules/branches/main
@@ -108,7 +114,7 @@ production readiness from successful runs; keep production deploys disabled unti
    At verification, the required contexts were `Paperclip Review`, `pr-lint`, `ci-ok` and
    `Repo hygiene & secret scan`. After a transfer, have an authorized administrator restore the
    intended rules if needed. Require the aggregate `ci-ok`, not a build job that intentionally skips
-   on docs-only PRs, and finish this check before any production deploy.
+   on docs-only PRs targeting `main`, and finish this check before any production deploy.
 
 For an offline rehearsal that leaves production off, use the
 [production deploy dry-run checklist](PRODUCTION-DEPLOY-DRY-RUN.md). It is not
@@ -129,7 +135,12 @@ Only after the production Cloudflare account, resources and Worker secrets are r
    ```bash
    gh secret set CLOUDFLARE_API_TOKEN --env production --repo <owner>/<repo>
    ```
-4. **Use the repository variable as the single configured source.** Before setting it, confirm that no applicable organization or `production`-environment variable with the same name creates scope ambiguity. After production setup is complete, set the repository variable last:
+4. **Set the repository variable last.** Keep the repository value `false` while configuring the
+   production environment, token, resources, and Worker secrets; this overrides any organization-level
+   value for this repository. Do not change a shared organization variable unless an organization-wide
+   change is intended. The job-level `if` is evaluated before the production environment is assigned,
+   so an environment-level variable does not control this gate. After production setup is ready and
+   explicitly approved, set the repository value to `true`:
    ```bash
    gh variable set PRODUCTION_DEPLOY_ENABLED --body true --repo <owner>/<repo>
    ```
@@ -147,22 +158,27 @@ Only after the production Cloudflare account, resources and Worker secrets are r
    The bearer is read from `SHADOW_API_TOKEN` (else `CUSTOMER_SNAPSHOT_SYNC_SECRET`),
    `--token-env=NAME`, or local `.dev.vars` — it is never logged and never committed.
 
-**Stop future deploys:** delete `PRODUCTION_DEPLOY_ENABLED` or set it to `false` in every configured
-organization and repository scope; also remove or set it to `false` in the `production` environment if
-present. A repository-only deletion is insufficient if an applicable organization variable remains;
-do not rely on an environment variable alone to stop the job-level `if`. Future workflow evaluations
-then skip deploy without disabling PR checks. Changing only its capitalization is not a stop because the
-comparison is case-insensitive. This does not cancel an already-running deploy or roll back an
-already-deployed Worker. Keep the code-level variable gate in place. If production setup is later
-abandoned entirely, remove the deploy job rather than removing its fail-closed condition.
+**Stop future deploys for this repository:** set `PRODUCTION_DEPLOY_ENABLED` to `false` in this
+repository's variable scope. A repository-level `false` overrides an organization-level value for this
+repository; do not change a shared organization variable unless intending to stop deploys for all
+inheriting repositories. Deleting the repository variable can expose an organization-level `true`. The
+`production` environment scopes deployment secrets and protections, but its variables are unavailable
+to the job-level `if`, which is evaluated before a runner is assigned; do not rely on an environment
+variable alone to disable the gate. Future workflow evaluations then skip deploy without disabling PR
+checks. Changing only the variable's capitalization is not a stop because the comparison is
+case-insensitive. This does not cancel an already-running deploy or roll back an already-deployed
+Worker. Keep the code-level variable gate in place. If production setup is later abandoned entirely,
+remove the deploy job rather than removing its fail-closed condition.
 
 **The four Worker secrets are a separate matter** and are not set through GitHub. They live in
 Cloudflare via `npx wrangler secret put …`, are untouched by deploys, and are listed by name in § 1.
 `CLOUDFLARE_API_TOKEN` is the deployment job's secret. Optional contract verification separately
 references `CF_TOKEN`; the scheduled/manual post-deploy probe references `SHADOW_API_TOKEN` and
-repository variable `SHADOW_API_BASE`. The probe workflow is not chained to deployment. Both its
-scheduled and manual dispatch runs require a configured, approved remote HTTPS staging origin;
-a missing or invalid target fails before any fetch (see [`SCHEDULED-PROBE.md`](SCHEDULED-PROBE.md)).
+`vars.SHADOW_API_BASE`, which may come from repository or applicable organization scope. Check both
+scopes and verify the effective value is the approved staging origin. The probe workflow is not
+chained to deployment; both its scheduled and manual-dispatch runs require a configured, approved
+remote HTTPS staging origin. A missing or invalid target fails before any fetch (see
+[`SCHEDULED-PROBE.md`](SCHEDULED-PROBE.md)).
 With a valid target but no auth token, it skips authenticated checks, not public health. These
 optional paths do not require adding production credentials to ordinary PR verification.
 
@@ -224,18 +240,21 @@ the origin and returns a 404 with Cloudflare error 1042.
 1. Transfer the repository. Update every local clone's remote (`git remote set-url origin …`).
 2. **Check whether Actions are enabled; do not re-enable them unconditionally.** Follow § 0, Phase 1,
    step 2. If Actions are disabled at the destination, have an authorized administrator enable them.
-   Keep `PRODUCTION_DEPLOY_ENABLED` unset or `false` at repository and applicable organization scopes,
-   and inspect the `production` environment scope as described in § 0, Phase 1, step 1.
+   Set this repository's `PRODUCTION_DEPLOY_ENABLED` variable to `false` to keep its deploy gate closed;
+   do not change a shared organization value unless an organization-wide stop is intended. Inspect the
+   `production` environment scope as described in § 0, Phase 1, step 1.
 3. **Verify the effective rules on `main`**, including organization rulesets, using § 0, Phase 1,
    step 4. Do not infer that `main` is unprotected from a 403 or 404 on the classic
    `branches/main/protection` endpoint. If required rules are missing after transfer, have an
    authorized administrator restore them before any production deploy.
 4. Do the code change in §4 before the first deploy.
-5. **Verify PR checks without shipping.** Inspect a recent PR run for the reviewed head, or use a
-   documentation-only PR and confirm `Repo hygiene & secret scan` and `ci-ok` pass while build,
-   shadow and deploy are intentionally skipped. For a PR that selects build or shadow, inspect those
-   selected checks too. Keep `PRODUCTION_DEPLOY_ENABLED` unset or `false` at repository and any
-   applicable organization scopes during this check; see § 0, Phase 1, steps 1 and 3.
+5. **Verify PR checks without shipping.** Inspect a recent run from a pull request targeting `main`
+   for the reviewed head, or use a documentation-only PR targeting `main` and confirm
+   `Repo hygiene & secret scan` and `ci-ok` pass while build, shadow and deploy are intentionally
+   skipped. For a PR that selects build or shadow, inspect those
+   selected checks too. Keep this repository's `PRODUCTION_DEPLOY_ENABLED` value `false` during this
+   check; it overrides the organization-level value for this repository. Leave a shared organization
+   variable unchanged unless an organization-wide stop is intended; see § 0, Phase 1, steps 1 and 3.
 6. Only after production setup is explicitly approved, create the `production` environment and token,
    then set `PRODUCTION_DEPLOY_ENABLED` to `true` last as described in § 0, Phase 2. Push a reviewed
    commit to `main`; confirm the deploy runs and `GET /api/v1/health` responds.
@@ -407,10 +426,11 @@ immediately after** the transfer — every day both exist is a day the old one i
 
 - **A push to `main` deploys to production only when the job-level
   `vars.PRODUCTION_DEPLOY_ENABLED == 'true'` condition matches (case-insensitively).** There is no
-  staging environment; delete or set the variable to `false` at the repository and any applicable
-  organization scope, and inspect the `production` environment separately. A repository-only deletion
-  may leave an applicable organization variable in place. Changing only capitalization does not stop
-  deploys, and removing/disabling the gate does not roll back an already-deployed Worker; see § 0.
+  staging environment; set this repository's variable to `false` to stop its deploys, which overrides
+  an organization-level value for this repository. Do not change a shared organization variable unless
+  an organization-wide stop is intended. The `production` environment scopes secrets and protections,
+  but its variables are unavailable to the job-level `if`; see § 0. Changing only capitalization does
+  not stop deploys, and removing/disabling the gate does not roll back an already-deployed Worker.
 - **Coverage is a ratchet.** Floors sit just under current numbers; raise them whenever a change
   moves the number up. That is the whole mechanism.
 - **A route module must be an `OpenAPIHono`** built with `createRouteModule()`, never a plain `Hono`.
