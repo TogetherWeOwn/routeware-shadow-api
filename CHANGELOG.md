@@ -7,8 +7,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 - TOG-18135: Buffered upstream read/save, token-modal, and login bodies now
   have a separate `UPSTREAM_TIMEOUT_MS` deadline after headers arrive.
-  Timeouts abort/cancel pending reads without replaying saves; successful
-  passthrough bodies and long-running report CSV streams remain unchanged.
+  Timeouts abort/cancel pending reads without replaying saves. Continuously
+  ready body chunks yield to timer tasks so they cannot starve the deadline;
+  successful passthrough bodies and long-running report CSV streams remain unchanged.
 
 - TOG-5814: `GET /api/v1/data-snapshot/orphans` orphan reconciliation report —
   defensive audit for legacy or out-of-band rows, not normal streamed syncs:

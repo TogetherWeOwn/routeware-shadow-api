@@ -37,6 +37,8 @@ export async function readUpstreamText(
   const text = (async () => {
     const decoder = new TextDecoder();
     const parts: string[] = [];
+    let chunksSinceYield = 0;
+    let bytesSinceYield = 0;
     while (true) {
       const { value, done } = await reader.read();
       if (done) {
@@ -44,6 +46,16 @@ export async function readUpstreamText(
         return parts.join("");
       }
       parts.push(decoder.decode(value, { stream: true }));
+      chunksSinceYield++;
+      bytesSinceYield += value.byteLength;
+      if (chunksSinceYield >= 64 || bytesSinceYield >= 64 * 1024) {
+        // Ready reads only yield to microtasks; let timer tasks enforce the deadline.
+        // https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        if (timedOut) throw new UpstreamTimeoutError(timeoutMs);
+        chunksSinceYield = 0;
+        bytesSinceYield = 0;
+      }
     }
   })();
   try {

@@ -122,6 +122,50 @@ describe("bounded upstream text reads", () => {
     await expect(readUpstreamText(response, 50)).rejects.toBe(reason);
   });
 
+  it.each([false, true])("times out a finite continuously ready body and aborts fetch (preserve=%s)", async (preserve) => {
+    const cancel = vi.fn();
+    let emitted = 0;
+    let signal!: AbortSignal;
+    globalThis.fetch = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      signal = init!.signal!;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(c) {
+          if (emitted === 30_000) c.close();
+          else { emitted++; c.enqueue(new Uint8Array([120])); }
+        },
+        cancel
+      }));
+    }) as typeof fetch;
+    const response = await fetchWithUpstreamTimeout(ORIGIN, {}, 1000);
+    await expect(readUpstreamText(response, 1, preserve)).rejects.toBeInstanceOf(UpstreamTimeoutError);
+    expect(signal.aborted).toBe(true);
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(emitted).toBeLessThan(30_000);
+    expect(response.body?.locked).toBe(false);
+  });
+
+  it.each([
+    ["many small chunks", 1, 64],
+    ["few large chunks", 32_768, 32_768]
+  ] as const)("services timer tasks while successfully reading %s", async (_label, chunkBytes, repetitions) => {
+    const expected = "x" + "é".repeat(repetitions);
+    const bytes = new TextEncoder().encode(expected);
+    let timerFired = false;
+    const timer = setTimeout(() => { timerFired = true; }, 0);
+    const response = new Response(new ReadableStream<Uint8Array>({
+      start(c) {
+        // Both batch boundaries split a UTF-8 code point across the task yield.
+        for (let i = 0; i < bytes.length; i += chunkBytes) c.enqueue(bytes.slice(i, i + chunkBytes));
+        c.close();
+      }
+    }));
+    try {
+      expect(await readUpstreamText(response, 1000, true)).toBe(expected);
+      expect(timerFired).toBe(true);
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    } finally { clearTimeout(timer); }
+  });
+
   it("handles an absent body without a timer", async () => {
     expect(await readUpstreamText(new Response(null, { status: 204 }), 50)).toBe("");
   });
