@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveChainedBase } from "../src/scheduled";
 import {
   checkDevVarsValues,
   isValidChainedBase,
@@ -307,12 +308,42 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
       expect(isValidReportQueryDate("1900-01-01")).toBe(true);
     });
 
-    it("isValidChainedBase mirrors resolveChainedBase (bare origin only)", () => {
-      expect(isValidChainedBase("https://api.example.test")).toBe(true);
-      expect(isValidChainedBase("http://localhost:8787")).toBe(true);
-      expect(isValidChainedBase("https://api.example.test/worker")).toBe(false);
-      expect(isValidChainedBase("not a url")).toBe(false);
-      expect(isValidChainedBase("")).toBe(false);
+    it.each([
+      ["https://api.example.test?", false],
+      ["https://api.example.test/?", false],
+      ["https://api.example.test#", false],
+      ["https://api.example.test/#", false],
+      ["https://api.example.test?#", false],
+      ["https://api.example.test/?#", false],
+      ["https://api.example.test#?", false],
+      ["https://api.example.test/#?", false],
+      ["  https://api.example.test/?  ", false],
+      ["  https://api.example.test/#  ", false],
+      ["https://api.example.test?x=1", false],
+      ["https://api.example.test#frag", false],
+      ["ftp://api.example.test", false],
+      ["https://api.example.test/worker", false],
+      ["https://user:pass@api.example.test", false],
+      ["not a url", false],
+      ["", false],
+      ["   ", false],
+      ["https://api.example.test", true],
+      ["https://api.example.test/", true],
+      ["http://api.example.test", true],
+      ["http://api.example.test/", true],
+      ["http://localhost:8787", true],
+      ["  https://api.example.test/  ", true]
+    ] as const)("isValidChainedBase mirrors the runtime for %s", (raw, accepted) => {
+      expect(isValidChainedBase(raw)).toBe(accepted);
+      expect(resolveChainedBase(raw) !== null).toBe(accepted);
+
+      const result = checkDevVarsValues(validEffective({ SHADOW_API_PUBLIC_BASE: raw }));
+      // Empty configuration remains valid: it selects single-invocation fallback.
+      expect(result.ok).toBe(accepted || !raw.trim());
+      if (!accepted && raw.trim()) {
+        expect(result.errors.some((error) => error.includes("SHADOW_API_PUBLIC_BASE"))).toBe(true);
+        expect(result.errors.join("\n")).not.toContain(raw);
+      }
     });
 
     it("never echoes operational values in findings (keys only)", () => {
