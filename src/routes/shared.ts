@@ -138,6 +138,7 @@ export const dryRunQuery = z.object({
     .describe(
       "Dry run: validate the CSV and return the would-be counts without writing D1 or R2"
     )
+    .openapi({ example: "true" })
 });
 
 /** True only for `?dryRun=true` — absent or `?dryRun=false` runs for real. */

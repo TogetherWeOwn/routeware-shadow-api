@@ -33,9 +33,12 @@ const loginPageRoute = createRoute({
   responses: {
     200: {
       description:
-        "Upstream HTML for the Routeware login page (unauthenticated fetch)",
+        "Upstream HTML for the Routeware login page (unauthenticated fetch; synthetic excerpt)",
       content: {
-        "text/html": { schema: z.string() }
+        "text/html": {
+          schema: z.string(),
+          example: '<!DOCTYPE html><html><body><form action="/Account/Login" method="post">Login</form></body></html>'
+        }
       }
     },
     401: { description: "Unauthorized" }
@@ -61,10 +64,13 @@ const homeIndexRoute = createRoute({
   responses: {
     200: {
       description:
-        "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types)",
+        "Upstream /WebRW/Home/Index (may be HTML, JSON, or other content types; synthetic excerpt)",
       content: {
-        "application/json": { schema: z.unknown() },
-        "text/html": { schema: z.string() }
+        "application/json": { schema: z.unknown(), example: {} },
+        "text/html": {
+          schema: z.string(),
+          example: "<!DOCTYPE html><html><body>Routeware home</body></html>"
+        }
       }
     },
     401: { description: "Unauthorized" }
@@ -110,6 +116,14 @@ const appSettingsGetRoute = createRoute({
   },
   responses: {
     ...upstreamPassthrough200,
+    200: {
+      ...upstreamPassthrough200[200],
+      description: "Upstream app settings (illustrative JSON; keys vary by tenant)",
+      content: {
+        ...upstreamPassthrough200[200].content,
+        "application/json": { schema: z.unknown(), example: {} }
+      }
+    },
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
@@ -170,12 +184,21 @@ const queryRequestIsCompleteRoute = createRoute({
     "Polls upstream `GET /Reports/QueryRequestIsComplete`. Only `requestID` (the one-time report request id) and `_` (the SPA's cache-buster timestamp) are forwarded upstream; any other query param is silently dropped. Documented in `docs/PROBLEMS.md` § query-param allowlist. Routeware signals a failed poll silently as an HTML error page with HTTP 200 — that shape is surfaced as 502 problem+json, never passed through as 200.",
   request: {
     query: z.object({
-      requestID: z.string().optional(),
-      _: z.string().optional()
+      requestID: z.string().optional().openapi({ example: "00000000-0000-4000-8000-000000000001" }),
+      _: z.string().optional().openapi({ example: "1767225600000" })
     })
   },
   responses: {
     ...upstreamPassthrough200,
+    200: {
+      ...upstreamPassthrough200[200],
+      description: "Report completion poll (illustrative JSON boolean or plain text)",
+      content: {
+        ...upstreamPassthrough200[200].content,
+        "application/json": { schema: z.unknown(), example: true },
+        "text/plain": { schema: z.string(), example: "true" }
+      }
+    },
     502: {
       description:
         "Bad Gateway (application/problem+json). Routeware answered with an HTML error page + HTTP 200 instead of a success body."
