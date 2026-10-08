@@ -53,6 +53,9 @@ export function resolveBase({ positional = "", env = {}, scheduled = false } = {
   if (url.protocol !== "https:" || local || url.username || url.password) {
     throw new Error("scheduled probe requires a remote staging HTTPS origin without URL credentials (local targets are not allowed)");
   }
+  if (url.pathname !== "/" || configured.includes("?") || configured.includes("#")) {
+    throw new Error("scheduled probe requires a bare staging HTTPS origin (no non-root path, query, or fragment)");
+  }
   return configured;
 }
 

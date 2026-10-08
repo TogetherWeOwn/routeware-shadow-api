@@ -73,6 +73,9 @@ jobs:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: Hermetic post-deploy probe regressions
+        # Always run even for probe-only PRs whose filtered build is skipped.
+        run: npm run test:probe
       - name: No committed Routeware report exports (PII)
         run: |
           matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"

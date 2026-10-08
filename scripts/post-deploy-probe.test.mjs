@@ -60,6 +60,16 @@ test("scheduled npm entry and workflow retain mandatory target validation", () =
   assert.match(pkg.scripts["test:coverage"], /npm run test:probe && vitest run --coverage/);
 });
 
+test("probe-only changes always run the hermetic CLI suite in CI", () => {
+  const workflow = fs.readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const hygiene = workflow.split(/^  hygiene:\s*$/m)[1]?.split(/^  [\w-]+:\s*$/m)[0];
+  assert.ok(hygiene, "CI must retain the always-run hygiene job");
+  assert.doesNotMatch(hygiene, /^    (?:if|needs):/m);
+  const step = hygiene.split(/^      - /m).find((entry) => entry.includes("run: npm run test:probe"));
+  assert.ok(step, "hygiene must run the probe CLI suite even when build is skipped");
+  assert.doesNotMatch(step, /^\s+(?:if|continue-on-error):/m);
+});
+
 test("base resolution keeps positional precedence and the manual local default", () => {
   assert.equal(resolveBase(), DEFAULT_BASE);
   assert.equal(resolveBase({ env: { [BASE_ENV]: "  " } }), DEFAULT_BASE);
@@ -88,6 +98,30 @@ for (const base of [
     assert.doesNotMatch(result.output, /fixture-password/);
   });
 }
+
+for (const base of [
+  "https://shared.example/staging", "https://shared.example?deployment=staging",
+  "https://shared.example#staging", "https://shared.example?", "https://shared.example#",
+  "https://shared.example/?", "https://shared.example/#",
+]) {
+  test(`scheduled CLI rejects non-origin base ${base} before fetch`, () => {
+    assertConfigurationFailure(run([SCHEDULED_FLAG, SKIP_FLAG], { [BASE_ENV]: base }));
+    assertConfigurationFailure(run([SKIP_FLAG, base], { GITHUB_EVENT_NAME: "schedule" }));
+  });
+}
+
+test("scheduled CLI accepts a root slash and explicit HTTPS port", () => {
+  const result = run([SCHEDULED_FLAG, SKIP_FLAG], { [BASE_ENV]: "https://staging.example:8443/" });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /FIXTURE_FETCH https:\/\/staging\.example:8443\/api\/v1\/health GET public/);
+  assert.equal((result.output.match(/FIXTURE_FETCH/g) || []).length, 1);
+});
+
+test("manual mode keeps existing path-qualified base behavior", () => {
+  const result = run([SKIP_FLAG], { [BASE_ENV]: "https://shared.example/staging?deployment=staging#staging" });
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /FIXTURE_FETCH https:\/\/shared\.example\/api\/v1\/health GET public/);
+});
 
 test("GitHub schedule event enforces validation without --scheduled", () => {
   assertConfigurationFailure(run([SKIP_FLAG], { GITHUB_EVENT_NAME: "schedule" }));
