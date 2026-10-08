@@ -30,18 +30,42 @@ data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"cha
 | `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (guard TOG-9216). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
 
-Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
-`SHADOW_API_PUBLIC_BASE` is unset — or set to something unusable
-(`configSource: "fallback-single-invocation"` either way), so
-D1's per-invocation operation budget applies to all three tables as one pool. At ~609k
-rows a large export can die partway through. The fix is configuration, not code: set
-`SHADOW_API_PUBLIC_BASE` to the Worker's public origin (see `CUSTOMER_SNAPSHOT.md`
-§ "D1: Too many API requests"). The handler only accepts a bare `http(s)` origin —
-no path, query, fragment, or userinfo (`resolveChainedBase` in `src/scheduled.ts`,
-pinned by `test/scheduled.test.ts`): a path-suffixed or malformed value falls back
-to single-invocation silently, so a line with `d1LimitRisk: true` despite the var
-being "set" means the value failed that validation — re-check it character by
-character, don't just check presence.
+### Chained or single invocation? Read the JSON fields
+
+`mode` is decisive; `configSource` and `d1LimitRisk` cross-check it. Do not infer
+mode from the warning text: a present-but-invalid base also falls back, while the
+warning still says “is not set.”
+
+| Cron log fields | Path and D1 budget boundary |
+|---|---|
+| `mode="chained-http"`, `configSource="SHADOW_API_PUBLIC_BASE"`, `d1LimitRisk=false` | The base passed validation as a bare HTTP(S) origin (no userinfo, path, query, or fragment); this checks syntax, not that it points to this Worker. Cron attempts sequential authenticated per-table POSTs to that origin. Each POST that reaches the intended handler runs in its own invocation/budget; only dependency-eligible configured tables run, and a failed step stops later steps. |
+| `mode="single-invocation"`, `configSource="fallback-single-invocation"`, `d1LimitRisk=true` | The base was missing, blank, or rejected. Configured table runners run in-process, sharing one invocation's D1 budget. |
+
+Cloudflare documents **1,000 D1 queries per Worker invocation on Workers Paid / 50
+on Free** ([official limits](https://developers.cloudflare.com/d1/platform/limits/)).
+The repo calculator estimates each nonempty table as
+`ceil(rows / STREAM_BATCH_*) + 1`: one `db.batch()` call per row chunk plus one
+reconcile `DELETE`. Under this explicit project accounting assumption, the
+2026-09-27 counts (109,894 customer, 111,620 address, 388,735 container) and
+chunk sizes 80/80/40 give **1,375 + 1,397 + 9,720 = 12,492** operations. A
+single-invocation run pools those estimates; chaining separates the table
+budgets. The current per-table estimates still exceed 1,000.
+
+**Accounting caveat:** Cloudflare says per-query limits apply to each statement
+inside a `db.batch()`, but does not explicitly state whether each batched
+statement counts separately toward the per-invocation cap. The project
+calculator also reports SQL statement totals (15,700 / 18,604 / 129,579 INSERTs,
+plus a reconcile `DELETE` each); if statements are the cap unit, usage is higher.
+Treat the figures above as the repo estimator, not a Cloudflare-confirmed count.
+`d1LimitRisk=false` identifies chained mode; it does not certify that a table
+fits. Run `node scripts/check-sync-batch-budget.mjs` to recompute both counts;
+see `CUSTOMER_SNAPSHOT.md` § “Sync batch sizing vs the D1 budget” for details.
+
+**Example:** `mode="single-invocation"` with `configSource="fallback-single-invocation"`
+and `d1LimitRisk=true` identifies fallback mode whether `SHADOW_API_PUBLIC_BASE`
+was unset or malformed. Configure it as the Worker's bare public origin to select
+chained mode. `POST /api/v1/data-snapshot/sync` always chains against the request
+origin; this table describes scheduled cron.
 
 ## 1. Reading the last run's line
 
