@@ -16,6 +16,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ready body chunks yield to timer tasks so they cannot starve the deadline;
   successful passthrough bodies and long-running report CSV streams remain unchanged.
 
+- TOG-6517: Customer, address and container snapshot list `q` parameters now
+  reject more than 100 Unicode code points with value-free 400 problem+json
+  before D1 access. Accepted searches are not truncated; validation applies
+  before whitespace trimming, with the same limit published in OpenAPI.
+
 - TOG-7577: Client-facing retry passthroughs replace upstream HTTP 400–599
   bodies, headers and status text with fixed `upstream-error` problem+json,
   preserving the HTTP status and containing possible customer/session data.

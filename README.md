@@ -7,7 +7,8 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 > GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On PRs, changed-area
 > detection selects credential-free `build` and optional `shadow-api-v1` jobs; `hygiene` always runs.
 > Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
-> Repository settings and credentials must be verified separately at handover.
+> Check applicable organization/repository scopes and the `production` environment at handover; a
+> repository-only variable listing does not establish that the effective gate is off.
 >
 > **[`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--verify-pr-ci-before-enabling-production-deploys)
 > has the phased procedure** — check Actions and effective branch rules, then verify PR checks;
@@ -159,8 +160,10 @@ probe skips contract execution.
    **fails closed** (every `/api/v1/*` route except `GET /api/v1/health` returns 401)
    rather than trusting a committed placeholder.
 4. **Repository variable last** — set `PRODUCTION_DEPLOY_ENABLED` to `true` only after the
-   environment, API token, resources and Worker secrets are ready. Delete it or set it to `false`
-   to stop future deploys without disabling PR checks. See [`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--verify-pr-ci-before-enabling-production-deploys).
+   environment, API token, resources and Worker secrets are ready. To stop future deploys, delete it
+   or set it to `false` in every configured repository/organization scope; inspect the `production`
+   environment separately. A repository-only deletion is insufficient if an organization variable
+   remains. See [`docs/HANDOVER.md` § 0](./docs/HANDOVER.md#0-do-this-first--verify-pr-ci-before-enabling-production-deploys).
 
 Manual production deploy commands are intentionally outside the ordinary development loop; follow
 the handover runbook rather than running them opportunistically.
