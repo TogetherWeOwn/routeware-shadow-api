@@ -28,7 +28,7 @@ export function isR2Enabled(rawValue) {
  */
 export function parseVarsValue(tomlText, key) {
   const section = String(tomlText).match(/(?:^|\n)\[vars\]\n([\s\S]*?)(?=\n\[[^\n]*\]|\n\[\[[^\n]*\]\]|$)/);
-  const body = section ? section[1] : String(tomlText);
+  const body = section ? section[1] : "";
   const match = body.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m"));
   return match ? match[1] : null;
 }
@@ -53,14 +53,14 @@ export function parseBucketName(tomlText, binding = R2_BINDING) {
 }
 
 /**
- * Resolve the effective inputs: an explicit env override wins over
- * wrangler.toml, matching how dashboard Variables override committed `[vars]`.
+ * Resolve inputs from the same top-level config passed to `wrangler deploy`.
+ * Shell variables and dashboard vars do not override deployed config vars.
+ * Source: https://developers.cloudflare.com/workers/wrangler/commands/workers/#deploy
  * Returns `{ enabled, bucket }`.
  */
-export function resolvePreflightInput({ env = {}, tomlText = "" } = {}) {
-  const enabledRaw =
-    env[R2_ENABLED_KEY] !== undefined ? env[R2_ENABLED_KEY] : parseVarsValue(tomlText, R2_ENABLED_KEY);
-  const bucket = env.SNAPSHOTS_BUCKET ?? parseBucketName(tomlText, R2_BINDING) ?? null;
+export function resolvePreflightInput({ tomlText = "" } = {}) {
+  const enabledRaw = parseVarsValue(tomlText, R2_ENABLED_KEY);
+  const bucket = parseBucketName(tomlText, R2_BINDING);
   return { enabled: isR2Enabled(enabledRaw), bucket };
 }
 
@@ -77,7 +77,7 @@ export function formatMissingBucketError(bucket) {
   return [
     `${CHECK_NAME}: FAIL — R2 bucket "${bucket}" (binding ${R2_BINDING}) not found or not readable.`,
     `Fix: npx wrangler r2 bucket create ${bucket} (then re-run deploy).`,
-    `Disable only by setting ${R2_ENABLED_KEY}="false".`,
+    `Disable only by setting ${R2_ENABLED_KEY}="false" in [vars] of the deployed config.`,
   ].join("\n");
 }
 
