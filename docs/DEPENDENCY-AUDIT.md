@@ -10,14 +10,17 @@ any **high or critical** advisory that is not explicitly allowlisted in
 - **Prod only (`--omit=dev`).** DevDependencies (vitest, wrangler,
   playwright) never ship to the Worker; auditing them would drown the signal
   for what actually runs in production.
-- **High/critical block; moderate/low never block.** The tree carries ~25
-  moderate/low advisories, mostly Hono middleware adapters this Worker never
-  mounts (JSX, Lambda, `toSSG`, AWS adapters). Gating on those would hold
-  the gate permanently red and teach everyone to ignore it. They are still
-  counted in the PASS log so drift is visible.
+- **High/critical block; moderate/low never block.** The tree historically
+  carried ~25 moderate/low advisories, mostly Hono middleware adapters this
+  Worker never mounts (JSX, Lambda, `toSSG`, AWS adapters). Gating on those
+  would hold the gate permanently red and teach everyone to ignore it. They
+  are still counted in the PASS log so drift is visible. As of TOG-18932
+  (`hono` 4.13.13, `npm audit fix` non-breaking) the tree reports 7
+  packages / 3 distinct advisories, all high and allowlisted, 0 below
+  threshold.
 - **Per-advisory severity, not npm's rollup.** `npm audit` rolls each
   package up to its worst advisory; the gate reads each GHSA's own severity
-  instead, so one high advisory in `hono` does not force-allowlist its 20+
+  instead, so one high advisory in a package does not force-allowlist its
   moderate siblings.
 
 ## Dependabot keeps the list shrinking
@@ -72,8 +75,8 @@ whose GHSA no longer appears is stale by definition.
 - Never extend an entry "just in case" — if the advisory text changed, it
   is a new risk; re-review it.
 - Never gate on `npm audit` exit codes directly — npm exits 1 whenever
-  *any* advisory exists, including the 25 moderate/lows we accept. The
-  `check-deps-audit` gate is the verdict, not the raw exit code.
+  *any* advisory exists, including moderate/lows below the gate threshold.
+  The `check-deps-audit` gate is the verdict, not the raw exit code.
 
 ## Local commands
 
