@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi";
 import { prepareSaveAddressFormBody } from "../lib/addressContainerSaveForm";
 import { establishSession } from "../lib/establishSession";
 import { forwardWithSessionRetry } from "../lib/forwardWithSessionRetry";
+import { logEvent } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -57,7 +58,11 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
       { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (err) {
-    console.error("prepareSaveAddressFormBody", err);
+    logEvent({
+      level: "error",
+      msg: "Address save token preparation failed",
+      route: "POST /api/v1/routeware/address/save-address-form"
+    });
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "New address requires CustomerID in POST body") {
       return problemJsonResponse({

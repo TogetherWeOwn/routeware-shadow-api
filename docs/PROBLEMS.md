@@ -15,7 +15,7 @@ section below.
 | `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
 | `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
-| `internal` | 500 | An unexpected error. Details are logged, not returned. |
+| `internal` | 500 | An unexpected error. A fixed summary is logged without exception text or stack, not returned. |
 
 ## CSV control characters (`bad-request`)
 
@@ -178,10 +178,10 @@ so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
 Throttle storage errors fail open to the pre-throttle 401 behavior — auth
-stays enforced, only the counting degrades. Each fail-open logs exactly one
-`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
-is a fixed category, never IP/token/PII). Operator alarm path — log query +
-alert-rule proposal, nothing activated:
+stays enforced, only the counting degrades. Each fail-open emits exactly one
+structured error event per 60-second window with `msg: "AUTH THROTTLE FAIL-OPEN"`
+and a separate fixed-category `reason` field (never IP/token/PII). Operator
+alarm path — log query + alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
 on DO failure) alongside the dedup cases in `test/authThrottle.test.ts`

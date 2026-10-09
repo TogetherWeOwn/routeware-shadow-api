@@ -16,13 +16,14 @@ throttle DO is down, token-guessing is not slowed and `429`s stop entirely.
 Without an alarm that degraded state is invisible: every request still gets a
 correct 401/404, so nothing looks broken.
 
-## 0. The signal: one `AUTH THROTTLE FAIL-OPEN` stderr line per window
+## 0. The signal: one structured JSON event per window
 
-Each fail-open logs a single line to stderr (fixed string + reason category —
-never an IP, token, header, or body):
+Each fail-open emits one error-level structured event per window. Its `msg` is
+fixed, the `reason` is a separate allowlisted category, and `ms` is `null`
+because no duration is measured (never an IP, token, header, or body):
 
-```text
-AUTH THROTTLE FAIL-OPEN do_error
+```json
+{"level":"error","msg":"AUTH THROTTLE FAIL-OPEN","route":"authThrottle.failOpen","ms":null,"reason":"do_error"}
 ```
 
 | Reason | Meaning |
@@ -48,10 +49,10 @@ access deploys already need — nothing new):
 npx wrangler tail --format json 2>&1 | grep 'AUTH THROTTLE FAIL-OPEN'
 ```
 
-(`console.error` lands on stderr; `--format json` wraps it but the message
-text still greps.) One line per 60s window per isolate while the outage
-lasts: a burst of lines 60s apart means the DO is still down, not that
-separate incidents occurred.
+(`console.error` receives the event object; `--format json` exposes `msg` as a
+top-level searchable field.) One event per 60s window per isolate while the
+outage lasts: events 60s apart mean the DO is still down, not that separate
+incidents occurred.
 
 ## 2. Alert-rule proposal (operator-applied; NOT activated)
 
@@ -60,14 +61,14 @@ daily (and after every deploy touching `src/lib/authThrottle.ts`,
 `src/app.ts`, or the `AUTH_SESSION` binding) by whoever holds the deploy
 token or any existing scheduled runner:
 
-1. Pull the last 24h of `AUTH THROTTLE FAIL-OPEN` lines (§1).
+1. Pull the last 24h of events where `msg` is `AUTH THROTTLE FAIL-OPEN` (§1).
 2. Zero lines → healthy, done.
 3. Any line → triage per §3, record the disposition where the team looks
    (issue comment or ops log): date, reason category, cause, action taken.
 
 If the operator has log alerting (outside this repo — deliberately not bought
-here), the equivalent rule is: `count(message contains
-"AUTH THROTTLE FAIL-OPEN") > 0 over 5 minutes` → warn/major with this
+here), the equivalent rule is: `count(event where level="error" and
+msg="AUTH THROTTLE FAIL-OPEN") > 0 over 5 minutes` → warn/major with this
 runbook's link, auto-resolve after 30 minutes quiet. Detection latency of the
 manual loop is bounded at ~24h; the automated rule bounds it at ~5 minutes.
 
@@ -86,7 +87,7 @@ manual loop is bounded at ~24h; the automated rule bounds it at ~5 minutes.
    touching the gate/DO wiring is the most likely cause — rollback per the
    deploy runbook); Cloudflare status for platform-wide DO issues.
 5. Remediate per cause (rollback, config fix, or wait out the platform), then
-   verify the clear: no new `AUTH THROTTLE FAIL-OPEN` line for > 60 seconds
+   verify the clear: no new event with `msg: "AUTH THROTTLE FAIL-OPEN"` for > 60 seconds
    plus 401/429 behavior back to normal.
 6. Never brute-force-probe production to "test" recovery — the contract is
    proven by `test/authThrottleFailOpenAlarm.test.ts`, not by live guessing.
@@ -100,8 +101,8 @@ devDependencies):
 ```bash
 NODE_ENV=development npx vitest run test/authThrottleFailOpenAlarm.test.ts
 # Expect green: a 5-failure burst inside one window emits exactly one
-# `AUTH THROTTLE FAIL-OPEN do_error` line (all verdicts open), and the next
-# failure past the window edge emits exactly one more.
+# `AUTH THROTTLE FAIL-OPEN` event with `reason: "do_error"` (all verdicts
+# open), and the next failure past the window edge emits exactly one more.
 ```
 
 ## 5. What this runbook does not cover

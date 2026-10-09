@@ -9,15 +9,12 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
  * handler itself (`src/scheduled.ts`) has no HTTP surface — it returns void
  * inside `ctx.waitUntil` and reports only through its structured log line:
  *
- * - **Table name logged** — `src/lib/snapshot/orchestration.ts` rethrows every
- *   step failure tagged `[<table> snapshot]` (pinned at unit level by
- *   `test/snapshotOrchestration.test.ts`); these tests prove the tag survives
- *   end to end into the cron's `failed` log line for each table, on the real
- *   handler with the real orchestration/stream/upsert stack.
- * - **Never PII** — the failed line carries `error.message` verbatim, so every
- *   case asserts none of the fixture's PII-shaped values appears in any
- *   captured log line. A leak would be filed as its own bug card; none was
- *   found (see the sweep case).
+ * - **Table name logged** — `src/lib/snapshot/orchestration.ts` rethrows each
+ *   step with a fixed table tag; the cron extracts only that allowlisted table
+ *   name into the structured failure event, never the exception text.
+ * - **Never PII** — every case asserts none of the fixture's PII-shaped values
+ *   appears in any captured structured event. A leak would be filed as its own
+ *   bug card; none was found (see the sweep case).
  * - **503 problem body** — the only D1-down HTTP surface is `GET
  *   /api/v1/readiness` (D1 ping throws → 503 `degraded`; the binding-missing
  *   shape is pinned by `test/metaRoutes.test.ts`, the ping-throws shape is
@@ -173,14 +170,16 @@ function cronEnv(db: D1Database): Env {
   } as unknown as Env;
 }
 
-const captured: { logs: string[]; errors: string[]; warns: string[] } = {
-  logs: [],
-  errors: [],
-  warns: []
-};
+type CapturedLog = Record<string, unknown>;
+
+const captured: {
+  logs: CapturedLog[];
+  errors: CapturedLog[];
+  warns: CapturedLog[];
+} = { logs: [], errors: [], warns: [] };
 
 function allCaptured(): string {
-  return [...captured.logs, ...captured.errors, ...captured.warns].join("\n");
+  return JSON.stringify([...captured.logs, ...captured.errors, ...captured.warns]);
 }
 
 /** No fixture PII marker may appear in any captured log line or response body. */
@@ -190,22 +189,16 @@ function expectNoPii(text: string, label: string): void {
   }
 }
 
-/** Parses the single structured cron line; asserts the greppable prefix. */
-function failedLine(): Record<string, unknown> {
+/** Returns the single structured cron event from the selected severity. */
+function failedLine(): CapturedLog {
   expect(captured.logs).toEqual([]);
   expect(captured.errors).toHaveLength(1);
-  const raw = String(captured.errors[0]);
-  expect(raw.startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(raw.slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+  return captured.errors[0];
 }
 
-function successLine(): Record<string, unknown> {
+function successLine(): CapturedLog {
   expect(captured.logs).toHaveLength(1);
-  expect(captured.logs[0].startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(captured.logs[0].slice("data-snapshot-sync ".length)) as Record<
-    string,
-    unknown
-  >;
+  return captured.logs[0];
 }
 
 async function runScheduled(env: Env): Promise<void> {
@@ -247,14 +240,14 @@ beforeEach(async () => {
   captured.logs = [];
   captured.errors = [];
   captured.warns = [];
-  vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    captured.logs.push(a.map(String).join(" "));
+  vi.spyOn(console, "info").mockImplementation((...args: unknown[]) => {
+    captured.logs.push(args[0] as CapturedLog);
   });
-  vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-    captured.errors.push(a.map(String).join(" "));
+  vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    captured.errors.push(args[0] as CapturedLog);
   });
-  vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
-    captured.warns.push(a.map(String).join(" "));
+  vi.spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+    captured.warns.push(args[0] as CapturedLog);
   });
 });
 
@@ -268,15 +261,16 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCustomerBatch)));
 
-    // Assert — the step tag names the table; counts are null; nothing synced.
-    // The message carries the upsert layer's batch context around the driver
-    // error, so the assertions pin tag + table + driver text, not the exact
-    // string.
+    // Assert — the event carries only the fixed table label, not driver text.
     const line = failedLine();
-    expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[customer snapshot]");
-    expect(String(line.error)).toContain("customer_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line).toMatchObject({
+      level: "error",
+      msg: "data-snapshot-sync failed",
+      route: "scheduled.data-snapshot-sync",
+      outcome: "failed",
+      table: "customer"
+    });
+    expect(line.error).toBeUndefined();
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
     expect(line.summary).toBe("sync threw before any table result was recorded");
     expect(typeof line.durationMs).toBe("number");
@@ -294,9 +288,8 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // this run are present, container never ran.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[address snapshot]");
-    expect(String(line.error)).toContain("address_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line.table).toBe("address");
+    expect(line.error).toBeUndefined();
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(0);
     expect(await rowCount("container_snapshot")).toBe(0);
@@ -310,9 +303,8 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Assert
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[container snapshot]");
-    expect(String(line.error)).toContain("container_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line.table).toBe("container");
+    expect(line.error).toBeUndefined();
     expect(await rowCount("customer_snapshot")).toBe(2);
     expect(await rowCount("address_snapshot")).toBe(2);
     expect(await rowCount("container_snapshot")).toBe(0);
@@ -327,7 +319,8 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Assert — the tag covers the reconcile stage too, not just batches.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[customer snapshot]");
+    expect(line.table).toBe("customer");
+    expect(line.error).toBeUndefined();
     expect(await rowCount("customer_snapshot")).toBe(2);
     expectNoPii(allCaptured(), "reconcile fault");
   });
@@ -377,8 +370,8 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCronPersist, "D1_ERROR: cron_sync_state is readonly")));
 
-    // Assert — success still logs with counts; the persist failure is a
-    // separate stderr line carrying only the driver message.
+    // Assert — success still logs with counts; persistence failure is a
+    // separate structured event without the driver message.
     const line = successLine();
     expect(line.outcome).toBe("success");
     expect(line.tables).toEqual({
@@ -387,8 +380,12 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
       container: { upserted: 2, rowCount: 2, deleted: 0 }
     });
     expect(captured.errors).toHaveLength(1);
-    expect(captured.errors[0]).toContain("data-snapshot-sync persist failed");
-    expect(captured.errors[0]).toContain("cron_sync_state is readonly");
+    expect(captured.errors[0]).toMatchObject({
+      level: "error",
+      msg: "data-snapshot-sync persistence failed",
+      route: "scheduled.data-snapshot-sync"
+    });
+    expect(captured.errors[0].error).toBeUndefined();
     expectNoPii(allCaptured(), "persist fault");
   });
 });

@@ -1,4 +1,5 @@
 import { problemJsonResponse, problemType } from "./problem";
+import { logEvent } from "./logger";
 import { readSessionState } from "./sessionState";
 
 /**
@@ -64,10 +65,11 @@ export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void>
   try {
     await stub.fetch("https://auth/unlock");
   } catch (err) {
-    console.warn(
-      "Failed to release the auth refresh lock; it will expire via its TTL:",
-      err instanceof Error ? err.message : String(err)
-    );
+    logEvent({
+      level: "warn",
+      msg: "Failed to release the auth refresh lock; it will expire via its TTL",
+      route: "auth.refreshLock.release"
+    });
   }
 }
 

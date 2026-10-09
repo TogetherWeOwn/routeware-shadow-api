@@ -32,14 +32,17 @@ This note records where freshness comes from and how to tune it.
 
 ## Observability
 
-Every `getCachedDataEntity` call logs one line:
+Every `getCachedDataEntity` call emits one structured event. For example:
 
-```
-entityDataCache <kind> hit|miss hits=<n> misses=<n>
+```json
+{"level":"info","msg":"Entity data cache miss","route":"cache.entityData","ms":null,"entity":"customer","hits":0,"misses":1}
 ```
 
-Counts only — no ids, no bodies, no ETags (customer PII lives behind these
-keys). In `wrangler dev`, repeat `GET /api/v1/data/customer?id=<id>` calls
-show `miss` then `hit`; a POST to the matching save route evicts the entry, so
-the next GET logs `miss` again. `getEntityDataCacheStats()` exposes the same
-counters programmatically; `resetEntityDataCacheStats()` clears them.
+Events carry only the entity kind and per-isolate aggregate counters — no ids,
+bodies, or ETags (customer PII lives behind these keys). In `wrangler dev`,
+repeated `GET /api/v1/data/customer?id=<id>` calls show a miss then a hit; a POST
+to the matching save route evicts the entry, so the next GET logs another miss.
+A cache-write failure emits a `warn` event with `msg` set to
+`Cache put failed; serving the response uncached`. `getEntityDataCacheStats()`
+exposes the same counters programmatically; `resetEntityDataCacheStats()` clears
+them.

@@ -247,14 +247,15 @@ describe("throttle fail-open paths", () => {
   // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
   // so reading `console.error` back does not return the installed spy (same
   // pattern as test/dataEntityPostHandlers.test.ts).
-  const loggedErrors: unknown[][] = [];
+  type CapturedLog = Record<string, unknown>;
+  const loggedErrors: CapturedLog[] = [];
   const realConsoleError = console.error;
 
   beforeEach(() => {
     resetAuthThrottleFailOpenLogForTests();
     loggedErrors.length = 0;
     console.error = (...args: unknown[]) => {
-      loggedErrors.push(args);
+      loggedErrors.push(args[0] as CapturedLog);
     };
   });
 
@@ -323,7 +324,15 @@ describe("throttle fail-open paths", () => {
     }
 
     // Assert — exactly one line, fixed category, no IP/token/PII.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+    expect(loggedErrors).toEqual([
+      {
+        level: "error",
+        msg: "AUTH THROTTLE FAIL-OPEN",
+        route: "authThrottle.failOpen",
+        reason: "do_error",
+        ms: null
+      }
+    ]);
   });
 
   it("logs non-OK and malformed fail-opens once per window, then again after the window", async () => {
@@ -339,15 +348,35 @@ describe("throttle fail-open paths", () => {
     await recordAuthFailure(malformed, req, now + 1);
 
     // Assert — the first line wins; the second is deduped within the window.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"]]);
+    expect(loggedErrors).toEqual([
+      {
+        level: "error",
+        msg: "AUTH THROTTLE FAIL-OPEN",
+        route: "authThrottle.failOpen",
+        reason: "do_non_ok status=500",
+        ms: null
+      }
+    ]);
 
     // Act — past the window edge the alarm fires again.
     await recordAuthFailure(malformed, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
 
     // Assert
     expect(loggedErrors).toEqual([
-      ["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"],
-      ["AUTH THROTTLE FAIL-OPEN do_malformed"]
+      {
+        level: "error",
+        msg: "AUTH THROTTLE FAIL-OPEN",
+        route: "authThrottle.failOpen",
+        reason: "do_non_ok status=500",
+        ms: null
+      },
+      {
+        level: "error",
+        msg: "AUTH THROTTLE FAIL-OPEN",
+        route: "authThrottle.failOpen",
+        reason: "do_malformed",
+        ms: null
+      }
     ]);
   });
 });

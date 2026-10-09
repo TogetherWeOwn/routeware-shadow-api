@@ -5,6 +5,7 @@ import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
+import { logEvent } from "./lib/logger";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import {
   concurrentRefreshTimeoutProblem,
@@ -251,7 +252,13 @@ app.onError((err, c) => {
   // for direct forwarders (login-page, modals, detail-full sync internals).
   // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
   if (isUpstreamTimeout(err)) {
-    console.error("UPSTREAM TIMEOUT", err.message);
+    logEvent({
+      level: "error",
+      msg: "Upstream request timed out",
+      route: "app.onError",
+      ms: null,
+      timeoutMs: err.timeoutMs
+    });
     return withCors(
       upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
       c.req.raw
@@ -263,7 +270,13 @@ app.onError((err, c) => {
   // reaches here; this is the backstop for direct `establishSession` callers
   // (snapshot sync routes, detail-full sync internals).
   if (isConcurrentRefreshTimeout(err)) {
-    console.error("CONCURRENT REFRESH TIMEOUT", err.message);
+    logEvent({
+      level: "error",
+      msg: "Concurrent session refresh timed out",
+      route: "app.onError",
+      ms: null,
+      timeoutMs: err.timeoutMs
+    });
     return withCors(
       concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
       c.req.raw
@@ -274,7 +287,12 @@ app.onError((err, c) => {
   // (operator config, never a credential or customer data) plus the closed
   // set, so the fix is obvious from the response alone.
   if (isInvalidAuthModeError(err)) {
-    console.error("INVALID AUTH_MODE", err.message);
+    logEvent({
+      level: "error",
+      msg: "Invalid AUTH_MODE configuration",
+      route: "app.onError",
+      ms: null
+    });
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured"),
@@ -293,7 +311,13 @@ app.onError((err, c) => {
   // expired sessions, not blocked upstreams); this is the backstop.
   // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
   if (isLoginPageUnavailableError(err)) {
-    console.error("LOGIN PAGE UNAVAILABLE", err.message);
+    logEvent({
+      level: "error",
+      msg: "Routeware login page unavailable",
+      route: "app.onError",
+      ms: null,
+      status: err.status
+    });
     return withCors(
       problemJsonResponse({
         type: problemType("bad-gateway"),
@@ -308,9 +332,13 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // Log the full error for observability, but do not echo internal details
-  // (messages, stack, upstream text) back to the client.
-  console.error("APP ERROR", err);
+  // Keep log fields stable and PII-safe; do not serialize the error message or stack.
+  logEvent({
+    level: "error",
+    msg: "Unhandled request error",
+    route: "app.onError",
+    ms: null
+  });
   return withCors(
     problemJsonResponse({
       type: problemType("internal"),

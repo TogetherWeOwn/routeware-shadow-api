@@ -73,11 +73,13 @@ function createMapBucket(initial: Record<string, string> = {}) {
   return { bucket, store, putKeys };
 }
 
-const warned: string[] = [];
+type CapturedLog = Record<string, unknown>;
+
+const warned: CapturedLog[] = [];
 const realWarn = console.warn;
-const logged: string[] = [];
-const realLog = console.log;
-const errored: string[] = [];
+const logged: CapturedLog[] = [];
+const realInfo = console.info;
+const errored: CapturedLog[] = [];
 const realError = console.error;
 
 beforeEach(() => {
@@ -85,19 +87,19 @@ beforeEach(() => {
   logged.length = 0;
   errored.length = 0;
   console.warn = (...args: unknown[]) => {
-    warned.push(args.map(String).join(" "));
+    warned.push(args[0] as CapturedLog);
   };
-  console.log = (...args: unknown[]) => {
-    logged.push(args.map(String).join(" "));
+  console.info = (...args: unknown[]) => {
+    logged.push(args[0] as CapturedLog);
   };
   console.error = (...args: unknown[]) => {
-    errored.push(args.map(String).join(" "));
+    errored.push(args[0] as CapturedLog);
   };
 });
 
 afterEach(() => {
   console.warn = realWarn;
-  console.log = realLog;
+  console.info = realInfo;
   console.error = realError;
 });
 
@@ -132,7 +134,14 @@ describe("snapshot manifest sidecar", () => {
       sha256: await sha256HexBytes(new TextEncoder().encode(csv)),
       bytes: new TextEncoder().encode(csv).byteLength,
     });
-    expect(logged.some((l) => l.includes(`R2 snapshot manifest updated: ${manifestKey}`))).toBe(true);
+    expect(logged).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot manifest updated",
+        route: "snapshot.r2.manifest",
+        manifestKey
+      })
+    );
   });
 
   it("merges a second same-date table into the existing manifest", async () => {
@@ -177,8 +186,15 @@ describe("snapshot manifest sidecar", () => {
 
     // Assert — caller sees the D1 result; both failures are logged errors.
     expect(result).toEqual({ upserted: 1 });
-    expect(errored.some((l) => l.includes("R2 snapshot put failed"))).toBe(true);
-    expect(errored.some((l) => l.includes("manifest"))).toBe(false);
+    expect(errored).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        msg: "R2 snapshot put failed",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/\/container\.csv$/)
+      })
+    );
+    expect(errored.some((event) => String(event.msg).includes("manifest"))).toBe(false);
   });
 
   it("replaces a corrupt existing manifest instead of merging into it", async () => {
@@ -193,7 +209,14 @@ describe("snapshot manifest sidecar", () => {
 
     // Assert — warned, replaced, and the new manifest carries only the table
     // just archived (verify then reports the others as missing, loudly).
-    expect(warned.some((w) => w.includes(manifestKey) && w.includes("not JSON"))).toBe(true);
+    expect(warned).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        msg: "R2 snapshot manifest is not JSON; replacing",
+        route: "snapshot.r2.manifest",
+        manifestKey
+      })
+    );
     const parsed = JSON.parse(new TextDecoder().decode(store.get(manifestKey)!)) as SnapshotManifest;
     expect(isSnapshotManifest(parsed)).toBe(true);
     expect(Object.keys(parsed.files)).toEqual(["customer.csv"]);
@@ -215,7 +238,14 @@ describe("snapshot manifest sidecar", () => {
     });
 
     // Assert
-    expect(warned.some((w) => w.includes("failed validation"))).toBe(true);
+    expect(warned).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        msg: "R2 snapshot manifest failed validation; replacing",
+        route: "snapshot.r2.manifest",
+        manifestKey
+      })
+    );
     const parsed = JSON.parse(new TextDecoder().decode(store.get(manifestKey)!)) as SnapshotManifest;
     expect(isSnapshotManifest(parsed)).toBe(true);
     expect(Object.keys(parsed.files)).toEqual(["customer.csv"]);

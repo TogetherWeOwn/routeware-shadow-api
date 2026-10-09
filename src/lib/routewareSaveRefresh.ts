@@ -1,4 +1,5 @@
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
+import { logEvent } from "./logger";
 import { invalidateCustomerGraph, invalidateDataEntity } from "./entityDataCache";
 import {
   parseCustomerIdFromSaveResponse,
@@ -44,11 +45,21 @@ export async function refreshAfterRoutewareSave(
         containerIds: g.containerIds
       });
     } catch (e) {
-      console.error("refreshAfterRoutewareSave sync", e);
+      logEvent({
+        level: "error",
+        msg: "Post-save snapshot sync failed; evicting affected cache keys",
+        route: "routeware.saveRefresh",
+        kind
+      });
       await invalidateSaveFallback(kind, customerId, posted);
     }
   } catch (e) {
-    console.error("refreshAfterRoutewareSave", e);
+    logEvent({
+      level: "error",
+      msg: "Post-save refresh failed",
+      route: "routeware.saveRefresh",
+      kind
+    });
   }
 }
 
@@ -95,8 +106,13 @@ async function invalidateSaveFallback(
 ): Promise<void> {
   const attempts: Array<Promise<void>> = [];
   attempts.push(
-    invalidateDataEntity("customer", customerId).catch((e: unknown) =>
-      console.error("refreshAfterRoutewareSave invalidate customer", e)
+    invalidateDataEntity("customer", customerId).catch(() =>
+      logEvent({
+        level: "error",
+        msg: "Post-save customer cache invalidation failed",
+        route: "routeware.saveRefresh.invalidate",
+        entity: "customer"
+      })
     )
   );
   const extraKey = kind === "address" ? "PickupAddressID" : kind === "container" ? "ContainerID" : null;
@@ -105,8 +121,13 @@ async function invalidateSaveFallback(
     if (Number.isFinite(extra) && extra > 0) {
       const entity = kind === "address" ? "address" : "container";
       attempts.push(
-        invalidateDataEntity(entity, extra).catch((e: unknown) =>
-          console.error(`refreshAfterRoutewareSave invalidate ${entity}`, e)
+        invalidateDataEntity(entity, extra).catch(() =>
+          logEvent({
+            level: "error",
+            msg: "Post-save entity cache invalidation failed",
+            route: "routeware.saveRefresh.invalidate",
+            entity
+          })
         )
       );
     }

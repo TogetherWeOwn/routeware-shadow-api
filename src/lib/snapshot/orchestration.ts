@@ -1,3 +1,4 @@
+import { logEvent } from "../logger";
 import { archiveReportCsvToR2AfterD1 } from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
 import { fetchReportCsvForPath } from "./reportFetch";
@@ -34,7 +35,12 @@ export async function runCustomerSnapshotSync(
   const path = env.CUSTOMER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CUSTOMER_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
-    console.log("CUSTOMER_REPORT_EXPORT_PATH and CUSTOMER_REPORT_QUERY_ID unset; skip customer sync");
+    logEvent({
+      level: "info",
+      msg: "Customer snapshot sync skipped: source is not configured",
+      route: "snapshot.customer",
+      table: "customer"
+    });
     return null;
   }
   // A POST may refresh D1 while the upstream export is still being generated.
@@ -59,7 +65,12 @@ export async function runAddressSnapshotSync(
   const path = env.ADDRESS_REPORT_EXPORT_PATH?.trim();
   const queryId = env.ADDRESS_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
-    console.log("ADDRESS_REPORT_EXPORT_PATH and ADDRESS_REPORT_QUERY_ID unset; skip address sync");
+    logEvent({
+      level: "info",
+      msg: "Address snapshot sync skipped: source is not configured",
+      route: "snapshot.address",
+      table: "address"
+    });
     return null;
   }
   // A POST may refresh D1 while the upstream export is still being generated.
@@ -84,9 +95,12 @@ export async function runContainerSnapshotSync(
   const path = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
   const queryId = env.CONTAINER_REPORT_QUERY_ID?.trim();
   if (!path && !queryId) {
-    console.log(
-      "CONTAINER_REPORT_EXPORT_PATH and CONTAINER_REPORT_QUERY_ID unset; skip container sync"
-    );
+    logEvent({
+      level: "info",
+      msg: "Container snapshot sync skipped: source is not configured",
+      route: "snapshot.container",
+      table: "container"
+    });
     return null;
   }
   // A POST may refresh D1 while the upstream export is still being generated.
@@ -200,7 +214,12 @@ export async function runDataSnapshotSyncChainedHttp(
       await post("/api/v1/customer-snapshot/sync", "customer")
     );
   } else {
-    console.log("No customer path or query ID; not syncing customers");
+    logEvent({
+      level: "info",
+      msg: "Customer snapshot sync skipped: source is not configured",
+      route: "snapshot.orchestration",
+      table: "customer"
+    });
   }
   if (plan.runAddress) {
     out.address = syncJsonToResult(
@@ -208,11 +227,20 @@ export async function runDataSnapshotSyncChainedHttp(
     );
   } else {
     if (env.ADDRESS_REPORT_EXPORT_PATH?.trim() || env.ADDRESS_REPORT_QUERY_ID?.trim()) {
-      console.log(
-        "Address is configured but customer is not — skip address (FK to customer). Set customer first."
-      );
+      logEvent({
+        level: "info",
+        msg: "Address snapshot sync skipped because customer is not configured",
+        route: "snapshot.orchestration",
+        table: "address",
+        dependency: "customer"
+      });
     } else {
-      console.log("No address path or query ID; not syncing addresses");
+      logEvent({
+        level: "info",
+        msg: "Address snapshot sync skipped: source is not configured",
+        route: "snapshot.orchestration",
+        table: "address"
+      });
     }
   }
   if (plan.runContainer) {
@@ -223,11 +251,20 @@ export async function runDataSnapshotSyncChainedHttp(
     const tP = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
     const tQ = env.CONTAINER_REPORT_QUERY_ID?.trim();
     if (tP || tQ) {
-      console.log(
-        "Container is configured but customer and/or address is not — skip container (FKs). Set all three."
-      );
+      logEvent({
+        level: "info",
+        msg: "Container snapshot sync skipped because a required parent source is not configured",
+        route: "snapshot.orchestration",
+        table: "container",
+        dependency: "customer-or-address"
+      });
     } else {
-      console.log("No container path or query ID; not syncing containers");
+      logEvent({
+        level: "info",
+        msg: "Container snapshot sync skipped: source is not configured",
+        route: "snapshot.orchestration",
+        table: "container"
+      });
     }
   }
   return out;
@@ -252,7 +289,12 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
       rethrowWithSnapshotContext("customer snapshot", e);
     }
   } else {
-    console.log("No customer path or query ID; not syncing customers");
+    logEvent({
+      level: "info",
+      msg: "Customer snapshot sync skipped: source is not configured",
+      route: "snapshot.orchestration",
+      table: "customer"
+    });
   }
   if (plan.runAddress) {
     try {
@@ -262,11 +304,20 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     }
   } else {
     if (env.ADDRESS_REPORT_EXPORT_PATH?.trim() || env.ADDRESS_REPORT_QUERY_ID?.trim()) {
-      console.log(
-        "Address is configured but customer is not — skip address (FK to customer). Set customer first."
-      );
+      logEvent({
+        level: "info",
+        msg: "Address snapshot sync skipped because customer is not configured",
+        route: "snapshot.orchestration",
+        table: "address",
+        dependency: "customer"
+      });
     } else {
-      console.log("No address path or query ID; not syncing addresses");
+      logEvent({
+        level: "info",
+        msg: "Address snapshot sync skipped: source is not configured",
+        route: "snapshot.orchestration",
+        table: "address"
+      });
     }
   }
   if (plan.runContainer) {
@@ -279,11 +330,20 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
     const tP = env.CONTAINER_REPORT_EXPORT_PATH?.trim();
     const tQ = env.CONTAINER_REPORT_QUERY_ID?.trim();
     if (tP || tQ) {
-      console.log(
-        "Container is configured but customer and/or address is not — skip container (FKs). Set all three."
-      );
+      logEvent({
+        level: "info",
+        msg: "Container snapshot sync skipped because a required parent source is not configured",
+        route: "snapshot.orchestration",
+        table: "container",
+        dependency: "customer-or-address"
+      });
     } else {
-      console.log("No container path or query ID; not syncing containers");
+      logEvent({
+        level: "info",
+        msg: "Container snapshot sync skipped: source is not configured",
+        route: "snapshot.orchestration",
+        table: "container"
+      });
     }
   }
   return out;

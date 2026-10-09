@@ -27,6 +27,7 @@ import {
   routewarePostLooksSuccessful,
   urlEncodedToObject
 } from "./routewarePostResult";
+import { logEvent } from "./logger";
 import { routewareWebRwUrl } from "./upstreamUrl";
 
 export type DataEntityCtx = {
@@ -350,7 +351,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
           containerIds: g.containerIds
         });
       } catch (e) {
-        console.error("syncCustomerDetailFullToD1", e);
+        logEvent({
+          level: "error",
+          msg: "Local customer snapshot sync failed",
+          route: "POST /api/v1/data/customer"
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
       }
@@ -465,7 +470,11 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           containerIds: g.containerIds
         });
       } catch (e) {
-        console.error("post address sync", e);
+        logEvent({
+          level: "error",
+          msg: "Local address snapshot sync failed",
+          route: "POST /api/v1/data/address"
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
         if (pickupAddressId !== null) {
@@ -589,7 +598,11 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           containerIds: g.containerIds
         });
       } catch (e) {
-        console.error("post container sync", e);
+        logEvent({
+          level: "error",
+          msg: "Local container snapshot sync failed",
+          route: "POST /api/v1/data/container"
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
         if (postedContainerId !== null) {

@@ -6,28 +6,30 @@ changes. Every check below uses observability this repo already has: Workers Log
 `wrangler d1 execute`.
 **Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Cron `0 7 * * *` UTC
 (`[triggers]` in `wrangler.toml`), handler `src/scheduled.ts`, tests `test/scheduled.test.ts`.
-**Why:** a silent cron failure used to look identical to "no report paths configured"
-(both were free-text log lines). Every run now emits exactly one structured line whose
-`outcome` is `success`, `unconfigured`, or `failed` — the alarm keys on that field,
-and on the *absence* of any line.
+**Why:** a silent cron failure used to look identical to "no report paths configured".
+The primary outcome record now carries `outcome` as `success`, `unconfigured`, or
+`failed`; the alarm keys on that structured event and on the *absence* of it.
+Fallback and persistence failures can also produce separate warning/error events,
+so select the primary record by its stable `msg` value, not by counting every log.
 
-## 0. The signal: one `data-snapshot-sync` JSON line per run
+## 0. The signal: one primary `data-snapshot-sync` outcome event per run
 
-Each cron firing logs a single line to stdout (success / unconfigured) or stderr
-(failed), prefixed `data-snapshot-sync ` so it stays greppable while the remainder
-parses as JSON. Shape (counts below are illustrative, never real row data — only
-counts, durations, and config names ever leave the Worker):
+Each cron firing emits one primary structured event through the shared logger. Its
+`msg` is `data-snapshot-sync` for success/unconfigured and `data-snapshot-sync failed`
+for failure. Other events may be present for fallback mode or persistence failures.
+Shape (counts below are illustrative, never real row data — only counts, durations,
+and config names leave the Worker):
 
-```text
-data-snapshot-sync {"event":"data-snapshot-sync","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12},"address":{"upserted":198002,"rowCount":198002},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
+```json
+{"level":"info","msg":"data-snapshot-sync","route":"scheduled.data-snapshot-sync","ms":41203,"event":"data-snapshot-sync","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12},"address":{"upserted":198002,"rowCount":198002},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
 ```
 
 | `outcome` | Meaning | Alarm action |
 |---|---|---|
 | `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
 | `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
-| `failed` | The sync threw before any table result was recorded. `error` carries the step tag (e.g. `[customer snapshot] …`, `[chained address] …`) with the message only — never row data. | Triage per §4. |
-| *(no line)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
+| `failed` | The sync threw before any table result was recorded. The event has a generic summary and may include an allowlisted `table`; raw exception text is not logged. | Triage per §4. |
+| *(no primary outcome event)* | The platform never invoked `scheduled()`, or the invocation died before logging. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. | Treat as **failed**. Verify with ground truth (§2), then check trigger state. |
 
 Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
 `SHADOW_API_PUBLIC_BASE` is unset — or set to something unusable
@@ -42,19 +44,22 @@ to single-invocation silently, so a line with `d1LimitRisk: true` despite the va
 being "set" means the value failed that validation — re-check it character by
 character, don't just check presence.
 
-## 1. Reading the last run's line
+## 1. Reading the last run's event
 
-Dashboard: Workers & Pages → this Worker → **Logs**, filter text `data-snapshot-sync`,
-time range covering 07:00 UTC. Or from any machine with this repo's Wrangler and a
-Cloudflare API token (the same access deploys already need — nothing new):
+Dashboard: Workers & Pages → this Worker → **Logs**, filter `route` for
+`scheduled.data-snapshot-sync` and `msg` for either `data-snapshot-sync` or
+`data-snapshot-sync failed`, time range covering 07:00 UTC. Or from any machine
+with this repo's Wrangler and a Cloudflare API token (the same access deploys
+already need — nothing new):
 
 ```bash
-npx wrangler tail --format json 2>&1 | grep 'data-snapshot-sync'
+npx wrangler tail --format json 2>&1 | grep '"route":"scheduled.data-snapshot-sync"'
 ```
 
-Parse the JSON after the prefix and read `outcome`, `tables`, `durationMs`, and
-`error`. One line per run: if you see two lines for one `scheduledTime`, the second
-is a platform retry — read the latest.
+Read the structured event fields `outcome`, `tables`, `durationMs`, `table`, and
+`summary`; there is no error message field. One primary outcome event per run: if
+you see two primary events for one `scheduledTime`, the second is a platform
+retry — read the latest.
 
 ## 2. Ground truth: did rows actually move? (catches missed runs)
 
@@ -87,14 +92,14 @@ configured" from "configured but broken" without reading logs.
 Until a log-based alerting tier exists, the alarm is this loop, run once daily after
 07:30 UTC by whoever holds the deploy token (or any existing scheduled runner):
 
-1. Pull the last `data-snapshot-sync` line (§1).
+1. Pull the latest primary outcome event (§1).
 2. `outcome: success` with all expected tables non-null → done.
 3. `outcome: unconfigured` or an expected table `null` → config drift: fix vars (§3), re-run `POST /api/v1/data-snapshot/sync` manually to verify, confirm tomorrow's line.
-4. `outcome: failed` or **no line** → confirm ground truth (§2). Then triage by `error` step tag:
-   - `[customer|address|container snapshot] D1_*` — D1 limit or lock. If `d1LimitRisk: true`, set `SHADOW_API_PUBLIC_BASE` and re-run; otherwise split per-table syncs (`CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests").
-   - `[chained <table>] POST … → 4xx/5xx` — the chained subrequest was rejected (usually a rotated `CUSTOMER_SNAPSHOT_SYNC_SECRET` that missed the Worker, or an unconfigured table route returning 503). Re-run the named table route manually with the current secret.
-   - Upstream HTML-200 failures (session lost, login page) surface inside the step error per `docs/CONVENTIONS.md` fact 1 — verify Routeware credentials, not Worker config.
-   - No line at all with fresh `synced_at` — a duplicate/overlapping invocation; note it and watch the next run. No line with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
+4. `outcome: failed` or **no primary outcome event** → confirm ground truth (§2), then triage using the safe fields available:
+   - If `table` is present, inspect that table's D1 health and the corresponding chained subrequest logs. `table` is derived only from the allowlisted customer/address/container names.
+   - If `table` is absent, the event does not identify a table. Check D1/Worker platform health, recent deploys, configuration, and the Worker's cron history; exception text is intentionally not logged.
+   - If `d1LimitRisk: true`, set `SHADOW_API_PUBLIC_BASE` and re-run; otherwise follow `CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests" for per-table syncs.
+   - No primary event with fresh `synced_at` — a duplicate/overlapping invocation; note it and watch the next run. No event with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
 5. Record the disposition where the team looks (issue comment or ops log): date, outcome, tables, action taken. Silence is how the next miss goes unnoticed.
 
 ## 5. Local missed-run drill (no deploy, no token, no tenant)
@@ -135,8 +140,8 @@ npx wrangler dev --port 18789 --test-scheduled \
   --var "ADDRESS_REPORT_EXPORT_PATH: " --var "ADDRESS_REPORT_QUERY_ID: " \
   --var "CONTAINER_REPORT_EXPORT_PATH: " --var "CONTAINER_REPORT_QUERY_ID: "
 curl -s http://localhost:18789/__scheduled
-# Expect exactly one line on stderr: outcome "failed", mode "chained-http",
-# error "CUSTOMER_SNAPSHOT_SYNC_SECRET is not set".
+# Expect a primary error event with msg "data-snapshot-sync failed",
+# outcome "failed", mode "chained-http", and no raw exception field.
 ```
 
 Apply migrations first (`npm run db:migrate:local`), then re-run the §2 queries

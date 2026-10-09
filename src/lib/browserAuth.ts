@@ -1,4 +1,5 @@
 import puppeteer from "@cloudflare/puppeteer";
+import { logEvent } from "./logger";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 
@@ -99,7 +100,7 @@ export async function establishSessionWithBrowser(
     await storeSession(stub, cookieHeader, expiresAtMs);
   } catch (err) {
     // The refresh lock is released by `establishSession`, which owns it.
-    console.error("BROWSER AUTH ERROR", err);
+    logEvent({ level: "error", msg: "Browser authentication failed", route: "auth.browser" });
     throw err;
   } finally {
     if (browser) {

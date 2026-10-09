@@ -4,6 +4,7 @@ import {
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
 import { recordCronRun } from "./lib/cronSyncState";
+import { logEvent } from "./lib/logger";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
 export type CronSyncOutcome = "success" | "unconfigured" | "failed";
@@ -15,9 +16,8 @@ export type CronSyncTableCounts = {
 } | null;
 
 /**
- * The one structured log line the cron emits per run, prefixed with
- * `data-snapshot-sync ` so it stays greppable in `wrangler tail` and the
- * dashboard while the remainder parses as JSON.
+ * The structured cron event includes the per-table result summary and timing;
+ * the shared logger adds severity, message, route, and `ms` fields.
  *
  * `outcome` is what an alarm keys on: `success` (at least one table ran),
  * `unconfigured` (no report paths — a config state, not a pass), or `failed`
@@ -46,8 +46,7 @@ export type CronSyncLog = {
   durationMs: number;
   cron: string;
   scheduledTime: string;
-  /** Present only when outcome is "failed". Message only — never row data. */
-  error?: string;
+  table?: "customer" | "address" | "container";
 };
 
 type TableResult = DataSnapshotResult["customer"];
@@ -106,6 +105,17 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   return `${name}: ${t.upserted} upserted, ${t.rowCount} rows${deleted}`;
 }
 
+function failedSnapshotTable(error: unknown): CronSyncLog["table"] | undefined {
+  const message =
+    error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  const table = /^\[(?:chained )?(customer|address|container)(?: snapshot)?\]/.exec(
+    message
+  )?.[1];
+  return table === "customer" || table === "address" || table === "container"
+    ? table
+    : undefined;
+}
+
 export async function scheduled(
   controller: ScheduledController,
   env: Env,
@@ -138,11 +148,13 @@ export async function scheduled(
           // Loud on purpose: the whole job then shares one invocation's D1
           // operation budget, so a large export can die partway through.
           // TOG-5827 pins this line — the cron path-selection test asserts it.
-          console.warn(
-            "SHADOW_API_PUBLIC_BASE is not set; running data-snapshot-sync as a " +
-              "single invocation (D1 per-invocation limit applies to all tables as one pool). " +
-              "Set SHADOW_API_PUBLIC_BASE to the Worker's public origin to use chained per-table syncs."
-          );
+          logEvent({
+            level: "warn",
+            msg: "SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation",
+            route: "scheduled.data-snapshot-sync",
+            ms: null,
+            ...base
+          });
           r = await runDataSnapshotSync(env);
         }
         const tables = {
@@ -169,24 +181,31 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch (persistErr) {
-          console.error(
-            `data-snapshot-sync persist failed: ${
-              persistErr instanceof Error ? persistErr.message : String(persistErr)
-            }`
-          );
+        } catch {
+          logEvent({
+            level: "error",
+            msg: "data-snapshot-sync persistence failed",
+            route: "scheduled.data-snapshot-sync",
+            ms: endedAt - start,
+            ...base
+          });
         }
-        console.log(
-          `data-snapshot-sync ${JSON.stringify({
-            ...base,
-            outcome,
-            tables,
-            summary,
-            durationMs: endedAt - start,
-          } satisfies CronSyncLog)}`
-        );
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
+        const event: CronSyncLog = {
+          ...base,
+          outcome,
+          tables,
+          summary,
+          durationMs: endedAt - start,
+        };
+        logEvent({
+          ...event,
+          level: "info",
+          msg: "data-snapshot-sync",
+          route: "scheduled.data-snapshot-sync",
+          ms: event.durationMs
+        });
+      } catch (error) {
+        const failedTable = failedSnapshotTable(error);
         const endedAt = Date.now();
         // A throw means no table result exists: every table row records
         // `failed` (counts null) so the readiness staleness probe still
@@ -199,23 +218,30 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch (persistErr) {
-          console.error(
-            `data-snapshot-sync persist failed: ${
-              persistErr instanceof Error ? persistErr.message : String(persistErr)
-            }`
-          );
+        } catch {
+          logEvent({
+            level: "error",
+            msg: "data-snapshot-sync persistence failed",
+            route: "scheduled.data-snapshot-sync",
+            ms: endedAt - start,
+            ...base
+          });
         }
-        console.error(
-          `data-snapshot-sync ${JSON.stringify({
-            ...base,
-            outcome: "failed" as CronSyncOutcome,
-            tables: { customer: null, address: null, container: null },
-            summary: "sync threw before any table result was recorded",
-            durationMs: endedAt - start,
-            error: message,
-          } satisfies CronSyncLog)}`
-        );
+        const event: CronSyncLog = {
+          ...base,
+          outcome: "failed",
+          tables: { customer: null, address: null, container: null },
+          summary: "sync threw before any table result was recorded",
+          durationMs: endedAt - start,
+          ...(failedTable ? { table: failedTable } : {})
+        };
+        logEvent({
+          ...event,
+          level: "error",
+          msg: "data-snapshot-sync failed",
+          route: "scheduled.data-snapshot-sync",
+          ms: event.durationMs
+        });
       }
     })()
   );

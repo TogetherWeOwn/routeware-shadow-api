@@ -5,8 +5,8 @@ import {
   resetAuthThrottleFailOpenLogForTests
 } from "../src/lib/authThrottle";
 
-// Alarm contract for the `AUTH THROTTLE FAIL-OPEN` line (TOG-8885): when the
-// throttle DO fails, the line must fire exactly once per window — the alarm
+// Alarm contract for the `AUTH THROTTLE FAIL-OPEN` event (TOG-8885): when the
+// throttle DO fails, the event must fire exactly once per window — the alarm
 // without the spam. Companion to the dedup cases in
 // test/authThrottle.test.ts (TOG-6530); this file pins the operator-visible
 // contract the runbook
@@ -46,14 +46,21 @@ describe("auth-throttle fail-open alarm contract (TOG-8885)", () => {
   // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
   // so reading `console.error` back does not return the installed spy (same
   // pattern as test/authThrottle.test.ts and test/dataEntityPostHandlers.test.ts).
-  const loggedErrors: unknown[][] = [];
+  const loggedErrors: Record<string, unknown>[] = [];
   const realConsoleError = console.error;
+  const expectedFailOpenEvent = {
+    level: "error",
+    msg: "AUTH THROTTLE FAIL-OPEN",
+    route: "authThrottle.failOpen",
+    reason: "do_error",
+    ms: null
+  };
 
   beforeEach(() => {
     resetAuthThrottleFailOpenLogForTests();
     loggedErrors.length = 0;
     console.error = (...args: unknown[]) => {
-      loggedErrors.push(args);
+      loggedErrors.push(args[0] as Record<string, unknown>);
     };
   });
 
@@ -74,9 +81,9 @@ describe("auth-throttle fail-open alarm contract (TOG-8885)", () => {
       expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
     }
 
-    // Assert — exactly one line: fixed category, no IP/token/PII.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
-    expect(loggedErrors[0][0]).not.toContain(DEAD_DO_IP);
+    // Assert — exactly one structured event with a fixed category and no IP/token/PII.
+    expect(loggedErrors).toEqual([expectedFailOpenEvent]);
+    expect(JSON.stringify(loggedErrors[0])).not.toContain(DEAD_DO_IP);
   });
 
   it("fires again past the window edge (next window → second line)", async () => {
@@ -86,13 +93,10 @@ describe("auth-throttle fail-open alarm contract (TOG-8885)", () => {
 
     // Act — one failure opens the window's line, the next window re-fires.
     await recordAuthFailure(env, req, now);
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+    expect(loggedErrors).toEqual([expectedFailOpenEvent]);
     await recordAuthFailure(env, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
 
-    // Assert — exactly two lines, one per window.
-    expect(loggedErrors).toEqual([
-      ["AUTH THROTTLE FAIL-OPEN do_error"],
-      ["AUTH THROTTLE FAIL-OPEN do_error"]
-    ]);
+    // Assert — exactly two structured events, one per window.
+    expect(loggedErrors).toEqual([expectedFailOpenEvent, expectedFailOpenEvent]);
   });
 });

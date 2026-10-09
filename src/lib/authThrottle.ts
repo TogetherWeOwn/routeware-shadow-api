@@ -21,6 +21,8 @@
  *   counting is best-effort.
  */
 
+import { logEvent } from "./logger";
+
 export const AUTH_THROTTLE_MAX_FAILURES = 20;
 export const AUTH_THROTTLE_WINDOW_MS = 60_000;
 export const AUTH_THROTTLE_BLOCK_MS = 60_000;
@@ -106,7 +108,12 @@ function logFailOpenOnce(reason: string, nowMs: number): void {
     return;
   }
   lastFailOpenLogMs = nowMs;
-  console.error(`AUTH THROTTLE FAIL-OPEN ${reason}`);
+  logEvent({
+    level: "error",
+    msg: "AUTH THROTTLE FAIL-OPEN",
+    route: "authThrottle.failOpen",
+    reason
+  });
 }
 
 /** Test-only: reset the per-window fail-open log dedup. */
@@ -133,8 +140,8 @@ export function throttleCheckVerdict(
  * pre-throttle 401 behavior (auth itself is still enforced by the caller).
  *
  * Fail-open is logged exactly once per `AUTH_THROTTLE_WINDOW_MS` (process-wide,
- * so a down throttle DO cannot spam the log): the line is a fixed string with
- * a reason category (and status code for non-OK) — never IP, token, or body.
+ * so a down throttle DO cannot spam the log): the event uses a fixed message
+ * and reason category (plus status for non-OK) — never IP, token, or body.
  */
 export async function recordAuthFailure(
   env: Env,

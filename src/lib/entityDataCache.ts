@@ -10,6 +10,8 @@
  * entry stays warm. See `docs/ENTITY-DATA-CACHE.md` for tuning guidance.
  */
 
+import { logEvent } from "./logger";
+
 /**
  * Shared freshness TTL (seconds) for all three data-entity kinds. The value is
  * referenced by `entityDataCacheControlValue()` and consumed by
@@ -70,10 +72,15 @@ export async function getCachedDataEntity(
     counters.misses += 1;
   }
   // Counts only — never the id. Customer PII lives behind these keys, so the
-  // log line carries the entity kind and the running totals, nothing else.
-  console.log(
-    `entityDataCache ${entity} ${entry ? "hit" : "miss"} hits=${counters.hits} misses=${counters.misses}`
-  );
+  // log event carries the entity kind and the running totals, nothing else.
+  logEvent({
+    level: "info",
+    msg: entry ? "Entity data cache hit" : "Entity data cache miss",
+    route: "cache.entityData",
+    entity,
+    hits: counters.hits,
+    misses: counters.misses
+  });
   return entry;
 }
 
@@ -96,10 +103,12 @@ export async function putCachedDataEntity(
       response.clone()
     );
   } catch (err) {
-    console.warn(
-      `Cache put failed for ${entity}/${id}; serving the response uncached:`,
-      err instanceof Error ? err.message : String(err)
-    );
+    logEvent({
+      level: "warn",
+      msg: "Cache put failed; serving the response uncached",
+      route: "cache.entityData",
+      entity
+    });
   }
 }
 
@@ -171,7 +180,13 @@ export async function invalidateCustomerGraphWithRetry(
       return;
     } catch (e) {
       lastError = e;
-      console.error(`invalidateCustomerGraph attempt ${attempt}/${attempts} failed`, e);
+      logEvent({
+        level: "error",
+        msg: "Customer cache graph invalidation failed",
+        route: "cache.customerGraph.invalidate",
+        attempt,
+        attempts
+      });
     }
   }
   throw lastError;
