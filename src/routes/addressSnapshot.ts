@@ -31,7 +31,8 @@ import {
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 address snapshot: reads plus the CSV sync/import writers. */
@@ -288,7 +289,7 @@ const addressSnapshotImportRoute = createRoute({
   path: "/api/v1/address-snapshot/import",
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
-  description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  description: "Raw CSV (Routeware Address Details custom report); `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
     query: dryRunQuery,
     body: {
@@ -300,7 +301,8 @@ const addressSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -315,6 +317,7 @@ const addressSnapshotImportRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
@@ -342,6 +345,11 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
