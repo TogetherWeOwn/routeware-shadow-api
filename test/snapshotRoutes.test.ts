@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
+import { InvalidSnapshotCsvError } from "../src/lib/snapshot/streamSync";
 
 /**
  * The three `src/routes/*Snapshot.ts` modules were the largest remaining block
@@ -33,9 +34,10 @@ type Recorded = { sql: string; binds: unknown[] };
 const syncState: {
   runResult: unknown;
   streamResult: unknown;
+  streamError: unknown;
   runCalls: unknown[];
   streamCalls: Array<{ db: unknown; body: unknown }>;
-} = { runResult: null, streamResult: null, runCalls: [], streamCalls: [] };
+} = { runResult: null, streamResult: null, streamError: null, runCalls: [], streamCalls: [] };
 
 /**
  * Plain functions, not `vi.fn()`: a spy wrapping a double that rejects records
@@ -49,6 +51,7 @@ vi.mock("../src/lib/d1SnapshotSync", () => {
   };
   const stream = async (db: unknown, body: unknown) => {
     syncState.streamCalls.push({ db, body });
+    if (syncState.streamError) throw syncState.streamError;
     return syncState.streamResult;
   };
   return {
@@ -159,6 +162,7 @@ type Spec = {
   queryIdVar: string;
   notConfiguredDetail: string;
   notFoundDetail: (id: number) => string;
+  wrongHeaderMessage: string;
 };
 
 const SPECS: Spec[] = [
@@ -176,7 +180,8 @@ const SPECS: Spec[] = [
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
       "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
-    notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`
+    notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`,
+    wrongHeaderMessage: "Customer import body must start with a header row whose first column is CustomerID."
   },
   {
     name: "address",
@@ -192,7 +197,8 @@ const SPECS: Spec[] = [
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
       "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
-    notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`
+    notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`,
+    wrongHeaderMessage: "Address import body must start with a header row whose first column is PickupAddressID."
   },
   {
     name: "container",
@@ -209,13 +215,15 @@ const SPECS: Spec[] = [
     queryIdVar: "CONTAINER_REPORT_QUERY_ID",
     notConfiguredDetail:
       "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
-    notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`
+    notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`,
+    wrongHeaderMessage: "Container import body must start with a header row whose first column is ContainerID."
   }
 ];
 
 beforeEach(() => {
   syncState.runResult = null;
   syncState.streamResult = null;
+  syncState.streamError = null;
   syncState.runCalls = [];
   syncState.streamCalls = [];
 });
@@ -648,6 +656,29 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
       expect(body.title).toBe("Bad Request");
       expect(syncState.streamCalls).toHaveLength(0);
+    });
+
+    it("returns 400 naming the expected header for a wrong-header body", async () => {
+      // Arrange — the stream rejects a body whose first line is not this table's header.
+      syncState.streamError = new InvalidSnapshotCsvError(
+        `Report is not valid CSV (missing header). Check ${spec.exportPathVar}.`,
+        spec.wrongHeaderMessage
+      );
+      const { db } = readDb({});
+
+      // Act
+      const res = await call(spec.routes, `${spec.base}/import`, makeEnv(db), {
+        method: "POST",
+        body: "Foo,Bar\n1,2\n",
+        headers: { "content-type": "text/csv" }
+      });
+
+      // Assert — table-specific wording; the operator config hint stays server-side.
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(`${PROBLEM_BASE}bad-request`);
+      expect(body.detail).toBe(`${spec.wrongHeaderMessage} See docs/PROBLEMS.md#bad-request.`);
+      expect(JSON.stringify(body)).not.toContain(spec.exportPathVar);
     });
   });
 });
