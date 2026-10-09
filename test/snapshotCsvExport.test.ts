@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import {
   ADDRESS_SNAPSHOT_EXPORT,
@@ -319,11 +319,21 @@ describe("snapshotExportSpec", () => {
   });
 });
 
+function readPageSizeQuietly(raw: unknown): { size: number; warnings: number } {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const size = readSnapshotExportPageSize(makeEnv({} as D1Database, raw));
+    return { size, warnings: warn.mock.calls.length };
+  } finally {
+    warn.mockRestore();
+  }
+}
+
 describe("readSnapshotExportPageSize", () => {
   it.each([
     ["1", 1], ["50", 50], ["500", 500], ["1000", 1000], ["5000", 5000], [" 50 \n", 50]
   ])("accepts %j as %i rows", (raw, expected) => {
-    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(expected);
+    expect(readPageSizeQuietly(raw)).toEqual({ size: expected, warnings: 0 });
   });
 
   it.each([
@@ -331,10 +341,13 @@ describe("readSnapshotExportPageSize", () => {
     "1e2", "0x32", "50rows", "NaN", "Infinity", "9007199254740993", "１２",
     "5 0", 50, true, {}, [[]]
   ])("falls back to 1000 for %j", (raw) => {
-    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(1000);
+    expect(readPageSizeQuietly(raw)).toEqual({
+      size: 1000,
+      warnings: raw === undefined ? 0 : 1
+    });
   });
 
-  it("keeps a full 200 download inside the D1 per-invocation budget at measured row counts", () => {
+  it("checks the 200 read formula against the D1 budget at measured row counts", () => {
     // 2026-09-27 counts (CUSTOMER_SNAPSHOT.md § batch sizing): customer
     // 109,894, address 111,620, container 388,735 rows. A 200 costs two
     // passes of ceil(N / pageSize) + 1 reads against the 1000-query cap, so

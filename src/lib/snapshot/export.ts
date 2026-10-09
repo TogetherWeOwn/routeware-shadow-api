@@ -66,27 +66,30 @@ export type SnapshotExportSpec = {
 };
 
 /**
- * Rows per D1 page. 1000 keeps every page far under D1's 100-bind /
- * 100 KB-per-statement ceilings (the widest table here is 29 columns) while
- * a full-table 200 download stays inside the ~1000-query per-invocation
- * budget at today's row counts: the ETag prepass plus the body pass cost
- * `2 * (ceil(N / pageSize) + 1)` reads, so the 388,735-row container table
- * needs 780 reads at 1000/page but 1,558 at 500/page — over the cap
- * (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
+ * Rows per D1 read. A full-table 200 download costs `2 * (ceil(N / pageSize) + 1)`
+ * reads (the ETag prepass plus the body pass) against the ~1000-query
+ * per-invocation budget: the 388,735-row container table needs 780 reads at
+ * 1000 rows per read but 1,558 at 500, where the body truncates after the 200
+ * is sent (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
  */
 export const SNAPSHOT_EXPORT_PAGE_SIZE = 1000;
 export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
 
-/** Optional plain-text Worker binding; invalid values keep the safe default. */
+/** Optional plain-text Worker binding; invalid values keep the safe default with a warning. */
 export function readSnapshotExportPageSize(env: Env): number {
   const raw = (env as unknown as Record<string, unknown>).SNAPSHOT_EXPORT_PAGE_SIZE;
-  if (typeof raw !== "string" || !/^[0-9]+$/.test(raw.trim())) {
+  if (raw === undefined) {
     return SNAPSHOT_EXPORT_PAGE_SIZE;
   }
-  const size = Number(raw.trim());
-  return Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE
-    ? size
-    : SNAPSHOT_EXPORT_PAGE_SIZE;
+  const text = typeof raw === "string" ? raw.trim() : "";
+  const size = /^[0-9]+$/.test(text) ? Number(text) : NaN;
+  if (Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE) {
+    return size;
+  }
+  console.warn(
+    `SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`
+  );
+  return SNAPSHOT_EXPORT_PAGE_SIZE;
 }
 
 export const CUSTOMER_SNAPSHOT_EXPORT: SnapshotExportSpec = {
