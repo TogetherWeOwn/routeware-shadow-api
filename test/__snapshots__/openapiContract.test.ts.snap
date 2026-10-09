@@ -690,6 +690,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date
 10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,",
@@ -1092,6 +1097,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote
 100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,",
@@ -1554,6 +1564,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled
 123,,Co 123,Jane,,Doe,,,,,,,true",

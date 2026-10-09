@@ -317,7 +317,8 @@ const containerSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote\n100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },

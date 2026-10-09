@@ -301,7 +301,8 @@ const addressSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },

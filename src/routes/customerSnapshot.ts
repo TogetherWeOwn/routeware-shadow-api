@@ -403,7 +403,8 @@ const customerSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled\n123,,Co 123,Jane,,Doe,,,,,,,true"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
