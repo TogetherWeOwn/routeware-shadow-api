@@ -16,6 +16,26 @@ export type SnapshotImportGuardInput = {
   contentLength: string | null;
 };
 
+/** Reject non-CSV media types before reading the body or writing D1. */
+export function rejectUnsupportedSnapshotImportContentType(
+  input: { url: string; contentType: string | null },
+  env?: Env
+): Response | null {
+  // Media types are case-insensitive and may carry parameters (RFC 9110 §8.3.1).
+  const mediaType = input.contentType?.split(";", 1)[0].trim().toLowerCase();
+  if (mediaType === "text/csv" || mediaType === "application/octet-stream") {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("unsupported-media-type", env),
+    title: "Unsupported Media Type",
+    status: 415,
+    detail:
+      "Snapshot import requires Content-Type: text/csv or application/octet-stream. See docs/PROBLEMS.md#unsupported-media-type.",
+    instance: new URL(input.url).pathname
+  });
+}
+
 /**
  * Fail-fast size guard: when the declared `Content-Length` exceeds
  * `maxBytes`, return a 413 problem+json without reading the stream. A

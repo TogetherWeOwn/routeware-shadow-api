@@ -1,9 +1,28 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import app from "../src/app";
 
 // Matches wrangler.toml [env.test.vars].
 const API_TOKEN = "test-api-token";
 const FOREIGN_ORIGIN = "https://app.example.com";
+
+// Every registered /api/v1 route; preflight never reaches a handler, so any concrete params work.
+function apiRoutes(): Array<{ method: string; path: string }> {
+  const seen = new Set<string>();
+  const routes: Array<{ method: string; path: string }> = [];
+  for (const r of app.routes) {
+    if (r.method === "ALL" || !r.path.startsWith("/api/v1/")) {
+      continue;
+    }
+    const key = `${r.method} ${r.path}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    routes.push({ method: r.method, path: r.path.replace(/:[^/]+/g, "sample") });
+  }
+  return routes;
+}
 
 /**
  * Call the Worker through the same `exports.default.fetch()` surface the
@@ -196,5 +215,40 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("pins the preflight sweep to every registered /api/v1 route with concrete paths", () => {
+    const routes = apiRoutes();
+    expect(routes).toHaveLength(42);
+    for (const { path } of routes) {
+      expect(path).not.toMatch(/[:{}]/);
+    }
+  });
+
+  describe.each(apiRoutes())("preflight $method $path", ({ method, path }) => {
+    it("answers without a token with 204, CORS and hardening headers", async () => {
+      const response = await call(
+        path,
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": "authorization, content-type, x-custom-evil"
+          }
+        },
+        null
+      );
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+      expect(response.headers.get("access-control-allow-methods")).toContain(method);
+      expect(response.headers.get("access-control-allow-methods")).toContain("OPTIONS");
+      expect(response.headers.get("access-control-allow-headers")).toBe(
+        "authorization, content-type"
+      );
+      expect(response.headers.get("access-control-max-age")).toBe("86400");
+      expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+      expectHardened(response);
+    });
   });
 });
