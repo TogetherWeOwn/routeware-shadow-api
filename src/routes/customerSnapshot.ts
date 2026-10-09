@@ -43,16 +43,17 @@ export const customerSnapshotRoutes = createRouteModule();
 const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
+  operationId: "listCustomerSnapshot",
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
-      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()

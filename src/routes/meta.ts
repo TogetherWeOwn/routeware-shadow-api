@@ -25,17 +25,19 @@ export const healthResponseSchema = z
 const healthRoute = createRoute({
   method: "get",
   path: "/api/v1/health",
+  operationId: "health",
   tags: ["meta"],
   summary: "Liveness probe (public, no bearer)",
   description:
-    "The one route the `/api/v1/*` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is `GET /api/v1/readiness`.",
+    "The one route the `/api/v1/*` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is `GET /api/v1/readiness`. **Try it:** select Test Request and Send; no Authorization header or request body is needed.",
   security: [],
   responses: {
     200: {
       description: "Worker is running",
       content: {
         "application/json": {
-          schema: healthResponseSchema
+          schema: healthResponseSchema,
+          example: { status: "ok", service: "routeware-shadow-api", version: APP_VERSION }
         }
       }
     }
