@@ -10,7 +10,7 @@ import {
   bundleJsonString
 } from "./dataEntityRead";
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
-import { logEvent } from "./logger";
+import { errorKind, logEvent } from "./logger";
 import {
   entityDataCacheControlValue,
   getCachedDataEntity,
@@ -352,11 +352,12 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch {
+      } catch (syncErr) {
         logEvent({
           level: "error",
           msg: "Local customer snapshot sync failed",
-          route: "POST /api/v1/data/customer"
+          route: "POST /api/v1/data/customer",
+          kind: errorKind(syncErr)
         });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
@@ -480,11 +481,12 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch {
+      } catch (syncErr) {
         logEvent({
           level: "error",
           msg: "Local address snapshot sync failed",
-          route: "POST /api/v1/data/address"
+          route: "POST /api/v1/data/address",
+          kind: errorKind(syncErr)
         });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
@@ -617,11 +619,12 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch {
+      } catch (syncErr) {
         logEvent({
           level: "error",
           msg: "Local container snapshot sync failed",
-          route: "POST /api/v1/data/container"
+          route: "POST /api/v1/data/container",
+          kind: errorKind(syncErr)
         });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);

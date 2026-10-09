@@ -290,8 +290,8 @@ describe("cron failure line carries the allowlisted table only (site 1)", () => 
 
     // Assert — failures are one error record (`data-snapshot-sync failed`) with
     // null tables and the fixed summary, and no primary info record. Only the
-    // allowlisted `table` travels — the exception text (which could carry row
-    // data or upstream body bytes) never reaches the log.
+    // allowlisted `table` and the error class name (`kind`) travel; the exception
+    // text (which could carry row data or upstream body bytes) never reaches the log.
     expect(logs).toEqual([]);
     const line = errorLine();
     expect(line).toMatchObject({
@@ -310,6 +310,7 @@ describe("cron failure line carries the allowlisted table only (site 1)", () => 
       "d1LimitRisk",
       "durationMs",
       "event",
+      "kind",
       "level",
       "mode",
       "ms",

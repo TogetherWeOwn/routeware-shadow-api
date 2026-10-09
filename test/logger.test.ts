@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { logEvent } from "../src/lib/logger";
+import { errorKind, logEvent } from "../src/lib/logger";
 
 const realConsole = {
   info: console.info,
@@ -85,5 +85,16 @@ describe("logEvent", () => {
         container: null
       }
     });
+  });
+});
+
+describe("errorKind", () => {
+  it("returns the error's name, never its message", () => {
+    expect(errorKind(new TypeError("upstream body <html>secret</html>"))).toBe("TypeError");
+  });
+
+  it("returns unknown for values that are not errors", () => {
+    expect(errorKind("raw string with secret")).toBe("unknown");
+    expect(errorKind(null)).toBe("unknown");
   });
 });

@@ -379,6 +379,7 @@ app.onError((err, c) => {
     msg: "Unhandled request error",
     route: "app.onError",
     ms: null,
+    method: c.req.method,
     kind: errorKind(err)
   });
   return withCors(

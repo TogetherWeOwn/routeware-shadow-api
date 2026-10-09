@@ -297,7 +297,11 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     expect(captured.errors.find((r) => r.msg === "Unhandled request error")).toMatchObject({
       kind: "PartialDataSnapshotSyncError"
     });
-    expect(captured.errors.some((r) => r.msg === "data-snapshot-sync failed")).toBe(true);
+    expect(captured.errors.find((r) => r.msg === "data-snapshot-sync failed")).toMatchObject({
+      table: "address",
+      status: 500,
+      kind: "PartialDataSnapshotSyncError"
+    });
 
     // Assert — TOG-9205 (R4-04/B1): `post()` in orchestration.ts carries
     // table/step/status only, zero subrequest body bytes. The response half

@@ -59,7 +59,6 @@ function isLoggerDispatch(node, filePath) {
 
 function isConsoleReference(node, filePath) {
   if (ts.isIdentifier(node) && node.text === "console") {
-    if (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) return false;
     if (ts.isPropertyAssignment(node.parent) && node.parent.name === node) return false;
     return !(
       ts.isElementAccessExpression(node.parent) &&

@@ -241,10 +241,21 @@ function rethrowWithSnapshotContext(
  * triage (runbook §4, `test/snapshotOrchestration.test.ts`) is unchanged.
  * Only counts travel here — never row data (CONVENTIONS.md fact 2).
  */
+class ChainedSubrequestError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ChainedSubrequestError";
+    this.status = status;
+  }
+}
+
 export class PartialDataSnapshotSyncError extends Error {
   readonly step: string;
   readonly failedTable: SnapshotTableName;
   readonly partial: DataSnapshotResult;
+  readonly status: number | undefined;
 
   constructor(
     step: string,
@@ -258,6 +269,8 @@ export class PartialDataSnapshotSyncError extends Error {
     this.step = step;
     this.failedTable = failedTable;
     this.partial = partial;
+    const cause = options?.cause;
+    this.status = cause instanceof ChainedSubrequestError ? cause.status : undefined;
   }
 }
 
@@ -385,11 +398,11 @@ export async function runDataSnapshotSyncChainedHttp(
     }
     // Consumed then discarded: drains the body so the connection can be
     // reused, but zero upstream bytes ever reach the thrown error below
-    // (TOG-9205 R4-04/B1 — the message lands verbatim in the APP ERROR log
-    // and the cron `failed` line, so it carries table/step/status only).
+    // (TOG-9205 R4-04/B1 — these messages reach logs, so they carry
+    // table/step/status only).
     const text = await resp.text();
     if (!resp.ok) {
-      throw new Error(`[chained ${step}] POST ${path} → ${resp.status}`);
+      throw new ChainedSubrequestError(`[chained ${step}] POST ${path} → ${resp.status}`, resp.status);
     }
     // Parse failures must not surface either: V8's SyntaxError message
     // quotes the offending input bytes, which would ride the same log lines.

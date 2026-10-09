@@ -42,12 +42,15 @@ export class InvalidSnapshotCsvError extends Error {
 
   constructor(message: string, clientMessage?: string) {
     super(message);
+    this.name = "InvalidSnapshotCsvError";
     this.clientMessage = clientMessage;
   }
 }
 
 /** Body exceeded `options.maxBytes`. The import routes map it to 413. */
-export class SnapshotTooLargeError extends Error {}
+export class SnapshotTooLargeError extends Error {
+  override name = "SnapshotTooLargeError";
+}
 
 /**
  * Cap a request body at `maxBytes` cumulative bytes without buffering the

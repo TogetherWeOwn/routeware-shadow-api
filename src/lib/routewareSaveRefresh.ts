@@ -49,7 +49,7 @@ export async function refreshAfterRoutewareSave(
         level: "error",
         msg: "Post-save snapshot sync failed; evicting affected cache keys",
         route: "routeware.saveRefresh",
-        kind
+        entity: kind
       });
       await invalidateSaveFallback(kind, customerId, posted);
     }

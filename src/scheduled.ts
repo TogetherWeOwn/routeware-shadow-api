@@ -4,7 +4,7 @@ import {
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
 import { recordCronRun } from "./lib/cronSyncState";
-import { logEvent } from "./lib/logger";
+import { errorKind, logEvent } from "./lib/logger";
 import { isR2ArchiveDetail, type R2ArchiveDetail } from "./lib/r2SnapshotArchive";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
@@ -108,8 +108,9 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
   // Explicit pick, never spread (TOG-7378): the result objects flow straight
   // into the `data-snapshot-sync` log line, so an extra property carrying row
   // data (company name, phone, …) would leave the Worker in the cron log.
-  // The TOG-6549 exception is `r2`, and it travels only through the
-  // `isR2ArchiveDetail` guard (status discriminant only) — never blind.
+  // The TOG-6549 exception is `r2`: it travels only through the
+  // `isR2ArchiveDetail` guard, which checks its shape. Its `reason` is the R2
+  // driver's message text, the one exception-derived string in these records.
   if (!t) {
     return null;
   }
@@ -143,6 +144,18 @@ function partialTables(e: unknown): DataSnapshotResult | null {
     return null;
   }
   return p as DataSnapshotResult;
+}
+
+/**
+ * HTTP status of the failed chained subrequest, from a `PartialDataSnapshotSyncError`
+ * (structural, as `partialTables`). Absent for timeouts and local failures.
+ */
+function failedSubrequestStatus(e: unknown): number | undefined {
+  if (typeof e !== "object" || e === null || !("partial" in e) || !("status" in e)) {
+    return undefined;
+  }
+  const status = (e as { status: unknown }).status;
+  return typeof status === "number" && Number.isSafeInteger(status) ? status : undefined;
 }
 
 /**
@@ -344,12 +357,13 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch {
+        } catch (persistErr) {
           logEvent({
             level: "error",
             msg: "data-snapshot-sync persistence failed",
             route: "scheduled.data-snapshot-sync",
             ms: endedAt - start,
+            kind: errorKind(persistErr),
             ...base
           });
         }
@@ -363,6 +377,8 @@ export async function scheduled(
           tables,
           summary,
           durationMs: endedAt - start,
+          kind: errorKind(e),
+          status: failedSubrequestStatus(e),
           ...(failed ? { table: failed } : {})
         });
       } finally {
