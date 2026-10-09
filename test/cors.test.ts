@@ -19,7 +19,7 @@ function apiRoutes(): Array<{ method: string; path: string }> {
       continue;
     }
     seen.add(key);
-    routes.push({ method: r.method, path: r.path.replace(/\{[^}]+\}/g, "sample") });
+    routes.push({ method: r.method, path: r.path.replace(/:[^/]+/g, "sample") });
   }
   return routes;
 }
@@ -217,8 +217,12 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  it("pins the preflight sweep to every registered /api/v1 route", () => {
-    expect(apiRoutes()).toHaveLength(42);
+  it("pins the preflight sweep to every registered /api/v1 route with concrete paths", () => {
+    const routes = apiRoutes();
+    expect(routes).toHaveLength(42);
+    for (const { path } of routes) {
+      expect(path).not.toMatch(/[:{}]/);
+    }
   });
 
   describe.each(apiRoutes())("preflight $method $path", ({ method, path }) => {
