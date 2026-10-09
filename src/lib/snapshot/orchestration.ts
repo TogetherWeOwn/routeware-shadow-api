@@ -230,6 +230,17 @@ function rethrowWithSnapshotContext(
   }, { cause: err });
 }
 
+/** A failed chained subrequest: `name` is the failure class, `status` is set only for an HTTP error response. */
+class ChainedSubrequestError extends Error {
+  readonly status: number | undefined;
+
+  constructor(name: string, message: string, status?: number) {
+    super(message);
+    this.name = name;
+    this.status = status;
+  }
+}
+
 /**
  * Thrown when a table sync fails after earlier tables may have completed
  * (TOG-6546). Carries the per-table results collected so far so the cron log
@@ -241,16 +252,6 @@ function rethrowWithSnapshotContext(
  * triage (runbook §4, `test/snapshotOrchestration.test.ts`) is unchanged.
  * Only counts travel here — never row data (CONVENTIONS.md fact 2).
  */
-class ChainedSubrequestError extends Error {
-  readonly status: number;
-
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ChainedSubrequestError";
-    this.status = status;
-  }
-}
-
 export class PartialDataSnapshotSyncError extends Error {
   readonly step: string;
   readonly failedTable: SnapshotTableName;
@@ -390,7 +391,8 @@ export async function runDataSnapshotSyncChainedHttp(
       resp = await fetchWithUpstreamTimeout(u, { method: "POST", headers: h }, timeoutMs);
     } catch (e) {
       if (isUpstreamTimeout(e)) {
-        throw new Error(
+        throw new ChainedSubrequestError(
+          "ChainedTimeoutError",
           `[chained ${step}] POST ${path} timed out after ${e.timeoutMs}ms`
         );
       }
@@ -402,14 +404,21 @@ export async function runDataSnapshotSyncChainedHttp(
     // table/step/status only).
     const text = await resp.text();
     if (!resp.ok) {
-      throw new ChainedSubrequestError(`[chained ${step}] POST ${path} → ${resp.status}`, resp.status);
+      throw new ChainedSubrequestError(
+        "ChainedHttpError",
+        `[chained ${step}] POST ${path} → ${resp.status}`,
+        resp.status
+      );
     }
     // Parse failures must not surface either: V8's SyntaxError message
     // quotes the offending input bytes, which would ride the same log lines.
     try {
       return JSON.parse(text) as unknown;
     } catch {
-      throw new Error(`[chained ${step}] POST ${path} → ${resp.status}: invalid JSON`);
+      throw new ChainedSubrequestError(
+        "ChainedInvalidJsonError",
+        `[chained ${step}] POST ${path} → ${resp.status}: invalid JSON`
+      );
     }
   }
 

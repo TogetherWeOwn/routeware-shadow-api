@@ -109,7 +109,7 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
   // into the `data-snapshot-sync` log line, so an extra property carrying row
   // data (company name, phone, …) would leave the Worker in the cron log.
   // The TOG-6549 exception is `r2`: it travels only through the
-  // `isR2ArchiveDetail` guard, which checks its shape. Its `reason` is the R2
+  // `isR2ArchiveDetail` guard, which checks `status`. Its `reason` is the R2
   // driver's message text, the one exception-derived string in these records.
   if (!t) {
     return null;
@@ -304,12 +304,13 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch {
+        } catch (persistErr) {
           logEvent({
             level: "error",
             msg: "data-snapshot-sync persistence failed",
             route: "scheduled.data-snapshot-sync",
             ms: endedAt - start,
+            kind: errorKind(persistErr),
             ...base
           });
         }

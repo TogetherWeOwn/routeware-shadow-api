@@ -1,5 +1,5 @@
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
-import { logEvent } from "./logger";
+import { errorKind, logEvent } from "./logger";
 import { invalidateCustomerGraph, invalidateDataEntity } from "./entityDataCache";
 import {
   parseCustomerIdFromSaveResponse,
@@ -44,21 +44,23 @@ export async function refreshAfterRoutewareSave(
         addressIds: g.addressIds,
         containerIds: g.containerIds
       });
-    } catch {
+    } catch (syncErr) {
       logEvent({
         level: "error",
         msg: "Post-save snapshot sync failed; evicting affected cache keys",
         route: "routeware.saveRefresh",
-        entity: kind
+        entity: kind,
+        kind: errorKind(syncErr)
       });
       await invalidateSaveFallback(kind, customerId, posted);
     }
-  } catch {
+  } catch (err) {
     logEvent({
       level: "error",
       msg: "Post-save refresh failed",
       route: "routeware.saveRefresh",
-      kind
+      entity: kind,
+      kind: errorKind(err)
     });
   }
 }
@@ -106,12 +108,13 @@ async function invalidateSaveFallback(
 ): Promise<void> {
   const attempts: Array<Promise<void>> = [];
   attempts.push(
-    invalidateDataEntity("customer", customerId).catch(() =>
+    invalidateDataEntity("customer", customerId).catch((err) =>
       logEvent({
         level: "error",
         msg: "Post-save customer cache invalidation failed",
         route: "routeware.saveRefresh.invalidate",
-        entity: "customer"
+        entity: "customer",
+        kind: errorKind(err)
       })
     )
   );
@@ -121,12 +124,13 @@ async function invalidateSaveFallback(
     if (Number.isFinite(extra) && extra > 0) {
       const entity = kind === "address" ? "address" : "container";
       attempts.push(
-        invalidateDataEntity(entity, extra).catch(() =>
+        invalidateDataEntity(entity, extra).catch((err) =>
           logEvent({
             level: "error",
             msg: "Post-save entity cache invalidation failed",
             route: "routeware.saveRefresh.invalidate",
-            entity
+            entity,
+            kind: errorKind(err)
           })
         )
       );

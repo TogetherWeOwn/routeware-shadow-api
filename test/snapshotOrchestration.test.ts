@@ -685,6 +685,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
       "[chained customer] POST /api/v1/customer-snapshot/sync timed out after 50ms"
     );
     expect(error.partial).toEqual({ customer: null, address: null, container: null });
+    expect(error.cause).toMatchObject({ name: "ChainedTimeoutError" });
     expect(calls.fetches.map((f) => f.url)).toEqual([
       "https://api.example.test/api/v1/customer-snapshot/sync"
     ]);

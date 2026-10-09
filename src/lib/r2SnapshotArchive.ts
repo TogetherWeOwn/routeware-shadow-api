@@ -4,7 +4,7 @@
  * Date aliases remain at `snapshots/YYYY-MM-DD/<table>.csv` for compatibility.
  */
 
-import { logEvent } from "./logger";
+import { errorKind, logEvent } from "./logger";
 
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
@@ -433,12 +433,13 @@ export async function updateSnapshotManifest(
           manifestKey
         });
       }
-    } catch {
+    } catch (parseErr) {
       logEvent({
         level: "warn",
         msg: "R2 snapshot manifest is not JSON; replacing",
         route: "snapshot.r2.manifest",
-        manifestKey
+        manifestKey,
+        kind: errorKind(parseErr)
       });
     }
   }

@@ -10,7 +10,7 @@
  * entry stays warm. See `docs/ENTITY-DATA-CACHE.md` for tuning guidance.
  */
 
-import { logEvent } from "./logger";
+import { errorKind, logEvent } from "./logger";
 
 /**
  * Shared freshness TTL (seconds) for all three data-entity kinds. The value is
@@ -102,12 +102,13 @@ export async function putCachedDataEntity(
       new Request(cacheKeyUrl(entity, id), { method: "GET" }),
       response.clone()
     );
-  } catch {
+  } catch (err) {
     logEvent({
       level: "warn",
       msg: "Cache put failed; serving the response uncached",
       route: "cache.entityData",
-      entity
+      entity,
+      kind: errorKind(err)
     });
   }
 }

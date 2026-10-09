@@ -93,6 +93,10 @@ describe("errorKind", () => {
     expect(errorKind(new TypeError("upstream body <html>secret</html>"))).toBe("TypeError");
   });
 
+  it("reports the innermost cause's class for wrapped errors", () => {
+    expect(errorKind(new Error("outer", { cause: new RangeError("inner") }))).toBe("RangeError");
+  });
+
   it("returns unknown for values that are not errors", () => {
     expect(errorKind("raw string with secret")).toBe("unknown");
     expect(errorKind(null)).toBe("unknown");

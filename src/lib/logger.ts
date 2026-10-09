@@ -171,5 +171,9 @@ export function logEvent(event: LogEventInput): void {
 }
 
 export function errorKind(err: unknown): string {
-  return err instanceof Error ? err.name : "unknown";
+  let cause: unknown = err;
+  while (cause instanceof Error && cause.cause !== undefined) {
+    cause = cause.cause;
+  }
+  return cause instanceof Error ? cause.name : "unknown";
 }
