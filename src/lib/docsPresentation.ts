@@ -12,7 +12,7 @@ export const scalarDocsConfiguration: Partial<ApiReferenceConfiguration> = {
   persistAuth: true,
   defaultHttpClient: { targetKey: "shell", clientKey: "curl" },
   generateOperationSlug: /* istanbul ignore next */ (operation) =>
-    operation.operationId || `${operation.method.toLowerCase()}${operation.path}`,
+    operation.operationId || `${operation.method}${operation.path}`,
   // Official theme tokens; the logo lives in our HTML, not a Scalar DOM selector.
   // https://scalar.com/products/api-references/themes
   customCss: `
@@ -65,7 +65,7 @@ const docsHeader = `
     </span>
     <div><strong>Routeware Shadow API</strong><span>Interactive API reference</span></div>
   </div>
-  <nav aria-label="Read-only try-it examples">
+  <nav aria-label="Try-it examples">
     <a href="#tag/meta/health">Try health</a>
     <a href="#tag/customer-snapshot/listCustomerSnapshot">Browse snapshot rows</a>
     <a href="/openapi.json">OpenAPI JSON</a>

@@ -49,7 +49,7 @@ describe("Scalar /docs presentation", () => {
     expect(html).toContain("<title>Routeware Shadow API</title>");
     expect(html).toContain('class="routeware-docs-logo"');
     expect(html).toContain("data-scalar-scroll-header");
-    expect(html).toContain('aria-label="Read-only try-it examples"');
+    expect(html).toContain('aria-label="Try-it examples"');
     expect(html).toContain('href="/openapi.json"');
     expect(config.customCss).toContain("--scalar-sidebar-color-active");
     expect(config.theme).toBe("none");
@@ -70,7 +70,7 @@ describe("Scalar /docs presentation", () => {
     for (const [path, item] of Object.entries(doc.paths)) {
       for (const [method, operation] of Object.entries(item)) {
         if (!["get", "post", "put", "patch", "delete", "head", "options"].includes(method)) continue;
-        anchors.push(`#tag/${operation.tags[0]}/${slug({ path, method, operationId: operation.operationId })}`);
+        anchors.push(`#tag/${operation.tags[0]}/${slug({ path, method: method.toUpperCase(), operationId: operation.operationId })}`);
       }
     }
     expect(new Set(anchors).size).toBe(anchors.length);
@@ -79,7 +79,7 @@ describe("Scalar /docs presentation", () => {
       expect(html).toContain(`href="${anchor}"`);
     }
     expect(slug({ method: "GET", path: "/api/v1/data/customer/{customerId}" }))
-      .toBe("get/api/v1/data/customer/{customerId}");
+      .toBe("GET/api/v1/data/customer/{customerId}");
     expect(slug({ method: "POST", path: "/renamed", operationId: "health" })).toBe("health");
   });
 
