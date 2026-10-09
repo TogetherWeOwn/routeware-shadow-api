@@ -112,11 +112,13 @@ export async function storeSession(
 }
 
 /**
- * Wait for the refresh holder to publish a fresh session, instead of proceeding
- * with a stale/empty one. Returns once a non-refreshing session with a cookie is
- * visible. Throws `ConcurrentRefreshTimeoutError` on deadline (TOG-6526) — the
- * caller must fail closed to 502 rather than forwarding with the expired
- * cookie, which would surface upstream login HTML as a 200.
+ * Wait for a non-refreshing session with a nonempty cookie and a finite,
+ * future expiry. A failed holder may leave its old cookie in storage; unlock
+ * alone cannot make expired or malformed session material usable.
+ * This validates local expiry, not a new publication or upstream acceptance:
+ * an upstream-rejected cookie whose recorded expiry is still future may pass.
+ * Throws `ConcurrentRefreshTimeoutError` on deadline (TOG-6526) — the
+ * caller must fail closed to 502 rather than forwarding with the expired cookie.
  */
 export async function waitForConcurrentRefresh(
   stub: DurableObjectStub,
@@ -126,7 +128,12 @@ export async function waitForConcurrentRefresh(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const state = await readSessionState(stub);
-    if (!state.refreshing && state.cookieHeader) {
+    if (
+      state.refreshing === false &&
+      typeof state.cookieHeader === "string" && state.cookieHeader.length > 0 &&
+      typeof state.expiresAtMs === "number" && Number.isFinite(state.expiresAtMs) &&
+      state.expiresAtMs > Date.now()
+    ) {
       return;
     }
     if (Date.now() >= deadline) {
