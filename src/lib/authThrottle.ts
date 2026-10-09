@@ -11,10 +11,11 @@
  * - Only *failed* outer-gate checks increment the counter. A valid token
  *   always passes and resets the IP's counter (legitimate traffic unaffected,
  *   even from an IP that previously failed).
- * - After `MAX_FAILURES` failures inside `WINDOW_MS`, further failed attempts
- *   from that IP get `429 rate-limited` (problem+json, `Retry-After`, and
- *   `X-RateLimit-*` headers) for `BLOCK_MS`. The block is per-IP, not per-token,
- *   so rotating candidate tokens does not evade it.
+ * - The `MAX_FAILURES`-th failed attempt inside `WINDOW_MS` gets
+ *   `429 rate-limited` (problem+json, `Retry-After`, and `X-RateLimit-*`
+ *   headers) and starts a `BLOCK_MS` block; failed attempts during the block
+ *   get 429 too. The block is per-IP, not per-token, so rotating candidate
+ *   tokens does not evade it.
  * - The public health probe and CORS preflight never touch the throttle.
  * - Throttle storage errors fail OPEN (the 401/429 decision degrades to the
  *   pre-throttle 401 behavior) — auth itself is still enforced; only the
@@ -22,6 +23,8 @@
  */
 
 export const AUTH_THROTTLE_MAX_FAILURES = 20;
+/** Failed checks answered 401 per window; the next one is the first 429. */
+export const AUTH_THROTTLE_ALLOWED_FAILURES = AUTH_THROTTLE_MAX_FAILURES - 1;
 export const AUTH_THROTTLE_WINDOW_MS = 60_000;
 export const AUTH_THROTTLE_BLOCK_MS = 60_000;
 

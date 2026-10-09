@@ -175,7 +175,8 @@ returns `429 Too Many Requests` and starts a 60-second block. Further failed
 checks while that block is active also return 429 and restart the 60-second
 timer, so continued failures keep `Retry-After` at 60 seconds. Each 429 has a
 problem+json body, a `Retry-After` header reporting the remaining block
-duration (at most 60 seconds), and `X-RateLimit-Limit` (`20`),
+duration (at most 60 seconds), and `X-RateLimit-Limit` (`19`, the failed checks
+allowed per window),
 `X-RateLimit-Remaining` (`0`), and `X-RateLimit-Reset` (an absolute Unix
 timestamp in seconds; for older Durable Objects that omit the expiry, it is a
 conservative estimate derived from `Retry-After`). CORS exposes `Retry-After` and
@@ -203,7 +204,7 @@ the bearer check, which an attacker without the token cannot do, and a reset
 from one IP never touches another IP's counter. Pinned by
 `test/throttleResetIsolation.test.ts`.
 
-Shared-NAT note: clients behind one egress IP share a single 20-failure
+Shared-NAT note: clients behind one egress IP share a single 19-failure
 budget, so a bad actor — or a misconfigured client retrying a stale token —
 behind the same NAT can cause `429` responses for other clients' failed
 attempts from that IP. This never blocks legitimate traffic: a request with

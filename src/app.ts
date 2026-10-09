@@ -2,7 +2,7 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import {
-  AUTH_THROTTLE_MAX_FAILURES,
+  AUTH_THROTTLE_ALLOWED_FAILURES,
   clearAuthFailures,
   recordAuthFailure
 } from "./lib/authThrottle";
@@ -128,7 +128,7 @@ app.use("/api/v1/*", async (c, next) => {
         instance: new URL(c.req.raw.url).pathname
       });
       throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
-      throttled.headers.set("X-RateLimit-Limit", String(AUTH_THROTTLE_MAX_FAILURES));
+      throttled.headers.set("X-RateLimit-Limit", String(AUTH_THROTTLE_ALLOWED_FAILURES));
       throttled.headers.set("X-RateLimit-Remaining", "0");
       throttled.headers.set(
         "X-RateLimit-Reset",

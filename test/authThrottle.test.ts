@@ -156,6 +156,10 @@ describe("throttle window math", () => {
     const afterWindow = now + AUTH_THROTTLE_WINDOW_MS + 100;
     const stillBlocked = throttleRecordFailure(blocked.next, afterWindow);
     expect(stillBlocked.verdict.blocked).toBe(true);
+    expect(stillBlocked.verdict.retryAfterSec).toBe(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
+    expect(stillBlocked.verdict.resetAtSec).toBe(
+      Math.ceil((afterWindow + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    );
     expect(stillBlocked.next.windowStartMs).toBe(now);
     expect(stillBlocked.next.blockedUntilMs).toBe(afterWindow + AUTH_THROTTLE_BLOCK_MS);
   });
@@ -184,6 +188,10 @@ describe("throttle window math", () => {
     expect(throttleCheckVerdict(state, AUTH_THROTTLE_BLOCK_MS - 1).blocked).toBe(true);
     expect(throttleCheckVerdict(state, AUTH_THROTTLE_BLOCK_MS + 1).blocked).toBe(false);
     expect(throttleCheckVerdict(null, 0)).toEqual({ blocked: false, retryAfterSec: 0 });
+
+    const firstAfterRelease = throttleRecordFailure(state, AUTH_THROTTLE_BLOCK_MS + 1);
+    expect(firstAfterRelease.verdict.blocked).toBe(false);
+    expect(firstAfterRelease.next.failures).toBe(1);
   });
 });
 
@@ -437,7 +445,7 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(throttled.headers.get("content-type")).toContain("problem+json");
     const retryAfter = throttled.headers.get("retry-after");
     expect(retryAfter).toMatch(/^\d+$/);
-    expect(throttled.headers.get("x-ratelimit-limit")).toBe(String(AUTH_THROTTLE_MAX_FAILURES));
+    expect(throttled.headers.get("x-ratelimit-limit")).toBe("19");
     expect(throttled.headers.get("x-ratelimit-remaining")).toBe("0");
     const resetAtSec = Number(throttled.headers.get("x-ratelimit-reset"));
     expect(Number.isSafeInteger(resetAtSec)).toBe(true);
