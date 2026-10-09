@@ -5,10 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- TOG-9231: Optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker variable sets
-  rows per D1 read for the customer, address and container CSV exports. Decimal
-  integers 1–5000 apply; anything else keeps 500. Export bytes, ETags and `304`
-  replies are unchanged at every page size.
+- TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,
+  `container-snapshot` `/export`) read **1000 rows per D1 query** by default
+  (was 500), and the optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker
+  variable sets the rows per read for all three tables. Decimal integers 1–5000
+  apply; anything else (including an unquoted TOML number, which the runtime
+  does not deliver as text) keeps 1000. Export bytes, ETags and `304` replies
+  are unchanged at every page size. At the measured 388,735 container rows a
+  full 200 download now costs 780 reads against the D1 1000-per-invocation cap
+  (at 500 it needed 1,558 and the body truncated mid-stream); smaller pages can
+  still exceed the budget on large tables even though memory stays bounded.
 
 - TOG-9219: Snapshot import routes (`customer-snapshot`, `address-snapshot`, `container-snapshot` `/import`) return 415 `application/problem+json` (`unsupported-media-type`) unless `Content-Type` is `text/csv` or `application/octet-stream` (case-insensitive, parameters allowed). Clients that sent CSV with no or another Content-Type must send `text/csv` or `application/octet-stream`. The 415 is returned before the body is read or D1 is written, and never echoes submitted bytes.
 

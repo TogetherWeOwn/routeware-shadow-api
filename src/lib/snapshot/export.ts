@@ -66,12 +66,15 @@ export type SnapshotExportSpec = {
 };
 
 /**
- * Rows per D1 page. 500 keeps every page far under D1's 100-bind /
+ * Rows per D1 page. 1000 keeps every page far under D1's 100-bind /
  * 100 KB-per-statement ceilings (the widest table here is 29 columns) while
- * a full-table export stays inside the ~1000-op per-invocation budget for
- * today's row counts (see CUSTOMER_SNAPSHOT.md § batch sizing).
+ * a full-table 200 download stays inside the ~1000-query per-invocation
+ * budget at today's row counts: the ETag prepass plus the body pass cost
+ * `2 * (ceil(N / pageSize) + 1)` reads, so the 388,735-row container table
+ * needs 780 reads at 1000/page but 1,558 at 500/page — over the cap
+ * (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
  */
-export const SNAPSHOT_EXPORT_PAGE_SIZE = 500;
+export const SNAPSHOT_EXPORT_PAGE_SIZE = 1000;
 export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
 
 /** Optional plain-text Worker binding; invalid values keep the safe default. */

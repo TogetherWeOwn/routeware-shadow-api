@@ -321,7 +321,7 @@ describe("snapshotExportSpec", () => {
 
 describe("readSnapshotExportPageSize", () => {
   it.each([
-    ["1", 1], ["50", 50], ["500", 500], ["5000", 5000], [" 50 \n", 50]
+    ["1", 1], ["50", 50], ["500", 500], ["1000", 1000], ["5000", 5000], [" 50 \n", 50]
   ])("accepts %j as %i rows", (raw, expected) => {
     expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(expected);
   });
@@ -330,8 +330,21 @@ describe("readSnapshotExportPageSize", () => {
     undefined, null, "", "   ", "0", "5001", "-1", "+50", "1.5", "50.0",
     "1e2", "0x32", "50rows", "NaN", "Infinity", "9007199254740993", "１２",
     "5 0", 50, true, {}, [[]]
-  ])("falls back to 500 for %j", (raw) => {
-    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(500);
+  ])("falls back to 1000 for %j", (raw) => {
+    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(1000);
+  });
+
+  it("keeps a full 200 download inside the D1 per-invocation budget at measured row counts", () => {
+    // 2026-09-27 counts (CUSTOMER_SNAPSHOT.md § batch sizing): customer
+    // 109,894, address 111,620, container 388,735 rows. A 200 costs two
+    // passes of ceil(N / pageSize) + 1 reads against the 1000-query cap, so
+    // this fails if the default ever drops back below the budget (at 500 the
+    // container needs 1,558 reads and the body truncates mid-stream).
+    const reads = (rows: number) =>
+      2 * (Math.ceil(rows / SNAPSHOT_EXPORT_PAGE_SIZE) + 1);
+    expect(reads(109_894)).toBeLessThanOrEqual(1000);
+    expect(reads(111_620)).toBeLessThanOrEqual(1000);
+    expect(reads(388_735)).toBeLessThanOrEqual(1000);
   });
 });
 
@@ -406,7 +419,7 @@ describe.each(SPECS)("$name export route", (spec) => {
     }
   });
 
-  it("exports identical bytes at env page size 50 and the 500 default", async () => {
+  it("exports identical bytes at env page size 50 and the 1000 default", async () => {
     const rows = spec.seed(1253);
     const textColumn = spec.name === "customer" ? "company_name"
       : spec.name === "address" ? "address" : "container_note";
@@ -416,21 +429,21 @@ describe.each(SPECS)("$name export route", (spec) => {
     const standard = fakeExportDb(rows, spec.pk);
 
     const at50 = await callExport(spec.routes, spec.path, smaller.db, SECRET, undefined, "50");
-    const at500 = await callExport(spec.routes, spec.path, standard.db);
+    const atDefault = await callExport(spec.routes, spec.path, standard.db);
     expect(at50.status).toBe(200);
-    expect(at500.status).toBe(200);
-    expect(at50.headers.get("etag")).toBe(at500.headers.get("etag"));
+    expect(atDefault.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(atDefault.headers.get("etag"));
     expect(new Uint8Array(await at50.arrayBuffer())).toEqual(
-      new Uint8Array(await at500.arrayBuffer())
+      new Uint8Array(await atDefault.arrayBuffer())
     );
     expect(smaller.calls).toHaveLength(2 * (Math.ceil(rows.length / 50) + 1));
-    expect(standard.calls).toHaveLength(2 * (Math.ceil(rows.length / 500) + 1));
+    expect(standard.calls).toHaveLength(2 * (Math.ceil(rows.length / 1000) + 1));
     for (const call of smaller.calls) {
       expect(call.sql).toContain("LIMIT ?");
       expect(call.binds.at(-1)).toBe(50);
     }
     for (const call of standard.calls) {
-      expect(call.binds.at(-1)).toBe(500);
+      expect(call.binds.at(-1)).toBe(1000);
     }
   });
 
@@ -450,12 +463,12 @@ describe.each(SPECS)("$name export route", (spec) => {
   });
 
   it("uses bounded default reads when the env override is invalid", async () => {
-    const { db, calls } = fakeExportDb(spec.seed(501), spec.pk);
+    const { db, calls } = fakeExportDb(spec.seed(SNAPSHOT_EXPORT_PAGE_SIZE + 1), spec.pk);
     const res = await callExport(spec.routes, spec.path, db, SECRET, undefined, "-1");
     expect(res.status).toBe(200);
     await res.text();
     expect(calls).toHaveLength(6);
-    expect(calls.every((call) => call.binds.at(-1) === 500)).toBe(true);
+    expect(calls.every((call) => call.binds.at(-1) === SNAPSHOT_EXPORT_PAGE_SIZE)).toBe(true);
   });
 
   it("escapes cells and renders booleans on the wire", async () => {
@@ -770,7 +783,7 @@ describe("export end to end through the real app and D1", () => {
     expect(await replay.text()).toBe("");
   });
 
-  it("exports identical full local D1 bytes with env page size 50 and 500", async () => {
+  it("exports identical full local D1 bytes with env page size 50 and 1000", async () => {
     const db = realDb();
     const before = await db.prepare("SELECT COUNT(*) as n FROM customer_snapshot").first<{ n: number }>();
     expect(before).not.toBeNull();
@@ -782,12 +795,12 @@ describe("export end to end through the real app and D1", () => {
       ));
     }
     const at50 = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db, SECRET, undefined, "50");
-    const at500 = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db);
+    const atDefault = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db);
     expect(at50.status).toBe(200);
-    expect(at500.status).toBe(200);
-    expect(at50.headers.get("etag")).toBe(at500.headers.get("etag"));
+    expect(atDefault.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(atDefault.headers.get("etag"));
     const bytes50 = new Uint8Array(await at50.arrayBuffer());
-    expect(bytes50).toEqual(new Uint8Array(await at500.arrayBuffer()));
+    expect(bytes50).toEqual(new Uint8Array(await atDefault.arrayBuffer()));
     expect(new TextDecoder().decode(bytes50).split("\n")).toHaveLength(before!.n + 521 + 2);
   });
 

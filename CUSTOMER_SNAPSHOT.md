@@ -164,7 +164,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 ### CSV export page sizing
 
-The three `GET ...-snapshot/export` routes default to **500 rows per D1 read**.
+The three `GET ...-snapshot/export` routes default to **1000 rows per D1 read**.
 Set the optional plain-text **`SNAPSHOT_EXPORT_PAGE_SIZE`** Worker variable to
 change that limit for all three tables, for example:
 
@@ -176,11 +176,13 @@ SNAPSHOT_EXPORT_PAGE_SIZE = "50"
 Merge this entry into the existing `[vars]` block, not a second block. For a named
 Wrangler environment, put it in that environment's `[env.<name>.vars]` block:
 [variables are not inherited](https://developers.cloudflare.com/workers/configuration/environment-variables/#environment-variables-via-wrangler).
-Only decimal integer strings **1–5000** are accepted; surrounding whitespace is
-trimmed. Missing, blank, fractional, signed, non-decimal or out-of-range values
-fall back to **500** (no error and no unbounded query). Remove the variable to
-restore the default. It does not change list pagination, sync/upsert batch sizes,
-CSV bytes, ETags, `304` replies, ordering, quoting, filenames or authorization.
+Quote the value: the binding is read as text, so an unquoted TOML number is
+silently ignored and the default applies. Only decimal integer strings **1–5000**
+are accepted; surrounding whitespace is trimmed. Missing, blank, fractional,
+signed, non-decimal or out-of-range values fall back to **1000** (no error and
+no unbounded query). Remove the variable to restore the default. It does not
+change list pagination, sync/upsert batch sizes, CSV bytes, ETags, `304` replies,
+ordering, quoting, filenames or authorization.
 
 - **Memory:** lower the size for wide text-heavy rows. Each read remains
   `LIMIT`-bounded and the stream queues at most one page ahead of the consumer;
@@ -195,10 +197,11 @@ CSV bytes, ETags, `304` replies, ordering, quoting, filenames or authorization.
   [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
   (**1000 Paid / 50 Free**). Smaller pages can exhaust this budget even though
   memory remains bounded. At the measured 388,735 container rows (see
-  § batch sizing), 500 needs **779 reads per pass** but 50 needs **7,776**: use 50
-  only for smaller tables/test fixtures, not that full production table. With the
-  ETag prepass even 500 exceeds 1000 reads for a full download; 1000 rows/page needs
-  **780 reads for both passes**, subject to memory checks. Larger pages reduce reads
+  § batch sizing), the 1000 default needs **390 reads per pass (780 for both
+  passes)**, inside the cap with headroom to about 499,000 rows; 500 would need
+  **779 per pass (1,558 both)** and the body would truncate mid-stream after the
+  200 is sent, while 50 needs **7,776 per pass**: use 50 only for smaller
+  tables/test fixtures, not that full production table. Larger pages reduce reads
   at a memory cost; choose against the largest/widest table since this variable
   applies to all three.
 
@@ -208,9 +211,10 @@ Acceptance/regression:
 npm test -- test/snapshotCsvExport.test.ts test/snapshotExportRoundTrip.test.ts test/shadowSyncExportRoundTrip.test.ts
 ```
 
-The suite compares complete export bytes and ETags at 50 and the 500 default on
+The suite compares complete export bytes and ETags at 50 and the 1000 default on
 every table, answers `304` at 50 for the default tag, compares the real local D1
-customer export at both sizes, and drains a lazy wide-row fixture without collecting
+customer export at both sizes, checks a full 200 stays inside the D1 budget at
+the measured row counts, and drains a lazy wide-row fixture without collecting
 the whole body to pin backpressure/page bounds. No live production export is needed
 to verify the setting.
 
