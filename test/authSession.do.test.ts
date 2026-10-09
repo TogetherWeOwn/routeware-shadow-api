@@ -22,6 +22,18 @@ async function makeSession(): Promise<AuthSession> {
   return session;
 }
 
+/**
+ * Like `makeSession`, but exposes the raw storage map so at-rest eviction can
+ * be asserted without any `/get` — a `/get` read evicts and tombstones itself,
+ * which would mask a no-op `alarm()` or a missing constructor repair.
+ */
+async function makeInspectableSession(initial: Record<string, unknown> = {}) {
+  const fake = authSessionTestState(initial);
+  const session = new AuthSession(fake.state, {} as Env);
+  await fake.ready();
+  return { session, values: fake.values, storage: fake.storage };
+}
+
 function call(session: AuthSession, path: string, body?: unknown): Promise<Response> {
   return session.fetch(
     new Request(`https://do.local${path}`, {
@@ -263,6 +275,69 @@ describe("AuthSession Durable Object", () => {
       const state = await readRaw(session);
       expect(state.cookieHeader).toBe(".WebRW=fresh");
       expect(state.expired).toBeUndefined();
+    });
+
+    describe("at-rest eviction (storage-direct, no /get)", () => {
+      it("alarm() evicts an expired session at rest and persists the tombstone", async () => {
+        // Arrange — a live session that expires with no request arriving.
+        const { session, values, storage } = await makeInspectableSession();
+        await call(session, "/set", {
+          cookieHeader: ".WebRW=idle",
+          expiresAtMs: Date.now() + 60_000
+        });
+        vi.setSystemTime(new Date(Date.now() + 61_000));
+
+        // Act — the alarm fires; nothing reads through /get.
+        await session.alarm();
+
+        // Assert — storage holds no cookie material, the tombstone is set for
+        // the next /get, and the spent alarm is cleared. A no-op alarm() fails
+        // the first assertion; a missing tombstone write fails the second.
+        expect(values.has("cookieHeader")).toBe(false);
+        expect(values.has("expiresAtMs")).toBe(false);
+        expect(values.get("expiredEvicted")).toBe(true);
+        expect(await storage.getAlarm()).toBeNull();
+      });
+
+      it("constructor repair evicts a pre-alarm expired session before serving requests", async () => {
+        // Arrange — storage written before alarms existed holds an
+        // already-expired session and no alarm.
+        const fake = authSessionTestState({
+          cookieHeader: ".WebRW=legacy",
+          expiresAtMs: Date.now() - 1
+        });
+
+        // Act — constructing the object runs the startup repair.
+        const session = new AuthSession(fake.state, {} as Env);
+        await fake.ready();
+
+        // Assert — storage-direct: no request (and no /get eviction) involved.
+        // Removing the constructor repair leaves the stale cookie in storage.
+        expect(fake.values.has("cookieHeader")).toBe(false);
+        expect(fake.values.get("expiredEvicted")).toBe(true);
+        expect(await fake.storage.getAlarm()).toBeNull();
+
+        // A later /get reports the expiry flag, not the stale cookie.
+        const state = await readRaw(session);
+        expect(state.cookieHeader).toBeNull();
+        expect(state.expired).toBe(true);
+      });
+
+      it("alarm() re-arms a missing alarm for a live session without touching the cookie", async () => {
+        // Arrange — a live session whose alarm was lost.
+        const { session, values, storage } = await makeInspectableSession();
+        const expiresAtMs = Date.now() + 60_000;
+        await call(session, "/set", { cookieHeader: ".WebRW=live", expiresAtMs });
+        await storage.deleteAlarm();
+
+        // Act
+        await session.alarm();
+
+        // Assert — the alarm is restored to the recorded expiry and the live
+        // material is untouched. Removing the re-arm leaves no alarm scheduled.
+        expect(await storage.getAlarm()).toBe(expiresAtMs);
+        expect(values.get("cookieHeader")).toBe(".WebRW=live");
+      });
     });
 
     it("rejects a /set whose expiry already passed with 409 and keeps the live session", async () => {
