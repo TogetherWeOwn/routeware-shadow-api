@@ -164,7 +164,7 @@ function maskSyncedAtLine(line: string): string {
  */
 function decodeExportBusinessLine(line: string): string {
   const cells = parseCsvLine(line);
-  expect(cells.at(-2)).toBe("apostrophe-v1");
+  expect(cells.at(-2)).toBe("1");
   expect(cells.at(-1)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   return cells.slice(0, -2).map((value) => {
     // Independent byte-level oracle: undo one export prefix, then serialize
@@ -335,7 +335,7 @@ describe("shadow sync → export round-trip", () => {
         parseBusinessRows(spec, upstreamLines)
       );
       // Independent byte equality after removing export metadata and undoing
-      // spreadsheet escaping, including negative-coordinate text cells.
+      // spreadsheet escaping.
       expect(exportLines[0]).toBe(`${upstreamLines[0]},_shadow_csv_encoding,synced_at`);
       expect(exportLines.slice(1).map(decodeExportBusinessLine)).toEqual(
         upstreamLines.slice(1)

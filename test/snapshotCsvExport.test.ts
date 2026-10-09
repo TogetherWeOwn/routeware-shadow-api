@@ -241,8 +241,8 @@ const SPECS: Spec[] = [
       customerRow(2, null, 0)
     ],
     edgeLines: [
-      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,apostrophe-v1,${SYNCED_AT}`,
-      `2,,,,,,,,,,,,false,apostrophe-v1,${SYNCED_AT}`
+      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,1,${SYNCED_AT}`,
+      `2,,,,,,,,,,,,false,1,${SYNCED_AT}`
     ]
   },
   {
@@ -256,7 +256,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => addressRow(i + 1)),
     edgeRows: [addressRow(1)],
     edgeLines: [
-      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,apostrophe-v1,${SYNCED_AT}`
+      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,1,${SYNCED_AT}`
     ]
   },
   {
@@ -270,7 +270,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => containerRow(i + 1)),
     edgeRows: [containerRow(1)],
     edgeLines: [
-      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,apostrophe-v1,${SYNCED_AT}`
+      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,1,${SYNCED_AT}`
     ]
   }
 ];
@@ -308,7 +308,7 @@ describe("snapshotExportSpec", () => {
     const line = encodeSnapshotRow(CUSTOMER_SNAPSHOT_EXPORT, customerRow(9, null, 0));
 
     // Assert
-    expect(line).toBe(`9,,,,,,,,,,,,false,apostrophe-v1,${SYNCED_AT}`);
+    expect(line).toBe(`9,,,,,,,,,,,,false,1,${SYNCED_AT}`);
   });
 });
 

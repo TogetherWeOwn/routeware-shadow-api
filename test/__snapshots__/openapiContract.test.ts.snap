@@ -646,7 +646,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "text/csv": {
                 "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,_shadow_csv_encoding,synced_at
-10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,apostrophe-v1,2026-01-01T00:00:00.000Z
+10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1053,7 +1053,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "text/csv": {
                 "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,_shadow_csv_encoding,synced_at
-100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,apostrophe-v1,2026-01-01T00:00:00.000Z
+100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1518,7 +1518,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "text/csv": {
                 "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,_shadow_csv_encoding,synced_at
-345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,apostrophe-v1,2026-01-01T00:00:00.000Z
+345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",

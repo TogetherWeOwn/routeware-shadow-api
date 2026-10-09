@@ -123,11 +123,10 @@ export function cell(
     if (i !== undefined && row[i] !== undefined) {
       const value = row[i];
       const encodingIndex = cols[CSV_SPREADSHEET_ENCODING_HEADER];
-      // Decode only a version-marked export row, before the usual trimming.
-      // Unmarked upstream CSV (including literal apostrophes) is untouched.
+      // Decode only version-marked export rows; unmarked upstream CSV is untouched.
       return (
         encodingIndex !== undefined &&
-        row[encodingIndex] === CSV_SPREADSHEET_ENCODING &&
+        row[encodingIndex]?.trim() === CSV_SPREADSHEET_ENCODING &&
         value.startsWith("'")
           ? value.slice(1)
           : value

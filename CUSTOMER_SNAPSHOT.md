@@ -168,74 +168,39 @@ Open these downloads as **comma-delimited CSV with double-quote text
 delimiters**. Other delimiter guesses (such as semicolon or tab) are not a
 supported spreadsheet-safety boundary; select comma explicitly when importing.
 
-All three `/export` downloads prefix formula-leading cells (`=`, `+`, `-`, `@`),
-leading tabs/CR/LF, whitespace-hidden operators, and their full-width variants
-with an apostrophe inside a double-quoted CSV field. Double quotes are doubled
-per RFC 4180. Original apostrophe-leading cells receive an extra apostrophe,
-so `=1+1` and the literal `'=1+1` cannot collide.
+All three `/export` downloads write a cell whose first non-space character is
+`=`, `+`, `-`, `@`, an apostrophe, a full-width operator, or a tab, CR or LF with
+one extra leading apostrophe inside a double-quoted CSV field. Plain numbers such
+as `-74.0060` are not prefixed. Double quotes are doubled per RFC 4180. An original
+apostrophe-leading cell receives one more apostrophe, so `=1+1` and the literal
+`'=1+1` cannot collide.
 
-Exports insert `_shadow_csv_encoding` before the final `synced_at`, with `apostrophe-v1`
-on every row. Decoding the **original encoded cells**, including that column,
-removes exactly one inserted apostrophe before the existing import normalization.
-A direct HTTP re-import additionally requires a non-empty, import-compatible
-body within the unchanged **52,428,800-byte (50 MiB)** limit. Exports are uncapped;
-metadata and quoting can push a formerly admissible download over that limit. Ordinary unmarked Routeware CSV and unknown encoding versions
-are not decoded. Machine consumers must honor this marker rather than treat
-spreadsheet-escaped values as raw business data; export widths are now
-15 customer / 17 address / 30 container columns.
+Exports insert `_shadow_csv_encoding` before the final `synced_at`, with the value
+`1` on every row. Re-importing a row that carries that marker removes exactly one
+leading apostrophe before the existing import normalization. Unmarked Routeware CSV
+and other marker values are not decoded. Machine consumers must honor the marker
+rather than treat spreadsheet-escaped values as raw business data.
+
+Size: the marker adds 21 header bytes and 2 bytes per row; each escaped cell adds
+one apostrophe, plus quoting when the cell was not already quoted. The export
+itself is not capped, but a direct HTTP re-import is limited to the unchanged
+**52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
+that margin of the limit can therefore fail re-import even though it was admissible
+before this encoding. No automated split-and-import path exists yet.
+
+The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) is unchanged and
+still returns the raw archived Routeware CSV; it is not spreadsheet-escaped.
 
 This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/attacks/CSV_Injection)
 for text-cell escaping. It is not a promise of safety or losslessness after a
 spreadsheet saves, converts, or reopens the CSV: spreadsheet programs can strip
 escaping or alter values. Keep the original download for programmatic re-import.
 
-#### Bounded upsert recovery for oversized exports
-
-Use `batchSnapshotExportCsv` from `src/lib/snapshot/exportImportBatches.ts` in a
-local preparation tool. It accepts the original download's UTF-8 byte stream
-and yields CSV bodies of at most **5 MiB / 500 data rows** by default. Each body
-repeats the complete original header and copies complete logical records,
-including the encoding marker and apostrophes, without decoding or re-escaping
-cells. Only record separators become LF. RFC 4180 quoted multiline cells stay
-intact; physical-line or arbitrary-byte splitting is not safe.
-
-1. Keep the immutable original. Consume the helper to completion, persisting
-   each part privately rather than collecting the whole export in memory.
-   Do not upload any part before preparation and validation of **all** parts
-   succeeds. This helper is not a CSV/control validator or an upload driver.
-2. Preflight each part's UTF-8 byte length, parsed row count and safe control
-   content before any upload; the helper does not validate or reject controls.
-   Check compatibility with the target import's current policy and compare the
-   concatenated decoded business rows with the original. Preserve the complete
-   header and every marker. A header plus one indivisible row exceeding the
-   configured budget throws a content-free error; never truncate a row or raise
-   the HTTP cap. Larger helper byte budgets are permitted only up to 50 MiB;
-   smaller byte/row budgets are available when needed.
-3. For an authorized recovery, send parts sequentially to the matching
-   `...-snapshot/import`, completing customers before addresses before containers.
-   Check every response and row count; stop on any error. Imports are upsert-only:
-   do not use reconciliation or `/sync` between parts. Existing rows absent from
-   the download remain, and `synced_at` is restamped rather than restored. Other
-   paths also reconcile customer data and can delete imported rows that upstream
-   does not report. The scheduled sync (`crons` in `wrangler.toml`, `0 7 * * *`
-   UTC) reconciles the customer, address and container tables to the current
-   upstream report. A Routeware save through the `save-long-form`,
-   `save-address-form` or `save-container-form` routes under `/api/v1/routeware/`,
-   and a `POST /api/v1/data/customer`, `/address` or `/container` write, refreshes
-   that customer and deletes its address and container rows whose `synced_at`
-   predates the refresh. Keep each recovery window away from 07:00 UTC, do not save
-   or write data for the affected customers until every part is imported, and
-   verify row counts again afterwards.
-4. A late preparation or import failure can follow earlier yielded parts or
-   committed D1 batches. There is no all-or-nothing restore or deletion rollback;
-   retain the original and receipts and resume/retry only after investigating the
-   failure. Size bounds do not validate controls, CSV shape or FK/D1 constraints.
-
-For the synthetic 6,000-row boundary regression, metadata grows the download
-from 52,386,156 to 52,470,177 bytes: direct import correctly returns 413. The
-helper emits 12 admissible parts while preserving all 6,000 decoded rows
-(`test/snapshotExportImportBatches.test.ts`). This is a bounded recovery path,
-not a promise that every uncapped export can be imported as one request.
+Re-importing a download is upsert-only and does not prune. Keep a re-import window
+away from 07:00 UTC, and avoid Routeware saves and `POST /api/v1/data/customer`,
+`/address` or `/container` writes for the affected customers until the import is
+verified. The scheduled sync (`crons` in `wrangler.toml`, `0 7 * * *` UTC) and those
+writes reconcile rows to the upstream report and can delete rows it does not report.
 
 ### D1: “Too many API requests by single Worker invocation”
 

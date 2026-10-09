@@ -201,8 +201,7 @@ export function encodeSnapshotRow(
   row: Record<string, unknown>
 ): string {
   const cells = spec.columns.map((c) => escapeCsvCell(formatCell(c, row[c.db])));
-  // All snapshot specs end in synced_at. Keep that existing trailer contract;
-  // the encoding marker is CSV metadata only, never selected from D1.
+  // Every snapshot spec ends in synced_at; the marker goes just before it.
   cells.splice(cells.length - 1, 0, CSV_SPREADSHEET_ENCODING);
   return cells.join(",");
 }

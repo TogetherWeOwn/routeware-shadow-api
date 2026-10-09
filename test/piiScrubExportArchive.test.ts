@@ -533,7 +533,7 @@ describe("export response preserves PII business cells (site 8)", () => {
     );
     const text = await res.text();
     expect(text).toContain(
-      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,apostrophe-v1,${SYNCED_AT}`
+      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,1,${SYNCED_AT}`
     );
   });
 });

@@ -42,6 +42,19 @@ describe("spreadsheet-safe CSV cells", () => {
     }
   );
 
+  it.each(["-74.0060", "+1", "-0.5", "-.5", "1e5", "-1E+3", "-0"])(
+    "leaves plain numbers unprefixed and parseable: %j", (value) => {
+      expect(escapeCsvCell(value)).toBe(value);
+      expect(parseCsvLine(escapeCsvCell(value))).toEqual([value]);
+    }
+  );
+
+  it.each(["-", "+", "- 1", " -1", "-1+1", "-1e5x", "-1,000"])(
+    "still prefixes operator-led text that is not a plain number: %j", (value) => {
+      expect(escapeCsvCell(value).startsWith('"\'')).toBe(true);
+    }
+  );
+
   it("also quotes embedded semicolons and tabs without changing comma-CSV cells", () => {
     expect(escapeCsvCell("safe;=1+1;tail")).toBe('"safe;=1+1;tail"');
     expect(escapeCsvCell("safe\t=1+1")).toBe('"safe\t=1+1"');
