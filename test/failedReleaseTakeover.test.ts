@@ -60,11 +60,19 @@ function harness() {
   return { ...fake, stub, fetch, callsTo };
 }
 
-/** A held lock whose stored cookie already expired: the failed-holder setup. */
-async function failedHolderSetup(stub: DurableObjectStub): Promise<void> {
+/**
+ * A held lock whose stored cookie already expired: the failed-holder setup.
+ * Returns the holder's ownership token (TOG-18119, reviewer finding 2) so the
+ * test can release it the way the real failed holder does.
+ */
+async function failedHolderSetup(stub: DurableObjectStub): Promise<string> {
   await storeSession(stub, FAILED_COOKIE, Date.now() + 1);
   await vi.advanceTimersByTimeAsync(1);
-  await stub.fetch("https://auth/lock");
+  const response = await stub.fetch("https://auth/lock");
+  expect(response.status).toBe(200);
+  const token = (await response.text()).trim();
+  expect(token.length).toBeGreaterThan(0);
+  return token;
 }
 
 function settleAll(count: number, stub: DurableObjectStub) {
@@ -93,12 +101,12 @@ describe("failed-release takeover (CISO option B)", () => {
   it("a 20-concurrent run after a failed release performs at most two logins", async () => {
     // Arrange — 20 waiters queue on a failed holder's lock.
     const { stub } = harness();
-    await failedHolderSetup(stub);
+    const holderToken = await failedHolderSetup(stub);
     const pending = settleAll(20, stub);
     await vi.advanceTimersByTimeAsync(0);
 
     // Act — the holder's login fails and releases; the window admits takeovers.
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, holderToken);
     await vi.advanceTimersByTimeAsync(5000);
     const failures = await pending;
 
@@ -115,12 +123,12 @@ describe("failed-release takeover (CISO option B)", () => {
   it("a successful takeover performs exactly one login and delivers the fresh cookie to every waiter", async () => {
     // Arrange
     const { stub, callsTo } = harness();
-    await failedHolderSetup(stub);
+    const holderToken = await failedHolderSetup(stub);
     const pending = settleAll(3, stub);
     await vi.advanceTimersByTimeAsync(0);
 
     // Act
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, holderToken);
     await vi.advanceTimersByTimeAsync(5000);
     const failures = await pending;
 
@@ -138,14 +146,14 @@ describe("failed-release takeover (CISO option B)", () => {
   it("a failed takeover fails the remaining waiters at once instead of waiting out the window", async () => {
     // Arrange — the takeover winner's login will fail too.
     const { stub } = harness();
-    await failedHolderSetup(stub);
+    const holderToken = await failedHolderSetup(stub);
     httpLoginShouldFail = true;
     const pending = settleAll(3, stub);
     await vi.advanceTimersByTimeAsync(0);
     const startedAt = Date.now();
 
     // Act — holder fails, winner takes over and fails, budget spent.
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, holderToken);
     await vi.advanceTimersByTimeAsync(5000);
     const failures = await pending;
 
@@ -190,11 +198,11 @@ describe("failed-release takeover (CISO option B)", () => {
   it("a late superseded unlock admits no second takeover and preserves the anchor", async () => {
     // Arrange — anchor recorded, winner claimed, winner's login failed.
     const { stub, values } = harness();
-    await failedHolderSetup(stub);
+    const holderToken = await failedHolderSetup(stub);
     httpLoginShouldFail = true;
     const pending = settleAll(1, stub);
     await vi.advanceTimersByTimeAsync(0);
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, holderToken);
     await vi.advanceTimersByTimeAsync(5000);
     await pending;
     const anchor = values.get("failedReleaseAtMs");
@@ -236,8 +244,10 @@ describe("failed-release takeover (CISO option B)", () => {
     const { stub, values } = harness();
     await stub.fetch("https://auth/lock");
     await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
-    await stub.fetch("https://auth/lock");
-    await stub.fetch("https://auth/unlock", { method: "POST" });
+    // The publication cleared the first lock; this second grant owns the lock
+    // whose failed release the test records.
+    const holderToken = (await (await stub.fetch("https://auth/lock")).text()).trim();
+    await releaseRefreshLock(stub, holderToken);
     expect(typeof values.get("failedReleaseAtMs")).toBe("number");
 
     // Act
@@ -252,8 +262,8 @@ describe("failed-release takeover (CISO option B)", () => {
   it("the episode window closes: /takeover past the window is ineligible", async () => {
     // Arrange — a failed release with no takeover claim.
     const { stub } = harness();
-    await failedHolderSetup(stub);
-    await stub.fetch("https://auth/unlock", { method: "POST" });
+    const holderToken = await failedHolderSetup(stub);
+    await releaseRefreshLock(stub, holderToken);
 
     // Act — the whole window passes with no waiter attempting a takeover.
     await vi.advanceTimersByTimeAsync(TAKEOVER_WINDOW_MS + 1);
@@ -261,5 +271,96 @@ describe("failed-release takeover (CISO option B)", () => {
 
     // Assert
     expect(response.status).toBe(409);
+  });
+
+  it("a takeover login running past the window admits no third login (reviewer finding 1)", async () => {
+    // Arrange — holder fails at T0 (anchor), a waiter takes over at T1. The
+    // winner's login runs long: past the 60s window and past the 90s waiter
+    // budget. Removing the `lockedAt === takeoverAtMs` guard would let the
+    // winner's late `/unlock` open a fresh episode and admit a third login.
+    const { stub, values } = harness();
+    const holderToken = await failedHolderSetup(stub);
+    await releaseRefreshLock(stub, holderToken);
+    const anchor = values.get("failedReleaseAtMs");
+    expect(typeof anchor).toBe("number");
+    const takeoverResponse = await stub.fetch("https://auth/takeover", { method: "POST" });
+    expect(takeoverResponse.status).toBe(200);
+    const winnerToken = (await takeoverResponse.text()).trim();
+    expect(winnerToken.length).toBeGreaterThan(0);
+    const claimed = values.get("takeoverAtMs");
+    expect(typeof claimed).toBe("number");
+
+    // Act — the winner's login fails after the window closed; its `/unlock`
+    // presents its own token.
+    await vi.advanceTimersByTimeAsync(TAKEOVER_WINDOW_MS + 5000);
+    await releaseRefreshLock(stub, winnerToken);
+
+    // Assert — the spent budget survived: the anchor is untouched (no fresh
+    // episode), the claim is untouched, the lock is free for normal `/lock`
+    // use, but `/takeover` admits nothing more.
+    expect(values.get("failedReleaseAtMs")).toBe(anchor);
+    expect(values.get("takeoverAtMs")).toBe(claimed);
+    expect(await (await stub.fetch("https://auth/takeover", { method: "POST" })).status).toBe(409);
+    expect(await (await stub.fetch("https://auth/lock")).status).toBe(200);
+  });
+
+  it("a superseded holder's late unlock cannot release the next holder's live lock (reviewer finding 2)", async () => {
+    // Arrange — holder A locks, then outlives LOCK_TTL_MS without unlocking.
+    // Holder B re-acquires the stale lock and is mid-login when A's late
+    // `/unlock` lands. Without ownership tokens, A's unlock would release B's
+    // live lock and record a bogus failed release — admitting a takeover
+    // login alongside B's still-running one.
+    const { stub, values } = harness();
+    await storeSession(stub, FAILED_COOKIE, Date.now() + 300_000);
+    const tokenA = (await (await stub.fetch("https://auth/lock")).text()).trim();
+    expect(tokenA.length).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(120_000 + 1);
+    const tokenBResponse = await stub.fetch("https://auth/lock");
+    expect(tokenBResponse.status).toBe(200);
+    const tokenB = (await tokenBResponse.text()).trim();
+    expect(tokenB.length).toBeGreaterThan(0);
+    expect(tokenB).not.toBe(tokenA);
+    const bLockedAt = values.get("lockedAt");
+
+    // Act — A's stale token arrives late, then a tokenless unlock too.
+    await releaseRefreshLock(stub, tokenA);
+    await stub.fetch("https://auth/unlock", { method: "POST" });
+
+    // Assert — B's live lock is untouched and no failed release was recorded:
+    // no takeover is admitted next to the live holder.
+    expect(values.get("lockedAt")).toBe(bLockedAt);
+    expect((await readSessionState(stub)).refreshing).toBe(true);
+    expect(values.has("failedReleaseAtMs")).toBe(false);
+    expect((await stub.fetch("https://auth/takeover", { method: "POST" })).status).toBe(423);
+
+    // Act — B's own unlock still releases normally and records the episode.
+    await releaseRefreshLock(stub, tokenB);
+
+    // Assert
+    expect((await readSessionState(stub)).refreshing).toBe(false);
+    expect(typeof values.get("failedReleaseAtMs")).toBe("number");
+  });
+
+  it("/takeover answers 423 — not 409 — while a holder is live during an episode (reviewer finding 3)", async () => {
+    // Arrange — a failed release anchors an episode, then a new holder takes
+    // `/lock` and is mid-login. The live-holder check must run before the
+    // episode/budget/cookie checks: removing it would let this call steal the
+    // live lock (200) or report a misleading 409 instead of 423.
+    const { stub, values } = harness();
+    const holderToken = await failedHolderSetup(stub);
+    await releaseRefreshLock(stub, holderToken);
+    expect(typeof values.get("failedReleaseAtMs")).toBe("number");
+    const liveResponse = await stub.fetch("https://auth/lock");
+    expect(liveResponse.status).toBe(200);
+    const liveLockedAt = values.get("lockedAt");
+
+    // Act
+    const response = await stub.fetch("https://auth/takeover", { method: "POST" });
+
+    // Assert — 423, and the live lock is untouched: no claim, no steal.
+    expect(response.status).toBe(423);
+    expect(values.get("lockedAt")).toBe(liveLockedAt);
+    expect((await readSessionState(stub)).refreshing).toBe(true);
+    expect(values.has("takeoverAtMs")).toBe(false);
   });
 });

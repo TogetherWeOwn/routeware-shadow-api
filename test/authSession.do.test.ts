@@ -34,13 +34,32 @@ async function makeInspectableSession(initial: Record<string, unknown> = {}) {
   return { session, values: fake.values, storage: fake.storage };
 }
 
-function call(session: AuthSession, path: string, body?: unknown): Promise<Response> {
+function call(
+  session: AuthSession,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<Response> {
   return session.fetch(
     new Request(`https://do.local${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      body: body === undefined ? undefined : JSON.stringify(body)
+      method: body === undefined && headers === undefined ? "GET" : "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers
     })
   );
+}
+
+/**
+ * Acquire the refresh lock and return its ownership token. `/lock` mints a
+ * token per grant (TOG-18119, reviewer finding 2); `/unlock` only releases a
+ * token-held lock when the caller presents it.
+ */
+async function lockToken(session: AuthSession): Promise<string> {
+  const response = await call(session, "/lock");
+  expect(response.status).toBe(200);
+  const token = (await response.text()).trim();
+  expect(token.length).toBeGreaterThan(0);
+  return token;
 }
 
 type SessionSnapshot = {
@@ -419,10 +438,10 @@ describe("AuthSession Durable Object", () => {
     it("releases the lock so the next caller can acquire it", async () => {
       // Arrange
       const session = await makeSession();
-      await call(session, "/lock");
+      const token = await lockToken(session);
 
       // Act
-      const response = await call(session, "/unlock");
+      const response = await call(session, "/unlock", undefined, { "x-lock-token": token });
 
       // Assert
       expect(response.status).toBe(200);
@@ -434,13 +453,33 @@ describe("AuthSession Durable Object", () => {
       // Arrange
       const session = await makeSession();
       await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: Date.now() + 60_000 });
-      await call(session, "/lock");
+      const token = await lockToken(session);
 
       // Act
-      await call(session, "/unlock");
+      await call(session, "/unlock", undefined, { "x-lock-token": token });
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=keep-me");
+    });
+
+    it("ignores a stale token instead of releasing the next holder's live lock", async () => {
+      // Arrange — holder A locks, outlives the TTL, holder B re-acquires.
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: Date.now() + 300_000 });
+      const stale = await lockToken(session);
+      vi.setSystemTime(new Date(Date.now() + LOCK_TTL_MS + 1));
+      const live = await lockToken(session);
+      expect(live).not.toBe(stale);
+
+      // Act — A's late unlock with its superseded token, then a tokenless one.
+      expect((await call(session, "/unlock", undefined, { "x-lock-token": stale })).status).toBe(200);
+      expect((await call(session, "/unlock")).status).toBe(200);
+
+      // Assert — B's live lock survived both: still refreshing, still the lock
+      // B took, cookie intact, and no failed-release episode recorded.
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=keep-me");
+      expect((await call(session, "/lock")).status).toBe(423);
     });
   });
 

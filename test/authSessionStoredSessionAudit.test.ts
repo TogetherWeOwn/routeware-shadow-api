@@ -33,6 +33,20 @@ function harness() {
   };
 }
 
+/**
+ * Acquire the refresh lock through the real DO and return its ownership token.
+ * The DO mints a token per grant (TOG-18119, reviewer finding 2); the holder
+ * must present it on `/unlock`, so simulated holders thread it through
+ * `releaseRefreshLock` instead of releasing bare.
+ */
+async function lockWithToken(stub: DurableObjectStub): Promise<string> {
+  const response = await stub.fetch("https://auth/lock");
+  expect(response.status).toBe(200);
+  const token = (await response.text()).trim();
+  expect(token.length).toBeGreaterThan(0);
+  return token;
+}
+
 function captureConsole() {
   return ["log", "info", "warn", "error", "debug"].map((method) =>
     vi.spyOn(console, method as "log").mockImplementation(() => {})
@@ -107,9 +121,9 @@ describe("AuthSession stored-session audit", () => {
     const { stub } = harness();
     await storeSession(stub, COOKIE, sessionExpiryMs({ SESSION_TTL_SECONDS: 60 } as unknown as Env));
     await readSessionState(stub);
+    const token = await lockWithToken(stub);
     await stub.fetch("https://auth/lock");
-    await stub.fetch("https://auth/lock");
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, token);
     await waitForConcurrentRefresh(stub);
     expect((await stub.fetch("https://auth/set", {
       method: "POST",
@@ -146,14 +160,14 @@ describe("AuthSession stored-session audit", () => {
       await storeSession(stub, COOKIE, expiresAtMs);
       if (kind === "missing-expiry") values.delete("expiresAtMs");
       else vi.setSystemTime(expiresAtMs);
-      await stub.fetch("https://auth/lock");
+      const token = await lockWithToken(stub);
       const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
         () => null,
         (err: unknown) => err
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      await releaseRefreshLock(stub);
+      await releaseRefreshLock(stub, token);
       await vi.advanceTimersByTimeAsync(2000);
       expect(isConcurrentRefreshTimeout(await settled)).toBe(true);
       expect((await readSessionState(stub)).cookieHeader).toBeNull();

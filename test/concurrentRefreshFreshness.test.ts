@@ -87,6 +87,18 @@ const invalidExpiries = [
   { label: "infinite expiry", expiry: () => Infinity }
 ];
 
+/**
+ * Acquire the refresh lock through the real DO and return its ownership token
+ * (TOG-18119, reviewer finding 2): simulated holders present it on `/unlock`.
+ */
+async function lockWithToken(stub: DurableObjectStub): Promise<string> {
+  const response = await stub.fetch("https://auth/lock");
+  expect(response.status).toBe(200);
+  const token = (await response.text()).trim();
+  expect(token.length).toBeGreaterThan(0);
+  return token;
+}
+
 async function settleWait(stub: DurableObjectStub) {
   const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
     () => null,
@@ -114,14 +126,14 @@ describe("concurrent refresh requires a validated unexpired session", () => {
     const { stub, values, fetch } = harness();
     await storeThenExpire(stub);
     values.set("expiresAtMs", expiry());
-    await stub.fetch("https://auth/lock");
+    const token = await lockWithToken(stub);
     let completed = false;
     const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
       () => { completed = true; return null; },
       (err: unknown) => { completed = true; return err; }
     );
     await vi.advanceTimersByTimeAsync(0);
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, token);
     await vi.advanceTimersByTimeAsync(500);
     expect(completed).toBe(false);
     await vi.advanceTimersByTimeAsync(1499);
@@ -171,11 +183,11 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   it("accepts a later valid publication without extending the original deadline", async () => {
     const { stub } = harness();
     await storeThenExpire(stub);
-    await stub.fetch("https://auth/lock");
+    const token = await lockWithToken(stub);
     let completed = false;
     const pending = waitForConcurrentRefresh(stub, 2000, 500).then(() => { completed = true; });
     await vi.advanceTimersByTimeAsync(0);
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, token);
     await vi.advanceTimersByTimeAsync(1500);
     expect(completed).toBe(false);
     await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
@@ -211,7 +223,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       const remainingMs = leg === "proactive" ? 1000 : 61_000;
       const expiresAtMs = Date.now() + remainingMs;
       await storeSession(stub, COOKIE, expiresAtMs);
-      await stub.fetch("https://auth/lock");
+      const holderToken = await lockWithToken(stub);
       const seenCookies: string[] = [];
       const forwardTimes: number[] = [];
       const upstream = vi.fn(async (_input: unknown, init?: RequestInit) => {
@@ -238,7 +250,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       expect(seenCookies).toEqual(leg === "reactive" ? [COOKIE] : []);
       await vi.advanceTimersByTimeAsync(remainingMs);
       expect(Date.now()).toBe(expiresAtMs);
-      await releaseRefreshLock(stub);
+      await releaseRefreshLock(stub, holderToken);
       // The takeover login and the retried forward resolve within the poll
       // interval; no 90s waiter budget is consumed.
       await vi.advanceTimersByTimeAsync(2000);

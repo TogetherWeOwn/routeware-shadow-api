@@ -71,8 +71,12 @@ export async function establishSession(
   stub: DurableObjectStub,
   bootstrapUrl: string
 ): Promise<void> {
-  const holdsLock = await acquireRefreshLock(stub);
-  if (!holdsLock) {
+  // The ownership token for the lock this caller holds, if any: granted by
+  // `/lock` directly, or by `/takeover` after waiting. It is presented on the
+  // failure-path `/unlock` so a late release can never clear another holder's
+  // live lock (TOG-18119, reviewer finding 2).
+  let lockToken = await acquireRefreshLock(stub);
+  if (!lockToken) {
     // Another request is already refreshing. Wait for its publication — or,
     // after its explicit failed release, take over with one bounded fresh
     // login (TOG-18119, CISO option B: the atomic `/takeover` elects a single
@@ -81,19 +85,20 @@ export async function establishSession(
     // budget, the wait throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it
     // propagates so the caller fails closed to 502 instead of forwarding with
     // the expired cookie.
-    const outcome = await waitForPublicationOrTakeover(stub);
-    if (outcome === "published") {
+    const settlement = await waitForPublicationOrTakeover(stub);
+    if (settlement.outcome === "published") {
       return;
     }
     // "takeover": this caller won the atomic `/takeover` and now holds the
     // lock — fall through to the holder login path below.
+    lockToken = settlement.token;
   }
 
   try {
     await login(env, stub, bootstrapUrl);
   } catch (err) {
     // The DO clears the lock on a successful /set, so release only on failure.
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, lockToken);
     throw err;
   }
 
