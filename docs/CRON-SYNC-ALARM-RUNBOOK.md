@@ -21,8 +21,13 @@ one object per record, with no text prefix. `msg` is `data-snapshot-sync` at lev
 names ever leave the Worker):
 
 ```json
-{"level":"info","msg":"data-snapshot-sync","route":"scheduled.data-snapshot-sync","ms":41203,"event":"data-snapshot-sync","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12,"r2":{"status":"stored"}},"address":{"upserted":198002,"rowCount":198002,"r2":{"status":"stored"}},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
+{"level":"info","msg":"data-snapshot-sync","route":"scheduled.data-snapshot-sync","ms":41203,"event":"data-snapshot-sync","runId":"123e4567-e89b-12d3-a456-426614174000","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12,"r2":{"status":"stored"}},"address":{"upserted":198002,"rowCount":198002,"r2":{"status":"stored"}},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
 ```
+
+Every record from one firing — primary, fallback `warn`, persistence-failure
+`error`, and `skipped-overlap` — carries the same `runId` (one
+`crypto.randomUUID()` minted at `scheduled()` entry, TOG-19134; a bare UUID,
+PII-free). Filter on `runId` to pull a single run's records together.
 
 Two secondary records can accompany the primary one. Neither changes `outcome`. A `warn`
 with msg `SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation` marks a

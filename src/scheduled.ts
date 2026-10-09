@@ -36,6 +36,14 @@ export type CronSyncLog = {
   event: "data-snapshot-sync";
   outcome: CronSyncOutcome;
   mode: CronSyncMode;
+  /**
+   * Per-invocation correlation id (TOG-19134): one `crypto.randomUUID()` minted
+   * at `scheduled()` entry and spread via `base`, so every log line from one
+   * run — including the fallback warning, persistence-failure lines, and the
+   * `skipped-overlap` line — carries the same id. Stable within a run,
+   * distinct across runs; a bare UUID, PII-free by construction.
+   */
+  runId: string;
   /** Which configuration decided the mode. */
   configSource: "SHADOW_API_PUBLIC_BASE" | "fallback-single-invocation";
   /**
@@ -230,6 +238,9 @@ export async function scheduled(
       const publicBase = resolveChainedBase(env.SHADOW_API_PUBLIC_BASE);
       const base = {
         event: "data-snapshot-sync" as const,
+        // Per-run correlation id (TOG-19134): minted once per invocation so all
+        // lines from this run share it. A bare random UUID — PII-free.
+        runId: crypto.randomUUID(),
         mode: (publicBase ? "chained-http" : "single-invocation") as CronSyncMode,
         configSource: (publicBase
           ? "SHADOW_API_PUBLIC_BASE"
