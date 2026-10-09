@@ -670,7 +670,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/import": {
       "post": {
-        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -736,6 +736,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import address CSV body into D1",
@@ -1069,7 +1072,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/import": {
       "post": {
-        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -1135,6 +1138,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import container CSV into D1",
@@ -1594,6 +1600,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import CSV body into D1",
