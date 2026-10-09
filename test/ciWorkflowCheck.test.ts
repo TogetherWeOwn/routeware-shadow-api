@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertEveryJobHasTimeout,
+  assertFirstPartyActionsPinned,
   assertNoPrTriggerSkips,
-  findPrTriggerSkips
+  findJobsMissingTimeouts,
+  findPrTriggerSkips,
+  findUnpinnedFirstPartyActions
 } from "../scripts/lib/ciWorkflowCheck.mjs";
 
 /**
@@ -144,6 +148,99 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
       ].join("\n")
     });
     expect(findPrTriggerSkips(workflow)).toEqual([]);
+  });
+
+  it("accepts a workflow where every real job is bounded (TOG-19017)", () => {
+    const workflow = [
+      "on:",
+      "jobs:",
+      "  build:",
+      "    runs-on: [self-hosted, two-selfhosted]",
+      "    timeout-minutes: 30",
+      "    steps:",
+      "      - run: npm test",
+      ""
+    ].join("\n");
+    expect(findJobsMissingTimeouts(workflow)).toEqual([]);
+    expect(() => assertEveryJobHasTimeout(workflow, "fixture")).not.toThrow();
+  });
+
+  it("fails when a job has no timeout-minutes (TOG-19017)", () => {
+    const workflow = [
+      "on:",
+      "jobs:",
+      "  build:",
+      "    runs-on: [self-hosted, two-selfhosted]",
+      "    steps:",
+      "      - run: npm test",
+      ""
+    ].join("\n");
+    expect(findJobsMissingTimeouts(workflow)).toEqual(["build"]);
+    expect(() => assertEveryJobHasTimeout(workflow, "fixture")).toThrow(/build/);
+  });
+
+  it("ignores job blocks without their own runs-on (reusable-workflow callers) (TOG-19017)", () => {
+    const workflow = [
+      "on:",
+      "jobs:",
+      "  ci-ok:",
+      "    if: always()",
+      "    needs: [build]",
+      "    steps:",
+      "      - run: echo ok",
+      ""
+    ].join("\n");
+    expect(findJobsMissingTimeouts(workflow)).toEqual([]);
+  });
+
+  it("accepts SHA-pinned first-party actions with a version comment (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      ""
+    ].join("\n");
+    expect(findUnpinnedFirstPartyActions(workflow)).toEqual([]);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).not.toThrow();
+  });
+
+  it("fails when a first-party action floats on a moving tag (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/checkout@v4",
+      ""
+    ].join("\n");
+    const errors = findUnpinnedFirstPartyActions(workflow);
+    expect(errors.some((e) => e.includes("actions/checkout") && e.includes("@v4"))).toBe(true);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
+  });
+
+  it("fails when a SHA pin has no version comment (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020",
+      ""
+    ].join("\n");
+    const errors = findUnpinnedFirstPartyActions(workflow);
+    expect(errors.some((e) => e.includes("actions/setup-node") && e.includes("version comment"))).toBe(true);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/version comment/);
+  });
+
+  it("ignores third-party actions (only checkout/setup-node are pinned) (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: docker/login-action@v3",
+      ""
+    ].join("\n");
+    expect(findUnpinnedFirstPartyActions(workflow)).toEqual([]);
   });
 
   it("names jobs and keys only — never fixture content", () => {
