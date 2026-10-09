@@ -249,10 +249,12 @@ export async function putReadableStreamToR2(
  * throws (it is a pure report).
  *
  * Buffering note: the CSV is collected in memory (one buffer per chunk) so D1
- * and R2 see identical bytes. Snapshot exports are small enough for this today
- * (the largest is well under the 128 MiB isolate cap, and `tee()`'s internal
- * buffer would have held the same lag had one leg outrun the other); if exports
- * ever approach isolate memory, switch to a byte-counted spill to a temp store.
+ * and R2 see identical bytes; D1, each CSV put and the hash take their own
+ * copy of those chunks, one after another. Snapshot exports are small enough
+ * for this today (the largest is well under the 128 MiB isolate cap, and
+ * `tee()`'s internal buffer would have held the same lag had one leg outrun
+ * the other); if exports ever approach isolate memory, switch to a
+ * byte-counted spill to a temp store.
  */
 export async function archiveReportCsvToR2AfterD1<T>(
   env: Env,
@@ -303,11 +305,12 @@ export async function archiveReportCsvToR2AfterD1<T>(
     await putReadableStreamToR2(env.SNAPSHOTS, key, streamFromChunks(chunks), {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
-    console.log(`R2 snapshot stored: ${key}`);
     csvKey = dailyKey;
     await putReadableStreamToR2(env.SNAPSHOTS, dailyKey, streamFromChunks(chunks), {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
+    // Logged only once both CSV copies landed, so "stored" never precedes a failure.
+    console.log(`R2 snapshot stored: ${key}`);
   } catch (e) {
     // No CSV, no manifest entry: recording a hash for bytes that never
     // landed would make the manifest a lie. D1 already succeeded, so this
@@ -346,7 +349,7 @@ export async function archiveReportCsvToR2AfterD1<T>(
     await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
       [csvBasename(table)]: { ...entry, key: dailyKey }
     });
-    // Publish latest last: readers never discover a CSV or sidecar that has not landed.
+    // Publish latest last: readers never discover a CSV or manifest that has not landed.
     stage = "latest pointer";
     stageKey = snapshotR2LatestObjectKey(table);
     await env.SNAPSHOTS.put(stageKey, historyManifest, jsonOptions);

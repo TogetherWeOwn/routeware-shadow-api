@@ -14,7 +14,7 @@ come from one clock read before sync, including runs that cross UTC midnight.
 The writer never reuses a history key; these are append-only by convention,
 not R2 object-lock enforcement. Tables are `customer`, `address`, `container`.
 
-Each history CSV has a sidecar at `<CSV-key>.manifest.json`, in the existing
+Each history CSV has a per-run manifest at `<CSV-key>.manifest.json`, in the existing
 version-1 manifest format: `{ version, date, files: { "<table>.csv":
 { key, sha256, bytes } } }`. It records the exact stored bytes, not row data.
 
@@ -30,7 +30,7 @@ Publication order:
 The existing date read endpoint and `restoreSnapshotCsvFromR2` are unchanged:
 they serve the last successfully copied CSV for that date. The date verifier
 (`npm run verify:r2-manifest`) still verifies the mutable daily aliases. To
-verify a historical run, read its sidecar and compare the referenced object's
+verify a historical run, read its per-run manifest and compare the referenced object's
 SHA-256 and byte length. To select latest, read the per-table pointer and then
 its referenced object; no bucket listing is needed.
 
@@ -38,12 +38,17 @@ A D1 failure writes no R2 objects. An R2 failure never undoes successful D1
 work. The archive outcome is `failed` if either CSV copy (history or date
 alias) did not land; the `reason` is prefixed `daily alias:` for the alias, and
 the outcome `key` still names the history object. A failed run can leave a
-history CSV with no sidecar and no pointer to it: treat it as unverified and do
-not select it as latest. The outcome is `stored` plus a `reason` of the form
-`manifest: <stage>: <message>` when both CSVs landed but the history sidecar,
-the daily manifest or the latest pointer did not. That is an incomplete
-publication, **not** a clean backup; earlier history remains recoverable. Latest
-only advances after all writes above succeed. Overlapping writers are
+history CSV with no per-run manifest and no pointer to it: treat it as
+unverified and do not select it as latest. The outcome is `stored` plus a `reason` of the form
+`manifest: <stage>: <message>` when both CSVs landed but the per-run
+manifest, the daily manifest or the latest pointer did not. That is an incomplete
+publication, **not** a clean backup; earlier history remains recoverable. When
+the `history manifest` or `daily manifest` stage fails, the date alias holds
+this run's bytes while `snapshots/YYYY-MM-DD.manifest.json` still records the
+previous run's hash, so `npm run verify:r2-manifest` reports a mismatch for that
+table until a later publication for the same UTC date succeeds. The cron summary
+line prints no `r2:` suffix for `stored`, so read the `reason` in the JSON
+line. Latest only advances after all writes above succeed. Overlapping writers are
 last-completed-publication wins, not timestamp-sorted. Pointers and the daily
 manifest do **not** promise a consistent three-table checkpoint; restore must
 respect customer → address → container foreign-key order.
@@ -51,8 +56,8 @@ respect customer → address → container foreign-key order.
 ## Proposed retention policy — not enabled by this change
 
 - **History:** propose expiration after **30 days from object upload** for the
-  exact `snapshot-history/` prefix, including CSVs and their sidecars. R2 object
-  age is not derived from the timestamp in the key. The CSV and sidecar have
+  exact `snapshot-history/` prefix, including CSVs and their per-run manifests. R2 object
+  age is not derived from the timestamp in the key. The CSV and its manifest have
   separate upload times and may expire at slightly different times.
 - **Compatibility archives:** `snapshots/` stays outside this rule. One CSV per
   table per UTC date plus its daily manifest continues to be retained. This
@@ -84,7 +89,7 @@ retention as part of an ordinary deploy or rollback.
 ## Verification and rollback
 
 `npm test -- test/r2SnapshotHistory.test.ts` runs two real local D1/R2 syncs
-with a frozen millisecond, checks both CSVs and both integrity sidecars remain,
+with a frozen millisecond, checks both CSVs and both per-run manifests remain,
 and proves daily and latest pointers select the second run. It also covers UTC
 offsets, a midnight boundary, and publication failures. No upstream fetch or
 remote binding is used; test bindings must remain synthetic.
