@@ -1,6 +1,6 @@
 import type { ApiReferenceConfiguration } from "@scalar/hono-api-reference";
 
-// Scalar serializes callbacks into the page: keep the slug function closure-free.
+// Scalar serializes callbacks into the page: keep the slug closure-free and uninstrumented.
 // https://scalar.com/products/api-references/configuration
 export const scalarDocsConfiguration: Partial<ApiReferenceConfiguration> = {
   pageTitle: "Routeware Shadow API",
@@ -11,7 +11,7 @@ export const scalarDocsConfiguration: Partial<ApiReferenceConfiguration> = {
   authentication: { preferredSecurityScheme: "bearerAuth" },
   persistAuth: true,
   defaultHttpClient: { targetKey: "shell", clientKey: "curl" },
-  generateOperationSlug: (operation) =>
+  generateOperationSlug: /* istanbul ignore next */ (operation) =>
     operation.operationId || `${operation.method.toLowerCase()}${operation.path}`,
   // Official theme tokens; the logo lives in our HTML, not a Scalar DOM selector.
   // https://scalar.com/products/api-references/themes
