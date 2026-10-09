@@ -70,7 +70,7 @@ const docsHeader = `
     <a href="#tag/customer-snapshot/listCustomerSnapshot">Browse snapshot rows</a>
     <a href="/openapi.json">OpenAPI JSON</a>
   </nav>
-  <p>Start with public health. Test Request sends real requests, and several operations change data: read each operation before you send it.</p>
+  <p>Start with public health. Every other operation needs a bearer token. Test Request sends real requests; most POST and DELETE operations change data, including writes to Routeware, so read each operation first.</p>
 </header>`;
 
 export async function withDocsBranding(response: Response): Promise<Response> {
