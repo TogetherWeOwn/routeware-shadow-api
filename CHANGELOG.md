@@ -16,6 +16,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   (at 500 it needed 1,558 and the body truncated mid-stream); smaller pages can
   still exceed the budget on large tables even though memory stays bounded.
 
+- TOG-5832: R2 report archives now keep timestamp-and-UUID history CSVs with
+  per-run integrity manifests; `snapshot-latest/<table>.json` points to the
+  last fully published history object. Archive outcome `key` names history.
+  Existing date-based CSV aliases, read/restore routes and daily manifests
+  are preserved; a failed alias write is still a `failed` archive. The
+  retention document proposes 30-day history expiry; this change enables no
+  deletion or production lifecycle rule.
+
 - TOG-7595: A snapshot import body whose first header cell is wrong gets a
   400 bad-request that names the column the header row must start with
   (CustomerID, PickupAddressID or ContainerID) instead of the generic

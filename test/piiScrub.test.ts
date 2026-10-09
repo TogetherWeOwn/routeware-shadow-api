@@ -13,7 +13,7 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * |---|---|---|---|
  * | 1 | `src/scheduled.ts` cron line | counts, outcome, mode, duration, `error.message` only | clean — never row data (`CronSyncLog.error` is message-only) |
  * | 2 | `src/lib/snapshot/orchestration.ts` skip logs | static config-state strings | clean — no values |
- * | 3 | `src/lib/r2SnapshotArchive.ts` | R2 object key (`snapshots/<date>/<table>.csv`) | clean — no row data |
+ * | 3 | `src/lib/r2SnapshotArchive.ts` | R2 history object key (`snapshot-history/<date>/<run>/<table>.csv`) | clean — no row data |
  * | 4 | `src/lib/entityDataCache.ts` warn | cache `err.message` | clean — cache errors carry no PII |
  * | 5 | `src/lib/establishSession.ts` warn | HTTP-login `err.message` | clean after fix (names only, see 9) |
  * | 6 | `src/lib/sessionRefreshLock.ts` warn | `err.message` | clean — DO transport errors |

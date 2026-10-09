@@ -1,7 +1,7 @@
 # R2 snapshot restore runbook — recover D1 from the CSV archive
 
 **Status:** runbook + code. `restoreSnapshotCsvFromR2` (`src/lib/r2SnapshotArchive.ts`), drill `test/r2SnapshotRestore.test.ts`.
-**Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Archive bucket `SNAPSHOTS` (`routeware-csv-snapshots`), keys `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date), D1 `CUSTOMER_DB`.
+**Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Archive bucket `SNAPSHOTS` (`routeware-csv-snapshots`), date-alias keys `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date; per-run `snapshot-history/` keys and `snapshot-latest/` pointers are in `docs/R2-RETENTION.md`), D1 `CUSTOMER_DB`.
 **Why:** the daily sync archives the same CSV bytes it writes to D1 (`archiveReportCsvToR2AfterD1`), but nothing ever read them back. This doc is the recovery procedure: fetch the archived CSVs out of R2 and re-import them into D1 in FK order.
 
 **Use §6's in-code path for report-origin archive recovery.** It retrieves the archived stream and uses the same permissive parsing as upstream report sync. Public `.../import` is not a general disaster-recovery route: it rejects forbidden controls and lone CR cell content, even when those bytes came from our archive or `.../export`.
@@ -17,7 +17,7 @@ The optional **§2–3 HTTP path** is only for CSVs whose entire contents are al
 
 ## 1. Pick the archive date and confirm the keys exist
 
-Keys are date-predictable, so construct them — `wrangler r2 object` has no list subcommand (wrangler 4.84), and the E2E test asserts the exact names (`test/snapshotSyncE2E.test.ts`: `snapshots/${day}/{address,container,customer}.csv`).
+Date-alias keys are date-predictable, so construct them — `wrangler r2 object` has no list subcommand (wrangler 4.84), and `test/r2SnapshotRestore.test.ts` asserts the exact alias names (`snapshots/${day}/{address,container,customer}.csv`).
 
 ```bash
 DATE=2026-09-27   # UTC date of the archive to restore (YYYY-MM-DD)
