@@ -489,7 +489,8 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
  * `customer_snapshot` row and evicts the data-entity cache entry. It does not
  * remove R2 history CSVs, daily aliases, latest pointers, or the
  * archived-CSV readback, and it does not touch upstream Routeware. The row
- * returns on the next sync while upstream still holds it (no suppression
+ * returns on the next sync — or on the next save for that customer through
+ * the proxy — while upstream still holds it (no suppression
  * list; see TOG-18933). FK-safe by refusal, not by cascade:
  * D1 enforces the snapshot FK chain unconditionally, so deleting a customer
  * that still has address rows fails closed and is mapped to 400 naming the
@@ -502,7 +503,7 @@ const customerSnapshotDeleteRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:
-    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle so the erased PII stops serving immediately. It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync while upstream still holds it.",
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },

@@ -169,7 +169,8 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 the stored extract only. Erasure removes the D1 `customer_snapshot` row and
 evicts the data-entity cache entry. It does not remove R2 history CSVs,
 daily aliases, latest pointers, or the archived-CSV readback, and it does
-not touch upstream Routeware. The row returns on the next sync while
+not touch upstream Routeware. The row returns on the next sync — or on the
+next save for that customer through the proxy — while
 upstream still holds it. Deleting a customer that still has address rows
 fails closed with 400 (never an orphan, never a cascade) — delete the
 addresses first. See `docs/PROBLEMS.md#bad-request`.
