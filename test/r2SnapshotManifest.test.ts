@@ -182,14 +182,14 @@ describe("snapshot manifest sidecar", () => {
     // Act
     const result = await archive("container", "ContainerID\n5\n", failing);
 
-    // Assert — caller sees the D1 result; both failures are logged errors.
+    // Assert — caller sees the D1 result; the failed history CSV put is logged, and no manifest is attempted.
     expect(result).toEqual({ upserted: 1 });
     expect(errored).toContainEqual(
       expect.objectContaining({
         level: "error",
         msg: "R2 snapshot put failed",
         route: "snapshot.r2.archive",
-        key: expect.stringMatching(/^snapshots\/\d{4}-\d{2}-\d{2}\/container\.csv$/),
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/),
       })
     );
     expect(errored.some((e) => e.route === "snapshot.r2.manifest")).toBe(false);

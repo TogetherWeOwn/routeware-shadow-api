@@ -294,7 +294,9 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
 
     // Positive control: both surfaces must be captured, or the probes below
     // pass vacuously.
-    expect(captured.errors.some((r) => r.msg === "Unhandled request error")).toBe(true);
+    expect(captured.errors.find((r) => r.msg === "Unhandled request error")).toMatchObject({
+      kind: "PartialDataSnapshotSyncError"
+    });
     expect(captured.errors.some((r) => r.msg === "data-snapshot-sync failed")).toBe(true);
 
     // Assert — TOG-9205 (R4-04/B1): `post()` in orchestration.ts carries

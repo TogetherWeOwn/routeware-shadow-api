@@ -251,7 +251,7 @@ function enabledEnv(bucket: R2Bucket): Env {
 }
 
 describe("R2 archive success log carries the key only (site 2)", () => {
-  it("logs snapshots/<date>/<table>.csv with no row data while both legs see identical PII bytes", async () => {
+  it("logs history keys with no row data while D1 and both R2 copies see identical PII bytes", async () => {
     // Arrange
     captureR2Console();
     const { bucket, puts } = recordingBucket();
@@ -269,16 +269,23 @@ describe("R2 archive success log carries the key only (site 2)", () => {
     );
 
     // Assert — passthrough result, byte-identical legs, and the log lines
-    // name the key shapes with no row data anywhere near them. The second
-    // `put` is the manifest sidecar from `updateSnapshotManifest`
-    // (fresh bucket, so `get` returned null and the manifest was created).
+    // name the key shapes with no row data anywhere near them. Write order:
+    // history CSV, daily alias CSV, immutable history manifest, daily manifest
+    // (fresh bucket, so `get` returned null and it was created), latest pointer.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe(PII_CSV);
-    expect(puts).toHaveLength(2);
+    expect(puts).toHaveLength(5);
     expect(puts[0]!.bytes).toBe(PII_CSV);
-    expect(puts[0]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
-    const manifest = JSON.parse(puts[1]!.bytes) as {
+    expect(puts[0]!.key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(puts[1]!.bytes).toBe(PII_CSV);
+    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(puts[2]!.key).toBe(`${puts[0]!.key}.manifest.json`);
+    expect(puts[3]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(puts[4]!.key).toBe("snapshot-latest/customer.json");
+    expect(puts[4]!.bytes).toBe(puts[2]!.bytes);
+    expectNoPii(puts[3]!.bytes);
+    expectNoPii(puts[4]!.bytes);
+    const manifest = JSON.parse(puts[2]!.bytes) as {
       version: number;
       files: Record<string, { key: string }>;
     };
@@ -296,14 +303,14 @@ describe("R2 archive success log carries the key only (site 2)", () => {
         level: "info",
         msg: "R2 snapshot manifest updated",
         route: "snapshot.r2.manifest",
-        manifestKey: puts[1]!.key,
+        manifestKey: puts[3]!.key,
         ms: null
       }
     ]);
     expect(r2Warnings).toEqual([]);
     expect(r2Errors).toEqual([]);
     expectNoPii(JSON.stringify([...r2Logs, ...r2Warnings, ...r2Errors]));
-    expectNoPii(puts[1]!.bytes);
+    expectNoPii(puts[2]!.bytes);
   });
 });
 
@@ -408,7 +415,7 @@ describe("R2 put-failure log carries the key only (site 4)", () => {
         level: "error",
         msg: "R2 snapshot put failed",
         route: "snapshot.r2.archive",
-        key: expect.stringMatching(/^snapshots\/\d{4}-\d{2}-\d{2}\/container\.csv$/),
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/),
         ms: null
       }
     ]);

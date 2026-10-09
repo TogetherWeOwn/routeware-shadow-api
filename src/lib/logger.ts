@@ -169,3 +169,7 @@ export function logEvent(event: LogEventInput): void {
   }
   console[level](record);
 }
+
+export function errorKind(err: unknown): string {
+  return err instanceof Error ? err.name : "unknown";
+}

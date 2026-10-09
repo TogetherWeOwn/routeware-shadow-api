@@ -196,19 +196,21 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
       }
     );
 
-    // Assert — D1 saw the full CSV, R2 got the CSV put plus the manifest
-    // sidecar put (TOG-8881), success was logged.
+    // Assert — both CSVs, then history sidecar and daily manifest, then latest.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe("CustomerID\n1,,Acme");
-    expect(putCalls).toHaveLength(2);
-    expect(putCalls[0].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(putCalls).toHaveLength(5);
+    expect(putCalls[0].key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[2].key).toBe(`${putCalls[0].key}.manifest.json`);
+    expect(putCalls[3].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(putCalls[4].key).toBe("snapshot-latest/customer.json");
     expect(logged).toContainEqual(
       expect.objectContaining({
         level: "info",
         msg: "R2 snapshot stored",
         route: "snapshot.r2.archive",
-        key: expect.stringMatching(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/)
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/)
       })
     );
   });
@@ -309,7 +311,7 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
         level: "error",
         msg: "R2 snapshot put failed",
         route: "snapshot.r2.archive",
-        key: expect.stringMatching(/^snapshots\/\d{4}-\d{2}-\d{2}\/container\.csv$/)
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/)
       })
     );
   });

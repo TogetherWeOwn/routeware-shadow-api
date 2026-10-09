@@ -7,7 +7,7 @@ Application code writes one structured log event through `logEvent` in `src/lib/
 - `route`: a static route or operation label; do not include request values or identifiers
 - `ms`: elapsed milliseconds when measured, otherwise `null`
 
-Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers, raw exceptions, or customer data.
+Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers, raw exceptions, or customer data. Failure records that need a cause pass `kind: errorKind(err)`, the error class name only (for example `TimeoutError` or `SessionCookiesMissing`).
 
 Example fail-open event:
 

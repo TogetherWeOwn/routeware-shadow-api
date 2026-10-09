@@ -30,6 +30,11 @@ npm run verify:config               # one-command config preflight (devvars + va
 npm run dev                         # http://localhost:8787 (runs check:devvars first)
 ```
 
+**Fast path:** `npm run first-run` runs `check:devvars`, `db:migrate:local`, `db:seed`
+and a smoke check in one command. The smoke step starts `wrangler dev` on a free
+loopback port, runs `smoke:readiness` against it, stops the server, and exits non-zero
+at the first failing step. `npm run help` lists every script, grouped by namespace.
+
 `SHADOW_API_TOKEN` can be any local-only string you invent. `LOGIN_USERNAME` /
 `LOGIN_PASSWORD` need real Routeware tenant credentials only for
 upstream-backed routes; dummy values work for everything else. See the

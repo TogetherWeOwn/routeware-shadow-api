@@ -5,6 +5,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-5832: R2 report archives now keep timestamp-and-UUID history CSVs with
+  per-run integrity manifests; `snapshot-latest/<table>.json` points to the
+  last fully published history object. Archive outcome `key` names history.
+  Existing date-based CSV aliases, read/restore routes and daily manifests
+  are preserved; a failed alias write is still a `failed` archive. The
+  retention document proposes 30-day history expiry; this change enables no
+  deletion or production lifecycle rule.
+
+- TOG-7595: A snapshot import body whose first header cell is wrong gets a
+  400 bad-request that names the column the header row must start with
+  (CustomerID, PickupAddressID or ContainerID) instead of the generic
+  not-valid-CSV text. Status is unchanged.
+
 - TOG-9219: Snapshot import routes (`customer-snapshot`, `address-snapshot`, `container-snapshot` `/import`) return 415 `application/problem+json` (`unsupported-media-type`) unless `Content-Type` is `text/csv` or `application/octet-stream` (case-insensitive, parameters allowed). Clients that sent CSV with no or another Content-Type must send `text/csv` or `application/octet-stream`. The 415 is returned before the body is read or D1 is written, and never echoes submitted bytes.
 
 - TOG-8375: Throttle 429s include `X-RateLimit-Limit`,

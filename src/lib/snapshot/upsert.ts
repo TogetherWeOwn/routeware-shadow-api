@@ -284,8 +284,9 @@ export type StreamSyncOptions = {
    * Reject an import that yields zero data rows (empty body, header-only CSV,
    * or no parseable rows) with `InvalidSnapshotCsvError` instead of returning
    * silent all-zero counts. Set by the `...-snapshot/import` routes; the
-   * report `sync` path leaves it off so a bad/empty export returns zeros and
-   * skips reconciliation rather than throwing.
+   * report `sync` path leaves it off so an empty or header-only export returns
+   * zeros and skips reconciliation rather than throwing (a wrong header still
+   * throws).
    */
   requireDataRows?: boolean;
   /** Reject controls before trimming/binding on imports, not upstream reports. */

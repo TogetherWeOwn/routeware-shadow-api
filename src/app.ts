@@ -9,7 +9,7 @@ import {
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
-import { logEvent } from "./lib/logger";
+import { errorKind, logEvent } from "./lib/logger";
 import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
 import {
@@ -378,7 +378,8 @@ app.onError((err, c) => {
     level: "error",
     msg: "Unhandled request error",
     route: "app.onError",
-    ms: null
+    ms: null,
+    kind: errorKind(err)
   });
   return withCors(
     problemJsonResponse({

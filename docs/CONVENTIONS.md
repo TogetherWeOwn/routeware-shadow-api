@@ -147,6 +147,8 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 
 | Command | What it does |
 |---|---|
+| `npm run first-run` | Fresh-clone path: `check:devvars`, `db:migrate:local`, `db:seed`, then `smoke:readiness` against a loopback `wrangler dev` that it starts and stops. Stops at the first failing step (`scripts/first-run.mjs`). |
+| `npm run help` | Lists every package.json script grouped by namespace (`scripts/help.mjs`). |
 | `npm run dev` | `wrangler dev` (local Miniflare; runs `check:devvars` first; no `--remote` needed since HTTP login skips Browser Rendering). |
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
 | `npm run typecheck` | `tsc --noEmit`. |

@@ -557,9 +557,8 @@ describe("runDataSnapshotSyncChainedHttp", () => {
   });
 
   it("throws a fixed-shape error with zero upstream bytes when a subrequest fails (TOG-9205)", async () => {
-    // Arrange — the body is upstream-controlled HTML and lands verbatim in
-    // the APP ERROR log and the cron `failed` line via this message, so the
-    // message carries table/step/status only (R4-04/B1).
+    // Arrange — the body is upstream-controlled HTML, so the message carries
+    // table/step/status only (R4-04/B1).
     stubFetch();
     behavior.httpResponses.set("/api/v1/customer-snapshot/sync", {
       status: 500,
