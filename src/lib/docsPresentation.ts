@@ -70,7 +70,7 @@ const docsHeader = `
     <a href="#tag/customer-snapshot/listCustomerSnapshot">Browse snapshot rows</a>
     <a href="/openapi.json">OpenAPI JSON</a>
   </nav>
-  <p>Start with public health, then authorize to browse cached snapshot rows. Use Test Request on each operation; imports and syncs change data.</p>
+  <p>Start with public health. To browse cached snapshot rows, authorize with your SHADOW_API_READ_TOKEN. Test Request is available on every operation; imports and syncs change data.</p>
 </header>`;
 
 export async function withDocsBranding(response: Response): Promise<Response> {
