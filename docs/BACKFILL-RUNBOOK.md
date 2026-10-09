@@ -64,7 +64,7 @@ curl -s -X POST "$BASE/api/v1/container-snapshot/import" \
 # expect {"upserted":K,"rowCount":K,"deleted":0}
 ```
 
-Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. A wrong first header fails with a 400 `bad-request` that names the column (`Customer import body must start with a header row whose first column is CustomerID…`; address and container name their own column). Other invalid bodies, such as a header with no data rows, fail with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7). Every case imports nothing:
+Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. A wrong first header fails with a 400 `bad-request` that names the column (`Customer import body must start with a header row whose first column is CustomerID…`; address and container name their own column). Other invalid bodies, such as a header with no data rows, fail with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7). Neither case imports anything:
 
 ```csv
 CustomerID,CompanyName,Enabled
