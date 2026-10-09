@@ -16,6 +16,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   (at 500 it needed 1,558 and the body truncated mid-stream); smaller pages can
   still exceed the budget on large tables even though memory stays bounded.
 
+- TOG-7595: A snapshot import body whose first header cell is wrong gets a
+  400 bad-request that names the column the header row must start with
+  (CustomerID, PickupAddressID or ContainerID) instead of the generic
+  not-valid-CSV text. Status is unchanged.
+
 - TOG-9219: Snapshot import routes (`customer-snapshot`, `address-snapshot`, `container-snapshot` `/import`) return 415 `application/problem+json` (`unsupported-media-type`) unless `Content-Type` is `text/csv` or `application/octet-stream` (case-insensitive, parameters allowed). Clients that sent CSV with no or another Content-Type must send `text/csv` or `application/octet-stream`. The 415 is returned before the body is read or D1 is written, and never echoes submitted bytes.
 
 - TOG-8375: Throttle 429s include `X-RateLimit-Limit`,
