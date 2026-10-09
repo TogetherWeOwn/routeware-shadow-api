@@ -15,6 +15,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   CUSTOMER_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { invalidateDataEntity } from "../lib/entityDataCache";
@@ -264,7 +265,8 @@ customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     CUSTOMER_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 

@@ -22,6 +22,8 @@
  * in logs rather than buffering the table to pre-validate it.
  */
 
+import { logEvent } from "../logger";
+
 /**
  * Conditional reads (TOG-8879): every export also answers `If-None-Match`
  * with `304 Not Modified` and an empty body. The ETag is a content hash over
@@ -66,12 +68,33 @@ export type SnapshotExportSpec = {
 };
 
 /**
- * Rows per D1 page. 500 keeps every page far under D1's 100-bind /
- * 100 KB-per-statement ceilings (the widest table here is 29 columns) while
- * a full-table export stays inside the ~1000-op per-invocation budget for
- * today's row counts (see CUSTOMER_SNAPSHOT.md § batch sizing).
+ * Rows per D1 read. A full-table 200 download costs `2 * (ceil(N / pageSize) + 1)`
+ * reads (the ETag prepass plus the body pass) against the ~1000-query
+ * per-invocation budget: the 388,735-row container table needs 780 reads at
+ * 1000 rows per read but 1,558 at 500, where the body truncates after the 200
+ * is sent (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
  */
-export const SNAPSHOT_EXPORT_PAGE_SIZE = 500;
+export const SNAPSHOT_EXPORT_PAGE_SIZE = 1000;
+export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
+
+/** Optional plain-text Worker binding; invalid values keep the safe default with a warning. */
+export function readSnapshotExportPageSize(env: Env): number {
+  const raw = (env as unknown as Record<string, unknown>).SNAPSHOT_EXPORT_PAGE_SIZE;
+  if (raw === undefined) {
+    return SNAPSHOT_EXPORT_PAGE_SIZE;
+  }
+  const text = typeof raw === "string" ? raw.trim() : "";
+  const size = /^[0-9]+$/.test(text) ? Number(text) : NaN;
+  if (Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE) {
+    return size;
+  }
+  logEvent({
+    level: "warn",
+    msg: `SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`,
+    route: "snapshotExport.pageSize"
+  });
+  return SNAPSHOT_EXPORT_PAGE_SIZE;
+}
 
 export const CUSTOMER_SNAPSHOT_EXPORT: SnapshotExportSpec = {
   table: "customer_snapshot",
@@ -363,9 +386,10 @@ export function matchesSnapshotIfNoneMatch(
 export async function snapshotCsvResponse(
   db: D1Database,
   spec: SnapshotExportSpec,
-  ifNoneMatch?: string | null
+  ifNoneMatch?: string | null,
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
 ): Promise<Response> {
-  const etag = await snapshotExportEtag(db, spec);
+  const etag = await snapshotExportEtag(db, spec, pageSize);
   const headers = {
     "content-type": "text/csv; charset=utf-8",
     "content-disposition": `attachment; filename="${spec.filename}"`,
@@ -374,5 +398,5 @@ export async function snapshotCsvResponse(
   if (matchesSnapshotIfNoneMatch(ifNoneMatch, etag)) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
-  return new Response(streamSnapshotCsv(db, spec), { status: 200, headers });
+  return new Response(streamSnapshotCsv(db, spec, pageSize), { status: 200, headers });
 }

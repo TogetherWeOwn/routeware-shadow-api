@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,
+  `container-snapshot` `/export`) read **1000 rows per D1 query** by default
+  (was 500), and the optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker
+  variable sets the rows per read for all three tables. Decimal integers 1–5000
+  apply after surrounding whitespace is trimmed; any other set value (including an
+  unquoted TOML number, which the runtime does not deliver as text) keeps 1000 and
+  logs a warning; an unset variable keeps 1000 silently. Export bytes, ETags and `304` replies
+  are unchanged at every page size. At the measured 388,735 container rows a
+  full 200 download now costs 780 reads against the D1 1000-per-invocation cap
+  (at 500 it needed 1,558 and the body truncated mid-stream); smaller pages can
+  still exceed the budget on large tables even though memory stays bounded.
+
 - TOG-5832: R2 report archives now keep timestamp-and-UUID history CSVs with
   per-run integrity manifests; `snapshot-latest/<table>.json` points to the
   last fully published history object. Archive outcome `key` names history.
