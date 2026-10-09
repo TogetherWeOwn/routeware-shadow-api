@@ -1,4 +1,4 @@
-/** Export-only metadata: raw Routeware imports must never lose apostrophes. */
+/** Marks spreadsheet-escaped rows (exports, archive readbacks); unmarked raw CSV keeps its apostrophes. */
 export const CSV_SPREADSHEET_ENCODING_HEADER = "_shadow_csv_encoding";
 export const CSV_SPREADSHEET_ENCODING = "1";
 

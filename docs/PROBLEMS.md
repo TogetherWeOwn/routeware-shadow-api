@@ -14,6 +14,7 @@ section below.
 | `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
 | `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
 | `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
+| `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
@@ -376,6 +377,15 @@ with a body and any other or missing media type returns 415
 empty-body check, and before the body is read or D1 is changed. A POST with no
 body keeps its 400 empty-body response. The response uses a fixed detail and
 does not echo submitted bytes. Pinned by `test/snapshotImportEdges.test.ts`.
+
+## Archive replaced during a readback (`conflict`)
+
+`GET /api/v1/snapshots/{table}/{date}` reads the R2 archive twice: once to
+measure the re-encoded body's exact length and ETag, then again to stream it,
+conditional on the stored ETag. If a sync replaces that date's object between
+the two reads, the route returns 409 `application/problem+json` naming the table
+and date and streams nothing. Retry the download; the next attempt measures the
+current object. The readback never modifies the stored object.
 
 ## Query-param allowlist (load-long-modal probe)
 

@@ -190,8 +190,24 @@ itself is not capped, but a direct HTTP re-import is limited to the unchanged
 that margin of the limit can therefore fail re-import even though it was admissible
 before this encoding. No automated split-and-import path exists yet.
 
-The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) is unchanged and
-still returns the raw archived Routeware CSV; it is not spreadsheet-escaped.
+The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) serves the export's
+encoding so an operator comparison works (TOG-18829). Records split as the importer
+splits them, every cell goes through the export escape, and `_shadow_csv_encoding`
+with value `1` follows the archived header and every row. Rows end in LF. Values are
+the archived cell text and are not trimmed; the export holds the value the importer
+stored after trimming, so a value with surrounding spaces can differ by those spaces.
+`Content-Length` and the ETag (a quoted FNV-1a 64 content hash) describe the served
+bytes, and `If-None-Match` with the current tag returns 304. A readback that is
+replaced while it is being read returns 409 `conflict`.
+
+Decision (TOG-18829): the readback's served bytes change; the stored archive objects
+and the sync input do not. Rejected: serving the raw bytes and asking operators not to
+open them in a spreadsheet, which leaves formula cells evaluable; and writing a second
+escaped object at archive time, which doubles R2 storage and adds a transform to the
+sync path's memory peak. `restoreSnapshotCsvFromR2` reads the stored object directly
+and is unaffected. A readback is larger than the archive by the marker and escape
+bytes, so a direct HTTP re-import of a readback near the 50 MiB limit can return 413,
+as an export can.
 
 This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/attacks/CSV_Injection)
 for text-cell escaping. It is not a promise of safety or losslessness after a

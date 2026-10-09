@@ -14,8 +14,11 @@ import { snapshotR2ObjectKey } from "../src/lib/r2SnapshotArchive";
  * the privileged `GET /api/v1/snapshots/:table/:date` route through the real
  * app against the real test R2 bucket:
  *
- * - a seeded archive streams back byte-identical (operator diffs the download
- *   against a fresh `...-snapshot/export` before recovery);
+ * - a seeded archive streams back re-encoded with the export's spreadsheet
+ *   escaping (TOG-18829) while the stored object keeps the raw bytes; the
+ *   Content-Length and ETag describe the served body;
+ * - `If-None-Match` with the current ETag answers 304 with no body;
+ * - an archive replaced between the two reads answers 409 problem+json;
  * - the writer's key helper and the route's key agree, so the readback can
  *   never drift from what the sync wrote;
  * - no bearer → outer 401, general API token → inner 401 (sync secret only);
@@ -53,9 +56,10 @@ async function getArchive(
   table: string,
   date: string,
   token: string | null,
-  envOverride?: Env
+  envOverride?: Env,
+  extraHeaders: Record<string, string> = {}
 ): Promise<Response> {
-  const headers = new Headers();
+  const headers = new Headers(extraHeaders);
   if (token !== null) {
     headers.set("authorization", `Bearer ${token}`);
   }
@@ -77,39 +81,109 @@ type ProblemBody = {
   instance?: string;
 };
 
+const ARCHIVE_HEADER =
+  "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled";
+
 const ARCHIVE_CSV = [
-  "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled",
+  ARCHIVE_HEADER,
   "101,,Acme Corp,John,,Doe,,,,,,,true",
-  "102,,Beta LLC,Jane,,Smith,,,,,,,true"
+  "102,,Beta LLC,Jane,,Smith,,,,,,,true",
+  '103,,"=1+HYPERLINK(""https://example.invalid"")",Kim,,Lee,,,,,,,false'
 ].join("\n");
 
-describe("R2 archive readback (TOG-9202)", () => {
-  it("streams a seeded archive byte-identical with the writer's key", async () => {
+const ARCHIVE_READBACK = [
+  `${ARCHIVE_HEADER},_shadow_csv_encoding`,
+  "101,,Acme Corp,John,,Doe,,,,,,,true,1",
+  "102,,Beta LLC,Jane,,Smith,,,,,,,true,1",
+  `103,,"'=1+HYPERLINK(""https://example.invalid"")",Kim,,Lee,,,,,,,false,1`,
+  ""
+].join("\n");
+
+const CSV_TYPE = { httpMetadata: { contentType: "text/csv; charset=utf-8" } };
+
+function fnv1a64Etag(bytes: Uint8Array): string {
+  let h = 0xcbf29ce484222325n;
+  for (const b of bytes) {
+    h ^= BigInt(b);
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn;
+  }
+  return `"fnv64-${h.toString(16).padStart(16, "0")}"`;
+}
+
+describe("R2 archive readback (TOG-9202, TOG-18829)", () => {
+  it("serves the archive re-encoded for spreadsheets and leaves the stored object unchanged", async () => {
     // Arrange — the writer's key helper names the object, exactly as the
     // sync leg does after a successful D1 stream.
     const day = new Date("2026-09-27T00:00:00.000Z");
     const key = snapshotR2ObjectKey("customer", day);
     expect(key).toBe("snapshots/2026-09-27/customer.csv");
-    const seeded = await bucket().put(key, ARCHIVE_CSV, {
-      httpMetadata: { contentType: "text/csv; charset=utf-8" }
-    });
+    await bucket().put(key, ARCHIVE_CSV, CSV_TYPE);
+    const served = new TextEncoder().encode(ARCHIVE_READBACK);
 
     // Act — the operator download.
     const res = await getArchive("customer", "2026-09-27", SYNC_SECRET);
 
-    // Assert — same bytes the sync archived, served as a CSV download.
+    // Assert — the export's marker and escaping, served as a CSV download,
+    // with Content-Length and ETag describing exactly those bytes.
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
     expect(res.headers.get("content-disposition")).toBe(
       'attachment; filename="customer-2026-09-27.csv"'
     );
-    expect(res.headers.get("content-length")).toBe(
-      String(new TextEncoder().encode(ARCHIVE_CSV).byteLength)
+    expect(res.headers.get("content-length")).toBe(String(served.byteLength));
+    expect(res.headers.get("etag")).toBe(fnv1a64Etag(served));
+    expect(await res.text()).toBe(ARCHIVE_READBACK);
+    // The stored object and the sync input keep the raw Routeware bytes.
+    const stored = await bucket().get(key);
+    expect(await stored?.text()).toBe(ARCHIVE_CSV);
+  });
+
+  it("answers 304 with an empty body when If-None-Match carries the current ETag", async () => {
+    // Arrange
+    await bucket().put("snapshots/2026-09-26/customer.csv", ARCHIVE_CSV, CSV_TYPE);
+    const first = await getArchive("customer", "2026-09-26", SYNC_SECRET);
+    const etag = first.headers.get("etag");
+    await first.text();
+
+    // Act
+    const res = await getArchive("customer", "2026-09-26", SYNC_SECRET, undefined, {
+      "if-none-match": etag ?? ""
+    });
+
+    // Assert
+    expect(etag).toBe(fnv1a64Etag(new TextEncoder().encode(ARCHIVE_READBACK)));
+    expect(res.status).toBe(304);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe("");
+  });
+
+  it("answers 409 problem+json when the archive is replaced between the two reads", async () => {
+    // Arrange — the second read is conditional on the first read's ETag; a
+    // replacement makes R2 answer with metadata and no body.
+    await bucket().put("snapshots/2026-09-25/customer.csv", ARCHIVE_CSV, CSV_TYPE);
+    const real = bucket();
+    const replaced = {
+      get: (key: string, options?: R2GetOptions) =>
+        options?.onlyIf
+          ? Promise.resolve({ httpEtag: '"replaced"', etag: "replaced", size: 0 })
+          : real.get(key, options)
+    } as unknown as R2Bucket;
+
+    // Act
+    const res = await getArchive(
+      "customer",
+      "2026-09-25",
+      SYNC_SECRET,
+      { ...archiveEnv(), SNAPSHOTS: replaced } as unknown as Env
     );
-    // `httpEtag` is the quoted, HTTP-ready value (not R2's unquoted `etag`
-    // digest) — guards the TOG-10443 CHANGES finding.
-    expect(res.headers.get("etag")).toBe(seeded.httpEtag);
-    expect(await res.text()).toBe(ARCHIVE_CSV);
+
+    // Assert — a retryable conflict, never a body built from the stale length.
+    expect(res.status).toBe(409);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    const body = (await res.json()) as ProblemBody;
+    expect(body.type).toBe(problemType("conflict"));
+    expect(body.title).toBe("Conflict");
+    expect(body.detail).toContain("replaced during the download");
   });
 
   it("rejects a request with no bearer at the outer gate", async () => {
