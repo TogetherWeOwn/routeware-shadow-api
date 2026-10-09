@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-19015: The static-path report-fetch throw (`Report fetch failed: …`)
+  is status-only again — upstream `statusText` (upstream-controlled free text
+  that reaches the cron `error` log field via the `[step]` wrap) is no longer
+  interpolated, matching the query-id door. No other `src/` throw embeds
+  `statusText`; the `statusText` uses in `src/lib/cors.ts` and
+  `src/lib/upstreamForward.ts` only preserve it on forwarded responses, never
+  in thrown or logged messages.
+
 - TOG-18933: `DELETE /api/v1/customer-snapshot/{customerId}` and its docs
   (`docs/PROBLEMS.md`, `CUSTOMER_SNAPSHOT.md`, `docs/R2-RETENTION.md`) now
   state the erasure scope explicitly: removed = the D1 `customer_snapshot`
