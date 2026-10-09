@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { errorKind, logEvent } from "../src/lib/logger";
+import { SnapshotForeignKeyError } from "../src/lib/snapshot/upsert";
 
 const realConsole = {
   info: console.info,
@@ -100,5 +101,25 @@ describe("errorKind", () => {
   it("returns unknown for values that are not errors", () => {
     expect(errorKind("raw string with secret")).toBe("unknown");
     expect(errorKind(null)).toBe("unknown");
+  });
+
+  it("keeps a named repo error class that wraps a generic database error", () => {
+    const fkError = new SnapshotForeignKeyError(
+      {
+        table: "address_snapshot",
+        column: "customer_id",
+        parentTable: "customer_snapshot",
+        missingKeys: [7],
+        rowOffset: 0
+      },
+      { cause: new Error("D1_ERROR: FOREIGN KEY constraint failed") }
+    );
+    expect(errorKind(fkError)).toBe("SnapshotForeignKeyError");
+  });
+
+  it("stops on a cyclic cause chain", () => {
+    const looped = new Error("loop");
+    looped.cause = looped;
+    expect(errorKind(looped)).toBe("Error");
   });
 });
