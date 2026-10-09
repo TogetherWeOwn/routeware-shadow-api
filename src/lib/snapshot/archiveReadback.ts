@@ -10,10 +10,10 @@ import {
  * Spreadsheet-safe readback of an archived Routeware CSV (TOG-18829).
  *
  * The stored object stays the raw upstream CSV. Records are split by the
- * importer's quote-aware splitter, blank records are dropped as the importer's
- * row parsers drop them, and each cell is trimmed as `cell()` trims it and then
- * escaped by the export's `escapeCsvCell`. The `_shadow_csv_encoding` marker
- * follows the archived header and every row, so a download opened in a
+ * importer's quote-aware splitter, blank data records are dropped as the
+ * importer's row parsers drop them, and each cell is trimmed as `cell()` trims
+ * it and then escaped by the export's `escapeCsvCell`. The `_shadow_csv_encoding`
+ * marker follows the archived header and every row, so a download opened in a
  * spreadsheet cannot evaluate an upstream cell. Rows end in LF, as export rows do.
  *
  * Content-Length and the ETag must describe the served bytes, which the stored
@@ -78,10 +78,26 @@ export async function measureSpreadsheetSafeCsv(
   return { length, etag: `"fnv64-${hash.hex()}"` };
 }
 
+/**
+ * The splitter takes the source's reader, so the body cannot be cancelled while
+ * that reader holds the lock. Reading through a reader owned here lets cancel
+ * reach the body even while a read is pending.
+ */
 export function spreadsheetSafeCsvStream(
   body: ReadableStream<Uint8Array>
 ): ReadableStream<Uint8Array> {
-  const batches = encodedBatches(body);
+  const upstream = body.getReader();
+  const source = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const { done, value } = await upstream.read();
+      if (done) {
+        controller.close();
+      } else {
+        controller.enqueue(value);
+      }
+    }
+  });
+  const batches = encodedBatches(source);
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       const next = await batches.next();
@@ -92,8 +108,11 @@ export function spreadsheetSafeCsvStream(
       }
     },
     async cancel(reason) {
-      await batches.return(undefined);
-      await body.cancel(reason);
+      try {
+        await upstream.cancel(reason);
+      } finally {
+        await batches.return(undefined);
+      }
     }
   });
 }

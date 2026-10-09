@@ -39,11 +39,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - TOG-18829: `GET /api/v1/snapshots/{table}/{date}` serves each archived Routeware CSV
   with the export's spreadsheet escaping and `_shadow_csv_encoding` marker (value `1`,
   after the archived columns on every row and in the header; LF row endings), so
-  opening a readback in a spreadsheet cannot evaluate an upstream formula. Blank
-  records are dropped and cells trimmed as the importer reads them. Stored R2 objects
+  opening a readback in a spreadsheet cannot evaluate an upstream formula. Blank data
+  records are dropped and cells trimmed as the importer's row parsers read them. Stored R2 objects
   and the sync input are unchanged. `Content-Length` and the quoted FNV-1a 64 ETag
   describe the served bytes; `If-None-Match` returns 304; a replacement during the
-  download returns 409 `conflict`, and a deletion returns 404. A readback is larger
+    download returns 409 `conflict`, and a deletion returns 404. A readback can be larger
   than the archive, so a direct re-import near the 50 MiB limit can return 413. See
   CUSTOMER_SNAPSHOT.md.
 

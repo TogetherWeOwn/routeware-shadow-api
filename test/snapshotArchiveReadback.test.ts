@@ -219,7 +219,7 @@ describe("spreadsheet-safe archive readback (TOG-18829)", () => {
     expect(await readback("CustomerID,Name\n")).toBe("CustomerID,Name,_shadow_csv_encoding\n");
   });
 
-  it("drops a leading BOM from the header cell, as the export and the importer's header normalization do", async () => {
+  it("drops a leading BOM from the header cell, because trim() removes it", async () => {
     const out = await readback("\uFEFFCustomerID,Name\n1,a\n");
 
     expect(out).toBe("CustomerID,Name,_shadow_csv_encoding\n1,a,1\n");
@@ -244,10 +244,33 @@ describe("spreadsheet-safe archive readback (TOG-18829)", () => {
     expect(sourceCancelled).toBe(true);
   });
 
-  it("uses the export's marker name and value on the readback", () => {
-    const exportHeader = snapshotExportHeaderLine(CUSTOMER_SNAPSHOT_EXPORT).split(",");
+  it("cancels a read that is pending on a stalled archive source", async () => {
+    const rows = Array.from({ length: 5500 }, (_, i) => `${i},value ${i}`);
+    let sourceCancelled = false;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(["Id,Value", ...rows].join("\n")));
+      },
+      cancel() {
+        sourceCancelled = true;
+      }
+    });
+    const reader = spreadsheetSafeCsvStream(source).getReader();
 
-    expect(exportHeader.at(-2)).toBe(CSV_SPREADSHEET_ENCODING_HEADER);
-    expect(CSV_SPREADSHEET_ENCODING).toBe("1");
+    await reader.read();
+    const pending = reader.read();
+    await reader.cancel();
+    await pending;
+
+    expect(sourceCancelled).toBe(true);
+  });
+
+  it("writes the export's marker name and value on the readback", async () => {
+    const out = await readback("CustomerID,Name\n1,a\n");
+    const exportHeader = snapshotExportHeaderLine(CUSTOMER_SNAPSHOT_EXPORT);
+
+    expect(out.split("\n")[0].split(",").at(-1)).toBe(CSV_SPREADSHEET_ENCODING_HEADER);
+    expect(out.split("\n")[1].split(",").at(-1)).toBe(CSV_SPREADSHEET_ENCODING);
+    expect(exportHeader).toContain(`,${CSV_SPREADSHEET_ENCODING_HEADER},synced_at`);
   });
 });
