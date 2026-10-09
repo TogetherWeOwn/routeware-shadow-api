@@ -245,7 +245,7 @@ function enabledEnv(bucket: R2Bucket): Env {
 }
 
 describe("R2 archive success log carries the key only (site 2)", () => {
-  it("logs snapshots/<date>/<table>.csv with no row data while both legs see identical PII bytes", async () => {
+  it("logs history keys with no row data while D1 and both R2 copies see identical PII bytes", async () => {
     // Arrange
     captureR2Console();
     const { bucket, puts } = recordingBucket();
@@ -264,14 +264,21 @@ describe("R2 archive success log carries the key only (site 2)", () => {
 
     // Assert — passthrough result, byte-identical legs, and the log lines
     // name the key shapes with no row data anywhere near them. The second
-    // `put` is the manifest sidecar from `updateSnapshotManifest`
+    // `put` is the immutable history manifest
     // (fresh bucket, so `get` returned null and the manifest was created).
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe(PII_CSV);
-    expect(puts).toHaveLength(2);
+    expect(puts).toHaveLength(5);
     expect(puts[0]!.bytes).toBe(PII_CSV);
-    expect(puts[0]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(puts[0]!.key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(puts[1]!.key).toBe(`${puts[0]!.key}.manifest.json`);
+    expect(puts[2]!.bytes).toBe(PII_CSV);
+    expect(puts[2]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(puts[3]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(puts[4]!.key).toBe("snapshot-latest/customer.json");
+    expect(puts[4]!.bytes).toBe(puts[1]!.bytes);
+    expectNoPii(puts[3]!.bytes);
+    expectNoPii(puts[4]!.bytes);
     const manifest = JSON.parse(puts[1]!.bytes) as {
       version: number;
       files: Record<string, { key: string }>;
@@ -280,7 +287,7 @@ describe("R2 archive success log carries the key only (site 2)", () => {
     expect(manifest.files["customer.csv"]?.key).toBe(puts[0]!.key);
     expect(r2Logs).toHaveLength(2);
     expect(r2Logs[0]).toBe(`R2 snapshot stored: ${puts[0]!.key}`);
-    expect(r2Logs[1]).toBe(`R2 snapshot manifest updated: ${puts[1]!.key}`);
+    expect(r2Logs[1]).toBe(`R2 snapshot manifest updated: ${puts[3]!.key}`);
     expect(r2Errors).toEqual([]);
     expectNoPii(r2Logs.join("\n"));
     expectNoPii(puts[1]!.bytes);
@@ -367,7 +374,7 @@ describe("R2 put-failure log carries the key plus the transport error (site 4)",
     expect(result).toEqual({ upserted: 2 });
     expect(r2Errors).toHaveLength(1);
     expect(String(r2Errors[0]![0])).toMatch(
-      /^R2 snapshot put failed for snapshots\/\d{4}-\d{2}-\d{2}\/container\.csv$/
+      /^R2 snapshot put failed for snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/
     );
     expect(r2Errors[0]![1]).toBe(boom);
   });

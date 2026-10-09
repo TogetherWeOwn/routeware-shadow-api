@@ -1,6 +1,7 @@
 /**
  * Optional R2 archive of the raw Routeware CSV (same bytes as D1 sync), per table.
- * Keys: `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date).
+ * History: `snapshot-history/YYYY-MM-DD/<timestamp>-<uuid>/<table>.csv`.
+ * Date aliases remain at `snapshots/YYYY-MM-DD/<table>.csv` for compatibility.
  */
 
 export type SnapshotArchiveTable = "customer" | "address" | "container";
@@ -10,7 +11,7 @@ export type SnapshotArchiveTable = "customer" | "address" | "container";
  *
  * The cron's structured line keys on this — a failed or disabled archive must
  * never again hide behind a D1 `outcome:success`. Only the status, the object
- * key (`snapshots/<date>/<table>.csv`, no row data) and the failure message
+ * key (`snapshot-history/<date>/<run>/<table>.csv`, no row data) and the failure message
  * travel here — never row data (CONVENTIONS.md fact 2).
  */
 export type R2ArchiveStatus = "stored" | "disabled" | "failed";
@@ -19,7 +20,7 @@ export type R2ArchiveDetail = {
   status: R2ArchiveStatus;
   /** Disabled reason or failure message (message-only, never row data). */
   reason?: string;
-  /** Object key attempted/stored. Date + table only — no PII. */
+  /** History key attempted/stored. UTC timestamp + random run id + table — no PII. */
   key?: string;
 };
 
@@ -41,6 +42,22 @@ export function isR2ArchiveDetail(v: unknown): v is R2ArchiveDetail {
 /** S3 / R2 minimum part size for multipart uploads; last part may be smaller. */
 export const R2_MULTIPART_PART_SIZE = 5 * 1024 * 1024;
 
+/** Per-table run identity: UUID prevents collisions even within one millisecond. */
+export function snapshotR2HistoryObjectKey(
+  table: SnapshotArchiveTable,
+  date = new Date()
+): string {
+  const timestamp = date.toISOString();
+  const run = `${timestamp.replace(/[:.]/g, "-")}-${crypto.randomUUID()}`;
+  return `snapshot-history/${timestamp.slice(0, 10)}/${run}/${table}.csv`;
+}
+
+/** Stable JSON manifest pointing to the last fully published table archive. */
+export function snapshotR2LatestObjectKey(table: SnapshotArchiveTable): string {
+  return `snapshot-latest/${table}.json`;
+}
+
+/** Compatibility alias: the last successfully copied CSV for this UTC date. */
 export function snapshotR2ObjectKey(
   table: SnapshotArchiveTable,
   date = new Date()
@@ -255,7 +272,8 @@ export async function archiveReportCsvToR2AfterD1<T>(
   // One clock read: the CSV and its manifest entry must land on the same UTC
   // date even if the sync straddles midnight.
   const now = new Date();
-  const key = snapshotR2ObjectKey(table, now);
+  const key = snapshotR2HistoryObjectKey(table, now);
+  const dailyKey = snapshotR2ObjectKey(table, now);
   const manifestKey = snapshotR2ManifestObjectKey(now);
 
   // Drain the source once; both legs consume identical in-memory copies.
@@ -292,22 +310,39 @@ export async function archiveReportCsvToR2AfterD1<T>(
     onArchive?.({ status: "failed", reason: message, key });
     return result;
   }
+  let publicationKey = `${key}.manifest.json`;
   try {
-    await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
-      [csvBasename(table)]: {
-        key,
-        sha256: await sha256HexBytes(concatChunks(chunks)),
-        bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
-      }
+    const entry: SnapshotManifestFileEntry = {
+      key,
+      sha256: await sha256HexBytes(concatChunks(chunks)),
+      bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
+    };
+    const historyManifest = renderSnapshotManifest({
+      version: SNAPSHOT_MANIFEST_VERSION,
+      date: now.toISOString().slice(0, 10),
+      files: { [csvBasename(table)]: entry }
     });
+    // Each run keeps its own integrity record, even after latest is replaced.
+    // R2 put metadata: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#r2putoptions
+    const jsonOptions = { httpMetadata: { contentType: "application/json; charset=utf-8" } };
+    await env.SNAPSHOTS.put(publicationKey, historyManifest, jsonOptions);
+    publicationKey = dailyKey;
+    await putReadableStreamToR2(env.SNAPSHOTS, dailyKey, streamFromChunks(chunks), {
+      httpMetadata: { contentType: "text/csv; charset=utf-8" }
+    });
+    publicationKey = manifestKey;
+    await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
+      [csvBasename(table)]: { ...entry, key: dailyKey }
+    });
+    // Publish latest last: readers never discover a CSV that has not landed.
+    publicationKey = snapshotR2LatestObjectKey(table);
+    await env.SNAPSHOTS.put(publicationKey, historyManifest, jsonOptions);
     console.log(`R2 snapshot manifest updated: ${manifestKey}`);
     onArchive?.({ status: "stored", key });
   } catch (e) {
-    // The CSV landed but the sidecar did not: still `stored` (the archive
-    // exists and verifies by key), with the manifest failure carried in the
-    // reason so the cron line's JSON shows it instead of a clean archive.
+    // History CSV survived; preserve D1's result and report incomplete publication.
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot manifest put failed for ${manifestKey}`, e);
+    console.error(`R2 snapshot manifest put failed for ${publicationKey}`, e);
     onArchive?.({ status: "stored", key, reason: `manifest: ${message}` });
   }
   return result;
