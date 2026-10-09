@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-18933: `DELETE /api/v1/customer-snapshot/{customerId}` and its docs
+  (`docs/PROBLEMS.md`, `CUSTOMER_SNAPSHOT.md`, `docs/R2-RETENTION.md`) now
+  state the erasure scope explicitly: removed = the D1 `customer_snapshot`
+  row plus the data-entity cache entry; not removed = R2 history CSVs, daily
+  aliases, latest pointers and the archived-CSV readback, and upstream
+  Routeware; the row returns on the next sync while upstream still holds it.
+  No behavior change.
+
 - TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,
   `container-snapshot` `/export`) read **1000 rows per D1 query** by default
   (was 500), and the optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker

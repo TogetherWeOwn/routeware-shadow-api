@@ -161,6 +161,18 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
+| DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Customer-row erasure scope (TOG-18933)
+
+`DELETE /api/v1/customer-snapshot/{customerId}` is GDPR-style erasure for
+the stored extract only. Erasure removes the D1 `customer_snapshot` row and
+evicts the data-entity cache entry. It does not remove R2 history CSVs,
+daily aliases, latest pointers, or the archived-CSV readback, and it does
+not touch upstream Routeware. The row returns on the next sync while
+upstream still holds it. Deleting a customer that still has address rows
+fails closed with 400 (never an orphan, never a cascade) — delete the
+addresses first. See `docs/PROBLEMS.md#bad-request`.
 
 ### Spreadsheet-safe snapshot CSV exports
 

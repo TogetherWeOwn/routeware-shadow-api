@@ -73,9 +73,13 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 `DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
 customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). The same FK chain refuses a delete
-while address rows still reference the customer, mapped to 400 (never an
-orphan, never a cascade):
+is untouched; see `method-not-allowed`). Erasure removes the D1
+`customer_snapshot` row and evicts the data-entity cache entry. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback, and it does not touch upstream Routeware. The row
+returns on the next sync while upstream still holds it. The same FK chain
+refuses a delete while address rows still reference the customer, mapped to
+400 (never an orphan, never a cascade):
 
 ```
 Cannot delete customer_id=42: 2 address row(s) still reference it
