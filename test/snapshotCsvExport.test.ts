@@ -8,9 +8,11 @@ import {
   encodeSnapshotRow,
   escapeCsvCell,
   matchesSnapshotIfNoneMatch,
+  readSnapshotExportPageSize,
   snapshotExportEtag,
   snapshotExportHeaderLine,
   snapshotExportSpec,
+  streamSnapshotCsv,
   type SnapshotExportSpec
 } from "../src/lib/snapshot/export";
 import { ensureD1TestTables } from "./d1TestMigrations";
@@ -88,10 +90,11 @@ function fakeExportDb(rows: Array<Record<string, unknown>>, pk: string): {
   return { db: db as unknown as D1Database, calls };
 }
 
-function makeEnv(db: D1Database): Env {
+function makeEnv(db: D1Database, pageSize?: unknown): Env {
   return {
     CUSTOMER_DB: db,
-    CUSTOMER_SNAPSHOT_SYNC_SECRET: SECRET
+    CUSTOMER_SNAPSHOT_SYNC_SECRET: SECRET,
+    SNAPSHOT_EXPORT_PAGE_SIZE: pageSize
   } as unknown as Env;
 }
 
@@ -100,7 +103,8 @@ async function callExport(
   path: string,
   db: D1Database,
   token: string | null = SECRET,
-  ifNoneMatch?: string
+  ifNoneMatch?: string,
+  pageSize?: unknown
 ): Promise<Response> {
   const headers = new Headers();
   if (token !== null) {
@@ -109,7 +113,9 @@ async function callExport(
   if (ifNoneMatch !== undefined) {
     headers.set("if-none-match", ifNoneMatch);
   }
-  return routes.fetch(new Request(`http://test.local${path}`, { headers }), makeEnv(db), ctx);
+  return routes.fetch(
+    new Request(`http://test.local${path}`, { headers }), makeEnv(db, pageSize), ctx
+  );
 }
 
 /** Drain a response body chunk by chunk, preserving chunk boundaries. */
@@ -313,6 +319,22 @@ describe("snapshotExportSpec", () => {
   });
 });
 
+describe("readSnapshotExportPageSize", () => {
+  it.each([
+    ["1", 1], ["50", 50], ["500", 500], ["5000", 5000], [" 50 \n", 50]
+  ])("accepts %j as %i rows", (raw, expected) => {
+    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(expected);
+  });
+
+  it.each([
+    undefined, null, "", "   ", "0", "5001", "-1", "+50", "1.5", "50.0",
+    "1e2", "0x32", "50rows", "NaN", "Infinity", "9007199254740993", "１２",
+    "5 0", 50, true, {}, [[]]
+  ])("falls back to 500 for %j", (raw) => {
+    expect(readSnapshotExportPageSize(makeEnv({} as D1Database, raw))).toBe(500);
+  });
+});
+
 describe.each(SPECS)("$name export route", (spec) => {
   it("answers attachment with the table filename and a CSV content type", async () => {
     // Arrange
@@ -382,6 +404,58 @@ describe.each(SPECS)("$name export route", (spec) => {
     for (const call of calls) {
       expect(call.sql).not.toContain("OFFSET");
     }
+  });
+
+  it("exports identical bytes at env page size 50 and the 500 default", async () => {
+    const rows = spec.seed(1253);
+    const textColumn = spec.name === "customer" ? "company_name"
+      : spec.name === "address" ? "address" : "container_note";
+    rows[49]![textColumn] = 'Unicode Ω, "quoted"\r\nsecond line';
+    rows[500]![textColumn] = null;
+    const smaller = fakeExportDb(rows, spec.pk);
+    const standard = fakeExportDb(rows, spec.pk);
+
+    const at50 = await callExport(spec.routes, spec.path, smaller.db, SECRET, undefined, "50");
+    const at500 = await callExport(spec.routes, spec.path, standard.db);
+    expect(at50.status).toBe(200);
+    expect(at500.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(at500.headers.get("etag"));
+    expect(new Uint8Array(await at50.arrayBuffer())).toEqual(
+      new Uint8Array(await at500.arrayBuffer())
+    );
+    expect(smaller.calls).toHaveLength(2 * (Math.ceil(rows.length / 50) + 1));
+    expect(standard.calls).toHaveLength(2 * (Math.ceil(rows.length / 500) + 1));
+    for (const call of smaller.calls) {
+      expect(call.sql).toContain("LIMIT ?");
+      expect(call.binds.at(-1)).toBe(50);
+    }
+    for (const call of standard.calls) {
+      expect(call.binds.at(-1)).toBe(500);
+    }
+  });
+
+  it("answers If-None-Match with 304 at env page size 50 for the default tag", async () => {
+    const rows = spec.seed(120);
+    const first = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+    const etag = first.headers.get("etag")!;
+    await first.text();
+
+    const res = await callExport(
+      spec.routes, spec.path, fakeExportDb(rows, spec.pk).db, SECRET, etag, "50"
+    );
+
+    expect(res.status).toBe(304);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe("");
+  });
+
+  it("uses bounded default reads when the env override is invalid", async () => {
+    const { db, calls } = fakeExportDb(spec.seed(501), spec.pk);
+    const res = await callExport(spec.routes, spec.path, db, SECRET, undefined, "-1");
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(calls).toHaveLength(6);
+    expect(calls.every((call) => call.binds.at(-1) === 500)).toBe(true);
   });
 
   it("escapes cells and renders booleans on the wire", async () => {
@@ -542,6 +616,63 @@ describe("matchesSnapshotIfNoneMatch", () => {
   });
 });
 
+describe("export page memory/backpressure bound", () => {
+  it("drains a lazy wide-row table larger than 128 MB with at most one page prefetched", async () => {
+    const total = 8001;
+    const pageSize = 50;
+    const wide = "x".repeat(20_000);
+    let reads = 0;
+    let maxRows = 0;
+    const db = {
+      prepare(sql: string) {
+        expect(sql).toContain("LIMIT ?");
+        return {
+          bind(...binds: unknown[]) {
+            return {
+              async all() {
+                reads++;
+                const limit = binds.at(-1) as number;
+                expect(limit).toBe(pageSize);
+                const after = binds.length > 1 ? binds[0] as number : 0;
+                const count = Math.max(0, Math.min(limit, total - after));
+                maxRows = Math.max(maxRows, count);
+                return {
+                  results: Array.from({ length: count }, (_, i) =>
+                    customerRow(after + i + 1, wide))
+                };
+              }
+            };
+          }
+        };
+      }
+    } as unknown as D1Database;
+    const stream = streamSnapshotCsv(
+      db, CUSTOMER_SNAPSHOT_EXPORT, readSnapshotExportPageSize(makeEnv(db, "50"))
+    );
+    const reader = stream.getReader();
+    const header = await reader.read();
+    expect(new TextDecoder().decode(header.value)).toBe(`${CUSTOMER_HEADER}\n`);
+    const maxChunkBytes = pageSize * new TextEncoder().encode(
+      encodeSnapshotRow(CUSTOMER_SNAPSHOT_EXPORT, customerRow(total, wide)) + "\n"
+    ).byteLength;
+    let chunks = 0;
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks++;
+      bytes += value.byteLength;
+      expect(value.byteLength).toBeLessThanOrEqual(maxChunkBytes);
+      await Promise.resolve();
+      expect(reads).toBeLessThanOrEqual(chunks + 1);
+    }
+    expect(bytes).toBeGreaterThan(128 * 1024 * 1024);
+    expect(maxRows).toBe(pageSize);
+    expect(chunks).toBe(Math.ceil(total / pageSize));
+    expect(reads).toBe(chunks + 1);
+  }, 30_000);
+});
+
 describe("export end to end through the real app and D1", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
@@ -637,6 +768,27 @@ describe("export end to end through the real app and D1", () => {
     expect(replay.status).toBe(304);
     expect(replay.headers.get("etag")).toBe(etag);
     expect(await replay.text()).toBe("");
+  });
+
+  it("exports identical full local D1 bytes with env page size 50 and 500", async () => {
+    const db = realDb();
+    const before = await db.prepare("SELECT COUNT(*) as n FROM customer_snapshot").first<{ n: number }>();
+    expect(before).not.toBeNull();
+    for (let start = 0; start < 521; start += 50) {
+      await db.batch(Array.from({ length: Math.min(50, 521 - start) }, (_, i) =>
+        db.prepare(
+          "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, ?, ?, ?)"
+        ).bind(100_000 + start + i, `Local Ω ${start + i}, "quoted"`, i % 2, SYNCED_AT)
+      ));
+    }
+    const at50 = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db, SECRET, undefined, "50");
+    const at500 = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db);
+    expect(at50.status).toBe(200);
+    expect(at500.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(at500.headers.get("etag"));
+    const bytes50 = new Uint8Array(await at50.arrayBuffer());
+    expect(bytes50).toEqual(new Uint8Array(await at500.arrayBuffer()));
+    expect(new TextDecoder().decode(bytes50).split("\n")).toHaveLength(before!.n + 521 + 2);
   });
 
   it("rejects the app token (not the sync secret) on exports", async () => {

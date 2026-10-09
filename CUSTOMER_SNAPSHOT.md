@@ -162,6 +162,58 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 
+### CSV export page sizing
+
+The three `GET ...-snapshot/export` routes default to **500 rows per D1 read**.
+Set the optional plain-text **`SNAPSHOT_EXPORT_PAGE_SIZE`** Worker variable to
+change that limit for all three tables, for example:
+
+```toml
+[vars]
+SNAPSHOT_EXPORT_PAGE_SIZE = "50"
+```
+
+Merge this entry into the existing `[vars]` block, not a second block. For a named
+Wrangler environment, put it in that environment's `[env.<name>.vars]` block:
+[variables are not inherited](https://developers.cloudflare.com/workers/configuration/environment-variables/#environment-variables-via-wrangler).
+Only decimal integer strings **1–5000** are accepted; surrounding whitespace is
+trimmed. Missing, blank, fractional, signed, non-decimal or out-of-range values
+fall back to **500** (no error and no unbounded query). Remove the variable to
+restore the default. It does not change list pagination, sync/upsert batch sizes,
+CSV bytes, ETags, `304` replies, ordering, quoting, filenames or authorization.
+
+- **Memory:** lower the size for wide text-heavy rows. Each read remains
+  `LIMIT`-bounded and the stream queues at most one page ahead of the consumer;
+  it never accumulates the full export. The cap bounds rows, not bytes: row width
+  and concurrent requests still matter under the
+  [128 MB per-isolate limit](https://developers.cloudflare.com/workers/platform/limits/#memory).
+- **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
+  D1 reads (including the final empty read). Every export also runs a content-hash
+  ETag prepass (TOG-8879) over the same pages before the body, so a `200` download
+  costs **twice** that number and a conditional `304` costs one pass. Leave room for
+  other queries/subrequests under
+  [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
+  (**1000 Paid / 50 Free**). Smaller pages can exhaust this budget even though
+  memory remains bounded. At the measured 388,735 container rows (see
+  § batch sizing), 500 needs **779 reads per pass** but 50 needs **7,776**: use 50
+  only for smaller tables/test fixtures, not that full production table. With the
+  ETag prepass even 500 exceeds 1000 reads for a full download; 1000 rows/page needs
+  **780 reads for both passes**, subject to memory checks. Larger pages reduce reads
+  at a memory cost; choose against the largest/widest table since this variable
+  applies to all three.
+
+Acceptance/regression:
+
+```sh
+npm test -- test/snapshotCsvExport.test.ts test/snapshotExportRoundTrip.test.ts test/shadowSyncExportRoundTrip.test.ts
+```
+
+The suite compares complete export bytes and ETags at 50 and the 500 default on
+every table, answers `304` at 50 for the default tag, compares the real local D1
+customer export at both sizes, and drains a lazy wide-row fixture without collecting
+the whole body to pin backpressure/page bounds. No live production export is needed
+to verify the setting.
+
 ### D1: “Too many API requests by single Worker invocation”
 
 Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). This project uses **multi-row `INSERT` statements** (up to the 100 bound-parameter cap) to pack many CSV rows per statement.

@@ -72,6 +72,19 @@ export type SnapshotExportSpec = {
  * today's row counts (see CUSTOMER_SNAPSHOT.md § batch sizing).
  */
 export const SNAPSHOT_EXPORT_PAGE_SIZE = 500;
+export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
+
+/** Optional plain-text Worker binding; invalid values keep the safe default. */
+export function readSnapshotExportPageSize(env: Env): number {
+  const raw = (env as unknown as Record<string, unknown>).SNAPSHOT_EXPORT_PAGE_SIZE;
+  if (typeof raw !== "string" || !/^[0-9]+$/.test(raw.trim())) {
+    return SNAPSHOT_EXPORT_PAGE_SIZE;
+  }
+  const size = Number(raw.trim());
+  return Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE
+    ? size
+    : SNAPSHOT_EXPORT_PAGE_SIZE;
+}
 
 export const CUSTOMER_SNAPSHOT_EXPORT: SnapshotExportSpec = {
   table: "customer_snapshot",
@@ -363,9 +376,10 @@ export function matchesSnapshotIfNoneMatch(
 export async function snapshotCsvResponse(
   db: D1Database,
   spec: SnapshotExportSpec,
-  ifNoneMatch?: string | null
+  ifNoneMatch?: string | null,
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
 ): Promise<Response> {
-  const etag = await snapshotExportEtag(db, spec);
+  const etag = await snapshotExportEtag(db, spec, pageSize);
   const headers = {
     "content-type": "text/csv; charset=utf-8",
     "content-disposition": `attachment; filename="${spec.filename}"`,
@@ -374,5 +388,5 @@ export async function snapshotCsvResponse(
   if (matchesSnapshotIfNoneMatch(ifNoneMatch, etag)) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
-  return new Response(streamSnapshotCsv(db, spec), { status: 200, headers });
+  return new Response(streamSnapshotCsv(db, spec, pageSize), { status: 200, headers });
 }
