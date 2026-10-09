@@ -186,14 +186,20 @@ function cronEnv(db: D1Database): Env {
   } as unknown as Env;
 }
 
-const captured: { logs: string[]; errors: string[]; warns: string[] } = {
+/** logEvent passes console one structured record per call; capture the objects. */
+const captured: {
+  logs: Record<string, unknown>[];
+  errors: Record<string, unknown>[];
+  warns: Record<string, unknown>[];
+} = {
   logs: [],
   errors: [],
   warns: []
 };
 
+/** Serializes every record so PII checks see field values, not "[object Object]". */
 function allCaptured(): string {
-  return [...captured.logs, ...captured.errors, ...captured.warns].join("\n");
+  return JSON.stringify([...captured.logs, ...captured.errors, ...captured.warns]);
 }
 
 /** No fixture PII marker may appear in any captured log line or response body. */
@@ -203,22 +209,29 @@ function expectNoPii(text: string, label: string): void {
   }
 }
 
-/** Parses the single structured cron line; asserts the greppable prefix. */
+/** The single primary failure record: fixed msg, error level, shared route. */
 function failedLine(): Record<string, unknown> {
   expect(captured.logs).toEqual([]);
   expect(captured.errors).toHaveLength(1);
-  const raw = String(captured.errors[0]);
-  expect(raw.startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(raw.slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+  expect(captured.errors[0]).toMatchObject({
+    level: "error",
+    msg: "data-snapshot-sync failed",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof captured.errors[0].ms).toBe("number");
+  return captured.errors[0];
 }
 
+/** The single primary success record: fixed msg, info level, shared route. */
 function successLine(): Record<string, unknown> {
   expect(captured.logs).toHaveLength(1);
-  expect(captured.logs[0].startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(captured.logs[0].slice("data-snapshot-sync ".length)) as Record<
-    string,
-    unknown
-  >;
+  expect(captured.logs[0]).toMatchObject({
+    level: "info",
+    msg: "data-snapshot-sync",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof captured.logs[0].ms).toBe("number");
+  return captured.logs[0];
 }
 
 async function runScheduled(env: Env): Promise<void> {
@@ -260,14 +273,14 @@ beforeEach(async () => {
   captured.logs = [];
   captured.errors = [];
   captured.warns = [];
-  vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-    captured.logs.push(a.map(String).join(" "));
+  vi.spyOn(console, "info").mockImplementation((...a: unknown[]) => {
+    captured.logs.push(a[0] as Record<string, unknown>);
   });
   vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-    captured.errors.push(a.map(String).join(" "));
+    captured.errors.push(a[0] as Record<string, unknown>);
   });
   vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
-    captured.warns.push(a.map(String).join(" "));
+    captured.warns.push(a[0] as Record<string, unknown>);
   });
 });
 
@@ -281,16 +294,13 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCustomerBatch)));
 
-    // Assert — the step tag names the table; nothing synced, so no table has
-    // counts to keep: the all-null line still applies when the FIRST table
-    // fails. The message carries the upsert layer's batch context around the
-    // driver error, so the assertions pin tag + table + driver text, not the
-    // exact string.
+    // Assert — the allowlisted table names the failed step; nothing synced, so
+    // no table has counts to keep: the all-null line still applies when the
+    // FIRST table fails. Exception and driver text never reach the log.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[customer snapshot]");
-    expect(String(line.error)).toContain("customer_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line.table).toBe("customer");
+    expect(line).not.toHaveProperty("error");
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
     expect(line.summary).toContain("failed: customer");
     expect(typeof line.durationMs).toBe("number");
@@ -309,9 +319,8 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // keeps the customer counts instead of all-null, and names the table.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[address snapshot]");
-    expect(String(line.error)).toContain("address_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line.table).toBe("address");
+    expect(line).not.toHaveProperty("error");
     expect((line.tables as Record<string, unknown>).customer).toEqual({
       upserted: 2,
       rowCount: 2,
@@ -338,9 +347,8 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // failed line; only the failed table is null.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[container snapshot]");
-    expect(String(line.error)).toContain("container_snapshot");
-    expect(String(line.error)).toContain(D1_LOCKED);
+    expect(line.table).toBe("container");
+    expect(line).not.toHaveProperty("error");
     expect((line.tables as Record<string, unknown>).customer).toEqual({
       upserted: 2,
       rowCount: 2,
@@ -370,10 +378,11 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Act
     await runScheduled(cronEnv(faultDb(failCustomerReconcile)));
 
-    // Assert — the tag covers the reconcile stage too, not just batches.
+    // Assert — the allowlisted table covers the reconcile stage too, not just batches.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[customer snapshot]");
+    expect(line.table).toBe("customer");
+    expect(line).not.toHaveProperty("error");
     expect(await rowCount("customer_snapshot")).toBe(2);
     expectNoPii(allCaptured(), "reconcile fault");
   });
@@ -438,7 +447,8 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
     await runScheduled(cronEnv(faultDb(failCronPersist, "D1_ERROR: cron_sync_state is readonly")));
 
     // Assert — success still logs with counts; the persist failure is a
-    // separate stderr line carrying only the driver message.
+    // separate error record with a fixed msg and no `error` field, so the
+    // driver text never reaches the log.
     const line = successLine();
     expect(line.outcome).toBe("success");
     expect(line.tables).toEqual({
@@ -447,8 +457,14 @@ describe("scheduled() persist-leg failure stays best-effort", () => {
       container: { upserted: 2, rowCount: 2, deleted: 0, r2: { status: "stored" } }
     });
     expect(captured.errors).toHaveLength(1);
-    expect(captured.errors[0]).toContain("data-snapshot-sync persist failed");
-    expect(captured.errors[0]).toContain("cron_sync_state is readonly");
+    expect(captured.errors[0]).toMatchObject({
+      level: "error",
+      msg: "data-snapshot-sync persistence failed",
+      route: "scheduled.data-snapshot-sync",
+      ms: expect.any(Number)
+    });
+    expect(captured.errors[0]).not.toHaveProperty("error");
+    expect(allCaptured()).not.toContain("cron_sync_state is readonly");
     expectNoPii(allCaptured(), "persist fault");
   });
 });

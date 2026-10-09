@@ -288,9 +288,13 @@ describe("establishSession refresh-lock serialization", () => {
       await expect(establishSession(env, stub, env.LOGIN_URL)).rejects.toBe(authFailure);
 
       expect(inspect).not.toHaveBeenCalled();
-      expect(warn).toHaveBeenCalledExactlyOnceWith(
-        "Failed to release the auth refresh lock; it will expire via its TTL."
-      );
+      expect(warn).toHaveBeenCalledExactlyOnceWith({
+        level: "warn",
+        msg: "Failed to release the auth refresh lock; it will expire via its TTL",
+        route: "auth.refreshLock",
+        ms: null
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SYNTHETIC-UNLOCK-NOT-A-CREDENTIAL");
       expect(state.refreshing).toBe(true);
       expect(state.cookieHeader).toBeNull();
     } finally {

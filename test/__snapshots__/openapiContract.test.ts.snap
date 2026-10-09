@@ -1301,7 +1301,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
+        "operationId": "listCustomerSnapshot",
         "parameters": [
           {
             "in": "query",
@@ -1348,7 +1349,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
-              "example": 50,
+              "example": 10,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -2555,11 +2556,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/health": {
       "get": {
-        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`.",
+        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`. **Try it:** select Test Request and Send; no Authorization header or request body is needed.",
+        "operationId": "health",
         "responses": {
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "service": "routeware-shadow-api",
+                  "status": "ok",
+                  "version": "1.0.0",
+                },
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse",
                 },

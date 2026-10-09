@@ -17,7 +17,7 @@ section below.
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
-| `internal` | 500 | <a name="internal"></a>An unexpected error. Details are logged, not returned. |
+| `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
 ## CSV control characters (`bad-request`)
 
@@ -189,9 +189,10 @@ so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
 Throttle storage errors fail open to the pre-throttle 401 behavior — auth
-stays enforced, only the counting degrades. Each fail-open logs exactly one
-`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
-is a fixed category, never IP/token/PII). Operator alarm path — log query +
+stays enforced, only the counting degrades. Fail-opens log at most one
+structured error event per isolate per 60-second window: `msg` is always
+`AUTH THROTTLE FAIL-OPEN`, and a separate fixed-category `reason` field names
+the failure class (never IP/token/PII). Operator alarm path — log query +
 alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
