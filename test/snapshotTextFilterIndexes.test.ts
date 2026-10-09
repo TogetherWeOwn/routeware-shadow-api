@@ -219,6 +219,72 @@ beforeAll(async () => {
     50,
     0
   );
+  // R2-32: verify the newer ID filters still drive the composed q + enabled shapes.
+  plans.addrCustomerQEnabledAfter = await explain(
+    `${ADDR_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
+    1,
+    "main",
+    50,
+    0
+  );
+  plans.addrCountCustomerQEnabledAfter = await explain(
+    `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1`,
+    1,
+    "main"
+  );
+  plans.addrPickupQEnabledAfter = await explain(
+    `${ADDR_SELECT} WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
+    1,
+    "main",
+    50,
+    0
+  );
+  plans.addrCountPickupQEnabledAfter = await explain(
+    `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1`,
+    1,
+    "main"
+  );
+  plans.contPickupQEnabledAfter = await explain(
+    `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    1,
+    "main",
+    "main",
+    50,
+    0
+  );
+  plans.contCountPickupQEnabledAfter = await explain(
+    `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1`,
+    1,
+    "main",
+    "main"
+  );
+  plans.contIdQEnabledAfter = await explain(
+    `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    1,
+    "main",
+    "main",
+    50,
+    0
+  );
+  plans.contCountIdQEnabledAfter = await explain(
+    `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1`,
+    1,
+    "main",
+    "main"
+  );
+  // R2-32: customer customerId + q + enabled uses the primary key.
+  plans.custIdQEnabledAfter = await explain(
+    `${CUST_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
+    1,
+    "acme",
+    50,
+    0
+  );
+  plans.custCountIdQEnabledAfter = await explain(
+    `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1`,
+    1,
+    "acme"
+  );
 });
 
 describe("migration 0003 artifact", () => {
@@ -378,6 +444,53 @@ describe("container customerId join + enabled + q — TOG-7383", () => {
       .bind(1, "main", "main", 50, 0)
       .all<{ container_id: number }>();
     expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
+  });
+});
+
+describe("newly composed identifier + text filters — R2-32", () => {
+  it("uses the customer primary key for customerId + q + enabled", () => {
+    expect(plans.custIdQEnabledAfter.join(" ")).toContain(
+      "SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid=?)"
+    );
+    expect(plans.custCountIdQEnabledAfter.join(" ")).toContain(
+      "SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid=?)"
+    );
+  });
+
+  it("uses the existing address customer_id index for q + enabled", () => {
+    expect(plans.addrCustomerQEnabledAfter.join(" ")).toContain(
+      "SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)"
+    );
+    expect(plans.addrCountCustomerQEnabledAfter.join(" ")).toContain(
+      "SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)"
+    );
+  });
+
+  it("uses the address primary key for pickupAddressId + q + enabled", () => {
+    expect(plans.addrPickupQEnabledAfter.join(" ")).toContain(
+      "SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid=?)"
+    );
+    expect(plans.addrCountPickupQEnabledAfter.join(" ")).toContain(
+      "SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid=?)"
+    );
+  });
+
+  it("uses the existing container pickupAddressId index for q + enabled", () => {
+    expect(plans.contPickupQEnabledAfter.join(" ")).toContain(
+      "SEARCH c USING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)"
+    );
+    expect(plans.contCountPickupQEnabledAfter.join(" ")).toContain(
+      "SEARCH c USING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)"
+    );
+  });
+
+  it("uses the container primary key for containerId + q + enabled", () => {
+    expect(plans.contIdQEnabledAfter.join(" ")).toContain(
+      "SEARCH c USING INTEGER PRIMARY KEY (rowid=?)"
+    );
+    expect(plans.contCountIdQEnabledAfter.join(" ")).toContain(
+      "SEARCH c USING INTEGER PRIMARY KEY (rowid=?)"
+    );
   });
 });
 
