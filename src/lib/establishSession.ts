@@ -89,11 +89,13 @@ export async function establishSession(
     throw err;
   }
 
-  // A successful publication released our lock. Validate authentication outside
-  // the catch: a delayed write/read can expire, but another caller now owns any lock.
+  // A successful publication released our lock. Validate the published material
+  // outside the catch: a delayed write/read can expire. Lock ownership is NOT
+  // checked here — another caller may legitimately hold the lock for the next
+  // refresh by the time this read lands, while our just-published cookie is
+  // still live. Only the cookie and its expiry determine success.
   const session = await readSessionState(stub);
   if (
-    session.refreshing !== false ||
     typeof session.cookieHeader !== "string" || session.cookieHeader.length === 0 ||
     typeof session.expiresAtMs !== "number" || !Number.isFinite(session.expiresAtMs) ||
     session.expiresAtMs <= Date.now()

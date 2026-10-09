@@ -9,6 +9,12 @@ type SessionState = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
   refreshing: boolean;
+  /**
+   * Set on `/get` when storage held cookie material past its recorded expiry
+   * (evicted on this read). Mirrors `expired?` in `lib/sessionState.ts` so the
+   * proactive refresh can tell "expired while idle" from a cold start.
+   */
+  expired?: boolean;
 };
 
 /**
@@ -113,11 +119,19 @@ export class AuthSession {
     if (url.pathname === "/get") {
       const data = await this.state.storage.transaction(async (txn): Promise<SessionState> => {
         const refreshing = (await txn.get<boolean>("refreshing")) ?? false;
+        const rawCookie = await txn.get<unknown>("cookieHeader");
         const session = await this.readLiveSession(txn);
+        // Flag an eviction that discarded real material: storage held a cookie
+        // whose recorded expiry had passed (or was malformed), so this read
+        // cleared it. A cold start with no stored cookie reports no flag, which
+        // keeps the reactive first-forward path for cookieless upstreams.
+        const evictedExpired =
+          session === null && typeof rawCookie === "string" && rawCookie.length > 0;
         return {
           cookieHeader: session?.cookieHeader ?? null,
           expiresAtMs: session?.expiresAtMs ?? null,
-          refreshing
+          refreshing,
+          ...(evictedExpired ? { expired: true as const } : {})
         };
       });
       // Committing the transaction can cross expiry after its callback returned.
@@ -125,6 +139,7 @@ export class AuthSession {
         await this.state.storage.transaction((txn) => this.readLiveSession(txn));
         data.cookieHeader = null;
         data.expiresAtMs = null;
+        data.expired = true;
       }
       return Response.json(data);
     }

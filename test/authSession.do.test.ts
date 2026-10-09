@@ -42,6 +42,13 @@ async function readState(session: AuthSession): Promise<SessionSnapshot> {
   return (await response.json()) as SessionSnapshot;
 }
 
+async function readRaw(
+  session: AuthSession
+): Promise<SessionSnapshot & { expired?: boolean }> {
+  const response = await call(session, "/get");
+  return (await response.json()) as SessionSnapshot & { expired?: boolean };
+}
+
 describe("AuthSession Durable Object", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -153,6 +160,80 @@ describe("AuthSession Durable Object", () => {
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=new");
+    });
+  });
+
+  describe("expiry eviction", () => {
+    it("flags an idle-expired session on /get and clears the stale cookie", async () => {
+      // Arrange — a live session that expires while idle.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=idle",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+
+      // Act
+      const state = await readRaw(session);
+
+      // Assert — stale material is gone, and the eviction is flagged so the
+      // proactive refresh fires instead of a wasted cookieless forward.
+      expect(state.cookieHeader).toBeNull();
+      expect(state.expiresAtMs).toBeNull();
+      expect(state.expired).toBe(true);
+    });
+
+    it("reports no expired flag on a cold start that never stored a session", async () => {
+      // Arrange
+      const session = await makeSession();
+
+      // Act
+      const state = await readRaw(session);
+
+      // Assert — stays on the reactive first-forward path for cookieless upstreams.
+      expect(state.expired).toBeUndefined();
+    });
+
+    it("alarm() evicts an expired session and keeps a live one", async () => {
+      // Arrange
+      const expired = await makeSession();
+      await call(expired, "/set", {
+        cookieHeader: ".WebRW=old",
+        expiresAtMs: Date.now() + 1_000
+      });
+      const live = await makeSession();
+      await call(live, "/set", {
+        cookieHeader: ".WebRW=fresh",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 2_000));
+
+      // Act
+      await expired.alarm();
+      await live.alarm();
+
+      // Assert
+      expect((await readRaw(expired)).cookieHeader).toBeNull();
+      expect((await readRaw(live)).cookieHeader).toBe(".WebRW=fresh");
+    });
+
+    it("rejects a /set whose expiry already passed with 409 and keeps the live session", async () => {
+      // Arrange
+      const session = await makeSession();
+      const expiresAtMs = Date.now() + 60_000;
+      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs });
+
+      // Act
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=stale",
+        expiresAtMs: Date.now() - 1
+      });
+
+      // Assert
+      expect(response.status).toBe(409);
+      const state = await readRaw(session);
+      expect(state.cookieHeader).toBe(".WebRW=good");
+      expect(state.expiresAtMs).toBe(expiresAtMs);
     });
   });
 

@@ -57,6 +57,9 @@ const EXPIRY_SKEW_MS = 60_000;
  * A missing session returns false on purpose: it is handled reactively (the
  * first forward gets a login redirect, then re-establishes), which avoids
  * launching the browser for a request a cookieless upstream would serve anyway.
+ * The one exception is a session the DO just evicted as expired (`expired`):
+ * storage held a cookie past its recorded expiry, so the login redirect is
+ * predictable and the proactive refresh skips a wasted cookieless forward.
  * The proactive path exists specifically to skip a predictable redirect when the
  * stored session is known to be expiring (making SESSION_TTL_SECONDS effective).
  *
@@ -78,6 +81,9 @@ export function sessionNeedsRefresh(
   nowMs = Date.now(),
   env?: Pick<Env, "SESSION_TTL_SECONDS">
 ): boolean {
+  if (session.expired === true) {
+    return true;
+  }
   if (!session.cookieHeader) {
     return false;
   }

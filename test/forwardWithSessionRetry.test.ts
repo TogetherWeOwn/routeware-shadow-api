@@ -120,6 +120,11 @@ describe("sessionNeedsRefresh", () => {
   it("does not proactively refresh a missing session (handled reactively)", () => {
     expect(sessionNeedsRefresh({ cookieHeader: null, expiresAtMs: null, refreshing: false }, now)).toBe(false);
   });
+  it("proactively refreshes an idle-expired session flagged by the DO", () => {
+    expect(
+      sessionNeedsRefresh({ cookieHeader: null, expiresAtMs: null, refreshing: false, expired: true }, now)
+    ).toBe(true);
+  });
   it("does not refresh a fresh cookie with no/future expiry", () => {
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: null, refreshing: false }, now)).toBe(false);
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 600_000, refreshing: false }, now)).toBe(false);
