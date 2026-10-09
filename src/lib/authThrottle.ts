@@ -16,6 +16,15 @@
  *   `BLOCK_MS`. The block is per-IP, not per-token, so rotating candidate
  *   tokens does not evade it.
  * - The public health probe and CORS preflight never touch the throttle.
+ * - Callers with no IP headers at all (no `CF-Connecting-IP`, no
+ *   `X-Forwarded-For`, TOG-8896) get per-request treatment: failures are
+ *   answered without touching storage, so one headerless client can neither
+ *   throttle nor free-ride on any other caller. Identified-IP buckets are
+ *   unaffected in both directions.
+ * - Callers that send `X-Forwarded-For` where it is untrusted (production,
+ *   flag off) still share the `"unknown"` bucket and its budget (TOG-8888
+ *   fail-closed anti-evasion: rotating XFF cannot escape the throttle).
+ *   Only the fully-headerless case — no signal to rotate — skips counting.
  * - Throttle storage errors fail OPEN (the 401/429 decision degrades to the
  *   pre-throttle 401 behavior) — auth itself is still enforced; only the
  *   counting is best-effort.
@@ -29,6 +38,14 @@ export const AUTH_THROTTLE_BLOCK_MS = 60_000;
 
 /** Storage key inside the per-IP throttle DO instance. */
 export const AUTH_THROTTLE_STATE_KEY = "throttle";
+
+/**
+ * Bucket key for callers with no usable IP headers (TOG-8896). No DO object
+ * is ever addressed under this name: `recordAuthFailure`/`clearAuthFailures`
+ * return per-request treatment before storage, so the shared object stays
+ * untouched even if it holds stale counts from before the isolation.
+ */
+export const UNKNOWN_CLIENT_IP = "unknown";
 
 export type AuthThrottleState = {
   failures: number;
@@ -59,10 +76,11 @@ function throttleTrustsXff(env: { THROTTLE_TRUST_XFF?: unknown } | undefined): b
  * Best-effort client IP for throttle bucketing. `CF-Connecting-IP` is
  * authoritative (Cloudflare overwrites it, clients cannot spoof it).
  * `X-Forwarded-For` is honored only when `THROTTLE_TRUST_XFF="true"`
- * (dev/test): in production XFF-only callers share the `"unknown"` bucket,
- * so rotating XFF cannot evade the throttle and no victim bucket can be
- * framed. Absent both (or XFF without the flag), all callers share
- * `"unknown"`.
+ * (dev/test): in production XFF-only callers resolve to `"unknown"` and share
+ * that bucket's budget, so rotating XFF cannot evade the throttle and no
+ * victim bucket can be framed. Callers with neither header also resolve to
+ * `"unknown"` but get per-request treatment instead (TOG-8896): they are
+ * never counted and never blocked.
  */
 export function clientIpFromRequest(
   req: HeaderReader,
@@ -78,7 +96,24 @@ export function clientIpFromRequest(
       return forwarded;
     }
   }
-  return "unknown";
+  return UNKNOWN_CLIENT_IP;
+}
+
+/**
+ * Whether the request carries no IP headers at all (TOG-8896): no
+ * `CF-Connecting-IP` and no `X-Forwarded-For` value. Independent of
+ * `THROTTLE_TRUST_XFF` — an untrusted XFF value is still a client-supplied
+ * signal and keeps the shared-unknown-bucket treatment (TOG-8888); only the
+ * fully-headerless case skips counting, since there is nothing to scope a
+ * counter to and nothing an attacker could rotate that counting would stop.
+ */
+export function hasNoIpHeaders(req: HeaderReader): boolean {
+  const cfIp = req.header("CF-Connecting-IP")?.trim();
+  if (cfIp) {
+    return false;
+  }
+  const forwarded = req.header("X-Forwarded-For")?.split(",")[0]?.trim();
+  return !forwarded;
 }
 
 /** DO instance name for an IP's throttle bucket. */
@@ -149,6 +184,14 @@ export async function recordAuthFailure(
   nowMs: number = Date.now()
 ): Promise<AuthThrottleVerdict> {
   const open: AuthThrottleVerdict = { blocked: false, retryAfterSec: 0 };
+  // TOG-8896: isolate fully-headerless callers. With no IP headers there is
+  // no narrow scope to count against, and a shared counter would let one
+  // headerless client throttle (or free-ride on) every other caller.
+  // Per-request treatment: answer open without touching storage. (XFF-only
+  // callers in production still share the "unknown" bucket per TOG-8888.)
+  if (hasNoIpHeaders(req)) {
+    return open;
+  }
   try {
     const stub = env.AUTH_SESSION.get(
       env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
@@ -179,6 +222,12 @@ export async function recordAuthFailure(
  * throws.
  */
 export async function clearAuthFailures(env: Env, req: HeaderReader): Promise<void> {
+  // TOG-8896: nothing is ever counted for fully-headerless callers, so
+  // there is nothing to clear. Skipping the DO fetch also keeps a headerless
+  // success from resetting (free-riding on) any other caller's counter.
+  if (hasNoIpHeaders(req)) {
+    return;
+  }
   try {
     const stub = env.AUTH_SESSION.get(
       env.AUTH_SESSION.idFromName(throttleObjectName(clientIpFromRequest(req, env)))
