@@ -131,7 +131,17 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
     obj.httpMetadata?.contentType ?? "text/csv; charset=utf-8"
   );
   headers.set("content-disposition", `attachment; filename="${table}-${date}.csv"`);
+  // A plain stream body makes workerd drop a hand-set Content-Length and send
+  // chunked, so the re-encoded bytes go through a FixedLengthStream: the header
+  // below then reaches the wire, and the runtime rejects any byte-count drift
+  // between the measure pass and this stream instead of serving it silently.
   headers.set("content-length", String(length));
   headers.set("etag", etag);
-  return new Response(spreadsheetSafeCsvStream(again.body), { status: 200, headers });
+  const { readable, writable } = new FixedLengthStream(length);
+  c.executionCtx.waitUntil(
+    spreadsheetSafeCsvStream(again.body)
+      .pipeTo(writable)
+      .catch(() => undefined)
+  );
+  return new Response(readable, { status: 200, headers });
 });
