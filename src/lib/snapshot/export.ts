@@ -22,6 +22,8 @@
  * in logs rather than buffering the table to pre-validate it.
  */
 
+import { logEvent } from "../logger";
+
 /**
  * Conditional reads (TOG-8879): every export also answers `If-None-Match`
  * with `304 Not Modified` and an empty body. The ETag is a content hash over
@@ -86,9 +88,11 @@ export function readSnapshotExportPageSize(env: Env): number {
   if (Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE) {
     return size;
   }
-  console.warn(
-    `SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`
-  );
+  logEvent({
+    level: "warn",
+    msg: `SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`,
+    route: "snapshotExport.pageSize"
+  });
   return SNAPSHOT_EXPORT_PAGE_SIZE;
 }
 
