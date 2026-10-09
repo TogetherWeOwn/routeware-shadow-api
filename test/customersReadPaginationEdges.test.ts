@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * Worker-level pagination contract, not a claim about live Routeware validation.
  * Invalid aliases are forwarded byte-identical; valid aliases are translated
  * atomically, with explicit start/limit winning even when their values are odd.
- * Each edge pins both a mocked JSON 200 and an upstream 400 passthrough.
+ * Each edge pins both a mocked JSON 200 and a contained upstream 400 (docs/PROBLEMS.md#upstream-error).
  * No upstream request may escape the stub (docs/TEST-INVARIANTS.md).
  */
 const cases: [label: string, body: string, forwarded: string][] = [
@@ -141,14 +141,20 @@ describe("customers-read adversarial pagination", () => {
     });
   });
 
-  it.each(cases)("preserves an upstream 400 for %s", async (_label, body, forwarded) => {
+  it.each(cases)("contains an upstream 400 for %s", async (_label, body, forwarded) => {
     upstreamStatus = 400;
     upstreamBody = '{"success":false,"message":"Invalid pagination window"}';
     const response = await postShadow(body);
 
     expect(response.status).toBe(400);
     expect(seen).toEqual([{ method: "POST", body: forwarded }]);
-    expect(response.headers.get("content-type")).toBe("application/json");
-    expect(await response.text()).toBe(upstreamBody);
+    expect(response.headers.get("content-type")).toBe("application/problem+json");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(JSON.parse(await response.text())).toEqual({
+      type: "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#upstream-error",
+      title: "Upstream request failed",
+      status: 400,
+      detail: "Routeware returned an error. Its response body has been withheld."
+    });
   });
 });
