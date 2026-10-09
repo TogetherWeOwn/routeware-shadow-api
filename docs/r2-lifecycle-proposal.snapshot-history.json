@@ -1,0 +1,15 @@
+{
+  "$comment": "PROPOSED ONLY — NOT ENABLED. See docs/R2-LIFECYCLE-PROPOSAL.md. Do not apply without the R5-16 Operator card, staging evidence (TOG-18890..92), and deletion approval.",
+  "Rules": [
+    {
+      "ID": "snapshot-history-30d-expiry",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "snapshot-history/"
+      },
+      "Expiration": {
+        "Days": 30
+      }
+    }
+  ]
+}
