@@ -3,12 +3,14 @@ export type SessionState = {
   expiresAtMs: number | null;
   refreshing: boolean;
   /**
-   * True when `/get` evicted a stored session as expired on this read: storage
-   * held cookie material whose recorded expiry had passed, so the DO cleared it
-   * and reported a null cookie. Absent (never `false`) otherwise — a cold start
-   * that never stored a session reports no flag, which keeps the reactive
-   * first-forward path for cookieless upstreams. Lets `sessionNeedsRefresh`
-   * tell "expired while idle" apart from "never had a session".
+   * True when `/get` evicted a stored session as expired on this read, or an
+   * earlier `alarm()` eviction persisted the `expiredEvicted` tombstone:
+   * storage held cookie material whose recorded expiry had passed, so the DO
+   * cleared it and reported a null cookie. Absent (never `false`) otherwise —
+   * a cold start that never stored a session reports no flag, which keeps the
+   * reactive first-forward path for cookieless upstreams. Lets
+   * `sessionNeedsRefresh` tell "expired while idle" apart from "never had a
+   * session".
    */
   expired?: boolean;
 };

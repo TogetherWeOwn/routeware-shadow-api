@@ -213,8 +213,56 @@ describe("AuthSession Durable Object", () => {
       await live.alarm();
 
       // Assert
-      expect((await readRaw(expired)).cookieHeader).toBeNull();
-      expect((await readRaw(live)).cookieHeader).toBe(".WebRW=fresh");
+      const expiredState = await readRaw(expired);
+      expect(expiredState.cookieHeader).toBeNull();
+      expect(expiredState.expired).toBe(true);
+      const liveState = await readRaw(live);
+      expect(liveState.cookieHeader).toBe(".WebRW=fresh");
+      expect(liveState.expired).toBeUndefined();
+    });
+
+    it("reports expired on /get after alarm() evicted first (no wasted cold-start forward)", async () => {
+      // Arrange — a live session that expires while idle, alarm runs first.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=idle",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+      await session.alarm();
+
+      // Act — the next request reads after the alarm already cleared material.
+      const state = await readRaw(session);
+
+      // Assert — tombstone survives the alarm so proactive refresh fires
+      // instead of a wasted cookieless forward.
+      expect(state.cookieHeader).toBeNull();
+      expect(state.expiresAtMs).toBeNull();
+      expect(state.expired).toBe(true);
+    });
+
+    it("clears the expiry tombstone on the next successful /set", async () => {
+      // Arrange — expire while idle and let alarm() persist the marker.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=old",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+      await session.alarm();
+      expect((await readRaw(session)).expired).toBe(true);
+
+      // Act — publish a fresh session.
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=fresh",
+        expiresAtMs: Date.now() + 60_000
+      });
+
+      // Assert — marker cleared, live session reports no expired flag.
+      expect(response.status).toBe(200);
+      const state = await readRaw(session);
+      expect(state.cookieHeader).toBe(".WebRW=fresh");
+      expect(state.expired).toBeUndefined();
     });
 
     it("rejects a /set whose expiry already passed with 409 and keeps the live session", async () => {

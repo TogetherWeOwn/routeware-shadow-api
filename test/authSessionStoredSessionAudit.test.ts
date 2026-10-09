@@ -76,10 +76,12 @@ describe("AuthSession stored-session audit", () => {
       expect(await readSessionState(stub)).toEqual({
         cookieHeader: null,
         expiresAtMs: null,
-        refreshing: false
+        refreshing: false,
+        expired: true
       });
       expect(values.has("cookieHeader")).toBe(false);
       expect(values.has("expiresAtMs")).toBe(false);
+      expect(values.get("expiredEvicted")).toBe(true);
       expect(storage.delete).toHaveBeenCalledWith(["cookieHeader", "expiresAtMs"]);
       expect(await storage.getAlarm()).toBeNull();
     }

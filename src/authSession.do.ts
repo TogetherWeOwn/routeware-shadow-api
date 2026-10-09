@@ -11,7 +11,8 @@ type SessionState = {
   refreshing: boolean;
   /**
    * Set on `/get` when storage held cookie material past its recorded expiry
-   * (evicted on this read). Mirrors `expired?` in `lib/sessionState.ts` so the
+   * (evicted on this read, or earlier by `alarm()` via the `expiredEvicted`
+   * tombstone). Mirrors `expired?` in `lib/sessionState.ts` so the
    * proactive refresh can tell "expired while idle" from a cold start.
    */
   expired?: boolean;
@@ -93,7 +94,16 @@ export class AuthSession {
     const session = parseSetBody({ cookieHeader, expiresAtMs });
     if (!session || session.expiresAtMs <= Date.now()) {
       // Session eviction must not release another caller's lock or throttle.
+      const hadCookie = typeof cookieHeader === "string" && cookieHeader.length > 0;
       await this.clearSession(txn);
+      if (hadCookie) {
+        // Persist an expiry tombstone so a later `/get` still reports
+        // `expired: true` when `alarm()` already evicted the cookie material.
+        // Cleared on the next successful `/set`; a cold start that never stored
+        // a session sets no marker. Keeps proactive refresh (no wasted
+        // cookieless forward) for alarm-first expiry.
+        await txn.put("expiredEvicted", true);
+      }
       return null;
     }
     if (await txn.getAlarm() !== session.expiresAtMs) {
@@ -102,6 +112,8 @@ export class AuthSession {
     // Alarm storage I/O can cross the boundary even while the transaction holds.
     if (session.expiresAtMs <= Date.now()) {
       await this.clearSession(txn);
+      // Cookie was present (session parsed), so expiry crossed during I/O.
+      await txn.put("expiredEvicted", true);
       return null;
     }
     return session;
@@ -123,10 +135,14 @@ export class AuthSession {
         const session = await this.readLiveSession(txn);
         // Flag an eviction that discarded real material: storage held a cookie
         // whose recorded expiry had passed (or was malformed), so this read
-        // cleared it. A cold start with no stored cookie reports no flag, which
-        // keeps the reactive first-forward path for cookieless upstreams.
+        // cleared it — or an earlier `alarm()` eviction already persisted the
+        // `expiredEvicted` tombstone. A cold start with no stored cookie and no
+        // tombstone reports no flag, which keeps the reactive first-forward
+        // path for cookieless upstreams.
+        const expiredMarker = await txn.get<boolean>("expiredEvicted");
         const evictedExpired =
-          session === null && typeof rawCookie === "string" && rawCookie.length > 0;
+          session === null &&
+          ((typeof rawCookie === "string" && rawCookie.length > 0) || expiredMarker === true);
         return {
           cookieHeader: session?.cookieHeader ?? null,
           expiresAtMs: session?.expiresAtMs ?? null,
@@ -161,6 +177,7 @@ export class AuthSession {
         await txn.setAlarm(session.expiresAtMs);
         await txn.put("refreshing", false);
         await txn.delete("lockedAt");
+        await txn.delete("expiredEvicted");
         return true;
       });
       if (!published) {
