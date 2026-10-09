@@ -15,7 +15,7 @@ export const FIRST_RUN_STEPS = [
   { name: "devvars", rerun: "npm run check:devvars" },
   { name: "migrate", rerun: "npm run db:migrate:local" },
   { name: "seed", rerun: "npm run db:seed" },
-  { name: "smoke", rerun: "npm run dev, then npm run probe:post-deploy -- http://localhost:8787" },
+  { name: "smoke", rerun: "npm run first-run" },
 ];
 
 /**

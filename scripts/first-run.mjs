@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 
 import { parseDevVarsText } from "./lib/devVarsCheck.mjs";
 import {
+  CHECK_NAME,
   FIRST_RUN_STEPS,
   formatFirstRunSummary,
   localBaseUrl,
@@ -35,6 +36,8 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HEALTH_TIMEOUT_MS = 90_000;
 const STOP_TIMEOUT_MS = 5_000;
 const OUTPUT_TAIL_CHARS = 4_000;
+const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
+let interrupted = false;
 
 function runNode(script) {
   return spawnSync(process.execPath, [path.join(root, script)], { cwd: root, stdio: "inherit" }).status === 0;
@@ -73,7 +76,8 @@ function startDevServer(port, output) {
   const dev = spawn(process.execPath, [wrangler, ...wranglerDevArgs(port)], {
     cwd: root,
     detached: true,
-    env: { ...process.env, WRANGLER_SEND_METRICS: "false" },
+    // The Ready-line match below needs plain text.
+    env: { ...process.env, WRANGLER_SEND_METRICS: "false", FORCE_COLOR: "0" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const stream of [dev.stdout, dev.stderr]) {
@@ -174,17 +178,21 @@ async function runSmoke() {
   const dev = startDevServer(port, output);
   console.log(`smoke: wrangler dev on ${baseUrl}`);
 
-  const onSignal = () => stopDevServer(dev, port).then(() => process.exit(130));
-  process.once("SIGINT", onSignal);
-  process.once("SIGTERM", onSignal);
+  let teardown = null;
+  const stop = () => (teardown ??= stopDevServer(dev, port));
+  const onSignal = async () => {
+    interrupted = true;
+    await stop();
+  };
+  for (const signal of SIGNALS) process.on(signal, onSignal);
 
   let served = false;
   try {
     served = await checkServer(dev, output, baseUrl, token);
   } finally {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-    if (!(await stopDevServer(dev, port))) {
+    const stopped = await stop();
+    for (const signal of SIGNALS) process.off(signal, onSignal);
+    if (!stopped) {
       console.error(`smoke: port ${port} still answers after teardown; stop leftover wrangler/workerd processes for this checkout`);
       served = false;
     }
@@ -216,6 +224,10 @@ for (const [index, step] of FIRST_RUN_STEPS.entries()) {
   if (!ok) break;
 }
 
+if (interrupted) {
+  console.error(`\n${CHECK_NAME}: interrupted; the dev server was stopped`);
+  process.exit(130);
+}
 const summary = summarizeFirstRun(results);
 console.log(`\n${formatFirstRunSummary(summary)}`);
 process.exit(summary.ok ? 0 : 1);
