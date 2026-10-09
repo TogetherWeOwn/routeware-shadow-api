@@ -181,7 +181,7 @@ const SPECS: Spec[] = [
     notConfiguredDetail:
       "Set CUSTOMER_REPORT_EXPORT_PATH (static report URL) or CUSTOMER_REPORT_QUERY_ID (Routeware query id). See CUSTOMER_SNAPSHOT.md. See docs/PROBLEMS.md#misconfigured.",
     notFoundDetail: (id) => `No snapshot row for customer_id=${id}. See docs/PROBLEMS.md#not-found.`,
-    wrongHeaderMessage: "Customer import body is missing the CustomerID header."
+    wrongHeaderMessage: "Customer import body must start with a header row whose first column is CustomerID."
   },
   {
     name: "address",
@@ -198,7 +198,7 @@ const SPECS: Spec[] = [
     notConfiguredDetail:
       "Set ADDRESS_REPORT_EXPORT_PATH or ADDRESS_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
     notFoundDetail: (id) => `No address row for pickup_address_id=${id}. See docs/PROBLEMS.md#not-found.`,
-    wrongHeaderMessage: "Address import body is missing the PickupAddressID header."
+    wrongHeaderMessage: "Address import body must start with a header row whose first column is PickupAddressID."
   },
   {
     name: "container",
@@ -216,7 +216,7 @@ const SPECS: Spec[] = [
     notConfiguredDetail:
       "Set CONTAINER_REPORT_EXPORT_PATH or CONTAINER_REPORT_QUERY_ID (see CUSTOMER_SNAPSHOT.md). See docs/PROBLEMS.md#misconfigured.",
     notFoundDetail: (id) => `No container row for container_id=${id}. See docs/PROBLEMS.md#not-found.`,
-    wrongHeaderMessage: "Container import body is missing the ContainerID header."
+    wrongHeaderMessage: "Container import body must start with a header row whose first column is ContainerID."
   }
 ];
 

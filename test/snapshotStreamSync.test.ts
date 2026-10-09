@@ -10,6 +10,7 @@ import {
   syncCustomerSnapshotFromCsvText,
   syncCustomerSnapshotFromStream
 } from "../src/lib/snapshot/streamSync";
+import { mapSnapshotImportError } from "../src/routes/snapshotImport";
 import { recordingDb } from "./snapshotDbFake";
 
 /**
@@ -126,7 +127,7 @@ describe("streamSync header validation", () => {
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("Customer report is not valid CSV (missing CustomerID header)");
     expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
-      "Customer import body is missing the CustomerID header."
+      "Customer import body must start with a header row whose first column is CustomerID."
     );
     expect(batches).toEqual([]);
   });
@@ -159,7 +160,7 @@ describe("streamSync header validation", () => {
       "Address report is not valid CSV (missing PickupAddressID header)"
     );
     expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
-      "Address import body is missing the PickupAddressID header."
+      "Address import body must start with a header row whose first column is PickupAddressID."
     );
   });
 
@@ -176,7 +177,7 @@ describe("streamSync header validation", () => {
       "Container report is not valid CSV (missing ContainerID header)"
     );
     expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
-      "Container import body is missing the ContainerID header."
+      "Container import body must start with a header row whose first column is ContainerID."
     );
   });
 
@@ -194,6 +195,30 @@ describe("streamSync header validation", () => {
     // Assert
     expect(error.message).toContain("missing PickupAddressID header");
     expect(batches).toEqual([]);
+  });
+
+  it("maps a wrong-header body to the customer 400 detail through the mapper", async () => {
+    // Arrange
+    const { db } = recordingDb();
+
+    // Act
+    const error = await syncCustomerSnapshotFromStream(
+      db,
+      stringToUint8Stream(ADDRESS_HEADER)
+    ).catch((e: unknown) => e);
+    const response = mapSnapshotImportError(
+      "http://test.local/api/v1/customer-snapshot/import",
+      error,
+      () => false,
+      (e) => e instanceof InvalidSnapshotCsvError
+    );
+
+    // Assert
+    expect(response?.status).toBe(400);
+    const body = (await response?.json()) as { detail: string };
+    expect(body.detail).toBe(
+      "Customer import body must start with a header row whose first column is CustomerID. See docs/PROBLEMS.md#bad-request."
+    );
   });
 });
 

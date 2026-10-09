@@ -30,11 +30,12 @@ export const SNAPSHOT_IMPORT_MAX_BYTES = 50 * 1024 * 1024;
  * The first line of an import body is not the expected CSV header (an HTML
  * login page served with HTTP 200 after a lapsed session, or a CSV for the
  * wrong table), or the body yielded zero data rows. The `...-snapshot/import`
- * routes map it to 400 problem+json; the report `sync` path never throws it
- * (it returns all-zero counts and skips reconciliation instead). Never
- * carries the submitted bytes, so the error body cannot leak PII. A missing
- * header also sets `clientMessage`: fixed, table-specific text for the import
- * response, so `message` (operator hints) never reaches an uploader.
+ * routes map it to 400 problem+json. The report `sync` path throws it for a
+ * wrong header; for an empty body or zero data rows it returns all-zero counts
+ * and skips reconciliation instead. Never carries the submitted bytes, so the
+ * error body cannot leak PII. A wrong header also sets `clientMessage`: fixed,
+ * table-specific text for the import response, so `message` (operator hints)
+ * never reaches an uploader.
  */
 export class InvalidSnapshotCsvError extends Error {
   readonly clientMessage: string | undefined;
@@ -161,7 +162,7 @@ export async function syncCustomerSnapshotFromStream(
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
           "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline.",
-          "Customer import body is missing the CustomerID header."
+          "Customer import body must start with a header row whose first column is CustomerID."
         );
       }
       cols = mapCsvHeaders(line);
@@ -256,7 +257,7 @@ export async function syncAddressSnapshotFromStream(
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
           "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config.",
-          "Address import body is missing the PickupAddressID header."
+          "Address import body must start with a header row whose first column is PickupAddressID."
         );
       }
       cols = mapCsvHeaders(line);
@@ -351,7 +352,7 @@ export async function syncContainerSnapshotFromStream(
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(
           "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config.",
-          "Container import body is missing the ContainerID header."
+          "Container import body must start with a header row whose first column is ContainerID."
         );
       }
       cols = mapCsvHeaders(line);
