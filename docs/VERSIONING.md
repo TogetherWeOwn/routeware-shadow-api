@@ -73,7 +73,8 @@ date.
 2. Add a `CHANGELOG.md` entry under a new `## [x.y.z]` heading describing
    consumer-visible changes.
 3. The OpenAPI contract test (`test/openapiContract.test.ts`) asserts
-   `info.version` equals `package.json#version`, and the full-document
-   snapshot records the new version — run `npm test` and update the snapshot
-   with `vitest run test/openapiContract.test.ts -u` only after confirming
-   the version change is the sole diff.
+   `info.version` equals `package.json#version`, and `docs/openapi.json` records
+   the published contract. Run `npm test`; for a version-only release, run
+   `npx vitest run test/openapiContract.test.ts -u` only after confirming
+   `info.version` is the only diff. Review any other contract diff as an
+   intentional API change.

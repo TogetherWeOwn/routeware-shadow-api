@@ -40,6 +40,19 @@ at the first failing step. `npm run help` lists every script, grouped by namespa
 upstream-backed routes; dummy values work for everything else. See the
 [README](./README.md#quick-start-local) for the full walkthrough.
 
+## Updating the OpenAPI contract
+
+After an intentional API contract change, regenerate and review the checked-in
+contract with:
+
+```bash
+npx vitest run test/openapiContract.test.ts -u
+```
+
+This updates `docs/openapi.json`; regenerate and commit it only when the API
+change is intentional. See [`docs/OPENAPI-DRIFT-CHECK.md`](./docs/OPENAPI-DRIFT-CHECK.md)
+for the route-registration drift check.
+
 ## Verification loop (PR checks)
 
 Every PR must pass, in this order:

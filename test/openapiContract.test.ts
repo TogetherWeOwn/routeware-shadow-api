@@ -109,6 +109,22 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
   return (await res.json()) as OpenApiDocument;
 }
 
+function stableJson(value: unknown): string {
+  const sortKeys = (item: unknown): unknown => {
+    if (Array.isArray(item)) return item.map(sortKeys);
+    if (item !== null && typeof item === "object") {
+      return Object.fromEntries(
+        Object.keys(item)
+          .sort()
+          .map((key) => [key, sortKeys((item as Record<string, unknown>)[key])])
+      );
+    }
+    return item;
+  };
+
+  return `${JSON.stringify(sortKeys(value), null, 2)}\n`;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -274,13 +290,16 @@ describe("published OpenAPI document", () => {
     expect(problems).toEqual([]);
   });
 
-  it("matches the recorded document byte for byte", async () => {
+  it("matches the recorded document after stable JSON formatting", async () => {
     // Arrange / Act
     const doc = await fetchOpenApiDocument();
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor.
-    expect(doc).toMatchSnapshot();
+    await expect(
+      stableJson(doc),
+      "Regenerate with `npx vitest run test/openapiContract.test.ts -u`."
+    ).toMatchFileSnapshot("../docs/openapi.json");
   });
 });
 

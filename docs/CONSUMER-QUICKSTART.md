@@ -8,8 +8,12 @@ command below was validated against local dev (`wrangler dev`,
 Operator setup (secrets, D1 migrations, report sync) is out of scope here:
 see [`README.md`](../README.md) and [`CUSTOMER_SNAPSHOT.md`](../CUSTOMER_SNAPSHOT.md).
 Error catalog: [`PROBLEMS.md`](./PROBLEMS.md).
-Full machine-readable spec: `GET /openapi.json` (interactive UI at `/docs`;
-both gated by `OPENAPI_DOCS_ENABLED`).
+Contract of record: [`openapi.json`](./openapi.json), the same OpenAPI document
+the app serves (pretty-printed with sorted keys; the endpoint returns minified
+JSON). The live machine-readable endpoint `GET /openapi.json` and interactive
+UI at `/docs` are gated by
+`OPENAPI_DOCS_ENABLED`; production sets it to `false`, so `/openapi.json`
+returns 404 there by design.
 
 ## 0. Check the service is up (no token needed)
 

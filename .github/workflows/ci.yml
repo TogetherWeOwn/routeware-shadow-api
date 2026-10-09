@@ -63,8 +63,8 @@ jobs:
           files="$(git diff --name-only --no-renames "$base"...HEAD)"
           echo "Changed files:"
           echo "$files"
-          # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          # code: gates `build` (src, tests, manifests, build config, migrations, OpenAPI contract).
+          if echo "$files" | grep -qE '^(src/|test/|docs/openapi\.json$|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -95,7 +95,7 @@ jobs:
     name: Typecheck, test, build
     needs: [changes]
     # CI standard gating (TOG-14877): heavy job runs only when its area
-    # changed. docs-only PRs skip this; push/main + nightly run it via full.
+    # changed. Other docs-only PRs skip this; push/main + nightly run it via full.
     if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
     runs-on: [self-hosted, two-selfhosted]
     steps:

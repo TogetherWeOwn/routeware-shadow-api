@@ -1,8 +1,7 @@
 # OpenAPI contract-drift check (TOG-6282)
 
-**Status:** script + unit tests merged; CI/schedule wiring pending operator
-publication (no new services, no paid tiers, no new secrets — same constraint
-as the cron alarm runbook).
+**Status:** script, unit tests, CI hygiene gate, and nightly schedule are wired.
+The check is credential-free and uses no network or new services.
 
 **Why:** a route module built on plain `Hono` instead of `createRouteModule()`
 still serves traffic while silently dropping every one of its routes from
@@ -13,11 +12,24 @@ statically and credential-free so it can run in CI hygiene and on a nightly
 schedule with no Worker runtime, no secrets, and no network access
 (CONVENTIONS.md §3).
 
-## 0. The command
+## 0. The commands
+
+Regenerate the checked-in, pretty-printed contract after an intentional OpenAPI
+change:
 
 ```bash
-node scripts/check-openapi-drift.mjs
-# openapi-drift: OK — 35/35 declared op(s) published across 11 mounted module(s)
+npx vitest run test/openapiContract.test.ts -u
+```
+
+This runs the Worker-backed contract test and writes `docs/openapi.json`. The
+test fails on drift and names this command; review the resulting JSON before
+committing. Do not update the contract to bless an unintended API change.
+
+Check that every route module still publishes its declared operations:
+
+```bash
+npm run check:openapi-drift
+# openapi-drift: OK — <n>/<n> declared op(s) published across <m> mounted module(s)
 ```
 
 Reads `src/app.ts` (mounts) and `src/routes/*.ts` (declared
@@ -77,41 +89,12 @@ repo root, so the fixture resolves only when `--routes-dir` points at a real
 temporarily rebuild any one module on plain `Hono` in a scratch worktree and
 watch the check name every dropped op.)
 
-## 3. Schedule (for operator publication — not yet wired)
+## 3. CI schedule
 
-Nightly, credential-free, alongside the other static gates. Until an
-operator publishes it, run by hand after any route-module change:
-
-- **Cadence:** nightly on `main` (schedule trigger) + every PR touching
-  `src/routes/` or `src/app.ts` (path filter). Detection latency ≤ 24h, same
-  bound as the cron alarm loop.
-- **Where:** a `schedule: cron: "0 6 * * *"` trigger on the hygiene job
-  (build/hygiene stay credential-free per `check-ci-workflow`; this check
-  reads source text only, so it needs no token).
-- **Alerting:** the step's non-zero exit fails the run — the finding IS the
-  alert (name, op, cause in the log). No paging tier, same posture as the
-  coverage ratchet and per-file gate. Record the disposition where the team
-  looks.
-
-Snippets for the wiring change (one `package.json` line, one hygiene step,
-one `check-ci-workflow` pin — bundled together when an operator publishes):
-
-```json
-"check:openapi-drift": "node scripts/check-openapi-drift.mjs",
-```
-
-```yaml
-- name: OpenAPI contract drift — no silent route drops (TOG-6282)
-  run: npm run check:openapi-drift
-```
-
-```js
-assert.match(
-  hygiene,
-  /npm run check:openapi-drift/,
-  "hygiene must run the OpenAPI contract-drift check (TOG-6282)"
-);
-```
+The drift check runs as part of the credential-free hygiene job on pull
+requests and the nightly workflow schedule. Changes to route modules are
+checked in PRs; no separate service, token, or network access is required.
+A non-zero exit names the missing or dropped operation and fails the gate.
 
 ## 4. What this check does not cover
 

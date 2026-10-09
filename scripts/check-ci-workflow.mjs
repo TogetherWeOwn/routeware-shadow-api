@@ -31,6 +31,14 @@ const changesJob = jobBlock("changes");
 assert.match(changesJob, /fetch-depth: 0/, "changes must use fetch-depth: 0 so the merge-base diff sees the base commit (TOG-14898)");
 assert.match(changesJob, /git merge-base/, "changes must diff the PR against its merge base with native git (TOG-14898)");
 assert.match(changesJob, /outputs:\n(?:.*\n)*?.*code:/, "changes must output a code boolean (TOG-14898)");
+const codeFilter = changesJob.split("\n").find(
+  (line) => line.includes('if echo "$files" | grep -qE') && line.includes("grep -qE '^(src/")
+);
+assert.match(
+  codeFilter ?? "",
+  /\|docs\/openapi\\\.json\$\|/,
+  "the checked-in OpenAPI contract must trigger the build test (TOG-18934)"
+);
 assert.match(changesJob, /probe:/, "changes must output a probe boolean (TOG-14898)");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean (TOG-14898)");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs (TOG-14898)");
