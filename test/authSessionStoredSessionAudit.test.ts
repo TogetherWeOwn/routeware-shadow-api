@@ -201,9 +201,12 @@ describe("AuthSession stored-session audit", () => {
     await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
 
     expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock");
-    expect(logs[2]).toHaveBeenCalledExactlyOnceWith(
-      "Failed to release the auth refresh lock; it will expire via its TTL."
-    );
+    expect(logs[2]).toHaveBeenCalledExactlyOnceWith({
+      level: "warn",
+      msg: "Failed to release the auth refresh lock; it will expire via its TTL",
+      route: "auth.refreshLock",
+      ms: null
+    });
     for (const log of logs) {
       expect(JSON.stringify(log.mock.calls)).not.toContain(COOKIE);
     }
@@ -222,9 +225,12 @@ describe("AuthSession stored-session audit", () => {
       await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
 
       expect(inspect).not.toHaveBeenCalled();
-      expect(logs[2]).toHaveBeenCalledExactlyOnceWith(
-        "Failed to release the auth refresh lock; it will expire via its TTL."
-      );
+      expect(logs[2]).toHaveBeenCalledExactlyOnceWith({
+        level: "warn",
+        msg: "Failed to release the auth refresh lock; it will expire via its TTL",
+        route: "auth.refreshLock",
+        ms: null
+      });
     }
   );
 });

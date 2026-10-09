@@ -3,6 +3,7 @@ import { prepareSaveContainerFormBody, validateSaveFormBody } from "../lib/addre
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
+import { logEvent } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -89,7 +90,11 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
       throw err;
     }
     const cause = err.preparationCause;
-    console.error("prepareSaveContainerFormBody", cause);
+    logEvent({
+      level: "error",
+      msg: "Container save token preparation failed",
+      route: "POST /api/v1/routeware/container/save-container-form"
+    });
     const msg = cause instanceof Error ? cause.message : String(cause);
     if (msg === "New container requires PickupAddressID in POST body") {
       return problemJsonResponse({
