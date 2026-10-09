@@ -141,7 +141,7 @@ curl -sS --fail-with-body -X POST "$BASE/api/v1/container-snapshot/import" \
 # Each successful response has upserted/rowCount/deleted; any error stops the chain.
 ```
 
-Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`), validates controls before binding, and never reconciles/deletes. It upserts import-compatible business cells, but cannot restore every archive: rejected control content is not stripped or silently repaired. If the archive is newer than D1, upserts overwrite in place (re-sync is idempotent — pinned in `test/snapshotSyncE2E.test.ts`).
+Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`), validates controls before binding, and never reconciles/deletes. It upserts import-compatible business cells, but cannot restore every archive: rejected control content is not stripped or silently repaired. If the archive is newer than D1, upserts overwrite in place (re-sync is idempotent — pinned in `test/snapshotSyncE2E.test.ts`). Re-apply erasures after any restore: an archive taken before a customer erasure re-inserts the erased row, so track erased `customerId` values out of band (the API keeps no suppression list) and re-`DELETE` each one after the restore (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
 
 ## 4. Targeting: which bucket and which D1
 
@@ -188,7 +188,7 @@ if (body === null) {
 await syncCustomerSnapshotFromStream(env.CUSTOMER_DB, body);
 ```
 
-Restore in FK order (customer → address → container), using `syncCustomerSnapshotFromStream`, `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream`; stop on a missing archive or failed sync. The default options upsert without reconciliation/deletion and restamp `synced_at`. They preserve the existing report-parser behavior for control-bearing business cells. Public HTTP import remains strict, including for the API's own exports; use §3 only for import-compatible CSVs, not arbitrary archive recovery.
+Restore in FK order (customer → address → container), using `syncCustomerSnapshotFromStream`, `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream`; stop on a missing archive or failed sync. The default options upsert without reconciliation/deletion and restamp `synced_at`. They preserve the existing report-parser behavior for control-bearing business cells. Public HTTP import remains strict, including for the API's own exports; use §3 only for import-compatible CSVs, not arbitrary archive recovery. Re-apply erasures after any restore here too: the default upsert-without-reconciliation options re-insert rows erased before the archive date, and the API keeps no suppression list — re-`DELETE` each tracked-erased `customerId` afterwards.
 
 ## 7. Drill evidence
 

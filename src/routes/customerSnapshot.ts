@@ -485,7 +485,22 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
  *
  * This erases the cached report extract only — it never touches upstream
  * Routeware (which exposes no customer hard delete; see
- * `docs/PROBLEMS.md#method-not-allowed`). FK-safe by refusal, not by cascade:
+ * `docs/PROBLEMS.md#method-not-allowed`). Erasure removes the D1
+ * `customer_snapshot` row and evicts the data-entity cache entry. It does not
+ * remove R2 history CSVs, daily aliases, latest pointers, or the
+ * archived-CSV readback, and it does not touch upstream Routeware. The row
+ * returns on the next sync — or on the next save for that customer through
+ * the proxy — while upstream still holds it (no suppression
+ * list; see TOG-18933). Any R2 restore or CSV import of an archive taken
+ * before the erasure re-inserts the row, and D1 Time Travel can restore it
+ * for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
+ * after any restore. This route removes only the `customer_snapshot` row:
+ * the customer's `address_snapshot` and `container_snapshot` rows are not
+ * removed by this route. There is no address or container DELETE route —
+ * address rows leave D1 only through upstream-driven reconciliation or
+ * through direct privileged `wrangler d1 execute` deletes in container →
+ * address → customer FK order before retrying the customer delete.
+ * FK-safe by refusal, not by cascade:
  * D1 enforces the snapshot FK chain unconditionally, so deleting a customer
  * that still has address rows fails closed and is mapped to 400 naming the
  * blocking children — an orphan is never written. Exactly one row is ever
@@ -497,7 +512,7 @@ const customerSnapshotDeleteRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:
-    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it. Any R2 restore or CSV import of an archive taken before the erasure re-inserts the row, and D1 Time Travel can restore it for up to 30 days (7 days on the Workers Free plan), so re-apply erasures after any restore. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
