@@ -21,12 +21,17 @@
  */
 
 const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
-const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
-// Allowlist for `Access-Control-Allow-Headers` (TOG-8368 audit): the API only
-// reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
-// `If-None-Match` (conditional GETs on the data-entity ETag cache). Anything
-// else the browser asks for is dropped instead of reflected.
-const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
+const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type, X-Request-Id";
+// Allowlist for `Access-Control-Allow-Headers` (TOG-8368 audit): the API reads
+// `Authorization` (bearer gate), `Content-Type` (POST bodies), `If-None-Match`
+// (conditional GETs), and `X-Request-Id` (request correlation). Anything else
+// the browser asks for is dropped instead of reflected.
+const ALLOWED_REQUEST_HEADERS = [
+  "authorization",
+  "content-type",
+  "if-none-match",
+  "x-request-id"
+];
 const MAX_AGE_SECONDS = "86400";
 
 /**
@@ -100,7 +105,10 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   // the auth-throttle 429 backoff (TOG-7380) instead of retry-spinning blind.
   // Content-Disposition is exposed so a fetch-based CSV download
   // (`GET ...-snapshot/export`, TOG-8361) can read the attachment filename.
-  headers.set("Access-Control-Expose-Headers", "ETag, Retry-After, Content-Disposition");
+  headers.set(
+    "Access-Control-Expose-Headers",
+    "ETag, Retry-After, Content-Disposition, X-Request-Id"
+  );
   applySecurityHeaders(headers);
 }
 

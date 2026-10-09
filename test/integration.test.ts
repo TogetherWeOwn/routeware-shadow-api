@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withRequestId } from "../src/app";
 
 // Matches wrangler.toml [env.test.vars].
 const API_TOKEN = "test-api-token";
@@ -162,6 +163,93 @@ describe("HTTP API", () => {
     it("data-entity read passes the gate token but requires the sync secret", async () => {
       const response = await call("/api/v1/data/customer?id=1");
       expect(response.status).toBe(401);
+    });
+  });
+
+  describe("request ID correlation", () => {
+    it("echoes an inbound ID on the response and structured request log", async () => {
+      const requestId = "trace-abc-123";
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        const response = await call(
+          "/api/v1/health",
+          { headers: { "X-Request-Id": requestId } },
+          null
+        );
+        expect(response.headers.get("X-Request-Id")).toBe(requestId);
+        expect(response.headers.get("Access-Control-Expose-Headers")).toContain(
+          "X-Request-Id"
+        );
+
+        const requestEvent = info.mock.calls
+          .map(([event]) => event as { msg?: string; requestId?: string })
+          .find((event) => event.msg === "HTTP request completed");
+        expect(requestEvent).toMatchObject({
+          requestId,
+          method: "GET",
+          status: 200
+        });
+      } finally {
+        info.mockRestore();
+      }
+    });
+
+    it("generates an ID for a problem response and includes it in the body and log", async () => {
+      const info = vi.spyOn(console, "info").mockImplementation(() => {});
+      try {
+        const response = await call("/api/v1/routeware/home/index", {}, null);
+        const requestId = response.headers.get("X-Request-Id");
+        expect(requestId).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+        );
+        expect(response.status).toBe(401);
+        expect(response.headers.get("content-type")).toContain("problem+json");
+        expect(await response.json()).toMatchObject({ requestId });
+
+        const requestEvent = info.mock.calls
+          .map(([event]) => event as { msg?: string; requestId?: string })
+          .find((event) => event.msg === "HTTP request completed");
+        expect(requestEvent).toMatchObject({ requestId, method: "GET", status: 401 });
+      } finally {
+        info.mockRestore();
+      }
+    });
+
+    it("preserves malformed problem JSON while adding the request ID header", async () => {
+      const malformed = new Response("{", {
+        status: 502,
+        headers: { "content-type": "application/problem+json" }
+      });
+      const response = await withRequestId(malformed, "trace-malformed");
+
+      expect(response.status).toBe(502);
+      expect(response.headers.get("X-Request-Id")).toBe("trace-malformed");
+      expect(await response.text()).toBe("{");
+    });
+
+    it("allows browser clients to send X-Request-Id", async () => {
+      const response = await exports.default.fetch("http://test.local/api/v1/health", {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://client.test",
+          "Access-Control-Request-Method": "GET",
+          "Access-Control-Request-Headers": "X-Request-Id"
+        }
+      });
+      expect(response.status).toBe(204);
+      expect(response.headers.get("Access-Control-Allow-Headers")).toContain(
+        "X-Request-Id"
+      );
+      expect(response.headers.get("X-Request-Id")).toBeTruthy();
+    });
+
+    it("echoes the ID on the 404 problem body", async () => {
+      const response = await call("/api/v1/does-not-exist", {
+        headers: { "X-Request-Id": "trace-404-check" }
+      });
+      expect(response.status).toBe(404);
+      expect(response.headers.get("X-Request-Id")).toBe("trace-404-check");
+      expect(await response.json()).toMatchObject({ requestId: "trace-404-check" });
     });
   });
 

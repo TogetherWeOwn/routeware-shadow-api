@@ -18,6 +18,7 @@ export type ProblemBody = {
   status: number;
   detail?: string;
   instance?: string;
+  requestId?: string;
 };
 
 export function problemJsonResponse(body: ProblemBody): Response {

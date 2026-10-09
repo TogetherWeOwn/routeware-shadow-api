@@ -1,5 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
+import { requestId as honoRequestId } from "hono/request-id";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
@@ -62,6 +63,73 @@ const openApiDocumentConfig = {
 };
 
 const app = new OpenAPIHono<AppEnv>();
+
+export async function withRequestId(response: Response, requestId: string): Promise<Response> {
+  const headers = new Headers(response.headers);
+  headers.set("X-Request-Id", requestId);
+
+  if (
+    headers
+      .get("content-type")
+      ?.split(";")[0]
+      .trim()
+      .toLowerCase() !== "application/problem+json"
+  ) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
+
+  let body: unknown;
+  try {
+    body = await response.clone().json();
+  } catch {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    });
+  }
+
+  headers.delete("content-length");
+  return new Response(
+    JSON.stringify({ ...(body as Record<string, unknown>), requestId }),
+    {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    }
+  );
+}
+
+// Generate or validate the inbound ID before any route middleware can return
+// early, then add it to every response and one structured completion event.
+app.use("*", honoRequestId());
+app.use("*", async (c, next) => {
+  const startedAt = Date.now();
+  await next();
+
+  const requestId = c.get("requestId");
+  c.res = await withRequestId(c.res, requestId);
+  logEvent({
+    level: "info",
+    msg: "HTTP request completed",
+    route: "http.request",
+    ms: Date.now() - startedAt,
+    requestId,
+    method: c.req.method,
+    status: c.res.status
+  });
+});
 
 app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
   type: "http",
@@ -244,7 +312,12 @@ app.notFound((c) =>
   withCors(notFoundProblem(new URL(c.req.url).pathname), c.req.raw)
 );
 
-app.onError((err, c) => {
+app.onError(async (err, c) => {
+  // Thrown errors skip the stamping middleware above (`await next()` rejects),
+  // so every error response is stamped here: same X-Request-Id header and
+  // problem-body requestId the success path gets via withRequestId.
+  const requestId = c.get("requestId") ?? crypto.randomUUID();
+  const stamp = (problem: Response) => withRequestId(withCors(problem, c.req.raw), requestId);
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
   // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
@@ -257,11 +330,11 @@ app.onError((err, c) => {
       msg: "Upstream request timed out",
       route: "app.onError",
       ms: null,
+      requestId,
       timeoutMs: err.timeoutMs
     });
-    return withCors(
-      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
-      c.req.raw
+    return stamp(
+      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname)
     );
   }
   // A waiter that gave up on a hung concurrent refresh (TOG-6526): surface
@@ -275,11 +348,11 @@ app.onError((err, c) => {
       msg: "Concurrent session refresh timed out",
       route: "app.onError",
       ms: null,
+      requestId,
       timeoutMs: err.timeoutMs
     });
-    return withCors(
-      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname),
-      c.req.raw
+    return stamp(
+      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname)
     );
   }
   // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
@@ -291,17 +364,17 @@ app.onError((err, c) => {
       level: "error",
       msg: "Invalid AUTH_MODE configuration",
       route: "app.onError",
-      ms: null
+      ms: null,
+      requestId
     });
-    return withCors(
+    return stamp(
       problemJsonResponse({
         type: problemType("misconfigured"),
         title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
         instance: new URL(c.req.url).pathname
-      }),
-      c.req.raw
+      })
     );
   }
   // A WAF/maintenance block on the login page (TOG-6536): fast 502 naming
@@ -316,9 +389,10 @@ app.onError((err, c) => {
       msg: "Routeware login page unavailable",
       route: "app.onError",
       ms: null,
+      requestId,
       status: err.status
     });
-    return withCors(
+    return stamp(
       problemJsonResponse({
         type: problemType("bad-gateway"),
         title: "Upstream login unavailable",
@@ -328,8 +402,7 @@ app.onError((err, c) => {
           `maintenance page). Retry once; if it persists the upstream host is ` +
           `blocking logins. See docs/PROBLEMS.md#bad-gateway.`,
         instance: new URL(c.req.url).pathname
-      }),
-      c.req.raw
+      })
     );
   }
   // Keep log fields stable and PII-safe; do not serialize the error message or stack.
@@ -337,17 +410,17 @@ app.onError((err, c) => {
     level: "error",
     msg: "Unhandled request error",
     route: "app.onError",
-    ms: null
+    ms: null,
+    requestId
   });
-  return withCors(
+  return stamp(
     problemJsonResponse({
       type: problemType("internal"),
       title: "Internal Server Error",
       status: 500,
       detail:
         "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."
-    }),
-    c.req.raw
+    })
   );
 });
 

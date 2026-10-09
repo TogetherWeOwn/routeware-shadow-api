@@ -166,7 +166,7 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-headers")).toBe(
-      "Authorization, Content-Type"
+      "Authorization, Content-Type, X-Request-Id"
     );
   });
 

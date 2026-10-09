@@ -2,7 +2,10 @@
 
 Errors from the Routeware Shadow API use [RFC 7807](https://datatracker.ietf.org/doc/html/rfc7807)
 `application/problem+json` bodies. Each `type` is a URL that points to the matching
-section below.
+section below. Every problem response also includes the request's correlation ID
+as the `requestId` extension and in the `X-Request-Id` response header. The Worker
+preserves a valid incoming `X-Request-Id` or generates one when it is missing or
+invalid; see [structured logging](LOGGING.md).
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
