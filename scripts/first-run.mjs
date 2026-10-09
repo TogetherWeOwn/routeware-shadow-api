@@ -38,6 +38,7 @@ const STOP_TIMEOUT_MS = 5_000;
 const OUTPUT_TAIL_CHARS = 4_000;
 const SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP"];
 let interrupted = false;
+let devServerStopped = true;
 
 function runNode(script) {
   return spawnSync(process.execPath, [path.join(root, script)], { cwd: root, stdio: "inherit" }).status === 0;
@@ -157,8 +158,13 @@ async function stopDevServer(dev, port) {
 
 async function checkServer(dev, output, baseUrl, token) {
   if (!(await waitForHealth(dev, baseUrl, output))) {
-    console.error(`smoke: GET ${baseUrl}/api/v1/health did not return 200`);
-    console.error(`--- wrangler dev output (tail) ---\n${output.tail}`);
+    if (!interrupted) {
+      const problem = output.ready
+        ? `GET ${baseUrl}/api/v1/health did not return 200`
+        : `wrangler dev did not report "Ready on ${baseUrl}"`;
+      console.error(`smoke: ${problem}`);
+      console.error(`--- wrangler dev output (tail) ---\n${output.tail}`);
+    }
     return false;
   }
   const status = await runAsync(process.execPath, [path.join(root, "scripts/smoke-readiness.mjs")], {
@@ -166,7 +172,7 @@ async function checkServer(dev, output, baseUrl, token) {
     stdio: "inherit",
     env: { ...process.env, ...smokeEnv({ baseUrl, token }) },
   });
-  if (status !== 0) console.error(`--- wrangler dev output (tail) ---\n${output.tail}`);
+  if (status !== 0 && !interrupted) console.error(`--- wrangler dev output (tail) ---\n${output.tail}`);
   return status === 0;
 }
 
@@ -175,9 +181,7 @@ async function runSmoke() {
   const baseUrl = localBaseUrl(port);
   const token = pickSmokeToken(readDevVars());
   const output = { tail: "", ready: false };
-  const dev = startDevServer(port, output);
-  console.log(`smoke: wrangler dev on ${baseUrl}`);
-
+  let dev = null;
   let teardown = null;
   const stop = () => (teardown ??= stopDevServer(dev, port));
   const onSignal = async () => {
@@ -185,14 +189,16 @@ async function runSmoke() {
     await stop();
   };
   for (const signal of SIGNALS) process.on(signal, onSignal);
+  dev = startDevServer(port, output);
+  console.log(`smoke: wrangler dev on ${baseUrl}`);
 
   let served = false;
   try {
     served = await checkServer(dev, output, baseUrl, token);
   } finally {
-    const stopped = await stop();
+    devServerStopped = await stop();
     for (const signal of SIGNALS) process.off(signal, onSignal);
-    if (!stopped) {
+    if (!devServerStopped) {
       console.error(`smoke: port ${port} still answers after teardown; stop leftover wrangler/workerd processes for this checkout`);
       served = false;
     }
@@ -225,7 +231,8 @@ for (const [index, step] of FIRST_RUN_STEPS.entries()) {
 }
 
 if (interrupted) {
-  console.error(`\n${CHECK_NAME}: interrupted; the dev server was stopped`);
+  const state = devServerStopped ? "the dev server was stopped" : "the dev server did not stop, see above";
+  console.error(`\n${CHECK_NAME}: interrupted; ${state}`);
   process.exit(130);
 }
 const summary = summarizeFirstRun(results);
