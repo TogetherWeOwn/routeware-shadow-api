@@ -22,7 +22,7 @@ const snapshotArchiveRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Download an archived snapshot CSV from R2",
   description:
-    "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`, same bytes as the D1 sync). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh `...-snapshot/export` to verify an archive before recovery.",
+    "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`, same bytes as the D1 sync). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. Operators compare the download with a fresh `...-snapshot/export` to verify an archive before recovery; the export adds the `_shadow_csv_encoding` column and spreadsheet escapes, so compare business values rather than bytes.",
   request: {
     params: z.object({
       table: z.enum(["customer", "address", "container"]).openapi({ example: "customer" }),

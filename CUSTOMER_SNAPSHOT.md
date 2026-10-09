@@ -173,7 +173,8 @@ All three `/export` downloads write a cell whose first non-space character is
 one extra leading apostrophe inside a double-quoted CSV field. Plain numbers such
 as `-74.0060` are not prefixed. Double quotes are doubled per RFC 4180. An original
 apostrophe-leading cell receives one more apostrophe, so `=1+1` and the literal
-`'=1+1` cannot collide.
+`'=1+1` cannot collide. Cells that contain a semicolon or a tab are quoted too, so a
+spreadsheet that guesses a different delimiter keeps them in one cell.
 
 Exports insert `_shadow_csv_encoding` before the final `synced_at`, with the value
 `1` on every row. Re-importing a row that carries that marker removes exactly one
@@ -181,8 +182,9 @@ leading apostrophe before the existing import normalization. Unmarked Routeware 
 and other marker values are not decoded. Machine consumers must honor the marker
 rather than treat spreadsheet-escaped values as raw business data.
 
-Size: the marker adds 21 header bytes and 2 bytes per row; each escaped cell adds
-one apostrophe, plus quoting when the cell was not already quoted. The export
+Size: the marker adds 21 header bytes and 2 bytes per row. An escaped cell adds one
+apostrophe, and two quote bytes when it was not already quoted; a cell that contains
+a semicolon or tab adds two quote bytes. The export
 itself is not capped, but a direct HTTP re-import is limited to the unchanged
 **52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
 that margin of the limit can therefore fail re-import even though it was admissible

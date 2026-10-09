@@ -60,6 +60,21 @@ describe("spreadsheet-safe CSV cells", () => {
     expect(escapeCsvCell("safe\t=1+1")).toBe('"safe\t=1+1"');
   });
 
+  it("keeps the plain-number check linear on a long digit run", () => {
+    expect(escapeCsvCell(`-${"1".repeat(100_000)}x`).startsWith('"\'')).toBe(true);
+  });
+
+  it("treats a whitespace-padded marker cell as marked", () => {
+    const cols = mapCsvHeaders(`Value,${CSV_SPREADSHEET_ENCODING_HEADER}`);
+    expect(cell(cols, ["'=1+1", " 1 "], "Value")).toBe("=1+1");
+  });
+
+  it("adds exactly the marker column to each snapshot header", () => {
+    const natural = CUSTOMER_SNAPSHOT_EXPORT.columns.map((c) => c.header).join(",");
+    expect(snapshotExportHeaderLine(CUSTOMER_SNAPSHOT_EXPORT).length - natural.length)
+      .toBe(`,${CSV_SPREADSHEET_ENCODING_HEADER}`.length);
+  });
+
   it("does not confuse an original apostrophe with an inserted one", () => {
     expect(escapeCsvCell("=1+1")).not.toBe(escapeCsvCell("'=1+1"));
     expect(escapeCsvCell("'=1+1")).not.toBe(escapeCsvCell("''=1+1"));

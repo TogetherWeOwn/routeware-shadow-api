@@ -334,8 +334,8 @@ describe("shadow sync → export round-trip", () => {
       expect(parseBusinessRows(spec, exportLines)).toEqual(
         parseBusinessRows(spec, upstreamLines)
       );
-      // Independent byte equality after removing export metadata and undoing
-      // spreadsheet escaping.
+      // Independent value equality after removing export metadata and undoing
+      // spreadsheet escaping; quoting of ';' and tab cells is normalized.
       expect(exportLines[0]).toBe(`${upstreamLines[0]},_shadow_csv_encoding,synced_at`);
       expect(exportLines.slice(1).map(decodeExportBusinessLine)).toEqual(
         upstreamLines.slice(1)
