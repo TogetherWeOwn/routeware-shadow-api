@@ -215,7 +215,17 @@ intact; physical-line or arbitrary-byte splitting is not safe.
    `...-snapshot/import`, completing customers before addresses before containers.
    Check every response and row count; stop on any error. Imports are upsert-only:
    do not use reconciliation or `/sync` between parts. Existing rows absent from
-   the download remain, and `synced_at` is restamped rather than restored.
+   the download remain, and `synced_at` is restamped rather than restored. Other
+   paths also reconcile customer data and can delete imported rows that upstream
+   does not report. The scheduled sync (`crons` in `wrangler.toml`, `0 7 * * *`
+   UTC) reconciles the customer, address and container tables to the current
+   upstream report. A Routeware save through the `save-long-form`,
+   `save-address-form` or `save-container-form` routes under `/api/v1/routeware/`,
+   and a `POST /api/v1/data/customer`, `/address` or `/container` write, refreshes
+   that customer and deletes its address and container rows whose `synced_at`
+   predates the refresh. Keep each recovery window away from 07:00 UTC, do not save
+   or write data for the affected customers until every part is imported, and
+   verify row counts again afterwards.
 4. A late preparation or import failure can follow earlier yielded parts or
    committed D1 batches. There is no all-or-nothing restore or deletion rollback;
    retain the original and receipts and resume/retry only after investigating the
