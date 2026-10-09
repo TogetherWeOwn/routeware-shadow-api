@@ -64,7 +64,7 @@ curl -s -X POST "$BASE/api/v1/container-snapshot/import" \
 # expect {"upserted":K,"rowCount":K,"deleted":0}
 ```
 
-Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. Anything else fails with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7) and imports nothing:
+Minimal CSV shapes (headers are case-insensitive; extra Routeware columns are ignored). Each file's **first header must be** `CustomerID` / `PickupAddressID` / `ContainerID` respectively — the check normalizes (trims, strips a leading BOM, lowercases, honours CSV quoting), so `"CustomerID"`, padded or lowercase variants all pass. A wrong first header fails with a 400 `bad-request` that names the column (`Customer import body must start with a header row whose first column is CustomerID…`; address and container name their own column). Other invalid bodies, such as a header with no data rows, fail with a 400 `bad-request` (`Snapshot import body is not valid CSV…`, §7). Neither case imports anything:
 
 ```csv
 CustomerID,CompanyName,Enabled
@@ -155,7 +155,7 @@ There is no undo log — every write is an `INSERT … ON CONFLICT DO UPDATE` ke
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Snapshot import body is not valid CSV...` 400 `bad-request` (the `missing ... header` wording lives in the `InvalidSnapshotCsvError` server-side; the HTTP body intentionally carries only the generic message, `src/routes/snapshotImport.ts:57-84`) | Normalized first CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (exact match after trim, BOM-strip, lowercase and CSV unquoting — `"CustomerID"` or padded/lowercase variants pass; `firstHeaderCell`, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
+| `Customer import body must start with a header row whose first column is CustomerID...` 400 `bad-request` (address and container name their own column; other invalid bodies return `Snapshot import body is not valid CSV...`, from `mapSnapshotImportError` in `src/routes/snapshotImport.ts`) | Normalized first CSV cell is not `CustomerID` / `PickupAddressID` / `ContainerID` (exact match after trim, BOM-strip, lowercase and CSV unquoting — `"CustomerID"` or padded/lowercase variants pass; `firstHeaderCell`, `streamSync.ts`) | Fix the header row (§2); nothing was imported |
 | `Dangling reference: <table>.<column>=<key> has no row in <parent>.<column> …` 400 `bad-request` (FK details also in the Worker log) | Out-of-order import or a child row pointing at a missing parent id | Only the failing batch is lost — import the parents first, then fix the CSV and re-import in order (§2) |
 | `SQLITE_CANTOPEN` / `unable to open database file` in the Worker log, every import 500s | `.wrangler/state/v3/d1` was wiped while `wrangler dev` was running (§1) | Restart `wrangler dev` |
 | `401` problem+json on import | Bearer missing/wrong, or the API token sent instead of the sync secret (`requireSnapshotAuth` matches the sync secret only) | Use the `.dev.vars` `CUSTOMER_SNAPSHOT_SYNC_SECRET` value for `$SECRET`; restart `wrangler dev` after editing `.dev.vars` |
