@@ -189,8 +189,10 @@ ordering, quoting, filenames or authorization.
   it never accumulates the full export. The cap bounds rows, not bytes: row width
   and concurrent requests still matter under the
   [128 MB per-isolate limit](https://developers.cloudflare.com/workers/platform/limits/#memory).
-  At the 5000-row maximum, 4 KB rows make about 20 MB of row objects per page before
-  the encoded copies, so keep overrides for wide tables near the default.
+  At 4 KB rows, a 1000-row default page is about 4 MB of CSV text and the 5000-row
+  maximum about 20 MB. Each page is held as row objects, a joined string and an
+  encoded chunk at once, so peak memory is a multiple of that size plus row-object
+  overhead; keep overrides for wide tables near the default.
 - **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
   D1 reads (including the final empty read). Every export also runs a content-hash
   ETag prepass (TOG-8879) over the same pages before the body, so a `200` download
