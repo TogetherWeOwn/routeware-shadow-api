@@ -66,21 +66,67 @@ export function concurrentRefreshTimeoutProblem(
   });
 }
 
-/** True when this caller now holds the refresh lock. False means someone else does. */
-export async function acquireRefreshLock(stub: DurableObjectStub): Promise<boolean> {
-  const response = await stub.fetch("https://auth/lock");
-  return response.status === 200;
+/**
+ * Narrow an unknown `/lock` (or `/takeover`) response body to an ownership
+ * token. A missing or malformed token means the grant cannot be proven — the
+ * caller must not act as the holder.
+ */
+function parseLockTokenGrant(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const { lockToken } = body as Record<string, unknown>;
+  return typeof lockToken === "string" && lockToken.length > 0 ? lockToken : null;
 }
 
 /**
- * Release the lock after a failed refresh. The DO's `/set` already clears it on
- * success, so this is only needed on the error path. Never throws — a failure to
+ * Ask the DO for the refresh lock (`/lock`, or `/takeover` for an explicit
+ * stale-lock recovery). Returns the ownership token when this caller now
+ * holds the lock, or `null` when someone else does (423) or the request
+ * fails. The token is opaque and PII-free; it only proves lock ownership to
+ * `/unlock` and `/set`.
+ */
+async function requestLockToken(
+  stub: DurableObjectStub,
+  path: "/lock" | "/takeover"
+): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await stub.fetch(`https://auth${path}`);
+  } catch {
+    return null;
+  }
+  if (response.status !== 200) {
+    return null;
+  }
+  return parseLockTokenGrant(await response.json().catch(() => null));
+}
+
+/** Ownership token when this caller now holds the refresh lock; null otherwise. */
+export async function acquireRefreshLock(
+  stub: DurableObjectStub,
+  takeOverStale = false
+): Promise<string | null> {
+  return requestLockToken(stub, takeOverStale ? "/takeover" : "/lock");
+}
+
+/**
+ * Release the lock after a failed refresh. The holder's `/set` already clears
+ * it on success, so this is only needed on the error path. Only the matching
+ * token releases a held lock — a superseded holder's stale token fails closed
+ * with 403 and the live holder keeps its lock. Never throws — a failure to
  * unlock must not mask the original error, and the DO expires a stale lock anyway.
  * Do not inspect rejected values: they may contain credentials or throw on coercion.
  */
-export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void> {
+export async function releaseRefreshLock(
+  stub: DurableObjectStub,
+  lockToken?: string | null
+): Promise<void> {
   try {
-    await stub.fetch("https://auth/unlock");
+    await stub.fetch("https://auth/unlock", {
+      method: "POST",
+      body: JSON.stringify(lockToken ? { lockToken } : {})
+    });
   } catch {
     logEvent({
       level: "warn",
@@ -93,20 +139,25 @@ export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void>
 /**
  * Publish a freshly-established session to the Durable Object.
  *
- * Throws if the DO rejects the write. That matters: the DO clears the refresh
- * lock as part of a successful `/set`, so a silently-ignored rejection would
- * leave the lock held until its TTL expires while no session was ever stored —
- * wedging authentication. Throwing routes the failure into `establishSession`'s
+ * `lockToken` proves this caller holds the refresh lock: the DO stores the
+ * session either way, but clears the lock only for the matching token. A
+ * non-holder's write therefore never releases a live holder's lock.
+ *
+ * Throws if the DO rejects the write. That matters: the holder's `/set` clears
+ * its own lock on success, so a silently-ignored rejection would leave the
+ * lock held until its TTL expires while no session was ever stored — wedging
+ * authentication. Throwing routes the failure into `establishSession`'s
  * catch, which releases the lock.
  */
 export async function storeSession(
   stub: DurableObjectStub,
   cookieHeader: string,
-  expiresAtMs: number
+  expiresAtMs: number,
+  lockToken?: string | null
 ): Promise<void> {
   const response = await stub.fetch("https://auth/set", {
     method: "POST",
-    body: JSON.stringify({ cookieHeader, expiresAtMs })
+    body: JSON.stringify(lockToken ? { cookieHeader, expiresAtMs, lockToken } : { cookieHeader, expiresAtMs })
   });
   if (!response.ok) {
     throw new Error(

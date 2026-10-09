@@ -71,8 +71,11 @@ export async function establishSession(
   stub: DurableObjectStub,
   bootstrapUrl: string
 ): Promise<void> {
-  const holdsLock = await acquireRefreshLock(stub);
-  if (!holdsLock) {
+  // The lock token proves this caller holds the refresh lock: only the
+  // matching token releases it via `/unlock` or the holder's `/set`
+  // (TOG-18959). A null token means someone else holds it.
+  const lockToken = await acquireRefreshLock(stub);
+  if (lockToken === null) {
     // Another request is already refreshing. Wait for it rather than logging in
     // again (the lock auto-expires if that refresh dies). On deadline the wait
     // throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it propagates so the
@@ -82,10 +85,12 @@ export async function establishSession(
   }
 
   try {
-    await login(env, stub, bootstrapUrl);
+    await login(env, stub, bootstrapUrl, lockToken);
   } catch (err) {
-    // The DO clears the lock on a successful /set, so release only on failure.
-    await releaseRefreshLock(stub);
+    // The holder's /set already cleared its own lock on success, so release
+    // only on failure — with our token, so a superseded holder's late release
+    // can never drop another holder's live lock.
+    await releaseRefreshLock(stub, lockToken);
     throw err;
   }
 }
@@ -94,18 +99,19 @@ export async function establishSession(
 async function login(
   env: Env,
   stub: DurableObjectStub,
-  bootstrapUrl: string
+  bootstrapUrl: string,
+  lockToken: string
 ): Promise<void> {
   // Closed validation (TOG-6531): unknown values throw before any login
   // attempt, so a typo never falls into the HTTP-then-browser fallback.
   const mode = resolveAuthMode(env);
 
   if (mode === "browser") {
-    return establishSessionWithBrowser(env, stub, bootstrapUrl);
+    return establishSessionWithBrowser(env, stub, bootstrapUrl, lockToken);
   }
 
   try {
-    await establishSessionViaHttp(env, stub);
+    await establishSessionViaHttp(env, stub, lockToken);
     return;
   } catch (err) {
     // A blocked login page (TOG-6536) is never a browser case: the token is
@@ -128,6 +134,6 @@ async function login(
       route: "auth.login",
       fallback: "browser"
     });
-    return establishSessionWithBrowser(env, stub, bootstrapUrl);
+    return establishSessionWithBrowser(env, stub, bootstrapUrl, lockToken);
   }
 }

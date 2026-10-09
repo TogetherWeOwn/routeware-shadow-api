@@ -23,13 +23,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const counters = vi.hoisted(() => ({ httpLogins: 0, sets: 0 }));
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     counters.httpLogins += 1;
     // Hold the login briefly so all three first-wave forwards land (and
     // observe the redirect) before the fresh session is published.
     await new Promise((resolve) => setTimeout(resolve, 25));
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=fresh", Date.now() + 600_000);
+    await storeSession(stub, ".WebRW=fresh", Date.now() + 600_000, lockToken);
   })
 }));
 
@@ -53,19 +53,21 @@ type LockState = {
   expiresAtMs: number | null;
   refreshing: boolean;
   lockedAt: number | null;
+  lockToken: string | null;
 };
 
 /**
- * Durable Object stub fake implementing the real /lock, /unlock, /set, /get
- * semantics, including the LOCK_TTL_MS stale-lock expiry, matching
- * `AuthSession` (same shape as `test/establishSession.test.ts`).
+ * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
+ * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
+ * TOG-18959 lock-token owner check — matching `AuthSession` (same shape as
+ * `test/establishSession.test.ts`).
  */
 function fakeStub(state: LockState): DurableObjectStub {
   return {
     fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const path = new URL(raw).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         const now = Date.now();
         const heldAndFresh =
           state.refreshing === true &&
@@ -76,11 +78,19 @@ function fakeStub(state: LockState): DurableObjectStub {
         }
         state.refreshing = true;
         state.lockedAt = now;
-        return new Response("OK");
+        state.lockToken = `synthetic-lock-token-${now}`;
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as { lockToken?: unknown };
+          if (typeof state.lockToken !== "string" || body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
         state.lockedAt = null;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/set") {
@@ -88,11 +98,15 @@ function fakeStub(state: LockState): DurableObjectStub {
         const body = JSON.parse(String(init?.body)) as {
           cookieHeader: string;
           expiresAtMs: number;
+          lockToken?: unknown;
         };
         state.cookieHeader = body.cookieHeader;
         state.expiresAtMs = body.expiresAtMs;
-        state.refreshing = false;
-        state.lockedAt = null;
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockedAt = null;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       if (path === "/get") {
@@ -155,7 +169,8 @@ describe("cron login thunder-herd (TOG-6548)", () => {
       cookieHeader: ".WebRW=stale",
       expiresAtMs: Date.now() - 1_000,
       refreshing: false,
-      lockedAt: null
+      lockedAt: null,
+      lockToken: null
     };
     const env = makeEnv(fakeStub(state));
 
