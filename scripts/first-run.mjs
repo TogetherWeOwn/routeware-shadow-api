@@ -78,23 +78,29 @@ function startDevServer(port, output) {
   });
   for (const stream of [dev.stdout, dev.stderr]) {
     stream.on("data", (chunk) => {
-      output.tail = (output.tail + chunk).slice(-OUTPUT_TAIL_CHARS);
+      const text = output.tail + chunk;
+      output.ready ||= text.includes(`Ready on http://127.0.0.1:${port}`);
+      output.tail = text.slice(-OUTPUT_TAIL_CHARS);
     });
   }
   return dev;
 }
 
-async function waitForHealth(dev, baseUrl) {
+async function healthy(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl}/api/v1/health`, { signal: AbortSignal.timeout(2_000) });
+    await res.arrayBuffer();
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForHealth(dev, baseUrl, output) {
   const deadline = Date.now() + HEALTH_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (dev.exitCode !== null || dev.signalCode !== null) return false;
-    try {
-      const res = await fetch(`${baseUrl}/api/v1/health`, { signal: AbortSignal.timeout(2_000) });
-      await res.arrayBuffer();
-      if (res.status === 200) return true;
-    } catch {
-      // not listening yet
-    }
+    if (output.ready && (await healthy(baseUrl))) return true;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   return false;
@@ -146,7 +152,7 @@ async function stopDevServer(dev, port) {
 }
 
 async function checkServer(dev, output, baseUrl, token) {
-  if (!(await waitForHealth(dev, baseUrl))) {
+  if (!(await waitForHealth(dev, baseUrl, output))) {
     console.error(`smoke: GET ${baseUrl}/api/v1/health did not return 200`);
     console.error(`--- wrangler dev output (tail) ---\n${output.tail}`);
     return false;
@@ -164,7 +170,7 @@ async function runSmoke() {
   const port = await freePort();
   const baseUrl = localBaseUrl(port);
   const token = pickSmokeToken(readDevVars());
-  const output = { tail: "" };
+  const output = { tail: "", ready: false };
   const dev = startDevServer(port, output);
   console.log(`smoke: wrangler dev on ${baseUrl}`);
 
