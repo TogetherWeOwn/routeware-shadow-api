@@ -38,9 +38,11 @@ export async function fetchReportCsvForPath(
   }
   // A retry that still sees a login page throws instead of returning HTML as
   // CSV (which `streamSync` would reject as "not valid CSV" or, worse, parse
-  // to zero rows). Body never embedded (TOG-5821).
+  // to zero rows). Body never embedded (TOG-5821); status text never embedded
+  // either — it is upstream-controlled free text and this message propagates
+  // via the `[step]` wrap into the cron `error` log field (TOG-19015).
   if (!resp.ok || (await isLoginPageResponse(resp, null))) {
-    throw new Error(`Report fetch failed: ${resp.status} ${resp.statusText}`);
+    throw new Error(`Report fetch failed: ${resp.status}`);
   }
   return resp;
 }

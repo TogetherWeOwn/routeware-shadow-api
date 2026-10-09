@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * | # | Site | Emits | Contract pinned below |
  * |---|---|---|---|
- * | 1 | `fetchReportCsvForPath` throw | `status` + upstream `statusText` | **LEAK-1: `statusText` is upstream-controlled and PII-capable — the message must be status-only like the query-id door. Failing pin (`it.fails`) until the bug card lands.** |
+ * | 1 | `fetchReportCsvForPath` throw | status only | `statusText` is upstream-controlled and PII-capable — the message is status-only like the query-id door (fixed by TOG-19015; was a failing `it.fails` pin before). |
  * | 2 | `R2 snapshot stored` info event | object key only | key shape + no PII |
  * | 3 | `R2 snapshot archive disabled` info event | table + fixed reason | exact reason strings, no PII |
  * | 4 | `R2 snapshot put failed` error event | object key only | key shape; the R2 client error text is NOT a log field (it reaches only the `onArchive` detail) |
@@ -119,16 +119,14 @@ beforeEach(() => {
 });
 
 describe("static-path report-fetch throw carries status only (site 1 / LEAK-1)", () => {
-  // Filed as its own bug card per the G13 acceptance (LEAK-1): the static-path
-  // door interpolates upstream `statusText` into the thrown Error while the
-  // query-id door (`QueryExecuteDownload failed: HTTP <status>`, pinned by
+  // LEAK-1, fixed by TOG-19015: the static-path door used to interpolate
+  // upstream `statusText` into the thrown Error while the query-id door
+  // (`QueryExecuteDownload failed: HTTP <status>`, pinned by
   // `test/piiScrub.test.ts`) is status-only. `statusText` is an
   // upstream-controlled free-text field — Routeware may echo request context
   // there — and this message propagates via the `[step]` wrap into the cron
-  // `error` log field. `it.fails` keeps the suite green while documenting the
-  // leak: the moment the fix lands, this test passes unexpectedly and fails
-  // loudly, forcing its conversion to a plain pin.
-  it.fails("excludes upstream statusText from the throw", async () => {
+  // `error` log field.
+  it("excludes upstream statusText from the throw", async () => {
     // Arrange — both attempts fail with a PII-shaped body AND PII-shaped
     // status text. The body is already excluded (TOG-5821); the status text
     // is the unpinned channel.
