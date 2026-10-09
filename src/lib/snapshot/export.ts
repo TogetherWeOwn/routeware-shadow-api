@@ -38,6 +38,14 @@
  * a correctness boundary worth a vendored incremental SHA-256.
  */
 
+import {
+  CSV_SPREADSHEET_ENCODING,
+  CSV_SPREADSHEET_ENCODING_HEADER,
+  escapeCsvCell
+} from "../csvSpreadsheet";
+
+export { escapeCsvCell } from "../csvSpreadsheet";
+
 /** One CSV column: the D1 column, its header label, and boolean rendering. */
 export type SnapshotExportColumn = {
   /** D1 column, selected verbatim into the CSV, in order. */
@@ -173,11 +181,6 @@ export function snapshotExportSpec(table: SnapshotExportTable): SnapshotExportSp
   }
 }
 
-/** RFC 4180 quoting: quote when the cell carries a comma, quote, CR or LF. */
-export function escapeCsvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function formatCell(col: SnapshotExportColumn, value: unknown): string {
   if (value === null || value === undefined) {
     return "";
@@ -197,13 +200,17 @@ export function encodeSnapshotRow(
   spec: SnapshotExportSpec,
   row: Record<string, unknown>
 ): string {
-  return spec.columns
-    .map((c) => escapeCsvCell(formatCell(c, row[c.db])))
-    .join(",");
+  const cells = spec.columns.map((c) => escapeCsvCell(formatCell(c, row[c.db])));
+  // All snapshot specs end in synced_at. Keep that existing trailer contract;
+  // the encoding marker is CSV metadata only, never selected from D1.
+  cells.splice(cells.length - 1, 0, CSV_SPREADSHEET_ENCODING);
+  return cells.join(",");
 }
 
 export function snapshotExportHeaderLine(spec: SnapshotExportSpec): string {
-  return spec.columns.map((c) => c.header).join(",");
+  const headers = spec.columns.map((c) => c.header);
+  headers.splice(headers.length - 1, 0, CSV_SPREADSHEET_ENCODING_HEADER);
+  return headers.join(",");
 }
 
 export type SnapshotExportPage = {

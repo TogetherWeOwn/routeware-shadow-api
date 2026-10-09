@@ -56,7 +56,7 @@ import { env, exports } from "cloudflare:workers";
 import { parseAddressSnapshotRow } from "../src/lib/csvAddressSnapshot";
 import { parseContainerSnapshotRow } from "../src/lib/csvContainerSnapshot";
 import { parseCustomerSnapshotRow } from "../src/lib/csvCustomerSnapshot";
-import { mapCsvHeaders } from "../src/lib/csvParse";
+import { mapCsvHeaders, parseCsvLine } from "../src/lib/csvParse";
 import { streamCsvLines, stringToUint8Stream } from "../src/lib/csvStream";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
@@ -162,8 +162,16 @@ function maskSyncedAtLine(line: string): string {
  * compared byte-for-byte against its upstream source line. Same precision
  * note as `maskSyncedAtLine`: only a trailing ISO timestamp is removed.
  */
-function stripSyncedAtTrailer(line: string): string {
-  return line.replace(/,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/, "");
+function decodeExportBusinessLine(line: string): string {
+  const cells = parseCsvLine(line);
+  expect(cells.at(-2)).toBe("apostrophe-v1");
+  expect(cells.at(-1)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  return cells.slice(0, -2).map((value) => {
+    // Independent byte-level oracle: undo one export prefix, then serialize
+    // RFC 4180 without spreadsheet escaping. Do not reuse production cell().
+    const raw = value.startsWith("'") ? value.slice(1) : value;
+    return /[",\r\n]/.test(raw) ? `"${raw.replace(/"/g, '""')}"` : raw;
+  }).join(",");
 }
 
 /** Parse data lines with the table's import-path row parser (header via mapCsvHeaders). */
@@ -326,13 +334,10 @@ describe("shadow sync → export round-trip", () => {
       expect(parseBusinessRows(spec, exportLines)).toEqual(
         parseBusinessRows(spec, upstreamLines)
       );
-      // Byte equality as the second lens: the export header is the upstream
-      // header plus the trailing `synced_at` column (literal name, not a
-      // timestamp — the strip below leaves it intact), and every data line
-      // matches its upstream source byte-for-byte once the restamped trailer
-      // is stripped. Export renders what sync wrote.
-      expect(exportLines[0]).toBe(`${upstreamLines[0]},synced_at`);
-      expect(exportLines.slice(1).map(stripSyncedAtTrailer)).toEqual(
+      // Independent byte equality after removing export metadata and undoing
+      // spreadsheet escaping, including negative-coordinate text cells.
+      expect(exportLines[0]).toBe(`${upstreamLines[0]},_shadow_csv_encoding,synced_at`);
+      expect(exportLines.slice(1).map(decodeExportBusinessLine)).toEqual(
         upstreamLines.slice(1)
       );
     }

@@ -514,7 +514,7 @@ describe("export stream emits bytes only, never log lines (sites 6–7)", () => 
   });
 });
 
-describe("export response carries row bytes verbatim (site 8)", () => {
+describe("export response preserves PII business cells (site 8)", () => {
   it("serves PII rows as an attachment — the bearer gate is the control", async () => {
     // Arrange
     const { db } = fakeExportDb([piiCustomerRow(7)], "customer_id");
@@ -523,8 +523,8 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     const res = await snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
 
     // Assert — the download contract: attachment disposition, CSV type, and
-    // the row bytes verbatim. Scrubbing here would corrupt the operator's
-    // export (and break the import round-trip); unauthorized callers never
+    // PII business cells unchanged, plus the reversible encoding marker.
+    // PII scrubbing would break the import round-trip; unauthorized callers never
     // reach this constructor (site 9 + `test/snapshotAuth.test.ts`).
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
@@ -533,7 +533,7 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     );
     const text = await res.text();
     expect(text).toContain(
-      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,${SYNCED_AT}`
+      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,apostrophe-v1,${SYNCED_AT}`
     );
   });
 });

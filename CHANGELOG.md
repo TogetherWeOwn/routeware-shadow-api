@@ -13,6 +13,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   retention document proposes 30-day history expiry; this change enables no
   deletion or production lifecycle rule.
 
+- TOG-8894: Snapshot CSV exports reversibly escape formula-leading values with
+  `apostrophe-v1` and add `_shadow_csv_encoding` before the final `synced_at`
+  column (15 customer / 17 address / 30 container columns). First-open spreadsheet
+  safety requires comma separators and double-quote text delimiters. Decoding
+  requires the original encoded cells and marker; existing normalization and the
+  HTTP import 50 MiB cap still apply. Batch preparation needs separate control
+  preflight (see CUSTOMER_SNAPSHOT.md).
+
 - TOG-7595: A snapshot import body whose first header cell is wrong gets a
   400 bad-request that names the column the header row must start with
   (CustomerID, PickupAddressID or ContainerID) instead of the generic
