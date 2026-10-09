@@ -73,9 +73,17 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 `DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
 customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). The same FK chain refuses a delete
-while address rows still reference the customer, mapped to 400 (never an
-orphan, never a cascade):
+is untouched; see `method-not-allowed`). Erasure removes the D1
+`customer_snapshot` row and evicts the data-entity cache entry. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback, and it does not touch upstream Routeware. The row
+returns on the next sync — or on the next save for that customer through
+the proxy — while upstream still holds it. Any R2 restore or CSV import of
+an archive taken before the erasure re-inserts the row, and D1 Time Travel
+can restore it for up to 30 days (7 days on the Workers Free plan), so
+re-apply erasures after any restore. The same FK chain
+refuses a delete while address rows still reference the customer, mapped to
+400 (never an orphan, never a cascade):
 
 ```
 Cannot delete customer_id=42: 2 address row(s) still reference it
@@ -83,8 +91,15 @@ Cannot delete customer_id=42: 2 address row(s) still reference it
 See docs/PROBLEMS.md#bad-request.
 ```
 
-Fix: delete the listed addresses first, then retry. The `detail` names up to
-20 blocking integer keys — integer keys only, never PII.
+Fix: remove the listed addresses, then retry. There is no address or
+container DELETE route — "delete the addresses first" means either waiting
+for the upstream deletion to reconcile (detail-full sync or report-sync
+drops the child rows once upstream stops reporting them) or deleting them
+directly with privileged `wrangler d1 execute` in container → address →
+customer FK order. This route removes only the `customer_snapshot` row: the
+customer's `address_snapshot` and `container_snapshot` rows are not removed
+by this route. The `detail` names up to 20 blocking integer keys — integer
+keys only, never PII.
 
 ## Authentication (`unauthorized`)
 
