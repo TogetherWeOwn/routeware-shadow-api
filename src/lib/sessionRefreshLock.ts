@@ -1,5 +1,6 @@
 import { LOCK_TTL_MS } from "../authSession.do";
 import { problemJsonResponse, problemType } from "./problem";
+import { logEvent } from "./logger";
 import { readSessionState } from "./sessionState";
 
 /**
@@ -81,7 +82,11 @@ export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void>
   try {
     await stub.fetch("https://auth/unlock");
   } catch {
-    console.warn("Failed to release the auth refresh lock; it will expire via its TTL.");
+    logEvent({
+      level: "warn",
+      msg: "Failed to release the auth refresh lock; it will expire via its TTL",
+      route: "auth.refreshLock"
+    });
   }
 }
 

@@ -113,6 +113,8 @@ jobs:
         run: npm run types
       - name: Typecheck
         run: npm run typecheck
+      - name: Console lint
+        run: npm run lint
       - name: Test (with coverage ratchet)
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.

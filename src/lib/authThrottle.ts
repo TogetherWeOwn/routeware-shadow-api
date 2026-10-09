@@ -22,6 +22,8 @@
  *   counting is best-effort.
  */
 
+import { logEvent } from "./logger";
+
 export const AUTH_THROTTLE_MAX_FAILURES = 20;
 /** Failed checks answered 401 per window; the next one is the first 429. */
 export const AUTH_THROTTLE_ALLOWED_FAILURES = AUTH_THROTTLE_MAX_FAILURES - 1;
@@ -114,7 +116,12 @@ function logFailOpenOnce(reason: string, nowMs: number): void {
     return;
   }
   lastFailOpenLogMs = nowMs;
-  console.error(`AUTH THROTTLE FAIL-OPEN ${reason}`);
+  logEvent({
+    level: "error",
+    msg: "AUTH THROTTLE FAIL-OPEN",
+    route: "authThrottle.failOpen",
+    reason
+  });
 }
 
 /** Test-only: reset the per-window fail-open log dedup. */

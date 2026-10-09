@@ -3,6 +3,7 @@ import { prepareSaveAddressFormBody, validateSaveFormBody } from "../lib/address
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
+import { logEvent } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -89,7 +90,11 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
       throw err;
     }
     const cause = err.preparationCause;
-    console.error("prepareSaveAddressFormBody", cause);
+    logEvent({
+      level: "error",
+      msg: "Address save token preparation failed",
+      route: "POST /api/v1/routeware/address/save-address-form"
+    });
     const msg = cause instanceof Error ? cause.message : String(cause);
     if (msg === "New address requires CustomerID in POST body") {
       return problemJsonResponse({
