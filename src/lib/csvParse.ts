@@ -1,3 +1,8 @@
+import {
+  CSV_SPREADSHEET_ENCODING,
+  CSV_SPREADSHEET_ENCODING_HEADER
+} from "./csvSpreadsheet";
+
 /** Shared CSV field parser (RFC 4180-style quoted fields). */
 
 export class CsvControlCharacterError extends Error {
@@ -116,7 +121,16 @@ export function cell(
   for (const n of names) {
     const i = cols[normHeader(n)];
     if (i !== undefined && row[i] !== undefined) {
-      return row[i].trim();
+      const value = row[i];
+      const encodingIndex = cols[CSV_SPREADSHEET_ENCODING_HEADER];
+      // Decode only version-marked export rows; unmarked upstream CSV is untouched.
+      return (
+        encodingIndex !== undefined &&
+        row[encodingIndex]?.trim() === CSV_SPREADSHEET_ENCODING &&
+        value.startsWith("'")
+          ? value.slice(1)
+          : value
+      ).trim();
     }
   }
   return "";

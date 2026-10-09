@@ -25,6 +25,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   retention document proposes 30-day history expiry; this change enables no
   deletion or production lifecycle rule.
 
+- TOG-8894: Customer, address and container `/export` CSV escape formula-leading
+  cells (`=`, `+`, `-`, `@` and their full-width or whitespace-hidden forms) with
+  an apostrophe inside RFC 4180 quoting; plain numbers such as `-74.0060` are
+  unchanged. Cells containing `;` or a tab are now quoted as well. Each export gains
+  a `_shadow_csv_encoding` column before `synced_at` whose value is `1`; re-import
+  removes the apostrophe only from marked rows, and unmarked uploads are untouched.
+  A marked export is larger (21 header bytes, 2 bytes per row, plus escape and quote
+  bytes), so an export within that margin of the unchanged 50 MiB import cap can
+  now return 413 on direct re-import. The archived-CSV readback
+  (`/api/v1/snapshots/{table}/{date}`) is unchanged. See CUSTOMER_SNAPSHOT.md.
+
 - TOG-7595: A snapshot import body whose first header cell is wrong gets a
   400 bad-request that names the column the header row must start with
   (CustomerID, PickupAddressID or ContainerID) instead of the generic

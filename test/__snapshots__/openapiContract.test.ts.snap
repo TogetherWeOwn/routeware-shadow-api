@@ -645,8 +645,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at
-10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,2026-01-01T00:00:00.000Z
+                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,_shadow_csv_encoding,synced_at
+10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1052,8 +1052,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at
-100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,2026-01-01T00:00:00.000Z
+                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,_shadow_csv_encoding,synced_at
+100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1518,8 +1518,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at
-345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,2026-01-01T00:00:00.000Z
+                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,_shadow_csv_encoding,synced_at
+345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -3396,7 +3396,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/snapshots/{table}/{date}": {
       "get": {
-        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh \`...-snapshot/export\` to verify an archive before recovery.",
+        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators compare the download with a fresh \`...-snapshot/export\` to verify an archive before recovery; the export adds the \`_shadow_csv_encoding\` column and spreadsheet escapes, so compare business values rather than bytes.",
         "parameters": [
           {
             "in": "path",

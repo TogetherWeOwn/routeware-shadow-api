@@ -162,6 +162,48 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 
+### Spreadsheet-safe snapshot CSV exports
+
+Open these downloads as **comma-delimited CSV with double-quote text
+delimiters**. Other delimiter guesses (such as semicolon or tab) are not a
+supported spreadsheet-safety boundary; select comma explicitly when importing.
+
+All three `/export` downloads write a cell whose first non-space character is
+`=`, `+`, `-`, `@`, an apostrophe, a full-width operator, or a tab, CR or LF with
+one extra leading apostrophe inside a double-quoted CSV field. Plain numbers such
+as `-74.0060` are not prefixed. Double quotes are doubled per RFC 4180. An original
+apostrophe-leading cell receives one more apostrophe, so `=1+1` and the literal
+`'=1+1` cannot collide. Cells that contain a semicolon or a tab are quoted too, so a
+spreadsheet that guesses a different delimiter keeps them in one cell.
+
+Exports insert `_shadow_csv_encoding` before the final `synced_at`, with the value
+`1` on every row. Re-importing a row that carries that marker removes exactly one
+leading apostrophe before the existing import normalization. Unmarked Routeware CSV
+and other marker values are not decoded. Machine consumers must honor the marker
+rather than treat spreadsheet-escaped values as raw business data.
+
+Size: the marker adds 21 header bytes and 2 bytes per row. An escaped cell adds one
+apostrophe, and two quote bytes when it was not already quoted; a cell that contains
+a semicolon or tab adds two quote bytes. The export
+itself is not capped, but a direct HTTP re-import is limited to the unchanged
+**52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
+that margin of the limit can therefore fail re-import even though it was admissible
+before this encoding. No automated split-and-import path exists yet.
+
+The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) is unchanged and
+still returns the raw archived Routeware CSV; it is not spreadsheet-escaped.
+
+This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/attacks/CSV_Injection)
+for text-cell escaping. It is not a promise of safety or losslessness after a
+spreadsheet saves, converts, or reopens the CSV: spreadsheet programs can strip
+escaping or alter values. Keep the original download for programmatic re-import.
+
+Re-importing a download is upsert-only and does not prune. Keep a re-import window
+away from 07:00 UTC, and avoid Routeware saves and `POST /api/v1/data/customer`,
+`/address` or `/container` writes for the affected customers until the import is
+verified. The scheduled sync (`crons` in `wrangler.toml`, `0 7 * * *` UTC) and those
+writes reconcile rows to the upstream report and can delete rows it does not report.
+
 ### CSV export page sizing
 
 The three `GET ...-snapshot/export` routes default to **1000 rows per D1 read**.
