@@ -1,4 +1,4 @@
-import { LOCK_TTL_MS } from "../authSession.do";
+import { LOCK_TTL_MS, TAKEOVER_WINDOW_MS } from "../authSession.do";
 import { problemJsonResponse, problemType } from "./problem";
 import { readSessionState } from "./sessionState";
 
@@ -119,6 +119,8 @@ export async function storeSession(
  * an upstream-rejected cookie whose recorded expiry is still future may pass.
  * Throws `ConcurrentRefreshTimeoutError` on deadline (TOG-6526) — the
  * caller must fail closed to 502 rather than forwarding with the expired cookie.
+ * Callers that should take over after an explicit failed release use
+ * `waitForPublicationOrTakeover` instead.
  */
 export async function waitForConcurrentRefresh(
   stub: DurableObjectStub,
@@ -138,6 +140,95 @@ export async function waitForConcurrentRefresh(
     }
     if (Date.now() >= deadline) {
       throw new ConcurrentRefreshTimeoutError(timeoutMs);
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
+/**
+ * Attempt a bounded fresh acquisition after an explicit failed release
+ * (TOG-18119, CISO option B). True when this caller won the atomic
+ * `/takeover` and now holds the refresh lock — it must run the holder login
+ * path next. False on 423 (a holder is live — keep waiting on it) or 409 (no
+ * episode, spent budget, or a live cookie — re-read and decide). A rejected
+ * fetch propagates: like `/lock`, a failing `/takeover` call is a real error,
+ * not a lost race.
+ */
+export async function acquireTakeoverLock(stub: DurableObjectStub): Promise<boolean> {
+  const response = await stub.fetch("https://auth/takeover", { method: "POST" });
+  return response.status === 200;
+}
+
+/** Outcome of `waitForPublicationOrTakeover`: the holder published, or this caller won the takeover. */
+export type WaiterOutcome = "published" | "takeover";
+
+/**
+ * Wait for the holder's fresh session exactly like
+ * `waitForConcurrentRefresh`, but with bounded fresh acquisition (TOG-18119,
+ * CISO option B): after the holder's explicit failed release (`/unlock` that
+ * released a held lock), one waiter takes over with a single fresh login
+ * instead of every waiter stalling to 502.
+ *
+ * The DO decides the winner atomically in `/takeover`; the pre-check here
+ * only avoids the call when the state cannot be eligible. Races resolve by
+ * re-reading: losing the race means a new holder is live (keep waiting on
+ * it); a shifted state means re-evaluating. Once a failed takeover spent the
+ * window budget, remaining waiters fail at once with the existing timeout
+ * shape instead of waiting out the window. A missing expiry counts as expired.
+ * Throws `ConcurrentRefreshTimeoutError` on deadline — the caller must fail
+ * closed to 502 rather than forwarding with the expired cookie.
+ */
+export async function waitForPublicationOrTakeover(
+  stub: DurableObjectStub,
+  timeoutMs: number = WAIT_TIMEOUT_MS,
+  intervalMs: number = WAIT_INTERVAL_MS
+): Promise<WaiterOutcome> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const state = await readSessionState(stub);
+    const now = Date.now();
+    if (
+      state.refreshing === false &&
+      typeof state.cookieHeader === "string" && state.cookieHeader.length > 0 &&
+      typeof state.expiresAtMs === "number" && Number.isFinite(state.expiresAtMs) &&
+      state.expiresAtMs > now
+    ) {
+      return "published";
+    }
+    if (now >= deadline) {
+      throw new ConcurrentRefreshTimeoutError(timeoutMs);
+    }
+    // Mirror of the DO's atomic `/takeover` eligibility: a recorded
+    // failed-release episode inside the window, no live cookie, and no live
+    // holder. The DO re-checks under its transaction, so a stale read here
+    // only costs one 409.
+    const episodeActive =
+      typeof state.failedReleaseAtMs === "number" &&
+      Number.isFinite(state.failedReleaseAtMs) &&
+      now - state.failedReleaseAtMs < TAKEOVER_WINDOW_MS;
+    const cookieLive =
+      typeof state.cookieHeader === "string" && state.cookieHeader.length > 0 &&
+      typeof state.expiresAtMs === "number" && Number.isFinite(state.expiresAtMs) &&
+      state.expiresAtMs > now;
+    if (episodeActive && !cookieLive && state.refreshing === false) {
+      const budgetSpent =
+        typeof state.takeoverAtMs === "number" &&
+        Number.isFinite(state.takeoverAtMs) &&
+        now - state.takeoverAtMs < TAKEOVER_WINDOW_MS;
+      if (budgetSpent) {
+        // The takeover already failed inside the window: fail at once with the
+        // existing timeout shape instead of waiting out the budget.
+        throw new ConcurrentRefreshTimeoutError(timeoutMs);
+      }
+      if (await acquireTakeoverLock(stub)) {
+        return "takeover";
+      }
+      // Lost the race or the state shifted: loop re-reads. A new holder means
+      // plain waiting; a spent budget means fast failure above. Re-check the
+      // deadline before sleeping so a slow race cannot overrun the budget.
+      if (Date.now() >= deadline) {
+        throw new ConcurrentRefreshTimeoutError(timeoutMs);
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }

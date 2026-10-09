@@ -1,7 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthSession } from "../src/authSession.do";
-import { establishSession } from "../src/lib/establishSession";
-import { forwardWithSessionRetry } from "../src/lib/forwardWithSessionRetry";
 import {
   isConcurrentRefreshTimeout,
   releaseRefreshLock,
@@ -9,17 +7,31 @@ import {
   waitForConcurrentRefresh
 } from "../src/lib/sessionRefreshLock";
 
-// No network or credentials: login must never run for a waiting caller.
+const COOKIE = ".WebRW=SYNTHETIC-EXPIRED";
+const FRESH_COOKIE = ".WebRW=SYNTHETIC-PUBLISHED";
+const env = { AUTH_MODE: "http", LOGIN_URL: "https://upstream.invalid/WebRW/Account/Login" } as unknown as Env;
+
+// Takeover and reactive-holder logins publish fresh material through the REAL
+// storeSession (no network, no credentials): the forwarding legs below assert
+// no forward ever carried a cookie that was expired at send time, so a failed
+// holder's expiry must resolve to a fresh publication, not a stall. Tests that
+// never log in assert the counter stayed at zero. The factories run when the
+// dynamic imports below execute — after these bindings initialize — which is
+// why the modules under test are imported dynamically, not statically.
+const httpLoginCalls = { count: 0 };
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async () => { throw new Error("Unexpected HTTP login"); })
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+    httpLoginCalls.count += 1;
+    const { storeSession } = await import("../src/lib/sessionRefreshLock");
+    await storeSession(stub, FRESH_COOKIE, Date.now() + 120_000);
+  })
 }));
 vi.mock("../src/lib/browserAuth", () => ({
   establishSessionWithBrowser: vi.fn(async () => { throw new Error("Unexpected browser login"); })
 }));
 
-const COOKIE = ".WebRW=SYNTHETIC-EXPIRED";
-const FRESH_COOKIE = ".WebRW=SYNTHETIC-PUBLISHED";
-const env = { AUTH_MODE: "http", LOGIN_URL: "https://upstream.invalid/WebRW/Account/Login" } as unknown as Env;
+const { establishSession } = await import("../src/lib/establishSession");
+const { forwardWithSessionRetry } = await import("../src/lib/forwardWithSessionRetry");
 
 function harness() {
   const values = new Map<string, unknown>();
@@ -88,6 +100,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    httpLoginCalls.count = 0;
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected upstream fetch"); }));
   });
 
@@ -187,11 +200,14 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   });
 
   it.each(["proactive", "reactive"])(
-    "%s forwarding never retries a cookie that expires while the failed holder is locked",
+    "%s forwarding takes over after the failed holder unlocks and never forwards an expired cookie",
     async (leg) => {
       const { stub, fetch } = harness();
       // The reactive cookie starts outside the 60s skew and is rejected upstream
       // while locally live. Both cookies expire before the failed holder unlocks.
+      // Under bounded takeover (TOG-18119, CISO option B), the holder's failed
+      // release lets this single caller win `/takeover` and publish fresh
+      // material — the request then succeeds instead of stalling to a 502.
       const remainingMs = leg === "proactive" ? 1000 : 61_000;
       const expiresAtMs = Date.now() + remainingMs;
       await storeSession(stub, COOKIE, expiresAtMs);
@@ -201,6 +217,11 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       const upstream = vi.fn(async (_input: unknown, init?: RequestInit) => {
         seenCookies.push(new Headers(init?.headers).get("cookie") ?? "");
         forwardTimes.push(Date.now());
+        // Only the post-takeover fresh cookie is accepted upstream: a stale
+        // retry would answer the login page again.
+        if (seenCookies.at(-1) === FRESH_COOKIE) {
+          return new Response("{}", { status: 200, headers: { "content-type": "application/json" } });
+        }
         return new Response(
           '<form action="/WebRW/Account/Login" method="post">' +
             '<input name="UserName" /><input name="Password" type="password" /></form>',
@@ -218,19 +239,28 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       await vi.advanceTimersByTimeAsync(remainingMs);
       expect(Date.now()).toBe(expiresAtMs);
       await releaseRefreshLock(stub);
-      // Covers both the inherited 20s budget and current main's unchanged 90s budget.
-      await vi.advanceTimersByTimeAsync(120_000);
+      // The takeover login and the retried forward resolve within the poll
+      // interval; no 90s waiter budget is consumed.
+      await vi.advanceTimersByTimeAsync(2000);
       const result = await settled;
       expect(result).toBeInstanceOf(Response);
       const response = result as Response;
 
-      expect(response.status).toBe(502);
-      expect(response.headers.get("content-type")).toContain("problem+json");
-      expect(await response.text()).not.toContain(COOKIE);
-      expect(seenCookies).toEqual(leg === "reactive" ? [COOKIE] : []);
-      expect(forwardTimes.every((time) => time < expiresAtMs)).toBe(true);
-      expect(fetch.mock.calls.filter(([url]) => url.endsWith("/lock"))).toHaveLength(2);
-      expect(fetch.mock.calls.filter(([url]) => url.endsWith("/set"))).toHaveLength(1);
+      expect(response.status).toBe(200);
+      expect(httpLoginCalls.count).toBe(1);
+      expect(seenCookies).toEqual(
+        leg === "reactive" ? [COOKIE, FRESH_COOKIE] : [FRESH_COOKIE]
+      );
+      // The expired cookie was never forwarded at or after its expiry; the
+      // only post-expiry forward carried the fresh takeover publication.
+      for (const [index, cookie] of seenCookies.entries()) {
+        if (cookie === COOKIE) {
+          expect(forwardTimes[index]).toBeLessThan(expiresAtMs);
+        } else {
+          expect(cookie).toBe(FRESH_COOKIE);
+        }
+      }
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith("/takeover"))).toHaveLength(1);
     }
   );
 });

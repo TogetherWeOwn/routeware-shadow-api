@@ -16,6 +16,20 @@ type SessionState = {
    * proactive refresh can tell "expired while idle" from a cold start.
    */
   expired?: boolean;
+  /**
+   * Failed-refresh episode anchor (TOG-18119, CISO option B): epoch ms of the
+   * first `/unlock` that released a held lock without a `/set`, i.e. an
+   * explicit failed release. Lets one queued waiter take over with a bounded
+   * fresh login. Absent (never `null`) otherwise — like `expired`, so
+   * existing exact-shape reads are unaffected.
+   */
+  failedReleaseAtMs?: number;
+  /**
+   * Epoch ms of the single takeover login claimed inside the current episode.
+   * Present only after a `/takeover` win; cleared by the next successful
+   * `/set`. Absent (never `null`) otherwise.
+   */
+  takeoverAtMs?: number;
 };
 
 /**
@@ -29,6 +43,19 @@ type SessionState = {
  * waiter budget can never drift past the lock TTL again.
  */
 export const LOCK_TTL_MS = 120_000;
+
+/**
+ * How long a failed-refresh episode admits at most one waiter-takeover login
+ * (TOG-18119, CISO option B: ≥60s named-constant cap on the DO-storage failure
+ * window, bounding the episode at two logins however many requests queue).
+ *
+ * Anchored at the first explicit failed release (an `/unlock` that released a
+ * held lock — the success path clears the lock via `/set`, never `/unlock`).
+ * A successful `/set` clears the episode. The 60s floor fits a worst-case
+ * browser login (~47s) inside one window. Only counters and timestamps are
+ * stored — never cookie, URL, credential, or upstream body.
+ */
+export const TAKEOVER_WINDOW_MS = 60_000;
 
 type StoredSession = { cookieHeader: string; expiresAtMs: number };
 
@@ -143,11 +170,23 @@ export class AuthSession {
         const evictedExpired =
           session === null &&
           ((typeof rawCookie === "string" && rawCookie.length > 0) || expiredMarker === true);
+        // Failed-release episode markers (TOG-18119, CISO option B): surfaced
+        // so waiters can elect one takeover login, then fail fast once the
+        // budget is spent. Absent when no episode is recorded — like `expired`,
+        // never `false`/`null` — so existing exact-shape reads are unaffected.
+        const failedReleaseAtMs = await txn.get<unknown>("failedReleaseAtMs");
+        const takeoverAtMs = await txn.get<unknown>("takeoverAtMs");
         return {
           cookieHeader: session?.cookieHeader ?? null,
           expiresAtMs: session?.expiresAtMs ?? null,
           refreshing,
-          ...(evictedExpired ? { expired: true as const } : {})
+          ...(evictedExpired ? { expired: true as const } : {}),
+          ...(typeof failedReleaseAtMs === "number" && Number.isFinite(failedReleaseAtMs)
+            ? { failedReleaseAtMs }
+            : {}),
+          ...(typeof takeoverAtMs === "number" && Number.isFinite(takeoverAtMs)
+            ? { takeoverAtMs }
+            : {})
         };
       });
       // Committing the transaction can cross expiry after its callback returned.
@@ -178,6 +217,10 @@ export class AuthSession {
         await txn.put("refreshing", false);
         await txn.delete("lockedAt");
         await txn.delete("expiredEvicted");
+        // A successful publication ends any failed-release episode (TOG-18119,
+        // CISO option B): the fresh cookie is live, so no takeover is owed.
+        await txn.delete("failedReleaseAtMs");
+        await txn.delete("takeoverAtMs");
         return true;
       });
       if (!published) {
@@ -205,9 +248,99 @@ export class AuthSession {
     }
 
     if (url.pathname === "/unlock") {
-      await this.state.storage.put("refreshing", false);
-      await this.state.storage.delete("lockedAt");
+      // An explicit failed release: the success path clears the lock via
+      // `/set`, never `/unlock`, so releasing a HELD lock here means the
+      // holder's login failed (TOG-18119, CISO option B). Record the episode
+      // anchor so one queued waiter may take over with a bounded fresh login.
+      // A second unlock inside the window (failed takeover, late superseded
+      // holder) keeps the anchor and budget instead of admitting another
+      // takeover — capping the episode at two logins. Unlocking an unheld lock
+      // records nothing. Transactional with the release so the anchor can
+      // never describe a lock that is still held.
+      const now = Date.now();
+      await this.state.storage.transaction(async (txn) => {
+        const refreshing = (await txn.get<boolean>("refreshing")) ?? false;
+        await txn.put("refreshing", false);
+        await txn.delete("lockedAt");
+        if (refreshing === true) {
+          const prev = await txn.get<unknown>("failedReleaseAtMs");
+          const active =
+            typeof prev === "number" &&
+            Number.isFinite(prev) &&
+            now - prev < TAKEOVER_WINDOW_MS;
+          if (!active) {
+            await txn.put("failedReleaseAtMs", now);
+            await txn.delete("takeoverAtMs");
+          }
+        }
+      });
       return new Response("OK");
+    }
+
+    if (url.pathname === "/takeover") {
+      // Bounded fresh acquisition (TOG-18119, CISO option B): one queued waiter
+      // takes over after an explicit failed release. Eligibility, lock
+      // acquisition, and budget claim run in a single transaction so exactly
+      // one waiter wins; losers see a held lock and wait on the new holder.
+      // 200 = winner (now holds the lock); 423 = a holder is live, keep
+      // waiting; 409 = no failed-release episode, budget already spent, or the
+      // stored cookie is live — keep waiting on a live cookie, or (spent
+      // budget) fail fast; this route never changes state on 409.
+      // A missing expiry counts as expired. No credential or cookie bytes are
+      // read or written here — only lock flags, timestamps, and the liveness
+      // check.
+      const outcome = await this.state.storage.transaction(async (txn) => {
+        const now = Date.now();
+        const refreshing = (await txn.get<boolean>("refreshing")) ?? false;
+        const lockedAt = await txn.get<number>("lockedAt");
+        const heldAndFresh =
+          refreshing === true &&
+          typeof lockedAt === "number" &&
+          now - lockedAt < LOCK_TTL_MS;
+        if (heldAndFresh) {
+          return "locked" as const;
+        }
+        const failedAt = await txn.get<unknown>("failedReleaseAtMs");
+        const episodeActive =
+          typeof failedAt === "number" &&
+          Number.isFinite(failedAt) &&
+          now - failedAt < TAKEOVER_WINDOW_MS;
+        if (!episodeActive) {
+          return "ineligible" as const;
+        }
+        const claimedAt = await txn.get<unknown>("takeoverAtMs");
+        const budgetSpent =
+          typeof claimedAt === "number" &&
+          Number.isFinite(claimedAt) &&
+          now - claimedAt < TAKEOVER_WINDOW_MS;
+        if (budgetSpent) {
+          return "ineligible" as const;
+        }
+        // Read raw: no eviction here — the winner's login publishes fresh
+        // material, and a missing expiry counts as expired.
+        const cookieHeader = await txn.get<unknown>("cookieHeader");
+        const expiresAtMs = await txn.get<unknown>("expiresAtMs");
+        const cookieLive =
+          typeof cookieHeader === "string" &&
+          cookieHeader.length > 0 &&
+          typeof expiresAtMs === "number" &&
+          Number.isFinite(expiresAtMs) &&
+          expiresAtMs > now;
+        if (cookieLive) {
+          return "ineligible" as const;
+        }
+        await txn.put("refreshing", true);
+        await txn.put("lockedAt", now);
+        await txn.put("takeoverAtMs", now);
+        return "ok" as const;
+      });
+      if (outcome === "ok") {
+        return new Response("OK");
+      }
+      if (outcome === "locked") {
+        return new Response("LOCKED", { status: 423 });
+      }
+      return new Response("NOT ELIGIBLE", { status: 409 });
     }
 
     // Per-IP bearer-failure throttle (TOG-5820). Each client IP gets its own

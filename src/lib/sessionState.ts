@@ -13,6 +13,20 @@ export type SessionState = {
    * session".
    */
   expired?: boolean;
+  /**
+   * Failed-refresh episode anchor (TOG-18119, CISO option B): epoch ms of the
+   * first `/unlock` that released a held lock without a `/set`. Present only
+   * while an episode is recorded (never `null`), cleared by the next
+   * successful `/set`. Lets a waiter elect one bounded takeover login.
+   */
+  failedReleaseAtMs?: number;
+  /**
+   * Epoch ms of the single takeover login claimed inside the current episode.
+   * Present only after a `/takeover` win, until the next successful `/set`.
+   * Lets remaining waiters fail fast once the budget is spent instead of
+   * waiting out the window.
+   */
+  takeoverAtMs?: number;
 };
 
 export async function readSessionState(

@@ -6,7 +6,7 @@ import { readSessionState } from "./sessionState";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
-  waitForConcurrentRefresh
+  waitForPublicationOrTakeover
 } from "./sessionRefreshLock";
 
 /** The closed set of valid `AUTH_MODE` values (lowercase, post-trim). */
@@ -73,12 +73,20 @@ export async function establishSession(
 ): Promise<void> {
   const holdsLock = await acquireRefreshLock(stub);
   if (!holdsLock) {
-    // Another request is already refreshing. Wait for it rather than logging in
-    // again (the lock auto-expires if that refresh dies). On deadline the wait
-    // throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it propagates so the
-    // caller fails closed to 502 instead of forwarding with the expired cookie.
-    await waitForConcurrentRefresh(stub);
-    return;
+    // Another request is already refreshing. Wait for its publication — or,
+    // after its explicit failed release, take over with one bounded fresh
+    // login (TOG-18119, CISO option B: the atomic `/takeover` elects a single
+    // winner inside the failed-release window; losers wait on the new
+    // holder). On deadline, or once a failed takeover spent the window
+    // budget, the wait throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it
+    // propagates so the caller fails closed to 502 instead of forwarding with
+    // the expired cookie.
+    const outcome = await waitForPublicationOrTakeover(stub);
+    if (outcome === "published") {
+      return;
+    }
+    // "takeover": this caller won the atomic `/takeover` and now holds the
+    // lock — fall through to the holder login path below.
   }
 
   try {
