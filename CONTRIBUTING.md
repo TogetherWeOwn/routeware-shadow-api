@@ -42,6 +42,7 @@ Every PR must pass, in this order:
 ```bash
 npm run check:ci-workflow
 npm run typecheck
+npm run lint
 npm test
 ```
 

@@ -3,6 +3,8 @@
  * Keys: `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date).
  */
 
+import { logEvent } from "./logger";
+
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
 /**
@@ -200,14 +202,16 @@ export async function putReadableStreamToR2(
     if (mpu !== null) {
       try {
         await mpu.abort();
-      } catch (abortErr) {
+      } catch {
         // Don't mask the primary failure, but don't hide this either: an
         // abandoned multipart upload is retained (and billed) until lifecycle
         // cleanup, so it needs to be visible in logs.
-        console.warn(
-          `R2 multipart abort failed for ${key}; upload may be left dangling:`,
-          abortErr instanceof Error ? abortErr.message : String(abortErr)
-        );
+        logEvent({
+          level: "warn",
+          msg: "R2 multipart abort failed; upload may be left dangling",
+          route: "snapshot.r2.multipart",
+          key
+        });
       }
     }
     // Tear the source down promptly rather than leaving it half-read.
@@ -246,9 +250,13 @@ export async function archiveReportCsvToR2AfterD1<T>(
 ): Promise<T> {
   const disabledReason = r2DisabledReason(env);
   if (disabledReason !== null) {
-    console.log(
-      `R2 snapshot archive disabled for ${table}: ${disabledReason}`
-    );
+    logEvent({
+      level: "info",
+      msg: "R2 snapshot archive disabled",
+      route: "snapshot.r2.archive",
+      table,
+      reason: disabledReason
+    });
     onArchive?.({ status: "disabled", reason: disabledReason });
     return sync(body);
   }
@@ -280,7 +288,7 @@ export async function archiveReportCsvToR2AfterD1<T>(
     await putReadableStreamToR2(env.SNAPSHOTS, key, streamFromChunks(chunks), {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
-    console.log(`R2 snapshot stored: ${key}`);
+    logEvent({ level: "info", msg: "R2 snapshot stored", route: "snapshot.r2.archive", key });
   } catch (e) {
     // No CSV, no manifest entry: recording a hash for bytes that never
     // landed would make the manifest a lie. D1 already succeeded, so this
@@ -288,7 +296,7 @@ export async function archiveReportCsvToR2AfterD1<T>(
     // Message-only: an R2 driver error carries no row data (same class as the
     // D1 driver text already logged elsewhere — never upstream text).
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot put failed for ${key}`, e);
+    logEvent({ level: "error", msg: "R2 snapshot put failed", route: "snapshot.r2.archive", key });
     onArchive?.({ status: "failed", reason: message, key });
     return result;
   }
@@ -300,14 +308,24 @@ export async function archiveReportCsvToR2AfterD1<T>(
         bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
       }
     });
-    console.log(`R2 snapshot manifest updated: ${manifestKey}`);
+    logEvent({
+      level: "info",
+      msg: "R2 snapshot manifest updated",
+      route: "snapshot.r2.manifest",
+      manifestKey
+    });
     onArchive?.({ status: "stored", key });
   } catch (e) {
     // The CSV landed but the sidecar did not: still `stored` (the archive
     // exists and verifies by key), with the manifest failure carried in the
     // reason so the cron line's JSON shows it instead of a clean archive.
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot manifest put failed for ${manifestKey}`, e);
+    logEvent({
+      level: "error",
+      msg: "R2 snapshot manifest update failed",
+      route: "snapshot.r2.manifest",
+      manifestKey
+    });
     onArchive?.({ status: "stored", key, reason: `manifest: ${message}` });
   }
   return result;
@@ -355,14 +373,20 @@ export async function updateSnapshotManifest(
       if (isSnapshotManifest(parsed)) {
         manifest = parsed;
       } else {
-        console.warn(
-          `R2 snapshot manifest at ${manifestKey} failed validation; replacing`
-        );
+        logEvent({
+          level: "warn",
+          msg: "R2 snapshot manifest failed validation; replacing",
+          route: "snapshot.r2.manifest",
+          manifestKey
+        });
       }
     } catch {
-      console.warn(
-        `R2 snapshot manifest at ${manifestKey} is not JSON; replacing`
-      );
+      logEvent({
+        level: "warn",
+        msg: "R2 snapshot manifest is not JSON; replacing",
+        route: "snapshot.r2.manifest",
+        manifestKey
+      });
     }
   }
   manifest = {

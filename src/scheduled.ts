@@ -4,6 +4,7 @@ import {
   type DataSnapshotResult,
 } from "./lib/d1SnapshotSync";
 import { recordCronRun } from "./lib/cronSyncState";
+import { logEvent } from "./lib/logger";
 import { isR2ArchiveDetail, type R2ArchiveDetail } from "./lib/r2SnapshotArchive";
 
 export type CronSyncMode = "chained-http" | "single-invocation";
@@ -22,9 +23,8 @@ export type CronSyncTableCounts = {
 } | null;
 
 /**
- * The one structured log line the cron emits per run, prefixed with
- * `data-snapshot-sync ` so it stays greppable in `wrangler tail` and the
- * dashboard while the remainder parses as JSON.
+ * The structured cron event emitted through the shared logger per run. The
+ * logger adds severity, message, route, and `ms` fields around it.
  *
  * `outcome` is what an alarm keys on: `success` (at least one table ran),
  * `unconfigured` (no report paths — a config state, not a pass), `failed`
@@ -55,8 +55,8 @@ export type CronSyncLog = {
   durationMs: number;
   cron: string;
   scheduledTime: string;
-  /** Present only when outcome is "failed". Message only — never row data. */
-  error?: string;
+  /** Present only when outcome is "failed" and the table is known. Allowlisted table name only — never exception text. */
+  table?: "customer" | "address" | "container";
 };
 
 type TableResult = DataSnapshotResult["customer"];
@@ -145,13 +145,30 @@ function partialTables(e: unknown): DataSnapshotResult | null {
   return p as DataSnapshotResult;
 }
 
-/** Names the failed table on a partial error, or null when unknown. */
-function failedTableName(e: unknown): string | null {
-  if (typeof e !== "object" || e === null || !("failedTable" in e)) {
-    return null;
+/**
+ * Names the failed table for the structured failure event, or undefined when
+ * unknown. Prefers the `failedTable` carried by `PartialDataSnapshotSyncError`
+ * (TOG-6546); falls back to the `[<table> snapshot]` / `[chained <table>]`
+ * step tag in the message. Only the allowlisted customer/address/container
+ * names ever reach the log — never exception text, which could carry row data.
+ */
+function failedSnapshotTable(
+  e: unknown
+): "customer" | "address" | "container" | undefined {
+  if (typeof e === "object" && e !== null && "failedTable" in e) {
+    const f = (e as { failedTable: unknown }).failedTable;
+    if (f === "customer" || f === "address" || f === "container") {
+      return f;
+    }
   }
-  const f = (e as { failedTable: unknown }).failedTable;
-  return typeof f === "string" ? f : null;
+  const message =
+    e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  const table = /^\[(?:chained )?(customer|address|container)(?: snapshot)?\]/.exec(
+    message
+  )?.[1];
+  return table === "customer" || table === "address" || table === "container"
+    ? table
+    : undefined;
 }
 
 function summarizeTable(name: string, t: CronSyncTableCounts): string {
@@ -217,15 +234,20 @@ export async function scheduled(
         // Fixed-shape skip: no counts, no error text, no scheduledTime delta —
         // nothing here can carry row data or credentials. `tables` stays the
         // all-null shape so downstream JSON consumers see the same fields.
-        console.log(
-          `data-snapshot-sync ${JSON.stringify({
+        {
+          const durationMs = Date.now() - start;
+          logEvent({
+            level: "info",
+            msg: "data-snapshot-sync",
+            route: "scheduled.data-snapshot-sync",
+            ms: durationMs,
             ...base,
-            outcome: "skipped-overlap" as CronSyncOutcome,
+            outcome: "skipped-overlap",
             tables: { customer: null, address: null, container: null },
             summary: "skipped: previous sync still in-flight",
-            durationMs: Date.now() - start,
-          } satisfies CronSyncLog)}`
-        );
+            durationMs
+          });
+        }
         return;
       }
       syncInFlight = true;
@@ -236,12 +258,13 @@ export async function scheduled(
         } else {
           // Loud on purpose: the whole job then shares one invocation's D1
           // operation budget, so a large export can die partway through.
-          // TOG-5827 pins this line — the cron path-selection test asserts it.
-          console.warn(
-            "SHADOW_API_PUBLIC_BASE is not set; running data-snapshot-sync as a " +
-              "single invocation (D1 per-invocation limit applies to all tables as one pool). " +
-              "Set SHADOW_API_PUBLIC_BASE to the Worker's public origin to use chained per-table syncs."
-          );
+          logEvent({
+            level: "warn",
+            msg: "SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation",
+            route: "scheduled.data-snapshot-sync",
+            ms: null,
+            ...base
+          });
           r = await runDataSnapshotSync(env);
         }
         const tables = {
@@ -268,24 +291,27 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch (persistErr) {
-          console.error(
-            `data-snapshot-sync persist failed: ${
-              persistErr instanceof Error ? persistErr.message : String(persistErr)
-            }`
-          );
+        } catch {
+          logEvent({
+            level: "error",
+            msg: "data-snapshot-sync persistence failed",
+            route: "scheduled.data-snapshot-sync",
+            ms: endedAt - start,
+            ...base
+          });
         }
-        console.log(
-          `data-snapshot-sync ${JSON.stringify({
-            ...base,
-            outcome,
-            tables,
-            summary,
-            durationMs: endedAt - start,
-          } satisfies CronSyncLog)}`
-        );
+        logEvent({
+          level: "info",
+          msg: "data-snapshot-sync",
+          route: "scheduled.data-snapshot-sync",
+          ms: endedAt - start,
+          ...base,
+          outcome,
+          tables,
+          summary,
+          durationMs: endedAt - start
+        });
       } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
         const endedAt = Date.now();
         // TOG-6546: a table failure carries the tables that already
         // succeeded — report and persist them instead of all-null so the log
@@ -299,7 +325,7 @@ export async function scheduled(
               container: tableCounts(partial.container),
             }
           : { customer: null, address: null, container: null };
-        const failed = failedTableName(e);
+        const failed = failedSnapshotTable(e);
         const summary = partial
           ? [
               summarizeTable("customer", tables.customer),
@@ -318,23 +344,27 @@ export async function scheduled(
             ranAt: new Date().toISOString(),
             durationMs: endedAt - start,
           });
-        } catch (persistErr) {
-          console.error(
-            `data-snapshot-sync persist failed: ${
-              persistErr instanceof Error ? persistErr.message : String(persistErr)
-            }`
-          );
+        } catch {
+          logEvent({
+            level: "error",
+            msg: "data-snapshot-sync persistence failed",
+            route: "scheduled.data-snapshot-sync",
+            ms: endedAt - start,
+            ...base
+          });
         }
-        console.error(
-          `data-snapshot-sync ${JSON.stringify({
-            ...base,
-            outcome: "failed" as CronSyncOutcome,
-            tables,
-            summary,
-            durationMs: endedAt - start,
-            error: message,
-          } satisfies CronSyncLog)}`
-        );
+        logEvent({
+          level: "error",
+          msg: "data-snapshot-sync failed",
+          route: "scheduled.data-snapshot-sync",
+          ms: endedAt - start,
+          ...base,
+          outcome: "failed",
+          tables,
+          summary,
+          durationMs: endedAt - start,
+          ...(failed ? { table: failed } : {})
+        });
       } finally {
         // Always release: a throw leaves the flag set otherwise, and every
         // later firing would skip forever with no error to explain it.

@@ -7,6 +7,7 @@ import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
+import { logEvent } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -261,7 +262,11 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
       throw err;
     }
     const cause = err.preparationCause;
-    console.error("prepareSaveCustomerLongFormBody", cause);
+    logEvent({
+      level: "error",
+      msg: "Customer save token preparation failed",
+      route: "POST /api/v1/routeware/customer/save-long-form"
+    });
     const msg = cause instanceof Error ? cause.message : String(cause);
     return problemJsonResponse({
       type: problemType("bad-gateway", c.env),
