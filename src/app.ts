@@ -7,6 +7,7 @@ import {
   recordAuthFailure
 } from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
+import { scalarDocsConfiguration, withDocsBranding } from "./lib/docsPresentation";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
 import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
@@ -232,25 +233,14 @@ app.use("/docs", async (c, next) => {
   await next();
   // Scalar renders the docs HTML downstream: stamp hardening headers on it
   // (TOG-8368 audit — /docs previously carried none).
-  c.res = withSecurityHeaders(c.res);
+  c.res = withSecurityHeaders(await withDocsBranding(c.res));
   return;
 });
 
-// Scalar UI config (TOG-8360): preselect the `bearerAuth` scheme so the
-// Authorize dialog opens on the right scheme, keep the token across reloads,
-// and default code samples to curl. No token value is embedded here — the
-// reviewer pastes `CUSTOMER_SNAPSHOT_SYNC_SECRET` once; `persistAuth` keeps
-// it for every try-it call (import/sync) in that browser.
-app.use(
-  "/docs",
-  Scalar({
-    pageTitle: "Routeware Shadow API",
-    url: "/openapi.json",
-    authentication: { preferredSecurityScheme: "bearerAuth" },
-    persistAuth: true,
-    defaultHttpClient: { targetKey: "shell", clientKey: "curl" }
-  })
-);
+// Project-themed Scalar config (TOG-8907): title, logo slot, deep-linkable
+// operation anchors and try-it defaults live in `src/lib/docsPresentation`.
+// No token value is embedded: users authorize in Scalar for each token role.
+app.use("/docs", Scalar(scalarDocsConfiguration));
 
 // `notFound` and `onError` run outside the `/api/v1/*` middleware chain, so
 // they stamp CORS headers directly — otherwise a browser sees a CORS error
