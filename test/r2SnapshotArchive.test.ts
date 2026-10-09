@@ -196,13 +196,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
       }
     );
 
-    // Assert — history + sidecar, compatibility CSV + manifest, then latest.
+    // Assert — both CSVs, then history sidecar and daily manifest, then latest.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe("CustomerID\n1,,Acme");
     expect(putCalls).toHaveLength(5);
     expect(putCalls[0].key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
-    expect(putCalls[1].key).toBe(`${putCalls[0].key}.manifest.json`);
-    expect(putCalls[2].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[2].key).toBe(`${putCalls[0].key}.manifest.json`);
     expect(putCalls[3].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
     expect(putCalls[4].key).toBe("snapshot-latest/customer.json");
     expect(logged.some((l) => l.startsWith("R2 snapshot stored:"))).toBe(true);

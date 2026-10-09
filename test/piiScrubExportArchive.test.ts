@@ -263,23 +263,23 @@ describe("R2 archive success log carries the key only (site 2)", () => {
     );
 
     // Assert — passthrough result, byte-identical legs, and the log lines
-    // name the key shapes with no row data anywhere near them. The second
-    // `put` is the immutable history manifest
-    // (fresh bucket, so `get` returned null and the manifest was created).
+    // name the key shapes with no row data anywhere near them. Write order:
+    // history CSV, daily alias CSV, immutable history manifest, daily manifest
+    // (fresh bucket, so `get` returned null and it was created), latest pointer.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe(PII_CSV);
     expect(puts).toHaveLength(5);
     expect(puts[0]!.bytes).toBe(PII_CSV);
     expect(puts[0]!.key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
-    expect(puts[1]!.key).toBe(`${puts[0]!.key}.manifest.json`);
-    expect(puts[2]!.bytes).toBe(PII_CSV);
-    expect(puts[2]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(puts[1]!.bytes).toBe(PII_CSV);
+    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(puts[2]!.key).toBe(`${puts[0]!.key}.manifest.json`);
     expect(puts[3]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
     expect(puts[4]!.key).toBe("snapshot-latest/customer.json");
-    expect(puts[4]!.bytes).toBe(puts[1]!.bytes);
+    expect(puts[4]!.bytes).toBe(puts[2]!.bytes);
     expectNoPii(puts[3]!.bytes);
     expectNoPii(puts[4]!.bytes);
-    const manifest = JSON.parse(puts[1]!.bytes) as {
+    const manifest = JSON.parse(puts[2]!.bytes) as {
       version: number;
       files: Record<string, { key: string }>;
     };
@@ -290,7 +290,7 @@ describe("R2 archive success log carries the key only (site 2)", () => {
     expect(r2Logs[1]).toBe(`R2 snapshot manifest updated: ${puts[3]!.key}`);
     expect(r2Errors).toEqual([]);
     expectNoPii(r2Logs.join("\n"));
-    expectNoPii(puts[1]!.bytes);
+    expectNoPii(puts[2]!.bytes);
   });
 });
 

@@ -20,10 +20,11 @@ version-1 manifest format: `{ version, date, files: { "<table>.csv":
 
 Publication order:
 
-1. Write the history CSV, then its immutable per-run integrity manifest.
-2. Copy the same bytes to `snapshots/YYYY-MM-DD/<table>.csv` and update
-   `snapshots/YYYY-MM-DD.manifest.json` with the **date alias** key.
-3. Replace `snapshot-latest/<table>.json` with the per-run manifest. Its
+1. Write the history CSV, then copy the same bytes to
+   `snapshots/YYYY-MM-DD/<table>.csv` (the **date alias**).
+2. Write the immutable per-run integrity manifest next to the history CSV.
+3. Update `snapshots/YYYY-MM-DD.manifest.json` with the date alias key.
+4. Replace `snapshot-latest/<table>.json` with the per-run manifest. Its
    `files["<table>.csv"].key` is the history key, not the date alias.
 
 The existing date read endpoint and `restoreSnapshotCsvFromR2` are unchanged:
@@ -34,13 +35,18 @@ SHA-256 and byte length. To select latest, read the per-table pointer and then
 its referenced object; no bucket listing is needed.
 
 A D1 failure writes no R2 objects. An R2 failure never undoes successful D1
-work. The archive outcome reports `failed` if the history CSV did not land,
-or `stored` plus a `reason` if later publication failed. The latter is an
-incomplete publication, **not** a clean backup; earlier history remains
-recoverable. Latest only advances after all writes above succeed. Overlapping
-writers are last-completed-publication wins, not timestamp-sorted. Pointers
-and the daily manifest do **not** promise a consistent three-table checkpoint;
-restore must respect customer → address → container foreign-key order.
+work. The archive outcome is `failed` if either CSV copy (history or date
+alias) did not land; the `reason` is prefixed `daily alias:` for the alias, and
+the outcome `key` still names the history object. A failed run can leave a
+history CSV with no sidecar and no pointer to it: treat it as unverified and do
+not select it as latest. The outcome is `stored` plus a `reason` of the form
+`manifest: <stage>: <message>` when both CSVs landed but the history sidecar,
+the daily manifest or the latest pointer did not. That is an incomplete
+publication, **not** a clean backup; earlier history remains recoverable. Latest
+only advances after all writes above succeed. Overlapping writers are
+last-completed-publication wins, not timestamp-sorted. Pointers and the daily
+manifest do **not** promise a consistent three-table checkpoint; restore must
+respect customer → address → container foreign-key order.
 
 ## Proposed retention policy — not enabled by this change
 

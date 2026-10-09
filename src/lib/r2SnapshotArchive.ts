@@ -294,11 +294,20 @@ export async function archiveReportCsvToR2AfterD1<T>(
   }
 
   const result = await sync(streamFromChunks(chunks));
+  // The two CSV copies decide `failed`: the history object and the daily alias
+  // the date read/restore routes serve. Either failing is a failed archive, as
+  // a failed CSV put was before history keys existed. Sidecars and pointers
+  // below only qualify a `stored` outcome.
+  let csvKey = key;
   try {
     await putReadableStreamToR2(env.SNAPSHOTS, key, streamFromChunks(chunks), {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
     });
     console.log(`R2 snapshot stored: ${key}`);
+    csvKey = dailyKey;
+    await putReadableStreamToR2(env.SNAPSHOTS, dailyKey, streamFromChunks(chunks), {
+      httpMetadata: { contentType: "text/csv; charset=utf-8" }
+    });
   } catch (e) {
     // No CSV, no manifest entry: recording a hash for bytes that never
     // landed would make the manifest a lie. D1 already succeeded, so this
@@ -306,11 +315,17 @@ export async function archiveReportCsvToR2AfterD1<T>(
     // Message-only: an R2 driver error carries no row data (same class as the
     // D1 driver text already logged elsewhere — never upstream text).
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot put failed for ${key}`, e);
-    onArchive?.({ status: "failed", reason: message, key });
+    console.error(`R2 snapshot put failed for ${csvKey}`, e);
+    onArchive?.({
+      status: "failed",
+      reason: csvKey === key ? message : `daily alias: ${message}`,
+      key
+    });
     return result;
   }
-  let publicationKey = `${key}.manifest.json`;
+  let stage = "history manifest";
+  let stageKey = `${key}.manifest.json`;
+  let outcome: R2ArchiveDetail = { status: "stored", key };
   try {
     const entry: SnapshotManifestFileEntry = {
       key,
@@ -325,26 +340,26 @@ export async function archiveReportCsvToR2AfterD1<T>(
     // Each run keeps its own integrity record, even after latest is replaced.
     // R2 put metadata: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#r2putoptions
     const jsonOptions = { httpMetadata: { contentType: "application/json; charset=utf-8" } };
-    await env.SNAPSHOTS.put(publicationKey, historyManifest, jsonOptions);
-    publicationKey = dailyKey;
-    await putReadableStreamToR2(env.SNAPSHOTS, dailyKey, streamFromChunks(chunks), {
-      httpMetadata: { contentType: "text/csv; charset=utf-8" }
-    });
-    publicationKey = manifestKey;
+    await env.SNAPSHOTS.put(stageKey, historyManifest, jsonOptions);
+    stage = "daily manifest";
+    stageKey = manifestKey;
     await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
       [csvBasename(table)]: { ...entry, key: dailyKey }
     });
-    // Publish latest last: readers never discover a CSV that has not landed.
-    publicationKey = snapshotR2LatestObjectKey(table);
-    await env.SNAPSHOTS.put(publicationKey, historyManifest, jsonOptions);
+    // Publish latest last: readers never discover a CSV or sidecar that has not landed.
+    stage = "latest pointer";
+    stageKey = snapshotR2LatestObjectKey(table);
+    await env.SNAPSHOTS.put(stageKey, historyManifest, jsonOptions);
     console.log(`R2 snapshot manifest updated: ${manifestKey}`);
-    onArchive?.({ status: "stored", key });
   } catch (e) {
-    // History CSV survived; preserve D1's result and report incomplete publication.
+    // Both CSVs landed: still `stored` (the archive exists), with the failed
+    // stage carried in the reason so the cron line's JSON shows an incomplete
+    // publication instead of a clean archive.
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot manifest put failed for ${publicationKey}`, e);
-    onArchive?.({ status: "stored", key, reason: `manifest: ${message}` });
+    console.error(`R2 snapshot manifest put failed for ${stageKey}`, e);
+    outcome = { status: "stored", key, reason: `manifest: ${stage}: ${message}` };
   }
+  onArchive?.(outcome);
   return result;
 }
 

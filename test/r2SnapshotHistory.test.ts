@@ -83,15 +83,28 @@ describe("timestamped R2 history", () => {
       async () => { vi.setSystemTime(new Date("2026-10-09T00:00:01Z")); return "ok"; }
     );
     expect(writes[0]).toContain("snapshot-history/2026-10-08/2026-10-08T23-59-59-999Z-");
-    expect(writes[2]).toBe("snapshots/2026-10-08/customer.csv");
+    expect(writes[1]).toBe("snapshots/2026-10-08/customer.csv");
+    expect(writes[2]).toBe(`${writes[0]}.manifest.json`);
     expect(writes[3]).toBe("snapshots/2026-10-08.manifest.json");
+    expect(writes[4]).toBe("snapshot-latest/customer.json");
   });
 
-  it.each(["history", "history manifest", "daily alias", "daily manifest", "latest"])(
-    "preserves the D1 result and leaves latest unchanged when %s fails",
-    async (stage) => {
+  // [stage, status, reason]: either CSV copy failing is a failed archive (the
+  // daily alias is what the date restore route serves); a sidecar or pointer
+  // failing leaves both CSVs in place and is reported as `stored` plus a reason
+  // that names the stage.
+  it.each([
+    ["history", "failed", "R2 publication unavailable"],
+    ["daily alias", "failed", "daily alias: R2 publication unavailable"],
+    ["history manifest", "stored", "manifest: history manifest: R2 publication unavailable"],
+    ["daily manifest", "stored", "manifest: daily manifest: R2 publication unavailable"],
+    ["latest pointer", "stored", "manifest: latest pointer: R2 publication unavailable"]
+  ] as const)(
+    "preserves the D1 result and reports the %s failure without advancing latest",
+    async (stage, status, reason) => {
+      const stages = ["history", "daily alias", "history manifest", "daily manifest", "latest pointer"];
+      const failAt = stages.indexOf(stage);
       const writes: string[] = [];
-      const failAt = ["history", "history manifest", "daily alias", "daily manifest", "latest"].indexOf(stage);
       const bucket = {
         async get() { return null; },
         async put(key: string) {
@@ -109,8 +122,50 @@ describe("timestamped R2 history", () => {
       expect(writes).toHaveLength(failAt);
       expect(writes).not.toContain("snapshot-latest/customer.json");
       expect(details).toHaveLength(1);
-      expect(details[0].status).toBe(failAt === 0 ? "failed" : "stored");
-      expect(details[0].reason).toContain("R2 publication unavailable");
+      expect(details[0].status).toBe(status);
+      expect(details[0].reason).toBe(reason);
+      expect(details[0].key).toMatch(/^snapshot-history\//);
     }
   );
+
+  it("keeps latest and the daily manifest on run 1 when run 2's daily alias write fails", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-09T01:02:03.004Z"));
+    const sync = (stream: ReadableStream<Uint8Array>) =>
+      syncCustomerSnapshotFromStream(testEnv.CUSTOMER_DB, stream);
+    const details: R2ArchiveDetail[] = [];
+    await archiveReportCsvToR2AfterD1(
+      testEnv, "customer", stringToUint8Stream(firstCsv), sync, (d) => details.push(d)
+    );
+    // Same bucket, but the date alias write is refused on the second run.
+    const real = testEnv.SNAPSHOTS;
+    const flaky = {
+      get: (key: string) => real.get(key),
+      put: (key: string, value: Parameters<R2Bucket["put"]>[1], options?: R2PutOptions) => {
+        if (key === "snapshots/2026-10-09/customer.csv") {
+          return Promise.reject(new Error("alias put unavailable"));
+        }
+        return real.put(key, value, options);
+      }
+    } as unknown as R2Bucket;
+    await archiveReportCsvToR2AfterD1(
+      { ...testEnv, SNAPSHOTS: flaky } as Env, "customer", stringToUint8Stream(secondCsv), sync,
+      (d) => details.push(d)
+    );
+
+    expect(details.map((d) => d.status)).toEqual(["stored", "failed"]);
+    expect(details[1].reason).toBe("daily alias: alias put unavailable");
+    // Run 2's history CSV landed (recoverable), but nothing points at it yet.
+    expect(await (await real.get(details[1].key!))!.text()).toBe(secondCsv);
+    expect(await real.get(`${details[1].key!}.manifest.json`)).toBeNull();
+    expect(await (await real.get("snapshots/2026-10-09/customer.csv"))!.text()).toBe(firstCsv);
+    const latest = await (await real.get(snapshotR2LatestObjectKey("customer")))!
+      .json<SnapshotManifest>();
+    expect(latest.files["customer.csv"].key).toBe(details[0].key);
+    const daily = await (await real.get("snapshots/2026-10-09.manifest.json"))!
+      .json<SnapshotManifest>();
+    expect(daily.files["customer.csv"].sha256).toBe(
+      await sha256HexBytes(new TextEncoder().encode(firstCsv))
+    );
+  });
 });

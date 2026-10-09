@@ -9,8 +9,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   per-run integrity manifests; `snapshot-latest/<table>.json` points to the
   last fully published history object. Archive outcome `key` names history.
   Existing date-based CSV aliases, read/restore routes and daily manifests
-  are preserved. The retention document proposes 30-day history expiry;
-  this change enables no deletion or production lifecycle rule.
+  are preserved; a failed alias write is still a `failed` archive. The
+  retention document proposes 30-day history expiry; this change enables no
+  deletion or production lifecycle rule.
 
 - TOG-8375: Throttle 429s include `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS
