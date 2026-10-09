@@ -16,8 +16,9 @@ import r2RetentionMd from "../docs/R2-RETENTION.md?raw";
  * next save for that customer through the proxy — while upstream still holds
  * it. A consumer reading "erasure" assumes more than the code does, so these
  * sentences must survive verbatim: a later edit that drops the R2 sentence,
- * the next-sync-or-save sentence, or the cache-TTL limit fails here, not in
- * production docs.
+ * the next-sync-or-save sentence, the cache-TTL limit, the restore
+ * re-insert / Time Travel sentence, or the address-children sentences fails
+ * here, not in production docs.
  *
  * Follows the `test/openapiDocsContent.test.ts` pattern (generated
  * `/openapi.json` for the description, bundled `?raw` text for the docs —
@@ -54,6 +55,23 @@ const RETURNS_ON_NEXT_SYNC =
  */
 const CACHE_TTL_LIMIT =
   "may keep serving the erased PII until the 60 s cache TTL expires";
+
+/**
+ * Restores re-insert: an R2 restore or CSV import of a pre-erasure archive
+ * brings the row back, and D1 Time Travel keeps it recoverable — so erasures
+ * must be re-applied after any restore.
+ */
+const RESTORE_REINSERTS = "re-apply erasures after any restore";
+
+/** D1 Time Travel keeps the deleted row recoverable after the DELETE. */
+const TIME_TRAVEL_LIMIT = "D1 Time Travel";
+
+/**
+ * Only the customer row goes: address/container rows stay, and there is no
+ * address DELETE route — "delete the addresses first" is not an API call.
+ */
+const CHILDREN_NOT_REMOVED = "are not removed by this route";
+const NO_ADDRESS_DELETE_ROUTE = "There is no address or container DELETE route";
 
 const DOCS: Array<{ name: string; text: string }> = [
   { name: "docs/PROBLEMS.md", text: problemsMd },
@@ -100,6 +118,10 @@ describe("Customer erasure scope (TOG-18933)", () => {
     expect(description).toContain("upstream Routeware");
     expect(description).toContain(RETURNS_ON_NEXT_SYNC);
     expect(description).toContain(CACHE_TTL_LIMIT);
+    expect(description).toContain(RESTORE_REINSERTS);
+    expect(description).toContain(TIME_TRAVEL_LIMIT);
+    expect(description).toContain(CHILDREN_NOT_REMOVED);
+    expect(description).toContain(NO_ADDRESS_DELETE_ROUTE);
   });
 
   it.each(DOCS.map((d) => [d.name, d.text] as [string, string]))(
@@ -115,6 +137,10 @@ describe("Customer erasure scope (TOG-18933)", () => {
       expect(flat).toContain("data-entity");
       expect(flat).toContain(NOT_REMOVED);
       expect(flat).toContain(RETURNS_ON_NEXT_SYNC);
+      expect(flat).toContain(RESTORE_REINSERTS);
+      expect(flat).toContain(TIME_TRAVEL_LIMIT);
+      expect(flat).toContain(CHILDREN_NOT_REMOVED);
+      expect(flat).toContain(NO_ADDRESS_DELETE_ROUTE);
     }
   );
 });

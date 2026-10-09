@@ -10,7 +10,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   state the erasure scope explicitly: removed = the D1 `customer_snapshot`
   row plus the data-entity cache entry; not removed = R2 history CSVs, daily
   aliases, latest pointers and the archived-CSV readback, and upstream
-  Routeware; the row returns on the next sync while upstream still holds it.
+  Routeware; the row returns on the next sync while upstream still holds it;
+  restores/imports of pre-erasure archives re-insert the row, D1 Time Travel
+  keeps it recoverable, and only the `customer_snapshot` row goes (no
+  address/container DELETE route — see `docs/R2-RESTORE-RUNBOOK.md` §§3/6 for
+  the re-apply-erasures step). Pinned in `test/customerErasureScope.test.ts`.
   No behavior change.
 
 - TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,

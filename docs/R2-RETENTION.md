@@ -98,6 +98,12 @@ therefore never deletes that customer's row from already-archived history
 CSVs, the mutable daily aliases, or the objects behind the latest pointers;
 those copies keep serving through the existing date read endpoint and
 restore path until a retention rule approved separately removes them.
+Any R2 restore or CSV import of an archive taken before the erasure
+re-inserts the row, and D1 Time Travel can restore it for up to 30 days
+(7 days on the Workers Free plan), so re-apply erasures after any restore.
+This route removes only the `customer_snapshot` row: the customer's
+`address_snapshot` and `container_snapshot` rows are not removed by this
+route. There is no address or container DELETE route.
 
 ## Verification and rollback
 
