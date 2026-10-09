@@ -161,6 +161,28 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
+| DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Customer-row erasure scope (TOG-18933)
+
+`DELETE /api/v1/customer-snapshot/{customerId}` is GDPR-style erasure for
+the stored extract only. Erasure removes the D1 `customer_snapshot` row and
+evicts the data-entity cache entry. It does not remove R2 history CSVs,
+daily aliases, latest pointers, or the archived-CSV readback, and it does
+not touch upstream Routeware. The row returns on the next sync — or on the
+next save for that customer through the proxy — while
+upstream still holds it. Any R2 restore or CSV import of an archive taken
+before the erasure re-inserts the row, and D1 Time Travel can restore it
+for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
+after any restore. This route removes only the `customer_snapshot` row:
+the customer's `address_snapshot` and `container_snapshot` rows are not
+removed by this route. Deleting a customer that still has address rows
+fails closed with 400 (never an orphan, never a cascade). There is no
+address or container DELETE route — "delete the addresses first" means
+removing them through upstream-driven reconciliation or through direct
+privileged `wrangler d1 execute` deletes in container → address →
+customer FK order, then retrying the customer delete.
+See `docs/PROBLEMS.md#bad-request`.
 
 ### Spreadsheet-safe snapshot CSV exports
 

@@ -13,6 +13,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `src/lib/upstreamForward.ts` only preserve it on forwarded responses, never
   in thrown or logged messages.
 
+- TOG-18933: `DELETE /api/v1/customer-snapshot/{customerId}` and its docs
+  (`docs/PROBLEMS.md`, `CUSTOMER_SNAPSHOT.md`, `docs/R2-RETENTION.md`) now
+  state the erasure scope explicitly: removed = the D1 `customer_snapshot`
+  row plus the data-entity cache entry; not removed = R2 history CSVs, daily
+  aliases, latest pointers and the archived-CSV readback, and upstream
+  Routeware; the row returns on the next sync while upstream still holds it;
+  restores/imports of pre-erasure archives re-insert the row, D1 Time Travel
+  keeps it recoverable, and only the `customer_snapshot` row goes (no
+  address/container DELETE route — see `docs/R2-RESTORE-RUNBOOK.md` §§3/6 for
+  the re-apply-erasures step). Pinned in `test/customerErasureScope.test.ts`.
+  No behavior change.
+
 - TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,
   `container-snapshot` `/export`) read **1000 rows per D1 query** by default
   (was 500), and the optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker
