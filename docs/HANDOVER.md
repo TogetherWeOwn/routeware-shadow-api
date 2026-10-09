@@ -37,30 +37,34 @@ stop is intended. An environment-level variable is unavailable to this job-level
 an environment value to disable the gate.
 
 The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5), but
-`GET actions/permissions` returned `enabled: true` on 2026-10-08. Re-check the current repository or
+`GET actions/permissions` returned `enabled: true` on 2026-10-09. Re-check the current repository or
 new owner's settings instead of unconditionally re-enabling Actions. Do not infer secrets or
 production readiness from successful runs; keep production deploys disabled until setup is explicitly approved.
 
-### Observed runner/gate behavior (verified 2026-10-08, read-only — no settings or deployments changed)
+### Observed runner/gate behavior (verified 2026-10-09, read-only — no settings or deployments changed)
 
 - **Actions are enabled:** `GET actions/permissions` returned `enabled: true` and
   `allowed_actions: all`. Successful main and PR runs below confirm execution, not production approval.
-- **Main push:** run [37755980876](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37755980876)
-  (2026-10-08, head `353144e`): **completed / success** — `Detect changed areas`,
-  `Typecheck, test, build`, `Repo hygiene & secret scan`, `shadow-api-v1` and `ci-ok` succeeded;
-  `Deploy to Cloudflare Workers` was **skipped**. The repository variables list returned
-  `total_count: 0`; that endpoint covers repository-scoped variables only. Organization and
-  `production` environment scopes were not inspected, so this does not establish that the effective
-  `vars.PRODUCTION_DEPLOY_ENABLED` value was absent. The skipped deploy is the observed result for
-  this run. This is a pinned completed run, not a claim that every newer main run has finished or passed.
+- **Main push:** run [37950235679](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37950235679)
+  (2026-10-09, head `eaec84e`, after #224/#227/#229): **completed / success** —
+  `Detect changed areas`, `Typecheck, test, build`, `Repo hygiene & secret scan`,
+  `shadow-api-v1` and `ci-ok` succeeded; `Deploy to Cloudflare Workers` was **skipped**.
+  The repository variables list returned `total_count: 0`; that endpoint covers
+  repository-scoped variables only. Organization and `production` environment scopes were not
+  inspected, so this does not establish that the effective `vars.PRODUCTION_DEPLOY_ENABLED`
+  value was absent. The skipped deploy is the observed result for this run. This is a pinned
+  completed run, not a claim that every newer main run has finished or passed.
 - **Docs-only PR:** run [37757808298](https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/37757808298)
-  (2026-10-08, head `24153bc`): **completed / success** — changed-area detection, hygiene and
-  `ci-ok` succeeded; build, `shadow-api-v1` and deploy were **skipped**. A green docs-only run
-  does not mean typecheck, coverage or remote contract tests executed.
+  (2026-10-08, head `24153bc`, link re-verified 2026-10-09): **completed / success** —
+  changed-area detection, hygiene and `ci-ok` succeeded; build, `shadow-api-v1` and deploy
+  were **skipped**. A green docs-only run does not mean typecheck, coverage or remote contract
+  tests executed.
 - **Runners:** every CI job on both runs carries labels `[self-hosted, two-selfhosted]`, matching
-  `.github/workflows/ci.yml`. These labels are the stable contract, not individual host names.
-- **Optional contract gate:** on the main run, `Evaluate operator credential gate` succeeded and
-  `Execute versioned API contract tests` was **skipped** while `shadow-api-v1` stayed green.
+  `.github/workflows/ci.yml` (re-verified on the 2026-10-09 main run). These labels are the
+  stable contract, not individual host names.
+- **Optional contract gate:** on the 2026-10-09 main run, `Evaluate operator credential gate`
+  succeeded and `Execute versioned API contract tests` was **skipped** while `shadow-api-v1`
+  stayed green.
   A successful gate/job is not evidence that the credentialed contract tests ran. No secret values
   were read during verification.
 - **Main protection:** `GET branches/main` returned `protected: true`. `GET rules/branches/main`
