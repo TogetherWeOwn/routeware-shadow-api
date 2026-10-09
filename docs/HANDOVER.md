@@ -36,7 +36,7 @@ value for this repository. Do not change a shared organization variable unless a
 stop is intended. An environment-level variable is unavailable to this job-level `if`, so do not rely on
 an environment value to disable the gate.
 
-The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 5), but
+The clean replacement repository initially had Actions disabled on 2026-08-22 (see § 6), but
 `GET actions/permissions` returned `enabled: true` on 2026-10-09. Re-check the current repository or
 new owner's settings instead of unconditionally re-enabling Actions. Do not infer secrets or
 production readiness from successful runs; keep production deploys disabled until setup is explicitly approved.
@@ -131,8 +131,9 @@ Only after the production Cloudflare account, resources and Worker secrets are r
 1. **Create the Cloudflare API token** (skip if you are keeping the existing one — but note its value
    cannot be read back out of the old repo, so if you do not have it saved, you need a new one).
    Cloudflare dashboard → My Profile → API Tokens → *Edit Cloudflare Workers* template. **Confirm
-   `D1 : Edit` is included** — the deploy job applies D1 migrations and fails without it. Do **not**
-   use the Global API Key.
+   `D1 : Edit` and R2 read are included** — the deploy job applies D1 migrations and fails without
+   `D1 : Edit`. Its R2 preflight (`.github/workflows/ci.yml:307-314`) runs `wrangler r2 bucket info`
+   with this same token, so R2 read is needed too. Do **not** use the Global API Key.
 2. **Create the `production` environment.** Repo → Settings → Environments → New environment →
    name it exactly `production`. Add required reviewers here if the plan supports them.
 3. **Add the environment secret** named exactly `CLOUDFLARE_API_TOKEN`:
@@ -195,20 +196,23 @@ The code is complete and self-contained. These are not, and none of them travel 
 | System | What it is | Consequence if not carried over |
 |---|---|---|
 | Cloudflare account `209cf7dd678adfb683947dd7874d05af` | Owns the Worker, D1, R2, the Durable Object namespace and the cron trigger | Nothing deploys; §3 Scenario B applies |
-| Cloudflare API token | GitHub Actions secret `CLOUDFLARE_API_TOKEN`, scoped *Edit Cloudflare Workers* **plus D1 : Edit** | The `deploy` job fails; merges to `main` stop shipping |
+| Cloudflare API token | GitHub Actions secret `CLOUDFLARE_API_TOKEN`, scoped *Edit Cloudflare Workers* **plus D1 : Edit and R2 read** | The `deploy` job fails; merges to `main` stop shipping |
 | GitHub environment `production` | Scopes that secret; the place to add required reviewers | Deploy job cannot resolve the secret |
 | Routeware tenant `killeen.routeware.com` | The upstream this Worker fronts | The Worker has nothing to talk to |
 | Routeware admin login | `LOGIN_USERNAME` / `LOGIN_PASSWORD`, a real tenant account | Every authenticated route fails (silently — see fact 1) |
 | Routeware custom reports **23 / 24 / 25** | Customer, Address and Container exports, built by hand in the Routeware UI | Snapshot sync has no source; these are tenant-specific and must be rebuilt or re-pointed |
 | `.dev.vars` (local, gitignored) | The real values of the four secrets for local dev | Local dev cannot log in; recreate from `.dev.vars.example` |
 
-**The four Worker secrets**, by name only — they are deliberately absent from `wrangler.toml` so an
-unconfigured deploy fails closed with a 401 rather than trusting a placeholder:
+**The four Worker secrets**, by name only — they are deliberately absent from the production `[vars]`
+block of `wrangler.toml` so an unconfigured deploy does not trust a placeholder: the bearer gates answer
+401 (`src/app.ts:148`, `src/routes/shared.ts:102`), and an unset `LOGIN_USERNAME` or `LOGIN_PASSWORD`
+makes the upstream-backed routes error instead (`src/lib/httpAuth.ts:156`). `[env.test.vars]` holds
+dummy values for the test environment only:
 `SHADOW_API_TOKEN`, `CUSTOMER_SNAPSHOT_SYNC_SECRET`, `LOGIN_USERNAME`, `LOGIN_PASSWORD`.
 
 > The real values must move to the new owner **out of band** — not through this repository, an issue,
-> or a PR. Note §5: three of the four are also recoverable from this repo's own git history, which is
-> a problem to close, not a transfer mechanism to use.
+> or a PR. Note §5: three of the four are still recoverable from the original repository's history and
+> `refs/pull/*`, not from this clean repository. That is a problem to close, not a transfer mechanism to use.
 
 ---
 
@@ -376,22 +380,27 @@ immediately after** the transfer — every day both exist is a day the old one i
 
 ## 6. State of the work at handover
 
-- `main` is at `5ec4516`. No unpushed commits, no stashes, no local-only branches. Note that SHAs
-  differ from any pre-2026-08-22 reference: the history rewrite renumbered every commit.
+- The handover was written against `main` at `5ec4516` on 2026-08-22, with no unpushed commits, stashes or local-only branches
+  (not re-checked for this refresh; `main` has moved since). Note that SHAs differ from any
+  pre-2026-08-22 reference: the history rewrite renumbered every commit.
 - **Historical snapshot (2026-08-22):** Actions were disabled with no secrets or environments.
   Do not use this snapshot as current administrative state. The reconciled workflow separates
   credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
-- **Suite:** 30 files, 549 tests, green. **Coverage:** 85.74% statements / 79.48% branches / 89.09%
-  functions / 86.36% lines. (`npm test` runs in a few seconds; `npm run test:coverage` takes ~38s
-  here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
+- **Suite (2026-08-22 snapshot):** 30 files, 549 tests, green. **Coverage (same snapshot):** 85.74%
+  statements / 79.48% branches / 89.09% functions / 86.36% lines. **Current (2026-10-09):** 156
+  `*.test.ts` files; coverage 96.27% statements / 91.51% branches / 97.58% functions / 96.60% lines,
+  as recorded in [`vitest.config.ts`](../vitest.config.ts) (not re-run for this refresh: no
+  `node_modules` in the checkout). (`npm test` runs in a few seconds; `npm run test:coverage` takes
+  ~38s here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
   5s default.)
 - These coverage floors were **re-baselined downward on 2026-08-22**, once, and the reason is
   recorded in [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) § "The coverage ratchet". Short version: one
   test was reaching the live Routeware host and counting unasserted lines as covered; when upstream
   changed, it hung and the suite stopped producing a coverage report at all. No source line lost a
   real test. **Treat this as a one-time correction — the ratchet only goes up from here.**
-- Stale remote branches, all now carrying **rewritten** (clean) history and safe to delete once you
-  are satisfied: `fix/ecc-audit-hardening`, `chore/drop-vendored-ecc-common`, and
+- As of 2026-08-22 (not re-checked for this refresh), stale remote branches, all carrying **rewritten**
+  (clean) history and safe to delete once you are satisfied: `fix/ecc-audit-hardening`,
+  `chore/drop-vendored-ecc-common`, and
   `claude/codebase-review-jbhgs9`. The old warning about the last one carrying PII blobs no longer
   applies to the branch itself — that content now survives only in `refs/pull/*` (§5).
 
@@ -411,18 +420,23 @@ immediately after** the transfer — every day both exist is a day the old one i
 2. **§5 — delete the old repository** (`Rick7C2/routeware-shadow-api`), which is the last surface
    still exposing the credentials and the PII. Then re-take the rotation decision under the new
    access conditions.
-3. **Recover branch coverage above the ECC 80% standard** (79.48% today). The blocking gap is that
-   `vitest.config.ts` never applies the D1 migrations, so `CUSTOMER_DB` has no tables in tests and no
-   route test can drive a snapshot sync to a 200. Fix that first; the end-to-end sync test then
-   becomes straightforward. Details in `TEST-INVARIANTS.md`. **Until it is done, CI goes green on a
-   branch-coverage number that violates the project's own stated 80% standard, and no other gate
-   catches that** — the floor is the only check, and the floor was moved to match reality.
-4. **Close the `worker-configuration.d.ts` leak vector.** `wrangler types` bakes `wrangler.toml`
-   `[vars]` values into that tracked file as literal string types. Values are synthetic today, so
-   nothing is exposed — but a real value plus a regenerate commits it, which is exactly how `4e219dd`
-   happened. Neither `.gitignore` nor the CI hygiene check looks at `.d.ts`.
-5. **Promote the CI gitleaks step to blocking** and drop `--no-git`. It is `continue-on-error: true`
-   today *because* history is dirty; flipping it is the signal that §5 is finally complete.
+3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (TOG-5484, 2026-09-27; ratcheted
+   2026-10-09, TOG-9219):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
+   `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the login → download → parse → upsert path
+   with assertions. Branch coverage is 91.51% against a floor of 91 (`vitest.config.ts:71-76`; the
+   history is at `vitest.config.ts:57-70`). `docs/TEST-INVARIANTS.md` still carries the 2026-08-22
+   numbers; update it before relying on it.
+4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done (TOG-8373):** `wrangler types` bakes
+   `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
+   regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored
+   (`.gitignore:4`), is not tracked, and the hygiene job fails on any non-synthetic value of the four
+   Worker-secret keys in it (`.github/workflows/ci.yml:200-217`). Never force-add it.
+   `docs/SECURITY-REMEDIATION.md` (lines 214-227) still records this as open; its status needs the
+   security owner's update.
+5. ~~**Promote the CI gitleaks step to blocking** and drop `--no-git`.~~ **Done:** the step has no
+   `continue-on-error` and runs without `--no-git` over the full history (`.github/workflows/ci.yml:253-261`).
+   §5 (deleting the old repository) is still open. The runbook still lists this step as
+   `continue-on-error`; update it together with item 4.
 
 ---
 
@@ -443,8 +457,8 @@ immediately after** the transfer — every day both exist is a day the old one i
   is dropped.
 - **No test may reach the network.** See `TEST-INVARIANTS.md`; this is what §6's coverage note is
   about.
-- **PRs were merged with merge commits, not squashed**, to preserve the per-commit record of what
-  each test pins and how it was mutation-verified.
+- **Merging is squash only** ([`CONTRIBUTING.md`](../CONTRIBUTING.md), Conventional Commits section):
+  each PR lands on `main` as one commit, and the squash commit takes the PR title.
 - **[`CONVENTIONS.md`](CONVENTIONS.md) carries binding read-triggers**, not suggestions, and its
   security/session invariants bind regardless of which editor or assistant is in use. It replaced
   `CLAUDE.md`, `AGENTS.md` and `.cursor/rules/`, which carried the same rules before 2026-08-23.
