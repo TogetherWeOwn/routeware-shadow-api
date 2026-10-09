@@ -29,7 +29,7 @@ const snapshotArchiveRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Download an archived snapshot CSV from R2",
   description:
-    "Streams the Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`), re-encoded for spreadsheets: records split as the importer splits them, each cell escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a `_shadow_csv_encoding` column with value `1` after the archived columns on every row. Rows end in LF. The stored object is not modified. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. The ETag is a content hash of the served bytes, and `If-None-Match` with the current tag returns 304. Operators compare the download with a fresh `...-snapshot/export` by business values, not bytes.",
+    "Streams the Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`), re-encoded for spreadsheets: records are split and blank records dropped as the importer reads them, each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a `_shadow_csv_encoding` column with value `1` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. The ETag is a content hash of the served bytes, and `If-None-Match` with the current tag returns 304. Operators compare the download with a fresh `...-snapshot/export` by business values, not bytes.",
   request: {
     params: z.object({
       table: z.enum(["customer", "address", "container"]).openapi({ example: "customer" }),
@@ -59,7 +59,8 @@ const snapshotArchiveRoute = createRoute({
     },
     401: { description: "Unauthorized" },
     404: {
-      description: "No archive for that table and date (application/problem+json)"
+      description:
+        "No archive for that table and date, including one deleted during the download (application/problem+json)"
     },
     409: {
       description:
@@ -71,6 +72,16 @@ const snapshotArchiveRoute = createRoute({
     }
   }
 });
+
+function archiveNotFound(url: string, table: string, date: string) {
+  return problemJsonResponse({
+    type: problemType("not-found"),
+    title: "Not Found",
+    status: 404,
+    detail: `No snapshot archive for table=${table} date=${date}. See docs/PROBLEMS.md#not-found.`,
+    instance: new URL(url).pathname
+  });
+}
 
 snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
@@ -92,13 +103,7 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   const key = `snapshots/${date}/${table}.csv`;
   const obj = await bucket.get(key);
   if (!obj) {
-    return problemJsonResponse({
-      type: problemType("not-found"),
-      title: "Not Found",
-      status: 404,
-      detail: `No snapshot archive for table=${table} date=${date}. See docs/PROBLEMS.md#not-found.`,
-      instance: new URL(c.req.url).pathname
-    });
+    return archiveNotFound(c.req.url, table, date);
   }
   // Content-Length and the ETag describe the re-encoded bytes, so the first
   // pass measures them. The second read is conditional on the stored ETag, so
@@ -108,7 +113,10 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
     return new Response(null, { status: 304, headers: { etag } });
   }
   const again = await bucket.get(key, { onlyIf: { etagMatches: obj.etag } });
-  if (!again || !("body" in again)) {
+  if (again === null) {
+    return archiveNotFound(c.req.url, table, date);
+  }
+  if (!("body" in again)) {
     return problemJsonResponse({
       type: problemType("conflict"),
       title: "Conflict",

@@ -17,8 +17,9 @@ import { snapshotR2ObjectKey } from "../src/lib/r2SnapshotArchive";
  * - a seeded archive streams back re-encoded with the export's spreadsheet
  *   escaping (TOG-18829) while the stored object keeps the raw bytes; the
  *   Content-Length and ETag describe the served body;
- * - `If-None-Match` with the current ETag answers 304 with no body;
- * - an archive replaced between the two reads answers 409 problem+json;
+ * - `If-None-Match` with the current ETag, or `*`, answers 304 with no body;
+ * - an archive replaced between the two reads answers 409 problem+json, and one
+ *   deleted between them answers 404 problem+json;
  * - the writer's key helper and the route's key agree, so the readback can
  *   never drift from what the sync wrote;
  * - no bearer → outer 401, general API token → inner 401 (sync secret only);
@@ -157,6 +158,20 @@ describe("R2 archive readback (TOG-9202, TOG-18829)", () => {
     expect(await res.text()).toBe("");
   });
 
+  it("answers 304 for If-None-Match: * on an archive that exists", async () => {
+    // Arrange
+    await bucket().put("snapshots/2026-09-23/customer.csv", ARCHIVE_CSV, CSV_TYPE);
+
+    // Act
+    const res = await getArchive("customer", "2026-09-23", SYNC_SECRET, undefined, {
+      "if-none-match": "*"
+    });
+
+    // Assert
+    expect(res.status).toBe(304);
+    expect(await res.text()).toBe("");
+  });
+
   it("answers 409 problem+json when the archive is replaced between the two reads", async () => {
     // Arrange — the second read is conditional on the first read's ETag; a
     // replacement makes R2 answer with metadata and no body.
@@ -184,6 +199,31 @@ describe("R2 archive readback (TOG-9202, TOG-18829)", () => {
     expect(body.type).toBe(problemType("conflict"));
     expect(body.title).toBe("Conflict");
     expect(body.detail).toContain("replaced during the download");
+  });
+
+  it("answers 404 problem+json when the archive is deleted between the two reads", async () => {
+    // Arrange — R2 answers null for a conditional read of a missing key.
+    await bucket().put("snapshots/2026-09-24/customer.csv", ARCHIVE_CSV, CSV_TYPE);
+    const real = bucket();
+    const deleted = {
+      get: (key: string, options?: R2GetOptions) =>
+        options?.onlyIf ? Promise.resolve(null) : real.get(key, options)
+    } as unknown as R2Bucket;
+
+    // Act
+    const res = await getArchive(
+      "customer",
+      "2026-09-24",
+      SYNC_SECRET,
+      { ...archiveEnv(), SNAPSHOTS: deleted } as unknown as Env
+    );
+
+    // Assert — absent, not replaced: the retry will simply find nothing.
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    const body = (await res.json()) as ProblemBody;
+    expect(body.type).toBe(problemType("not-found"));
+    expect(body.detail).toContain("table=customer date=2026-09-24");
   });
 
   it("rejects a request with no bearer at the outer gate", async () => {

@@ -10,16 +10,19 @@ import {
  * Spreadsheet-safe readback of an archived Routeware CSV (TOG-18829).
  *
  * The stored object stays the raw upstream CSV. Records are split by the
- * importer's quote-aware splitter, every cell goes through the export's
- * `escapeCsvCell`, and the `_shadow_csv_encoding` marker follows the archived
- * header and every row, so a download opened in a spreadsheet cannot evaluate
- * an upstream cell. Rows end in LF, as export rows do.
+ * importer's quote-aware splitter, blank records are dropped as the importer's
+ * row parsers drop them, and each cell is trimmed as `cell()` trims it and then
+ * escaped by the export's `escapeCsvCell`. The `_shadow_csv_encoding` marker
+ * follows the archived header and every row, so a download opened in a
+ * spreadsheet cannot evaluate an upstream cell. Rows end in LF, as export rows do.
  *
  * Content-Length and the ETag must describe the served bytes, which the stored
  * object's own ETag does not, so the body is produced in two passes over the
  * object: `measureSpreadsheetSafeCsv` counts and hashes the bytes, then
- * `spreadsheetSafeCsvStream` streams the same bytes. Only one input chunk and
- * one output batch are held at a time.
+ * `spreadsheetSafeCsvStream` streams the same bytes. Memory is one input chunk,
+ * one output batch and the record being split. An unclosed quote makes the rest
+ * of the file one record, as it does for the importer, so that record is the
+ * only part whose size is not bounded by a chunk.
  */
 
 const OUTPUT_BATCH_CHARS = 64 * 1024;
@@ -30,7 +33,10 @@ async function* encodedRows(
 ): AsyncGenerator<string, void, undefined> {
   let headerWidth: number | null = null;
   for await (const line of streamCsvLines(body)) {
-    const cells = parseCsvLine(line).map(escapeCsvCell);
+    if (!line.trim()) {
+      continue;
+    }
+    const cells = parseCsvLine(line).map((value) => escapeCsvCell(value.trim()));
     if (headerWidth === null) {
       headerWidth = cells.length;
       cells.push(CSV_SPREADSHEET_ENCODING_HEADER);
@@ -85,8 +91,9 @@ export function spreadsheetSafeCsvStream(
         controller.enqueue(next.value);
       }
     },
-    async cancel() {
+    async cancel(reason) {
       await batches.return(undefined);
+      await body.cancel(reason);
     }
   });
 }

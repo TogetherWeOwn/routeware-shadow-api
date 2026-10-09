@@ -14,8 +14,9 @@ import { CUSTOMER_SNAPSHOT_EXPORT, snapshotExportHeaderLine } from "../src/lib/s
 /**
  * TOG-18829 — spreadsheet-safe re-encoding of an archived CSV.
  *
- * Pins the readback transform directly: every formula-leading cell is escaped
- * as the export escapes it, the marker follows the header and every row, the
+ * Pins the readback transform directly: blank records are dropped and cells
+ * trimmed as the importer reads them, every formula-leading cell is escaped as
+ * the export escapes it, the marker follows the header and every row, the
  * importer reads the marked values back, and the length and ETag describe the
  * exact bytes served. The ETag reference is a BigInt FNV-1a 64 over the whole
  * body, independent of the 32-bit implementation under test.
@@ -124,9 +125,10 @@ describe("spreadsheet-safe archive readback (TOG-18829)", () => {
     }
     const cols = mapCsvHeaders(records[0]);
     const row = parseCsvLine(records[1]);
-    const expectedCell = FORMULA_LEAD.test(value) && !PLAIN_NUMBER.test(value) ? `'${value}` : value;
+    const trimmed = value.trim();
+    const expectedCell = FORMULA_LEAD.test(trimmed) && !PLAIN_NUMBER.test(trimmed) ? `'${trimmed}` : trimmed;
     expect(row[1]).toBe(expectedCell);
-    expect(cell(cols, row, "Value")).toBe(value.trim());
+    expect(cell(cols, row, "Value")).toBe(trimmed);
     expect(cell(cols, row, CSV_SPREADSHEET_ENCODING_HEADER)).toBe(CSV_SPREADSHEET_ENCODING);
   });
 
@@ -164,6 +166,24 @@ describe("spreadsheet-safe archive readback (TOG-18829)", () => {
     );
   });
 
+  it("drops blank records as the importer's row parsers do", async () => {
+    const out = await readback(["A,B", "1,2", "   ", "", "3,4"].join("\n"));
+
+    expect(out).toBe("A,B,_shadow_csv_encoding\n1,2,1\n3,4,1\n");
+  });
+
+  it("trims each cell as the importer's cell() does, so a padded number stays a plain number", async () => {
+    const out = await readback(["A,B", " -74.0060 , =1+1 "].join("\n"));
+
+    expect(out).toBe('A,B,_shadow_csv_encoding\n-74.0060,"\'=1+1",1\n');
+  });
+
+  it("escapes a formula-leading header cell too", async () => {
+    const out = await readback("=Score,B\n1,2\n");
+
+    expect(out).toBe('"\'=Score",B,_shadow_csv_encoding\n1,2,1\n');
+  });
+
   it("produces identical bytes whatever the input chunk size", async () => {
     const rows = HOSTILE_VALUES.map((v, i) => `${i},${rawCsvRow([v, `x${i}`])}`);
     const input = ["Id,Value,Note", ...rows].join("\n");
@@ -199,18 +219,29 @@ describe("spreadsheet-safe archive readback (TOG-18829)", () => {
     expect(await readback("CustomerID,Name\n")).toBe("CustomerID,Name,_shadow_csv_encoding\n");
   });
 
-  it("keeps the BOM on the first header cell, as the importer's decoder does", async () => {
+  it("drops a leading BOM from the header cell, as the export and the importer's header normalization do", async () => {
     const out = await readback("\uFEFFCustomerID,Name\n1,a\n");
 
-    expect(out).toBe("\uFEFFCustomerID,Name,_shadow_csv_encoding\n1,a,1\n");
+    expect(out).toBe("CustomerID,Name,_shadow_csv_encoding\n1,a,1\n");
   });
 
-  it("releases the archive read when the client cancels mid-download", async () => {
-    const rows = Array.from({ length: 5000 }, (_, i) => `${i},value ${i}`);
-    const reader = spreadsheetSafeCsvStream(chunked(["Id,Value", ...rows].join("\n"), 256)).getReader();
+  it("cancels the archive source when the client cancels mid-download", async () => {
+    const rows = Array.from({ length: 12000 }, (_, i) => `${i},value ${i}`);
+    let sourceCancelled = false;
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(["Id,Value", ...rows].join("\n")));
+      },
+      cancel() {
+        sourceCancelled = true;
+      }
+    });
+    const reader = spreadsheetSafeCsvStream(source).getReader();
 
     await reader.read();
-    await expect(reader.cancel()).resolves.toBeUndefined();
+    await reader.cancel();
+
+    expect(sourceCancelled).toBe(true);
   });
 
   it("uses the export's marker name and value on the readback", () => {
