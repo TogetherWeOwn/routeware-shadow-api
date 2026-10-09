@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-7595: A snapshot import body whose header row is wrong gets a 400
+  bad-request that names the expected column (CustomerID, PickupAddressID or
+  ContainerID) instead of the generic not-valid-CSV text. Status is unchanged.
+
 - TOG-8375: Throttle 429s include `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS
   exposes them to browser clients. Active blocks survive failure-window rollover;

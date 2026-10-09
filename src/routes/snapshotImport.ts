@@ -1,5 +1,6 @@
 import { CsvControlCharacterError } from "../lib/csvParse";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { InvalidSnapshotCsvError } from "../lib/snapshot/streamSync";
 
 /**
  * Edge guards for the `...-snapshot/import` routes (TOG-6279), kept in their
@@ -80,9 +81,13 @@ export function mapSnapshotImportError(
       status: 400,
       detail: e instanceof CsvControlCharacterError
         ? `CSV row ${e.rowNumber} contains a disallowed control character. See docs/PROBLEMS.md#bad-request.`
-        : "Snapshot import body is not valid CSV. See docs/PROBLEMS.md#bad-request.",
+        : `${invalidCsvMessage(e)} See docs/PROBLEMS.md#bad-request.`,
       instance: new URL(url).pathname
     });
   }
   return null;
+}
+
+function invalidCsvMessage(e: unknown): string {
+  return (e instanceof InvalidSnapshotCsvError && e.clientMessage) || "Snapshot import body is not valid CSV.";
 }

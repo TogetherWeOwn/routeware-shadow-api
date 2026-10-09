@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { stringToUint8Stream } from "../src/lib/csvStream";
 import {
+  InvalidSnapshotCsvError,
   syncAddressSnapshotFromCsvText,
   syncAddressSnapshotFromStream,
   syncContainerSnapshotFromCsvText,
@@ -124,6 +125,9 @@ describe("streamSync header validation", () => {
     // Assert — and nothing was written.
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("Customer report is not valid CSV (missing CustomerID header)");
+    expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
+      "Customer import body is missing the CustomerID header."
+    );
     expect(batches).toEqual([]);
   });
 
@@ -154,6 +158,9 @@ describe("streamSync header validation", () => {
     expect(error.message).toContain(
       "Address report is not valid CSV (missing PickupAddressID header)"
     );
+    expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
+      "Address import body is missing the PickupAddressID header."
+    );
   });
 
   it("names the container report in its own header error", async () => {
@@ -167,6 +174,9 @@ describe("streamSync header validation", () => {
     // Assert
     expect(error.message).toContain(
       "Container report is not valid CSV (missing ContainerID header)"
+    );
+    expect((error as InvalidSnapshotCsvError).clientMessage).toBe(
+      "Container import body is missing the ContainerID header."
     );
   });
 

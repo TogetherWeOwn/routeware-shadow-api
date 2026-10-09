@@ -32,9 +32,18 @@ export const SNAPSHOT_IMPORT_MAX_BYTES = 50 * 1024 * 1024;
  * wrong table), or the body yielded zero data rows. The `...-snapshot/import`
  * routes map it to 400 problem+json; the report `sync` path never throws it
  * (it returns all-zero counts and skips reconciliation instead). Never
- * carries the submitted bytes, so the error body cannot leak PII.
+ * carries the submitted bytes, so the error body cannot leak PII. A missing
+ * header also sets `clientMessage`: fixed, table-specific text for the import
+ * response, so `message` (operator hints) never reaches an uploader.
  */
-export class InvalidSnapshotCsvError extends Error {}
+export class InvalidSnapshotCsvError extends Error {
+  readonly clientMessage: string | undefined;
+
+  constructor(message: string, clientMessage?: string) {
+    super(message);
+    this.clientMessage = clientMessage;
+  }
+}
 
 /** Body exceeded `options.maxBytes`. The import routes map it to 413. */
 export class SnapshotTooLargeError extends Error {}
@@ -151,7 +160,8 @@ export async function syncCustomerSnapshotFromStream(
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
-          "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline."
+          "Customer report is not valid CSV (missing CustomerID header). Check CUSTOMER_REPORT_EXPORT_PATH or query-id pipeline.",
+          "Customer import body is missing the CustomerID header."
         );
       }
       cols = mapCsvHeaders(line);
@@ -245,7 +255,8 @@ export async function syncAddressSnapshotFromStream(
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
-          "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config."
+          "Address report is not valid CSV (missing PickupAddressID header). Check PATH or query-id config.",
+          "Address import body is missing the PickupAddressID header."
         );
       }
       cols = mapCsvHeaders(line);
@@ -339,7 +350,8 @@ export async function syncContainerSnapshotFromStream(
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(
-          "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config."
+          "Container report is not valid CSV (missing ContainerID header). Check PATH or query-id config.",
+          "Container import body is missing the ContainerID header."
         );
       }
       cols = mapCsvHeaders(line);
