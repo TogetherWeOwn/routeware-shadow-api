@@ -42,16 +42,17 @@ upstream-backed routes; dummy values work for everything else. See the
 
 ## Updating the OpenAPI contract
 
-After an intentional API contract change, regenerate and review the checked-in
-contract with:
+After an intentional API contract change or package version bump, regenerate
+and review the checked-in contract with:
 
 ```bash
 npx vitest run test/openapiContract.test.ts -u
 ```
 
-This updates `docs/openapi.json`; regenerate and commit it only when the API
-change is intentional. See [`docs/OPENAPI-DRIFT-CHECK.md`](./docs/OPENAPI-DRIFT-CHECK.md)
-for the route-registration drift check.
+This updates `docs/openapi.json`; commit it only when the API change or
+version bump is intentional. Review the diff before committing. See
+[`docs/OPENAPI-DRIFT-CHECK.md`](./docs/OPENAPI-DRIFT-CHECK.md) for the
+route-registration drift check.
 
 ## Verification loop (PR checks)
 

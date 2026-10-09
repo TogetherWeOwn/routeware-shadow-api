@@ -38,7 +38,7 @@ const openApiDocumentConfig = {
   info: {
     title: "Routeware Shadow API",
     // Single-sourced from package.json via src/lib/version.ts (TOG-5840):
-    // bump package.json#version and the spec version moves with it.
+    // the live spec updates on bump; also regenerate docs/openapi.json.
     version: APP_VERSION,
     description:
       "Explicit proxy to Routeware WebRW. Session cookies are stored in a Worker Durable Object; clients do not send Routeware credentials.\n\n" +

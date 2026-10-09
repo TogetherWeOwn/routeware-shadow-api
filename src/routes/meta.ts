@@ -11,8 +11,9 @@ export const metaRoutes = createRouteModule();
  *
  * `version` is the release version single-sourced from `package.json#version`
  * via `src/lib/version.ts` (TOG-5840 pattern) — the handler below sends
- * `APP_VERSION`, so bumping `package.json` moves the health version with no
- * other edit.
+ * `APP_VERSION`, so bumping `package.json` updates the health response. The
+ * checked-in OpenAPI example must also be regenerated; see
+ * `docs/VERSIONING.md`.
  */
 export const healthResponseSchema = z
   .object({

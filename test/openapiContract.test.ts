@@ -163,8 +163,8 @@ describe("published OpenAPI document", () => {
     // Assert
     expect(doc.openapi).toBe("3.1.0");
     expect(doc.info.title).toBe("Routeware Shadow API");
-    // Single-sourced from package.json (TOG-5840): bumping
-    // package.json#version must move the spec version with no other edit.
+    // Single-sourced from package.json (TOG-5840): a version bump also
+    // requires regenerating the checked-in document snapshot.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
     // Registered once each: `CustomerSnapshotList` is shared by the customer,

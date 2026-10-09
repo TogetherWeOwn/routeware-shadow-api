@@ -15,7 +15,7 @@ schedule with no Worker runtime, no secrets, and no network access
 ## 0. The commands
 
 Regenerate the checked-in, pretty-printed contract after an intentional OpenAPI
-change:
+change or package version bump:
 
 ```bash
 npx vitest run test/openapiContract.test.ts -u
@@ -23,7 +23,9 @@ npx vitest run test/openapiContract.test.ts -u
 
 This runs the Worker-backed contract test and writes `docs/openapi.json`. The
 test fails on drift and names this command; review the resulting JSON before
-committing. Do not update the contract to bless an unintended API change.
+committing. For a version-only bump, confirm the diff is limited to version
+values before accepting the regenerated contract. Do not update the contract to
+bless an unintended API change.
 
 Check that every route module still publishes its declared operations:
 
