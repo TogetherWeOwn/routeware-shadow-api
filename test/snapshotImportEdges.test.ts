@@ -28,6 +28,7 @@ import { recordingDb } from "./snapshotDbFake";
 const SYNC_SECRET = "test-sync-secret";
 const BAD_REQUEST = `${PROBLEM_TYPE_BASE}bad-request`;
 const TOO_LARGE = `${PROBLEM_TYPE_BASE}payload-too-large`;
+const UNSUPPORTED_MEDIA_TYPE = `${PROBLEM_TYPE_BASE}unsupported-media-type`;
 
 const CUSTOMER_HEADER =
   "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix," +
@@ -111,6 +112,84 @@ describe("snapshot import edges (TOG-6279)", () => {
   });
 
   describe.each(SPECS)("$name import", (spec) => {
+    it.each([
+      "application/json",
+      "text/plain",
+      "text/html",
+      "application/x-www-form-urlencoded",
+      "multipart/form-data; boundary=test",
+      "text/csv-invalid",
+      ""
+    ])("rejects Content-Type %j with 415 problem+json", async (contentType) => {
+      const res = await postImport(spec.base, JSON.stringify({ rows: PII_PROBE }), {
+        "content-type": contentType
+      });
+
+      expect(res.status).toBe(415);
+      expect(res.headers.get("content-type")).toBe("application/problem+json");
+      const body = await res.json();
+      expect(body).toMatchObject({
+        type: UNSUPPORTED_MEDIA_TYPE,
+        title: "Unsupported Media Type",
+        status: 415,
+        instance: spec.base
+      });
+      expect(JSON.stringify(body)).not.toContain(PII_PROBE);
+    });
+
+    it("rejects a missing Content-Type even for valid CSV without changing D1", async () => {
+      const before = await db()
+        .prepare(`SELECT COUNT(*) as n FROM ${spec.table}`)
+        .first<{ n: number }>();
+      const res = await exports.default.fetch(`http://test.local${spec.base}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${SYNC_SECRET}` },
+        // Bytes do not cause Fetch to auto-add text/plain like a string does.
+        body: new TextEncoder().encode(`${spec.header}
+${spec.row}`)
+      });
+
+      expect(res.status).toBe(415);
+      expect(res.headers.get("content-type")).toBe("application/problem+json");
+      const after = await db()
+        .prepare(`SELECT COUNT(*) as n FROM ${spec.table}`)
+        .first<{ n: number }>();
+      expect(after?.n).toBe(before?.n);
+    });
+
+    it.each([
+      "text/csv",
+      "Text/CSV; charset=utf-8",
+      "application/octet-stream",
+      "Application/Octet-Stream; charset=utf-8"
+    ])("imports valid CSV with Content-Type %j", async (contentType) => {
+      // Seed the FK chain required by address/container imports.
+      await db().prepare(
+        "INSERT OR REPLACE INTO customer_snapshot (customer_id, enabled, synced_at) VALUES (9001, 1, '2026-09-27T00:00:00.000Z')"
+      ).run();
+      await db().prepare(
+        "INSERT OR REPLACE INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (9001, 9001, 1, '2026-09-27T00:00:00.000Z')"
+      ).run();
+      const res = await postImport(spec.base, `${spec.header}
+${spec.row}`, {
+        "content-type": contentType
+      });
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ rowCount: 1, upserted: 1, deleted: 0 });
+      expect(await db().prepare(
+        `SELECT ${spec.pk} FROM ${spec.table} WHERE ${spec.pk} = 9001`
+      ).first()).not.toBeNull();
+    });
+
+    it("checks snapshot authentication before Content-Type", async () => {
+      const res = await postImport(spec.base, "{}", {
+        authorization: "Bearer wrong-secret",
+        "content-type": "application/json"
+      });
+      expect(res.status).toBe(401);
+    });
+
     it("rejects an empty-string body with 400, not a silent 200 zeros", async () => {
       // Act
       const res = await postImport(spec.base, "");

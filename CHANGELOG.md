@@ -11,6 +11,43 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   login inside a 60-second window; remaining waiters fail fast with the
   existing 502 instead of waiting out the budget, and a hung holder still
   sees zero takeovers.
+- TOG-9231: Snapshot CSV exports (`customer-snapshot`, `address-snapshot`,
+  `container-snapshot` `/export`) read **1000 rows per D1 query** by default
+  (was 500), and the optional plain-text `SNAPSHOT_EXPORT_PAGE_SIZE` Worker
+  variable sets the rows per read for all three tables. Decimal integers 1–5000
+  apply after surrounding whitespace is trimmed; any other set value (including an
+  unquoted TOML number, which the runtime does not deliver as text) keeps 1000 and
+  logs a warning; an unset variable keeps 1000 silently. Export bytes, ETags and `304` replies
+  are unchanged at every page size. At the measured 388,735 container rows a
+  full 200 download now costs 780 reads against the D1 1000-per-invocation cap
+  (at 500 it needed 1,558 and the body truncated mid-stream); smaller pages can
+  still exceed the budget on large tables even though memory stays bounded.
+
+- TOG-5832: R2 report archives now keep timestamp-and-UUID history CSVs with
+  per-run integrity manifests; `snapshot-latest/<table>.json` points to the
+  last fully published history object. Archive outcome `key` names history.
+  Existing date-based CSV aliases, read/restore routes and daily manifests
+  are preserved; a failed alias write is still a `failed` archive. The
+  retention document proposes 30-day history expiry; this change enables no
+  deletion or production lifecycle rule.
+
+- TOG-8894: Customer, address and container `/export` CSV escape formula-leading
+  cells (`=`, `+`, `-`, `@` and their full-width or whitespace-hidden forms) with
+  an apostrophe inside RFC 4180 quoting; plain numbers such as `-74.0060` are
+  unchanged. Cells containing `;` or a tab are now quoted as well. Each export gains
+  a `_shadow_csv_encoding` column before `synced_at` whose value is `1`; re-import
+  removes the apostrophe only from marked rows, and unmarked uploads are untouched.
+  A marked export is larger (21 header bytes, 2 bytes per row, plus escape and quote
+  bytes), so an export within that margin of the unchanged 50 MiB import cap can
+  now return 413 on direct re-import. The archived-CSV readback
+  (`/api/v1/snapshots/{table}/{date}`) is unchanged. See CUSTOMER_SNAPSHOT.md.
+
+- TOG-7595: A snapshot import body whose first header cell is wrong gets a
+  400 bad-request that names the column the header row must start with
+  (CustomerID, PickupAddressID or ContainerID) instead of the generic
+  not-valid-CSV text. Status is unchanged.
+
+- TOG-9219: Snapshot import routes (`customer-snapshot`, `address-snapshot`, `container-snapshot` `/import`) return 415 `application/problem+json` (`unsupported-media-type`) unless `Content-Type` is `text/csv` or `application/octet-stream` (case-insensitive, parameters allowed). Clients that sent CSV with no or another Content-Type must send `text/csv` or `application/octet-stream`. The 415 is returned before the body is read or D1 is written, and never echoes submitted bytes.
 
 - TOG-8375: Throttle 429s include `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS

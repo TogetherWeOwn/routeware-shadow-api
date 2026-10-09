@@ -22,6 +22,8 @@
  * in logs rather than buffering the table to pre-validate it.
  */
 
+import { logEvent } from "../logger";
+
 /**
  * Conditional reads (TOG-8879): every export also answers `If-None-Match`
  * with `304 Not Modified` and an empty body. The ETag is a content hash over
@@ -37,6 +39,14 @@
  * stale 304, at ~2^-64 per comparison — a re-download is the only cost, not
  * a correctness boundary worth a vendored incremental SHA-256.
  */
+
+import {
+  CSV_SPREADSHEET_ENCODING,
+  CSV_SPREADSHEET_ENCODING_HEADER,
+  escapeCsvCell
+} from "../csvSpreadsheet";
+
+export { escapeCsvCell } from "../csvSpreadsheet";
 
 /** One CSV column: the D1 column, its header label, and boolean rendering. */
 export type SnapshotExportColumn = {
@@ -66,12 +76,33 @@ export type SnapshotExportSpec = {
 };
 
 /**
- * Rows per D1 page. 500 keeps every page far under D1's 100-bind /
- * 100 KB-per-statement ceilings (the widest table here is 29 columns) while
- * a full-table export stays inside the ~1000-op per-invocation budget for
- * today's row counts (see CUSTOMER_SNAPSHOT.md § batch sizing).
+ * Rows per D1 read. A full-table 200 download costs `2 * (ceil(N / pageSize) + 1)`
+ * reads (the ETag prepass plus the body pass) against the ~1000-query
+ * per-invocation budget: the 388,735-row container table needs 780 reads at
+ * 1000 rows per read but 1,558 at 500, where the body truncates after the 200
+ * is sent (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
  */
-export const SNAPSHOT_EXPORT_PAGE_SIZE = 500;
+export const SNAPSHOT_EXPORT_PAGE_SIZE = 1000;
+export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
+
+/** Optional plain-text Worker binding; invalid values keep the safe default with a warning. */
+export function readSnapshotExportPageSize(env: Env): number {
+  const raw = (env as unknown as Record<string, unknown>).SNAPSHOT_EXPORT_PAGE_SIZE;
+  if (raw === undefined) {
+    return SNAPSHOT_EXPORT_PAGE_SIZE;
+  }
+  const text = typeof raw === "string" ? raw.trim() : "";
+  const size = /^[0-9]+$/.test(text) ? Number(text) : NaN;
+  if (Number.isSafeInteger(size) && size >= 1 && size <= SNAPSHOT_EXPORT_MAX_PAGE_SIZE) {
+    return size;
+  }
+  logEvent({
+    level: "warn",
+    msg: `SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`,
+    route: "snapshotExport.pageSize"
+  });
+  return SNAPSHOT_EXPORT_PAGE_SIZE;
+}
 
 export const CUSTOMER_SNAPSHOT_EXPORT: SnapshotExportSpec = {
   table: "customer_snapshot",
@@ -173,11 +204,6 @@ export function snapshotExportSpec(table: SnapshotExportTable): SnapshotExportSp
   }
 }
 
-/** RFC 4180 quoting: quote when the cell carries a comma, quote, CR or LF. */
-export function escapeCsvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 function formatCell(col: SnapshotExportColumn, value: unknown): string {
   if (value === null || value === undefined) {
     return "";
@@ -197,13 +223,16 @@ export function encodeSnapshotRow(
   spec: SnapshotExportSpec,
   row: Record<string, unknown>
 ): string {
-  return spec.columns
-    .map((c) => escapeCsvCell(formatCell(c, row[c.db])))
-    .join(",");
+  const cells = spec.columns.map((c) => escapeCsvCell(formatCell(c, row[c.db])));
+  // Every snapshot spec ends in synced_at; the marker goes just before it.
+  cells.splice(cells.length - 1, 0, CSV_SPREADSHEET_ENCODING);
+  return cells.join(",");
 }
 
 export function snapshotExportHeaderLine(spec: SnapshotExportSpec): string {
-  return spec.columns.map((c) => c.header).join(",");
+  const headers = spec.columns.map((c) => c.header);
+  headers.splice(headers.length - 1, 0, CSV_SPREADSHEET_ENCODING_HEADER);
+  return headers.join(",");
 }
 
 export type SnapshotExportPage = {
@@ -363,9 +392,10 @@ export function matchesSnapshotIfNoneMatch(
 export async function snapshotCsvResponse(
   db: D1Database,
   spec: SnapshotExportSpec,
-  ifNoneMatch?: string | null
+  ifNoneMatch?: string | null,
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
 ): Promise<Response> {
-  const etag = await snapshotExportEtag(db, spec);
+  const etag = await snapshotExportEtag(db, spec, pageSize);
   const headers = {
     "content-type": "text/csv; charset=utf-8",
     "content-disposition": `attachment; filename="${spec.filename}"`,
@@ -374,5 +404,5 @@ export async function snapshotCsvResponse(
   if (matchesSnapshotIfNoneMatch(ifNoneMatch, etag)) {
     return new Response(null, { status: 304, headers: { ETag: etag } });
   }
-  return new Response(streamSnapshotCsv(db, spec), { status: 200, headers });
+  return new Response(streamSnapshotCsv(db, spec, pageSize), { status: 200, headers });
 }

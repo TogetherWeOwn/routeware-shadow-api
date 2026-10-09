@@ -26,7 +26,7 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Bearer for `.../import`, `.../sync`, and `data-snapshot/sync` |
 | `SHADOW_API_PUBLIC_BASE` | Optional. Your Worker’s public origin (e.g. `https://name.workers.dev`, no path). **Required** for the **daily cron** to use chained per-table syncs and avoid D1’s per-invocation limit. `POST /data-snapshot/sync` from a client does **not** use this (it uses the request URL host). |
 | `SNAPSHOTS_R2_ENABLED` | Set to `"false"` to disable uploading snapshot CSVs to R2. Default is on when the R2 binding is configured. |
-| R2 `SNAPSHOTS` | Binding to an R2 bucket. After a successful D1 stream from a Routeware report, the **same** CSV bytes are written to <code>snapshots/<i>UTC-date</i>/{customer\|address\|container}.csv</code> (re-run the same day overwrites). Create the bucket: <code>npx wrangler r2 bucket create routeware-csv-snapshots</code> (see <code>wrangler.toml</code> <code>bucket_name</code>). |
+| R2 `SNAPSHOTS` | Binding to an R2 bucket. After successful D1 sync, the **same** CSV bytes are archived at a new <code>snapshot-history/<i>UTC-date</i>/<i>timestamp-UUID</i>/{customer\|address\|container}.csv</code> key with a per-run integrity manifest. The last fully published run is referenced by <code>snapshot-latest/<i>table</i>.json</code>. The existing <code>snapshots/<i>UTC-date</i>/<i>table</i>.csv</code> keys remain mutable daily aliases for read/restore compatibility. See [history and proposed retention policy](docs/R2-RETENTION.md); no deletion rule is enabled by the writer. |
 | `LOGIN_USERNAME` / `LOGIN_PASSWORD` | **Required in production** for any flow that fetches from Routeware with a **browser** session: report `QueryExecuteDownload` / `*_REPORT_EXPORT_PATH` sync, etc. In **deployed** Workers, use `wrangler secret put LOGIN_USERNAME` and `wrangler secret put LOGIN_PASSWORD` (`.dev.vars` is not uploaded with deploy). The Worker’s Browser Rendering login must set cookies `.WebRW`, `RCCApi`, and `RCCApiRefresh` on the Routeware host. If sync fails with *Authentication failed: RouteWare session cookies missing…*, the login did not complete — verify credentials, MFA, or whether the WebRW login page markup still matches the selectors in `src/lib/browserAuth.ts`. |
 
 ### Query-id mode (Killeen WebRW — client `requestID`)
@@ -149,18 +149,120 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows) |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
-| POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV |
+| POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/address-snapshot/{pickupAddressId}` | One address row |
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
-| POST | `/api/v1/address-snapshot/import` | Body = raw address CSV |
+| POST | `/api/v1/address-snapshot/import` | Body = raw address CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
 | GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
-| POST | `/api/v1/container-snapshot/import` | Body = raw container CSV |
+| POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
+
+### Spreadsheet-safe snapshot CSV exports
+
+Open these downloads as **comma-delimited CSV with double-quote text
+delimiters**. Other delimiter guesses (such as semicolon or tab) are not a
+supported spreadsheet-safety boundary; select comma explicitly when importing.
+
+All three `/export` downloads write a cell whose first non-space character is
+`=`, `+`, `-`, `@`, an apostrophe, a full-width operator, or a tab, CR or LF with
+one extra leading apostrophe inside a double-quoted CSV field. Plain numbers such
+as `-74.0060` are not prefixed. Double quotes are doubled per RFC 4180. An original
+apostrophe-leading cell receives one more apostrophe, so `=1+1` and the literal
+`'=1+1` cannot collide. Cells that contain a semicolon or a tab are quoted too, so a
+spreadsheet that guesses a different delimiter keeps them in one cell.
+
+Exports insert `_shadow_csv_encoding` before the final `synced_at`, with the value
+`1` on every row. Re-importing a row that carries that marker removes exactly one
+leading apostrophe before the existing import normalization. Unmarked Routeware CSV
+and other marker values are not decoded. Machine consumers must honor the marker
+rather than treat spreadsheet-escaped values as raw business data.
+
+Size: the marker adds 21 header bytes and 2 bytes per row. An escaped cell adds one
+apostrophe, and two quote bytes when it was not already quoted; a cell that contains
+a semicolon or tab adds two quote bytes. The export
+itself is not capped, but a direct HTTP re-import is limited to the unchanged
+**52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
+that margin of the limit can therefore fail re-import even though it was admissible
+before this encoding. No automated split-and-import path exists yet.
+
+The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) is unchanged and
+still returns the raw archived Routeware CSV; it is not spreadsheet-escaped.
+
+This follows [OWASP CSV Injection guidance](https://owasp.org/www-community/attacks/CSV_Injection)
+for text-cell escaping. It is not a promise of safety or losslessness after a
+spreadsheet saves, converts, or reopens the CSV: spreadsheet programs can strip
+escaping or alter values. Keep the original download for programmatic re-import.
+
+Re-importing a download is upsert-only and does not prune. Keep a re-import window
+away from 07:00 UTC, and avoid Routeware saves and `POST /api/v1/data/customer`,
+`/address` or `/container` writes for the affected customers until the import is
+verified. The scheduled sync (`crons` in `wrangler.toml`, `0 7 * * *` UTC) and those
+writes reconcile rows to the upstream report and can delete rows it does not report.
+
+### CSV export page sizing
+
+The three `GET ...-snapshot/export` routes default to **1000 rows per D1 read**.
+Set the optional plain-text **`SNAPSHOT_EXPORT_PAGE_SIZE`** Worker variable to
+change that limit for all three tables, for example:
+
+```toml
+[vars]
+SNAPSHOT_EXPORT_PAGE_SIZE = "50"
+```
+
+Merge this entry into the existing `[vars]` block, not a second block. For a named
+Wrangler environment, put it in that environment's `[env.<name>.vars]` block:
+[variables are not inherited](https://developers.cloudflare.com/workers/configuration/environment-variables/#environment-variables-via-wrangler).
+Quote the value: the binding is read as text, so an unquoted TOML number is
+ignored and the default applies. Only decimal integer strings **1–5000**
+are accepted; surrounding whitespace is trimmed. Missing, blank, fractional,
+signed, non-decimal or out-of-range values fall back to **1000** (no error and
+no unbounded query; a present but invalid value logs a warning). Remove the variable to restore the default. It does not
+change list pagination, sync/upsert batch sizes, CSV bytes, ETags, `304` replies,
+ordering, quoting, filenames or authorization.
+
+- **Memory:** lower the size for wide text-heavy rows. Each read remains
+  `LIMIT`-bounded and the stream queues at most one page ahead of the consumer;
+  it never accumulates the full export. The cap bounds rows, not bytes: row width
+  and concurrent requests still matter under the
+  [128 MB per-isolate limit](https://developers.cloudflare.com/workers/platform/limits/#memory).
+  At 4 KB rows, a 1000-row default page is about 4 MB of CSV text and the 5000-row
+  maximum about 20 MB. Each page is held as row objects, a joined string and an
+  encoded chunk at once, so peak memory is a multiple of that size plus row-object
+  overhead; keep overrides for wide tables near the default.
+- **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
+  D1 reads (including the final empty read). Every export also runs a content-hash
+  ETag prepass (TOG-8879) over the same pages before the body, so a `200` download
+  costs **twice** that number and a conditional `304` costs one pass. Leave room for
+  other queries/subrequests under
+  [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
+  (**1000 Paid / 50 Free**). Smaller pages can exhaust this budget even though
+  memory remains bounded. At the measured 388,735 container rows (see
+  § batch sizing), the 1000 default needs **390 reads per pass (780 for both
+  passes)**, inside the cap with headroom to about 499,000 rows; 500 would need
+  **779 per pass (1,558 both)** and the body would truncate mid-stream after the
+  200 is sent, while 50 needs **7,776 per pass**: use 50 only for smaller
+  tables/test fixtures, not that full production table. Larger pages reduce reads
+  at a memory cost; choose against the largest/widest table since this variable
+  applies to all three.
+
+Acceptance/regression:
+
+```sh
+npm test -- test/snapshotCsvExport.test.ts test/snapshotExportRoundTrip.test.ts test/shadowSyncExportRoundTrip.test.ts
+```
+
+The suite compares complete export bytes and ETags at 50 and the 1000 default on
+every table, answers `304` at 50 for the default tag, compares the real local D1
+customer export at both sizes, checks the 200 read formula against the D1 budget at
+the measured row counts (real call counts are pinned at small row counts), and drains a lazy wide-row fixture without collecting
+the whole body to pin backpressure/page bounds. No live production export is needed
+to verify the setting.
 
 ### D1: “Too many API requests by single Worker invocation”
 

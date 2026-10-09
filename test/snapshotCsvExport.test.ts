@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import {
   ADDRESS_SNAPSHOT_EXPORT,
@@ -8,9 +8,11 @@ import {
   encodeSnapshotRow,
   escapeCsvCell,
   matchesSnapshotIfNoneMatch,
+  readSnapshotExportPageSize,
   snapshotExportEtag,
   snapshotExportHeaderLine,
   snapshotExportSpec,
+  streamSnapshotCsv,
   type SnapshotExportSpec
 } from "../src/lib/snapshot/export";
 import { ensureD1TestTables } from "./d1TestMigrations";
@@ -88,10 +90,11 @@ function fakeExportDb(rows: Array<Record<string, unknown>>, pk: string): {
   return { db: db as unknown as D1Database, calls };
 }
 
-function makeEnv(db: D1Database): Env {
+function makeEnv(db: D1Database, pageSize?: unknown): Env {
   return {
     CUSTOMER_DB: db,
-    CUSTOMER_SNAPSHOT_SYNC_SECRET: SECRET
+    CUSTOMER_SNAPSHOT_SYNC_SECRET: SECRET,
+    SNAPSHOT_EXPORT_PAGE_SIZE: pageSize
   } as unknown as Env;
 }
 
@@ -100,7 +103,8 @@ async function callExport(
   path: string,
   db: D1Database,
   token: string | null = SECRET,
-  ifNoneMatch?: string
+  ifNoneMatch?: string,
+  pageSize?: unknown
 ): Promise<Response> {
   const headers = new Headers();
   if (token !== null) {
@@ -109,7 +113,9 @@ async function callExport(
   if (ifNoneMatch !== undefined) {
     headers.set("if-none-match", ifNoneMatch);
   }
-  return routes.fetch(new Request(`http://test.local${path}`, { headers }), makeEnv(db), ctx);
+  return routes.fetch(
+    new Request(`http://test.local${path}`, { headers }), makeEnv(db, pageSize), ctx
+  );
 }
 
 /** Drain a response body chunk by chunk, preserving chunk boundaries. */
@@ -215,16 +221,16 @@ type Spec = {
 
 const CUSTOMER_HEADER =
   "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix," +
-  "CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at";
+  "CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,_shadow_csv_encoding,synced_at";
 const ADDRESS_HEADER =
   "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments," +
-  "ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at";
+  "ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,_shadow_csv_encoding,synced_at";
 const CONTAINER_HEADER =
   "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked," +
   "Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote," +
   "UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD," +
   "UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType," +
-  "ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at";
+  "ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,_shadow_csv_encoding,synced_at";
 
 const SPECS: Spec[] = [
   {
@@ -241,8 +247,8 @@ const SPECS: Spec[] = [
       customerRow(2, null, 0)
     ],
     edgeLines: [
-      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,${SYNCED_AT}`,
-      `2,,,,,,,,,,,,false,${SYNCED_AT}`
+      `1,,"Acme, ""Quoted"" Co\nLine 2",,,,,,,,,,true,1,${SYNCED_AT}`,
+      `2,,,,,,,,,,,,false,1,${SYNCED_AT}`
     ]
   },
   {
@@ -256,7 +262,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => addressRow(i + 1)),
     edgeRows: [addressRow(1)],
     edgeLines: [
-      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,${SYNCED_AT}`
+      `1,1,,1 Main St,Killeen,TX,76541,,,false,true,,,,,1,${SYNCED_AT}`
     ]
   },
   {
@@ -270,7 +276,7 @@ const SPECS: Spec[] = [
     seed: (n) => Array.from({ length: n }, (_, i) => containerRow(i + 1)),
     edgeRows: [containerRow(1)],
     edgeLines: [
-      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,${SYNCED_AT}`
+      `1,1,,SN-1,,false,,false,,,true,1 Main St,Killeen,TX,76541,,,,,,,,,,,,,,1,${SYNCED_AT}`
     ]
   }
 ];
@@ -295,10 +301,9 @@ describe("snapshotExportSpec", () => {
     expect(snapshotExportSpec("container")).toBe(CONTAINER_SNAPSHOT_EXPORT);
   });
 
-  it("publishes the canonical import header plus synced_at on every table", () => {
-    // The export must paste back into `...-snapshot/import`: every import
-    // header column is present under the same name (synced_at is extra and
-    // ignored by the row parsers, which look columns up by name).
+  it("publishes the canonical import header plus export metadata on every table", () => {
+    // Every business column retains its import name. synced_at is ignored;
+    // the encoding marker opts re-import into spreadsheet-prefix decoding.
     expect(snapshotExportHeaderLine(CUSTOMER_SNAPSHOT_EXPORT)).toBe(CUSTOMER_HEADER);
     expect(snapshotExportHeaderLine(ADDRESS_SNAPSHOT_EXPORT)).toBe(ADDRESS_HEADER);
     expect(snapshotExportHeaderLine(CONTAINER_SNAPSHOT_EXPORT)).toBe(CONTAINER_HEADER);
@@ -309,7 +314,49 @@ describe("snapshotExportSpec", () => {
     const line = encodeSnapshotRow(CUSTOMER_SNAPSHOT_EXPORT, customerRow(9, null, 0));
 
     // Assert
-    expect(line).toBe(`9,,,,,,,,,,,,false,${SYNCED_AT}`);
+    expect(line).toBe(`9,,,,,,,,,,,,false,1,${SYNCED_AT}`);
+  });
+});
+
+function readPageSizeQuietly(raw: unknown): { size: number; warnings: number } {
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const size = readSnapshotExportPageSize(makeEnv({} as D1Database, raw));
+    return { size, warnings: warn.mock.calls.length };
+  } finally {
+    warn.mockRestore();
+  }
+}
+
+describe("readSnapshotExportPageSize", () => {
+  it.each([
+    ["1", 1], ["50", 50], ["500", 500], ["1000", 1000], ["5000", 5000], [" 50 \n", 50]
+  ])("accepts %j as %i rows", (raw, expected) => {
+    expect(readPageSizeQuietly(raw)).toEqual({ size: expected, warnings: 0 });
+  });
+
+  it.each([
+    undefined, null, "", "   ", "0", "5001", "-1", "+50", "1.5", "50.0",
+    "1e2", "0x32", "50rows", "NaN", "Infinity", "9007199254740993", "１２",
+    "5 0", 50, true, {}, [[]]
+  ])("falls back to 1000 for %j", (raw) => {
+    expect(readPageSizeQuietly(raw)).toEqual({
+      size: 1000,
+      warnings: raw === undefined ? 0 : 1
+    });
+  });
+
+  it("checks the 200 read formula against the D1 budget at measured row counts", () => {
+    // 2026-09-27 counts (CUSTOMER_SNAPSHOT.md § batch sizing): customer
+    // 109,894, address 111,620, container 388,735 rows. A 200 costs two
+    // passes of ceil(N / pageSize) + 1 reads against the 1000-query cap, so
+    // this fails if the default ever drops back below the budget (at 500 the
+    // container needs 1,558 reads and the body truncates mid-stream).
+    const reads = (rows: number) =>
+      2 * (Math.ceil(rows / SNAPSHOT_EXPORT_PAGE_SIZE) + 1);
+    expect(reads(109_894)).toBeLessThanOrEqual(1000);
+    expect(reads(111_620)).toBeLessThanOrEqual(1000);
+    expect(reads(388_735)).toBeLessThanOrEqual(1000);
   });
 });
 
@@ -382,6 +429,58 @@ describe.each(SPECS)("$name export route", (spec) => {
     for (const call of calls) {
       expect(call.sql).not.toContain("OFFSET");
     }
+  });
+
+  it("exports identical bytes at env page size 50 and the 1000 default", async () => {
+    const rows = spec.seed(1253);
+    const textColumn = spec.name === "customer" ? "company_name"
+      : spec.name === "address" ? "address" : "container_note";
+    rows[49]![textColumn] = 'Unicode Ω, "quoted"\r\nsecond line';
+    rows[500]![textColumn] = null;
+    const smaller = fakeExportDb(rows, spec.pk);
+    const standard = fakeExportDb(rows, spec.pk);
+
+    const at50 = await callExport(spec.routes, spec.path, smaller.db, SECRET, undefined, "50");
+    const atDefault = await callExport(spec.routes, spec.path, standard.db);
+    expect(at50.status).toBe(200);
+    expect(atDefault.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(atDefault.headers.get("etag"));
+    expect(new Uint8Array(await at50.arrayBuffer())).toEqual(
+      new Uint8Array(await atDefault.arrayBuffer())
+    );
+    expect(smaller.calls).toHaveLength(2 * (Math.ceil(rows.length / 50) + 1));
+    expect(standard.calls).toHaveLength(2 * (Math.ceil(rows.length / 1000) + 1));
+    for (const call of smaller.calls) {
+      expect(call.sql).toContain("LIMIT ?");
+      expect(call.binds.at(-1)).toBe(50);
+    }
+    for (const call of standard.calls) {
+      expect(call.binds.at(-1)).toBe(1000);
+    }
+  });
+
+  it("answers If-None-Match with 304 at env page size 50 for the default tag", async () => {
+    const rows = spec.seed(120);
+    const first = await callExport(spec.routes, spec.path, fakeExportDb(rows, spec.pk).db);
+    const etag = first.headers.get("etag")!;
+    await first.text();
+
+    const res = await callExport(
+      spec.routes, spec.path, fakeExportDb(rows, spec.pk).db, SECRET, etag, "50"
+    );
+
+    expect(res.status).toBe(304);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe("");
+  });
+
+  it("uses bounded default reads when the env override is invalid", async () => {
+    const { db, calls } = fakeExportDb(spec.seed(SNAPSHOT_EXPORT_PAGE_SIZE + 1), spec.pk);
+    const res = await callExport(spec.routes, spec.path, db, SECRET, undefined, "-1");
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(calls).toHaveLength(6);
+    expect(calls.every((call) => call.binds.at(-1) === SNAPSHOT_EXPORT_PAGE_SIZE)).toBe(true);
   });
 
   it("escapes cells and renders booleans on the wire", async () => {
@@ -542,6 +641,63 @@ describe("matchesSnapshotIfNoneMatch", () => {
   });
 });
 
+describe("export page memory/backpressure bound", () => {
+  it("drains a lazy wide-row table larger than 128 MB with at most one page prefetched", async () => {
+    const total = 8001;
+    const pageSize = 50;
+    const wide = "x".repeat(20_000);
+    let reads = 0;
+    let maxRows = 0;
+    const db = {
+      prepare(sql: string) {
+        expect(sql).toContain("LIMIT ?");
+        return {
+          bind(...binds: unknown[]) {
+            return {
+              async all() {
+                reads++;
+                const limit = binds.at(-1) as number;
+                expect(limit).toBe(pageSize);
+                const after = binds.length > 1 ? binds[0] as number : 0;
+                const count = Math.max(0, Math.min(limit, total - after));
+                maxRows = Math.max(maxRows, count);
+                return {
+                  results: Array.from({ length: count }, (_, i) =>
+                    customerRow(after + i + 1, wide))
+                };
+              }
+            };
+          }
+        };
+      }
+    } as unknown as D1Database;
+    const stream = streamSnapshotCsv(
+      db, CUSTOMER_SNAPSHOT_EXPORT, readSnapshotExportPageSize(makeEnv(db, "50"))
+    );
+    const reader = stream.getReader();
+    const header = await reader.read();
+    expect(new TextDecoder().decode(header.value)).toBe(`${CUSTOMER_HEADER}\n`);
+    const maxChunkBytes = pageSize * new TextEncoder().encode(
+      encodeSnapshotRow(CUSTOMER_SNAPSHOT_EXPORT, customerRow(total, wide)) + "\n"
+    ).byteLength;
+    let chunks = 0;
+    let bytes = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks++;
+      bytes += value.byteLength;
+      expect(value.byteLength).toBeLessThanOrEqual(maxChunkBytes);
+      await Promise.resolve();
+      expect(reads).toBeLessThanOrEqual(chunks + 1);
+    }
+    expect(bytes).toBeGreaterThan(128 * 1024 * 1024);
+    expect(maxRows).toBe(pageSize);
+    expect(chunks).toBe(Math.ceil(total / pageSize));
+    expect(reads).toBe(chunks + 1);
+  }, 30_000);
+});
+
 describe("export end to end through the real app and D1", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
@@ -637,6 +793,27 @@ describe("export end to end through the real app and D1", () => {
     expect(replay.status).toBe(304);
     expect(replay.headers.get("etag")).toBe(etag);
     expect(await replay.text()).toBe("");
+  });
+
+  it("exports identical full local D1 bytes with env page size 50 and 1000", async () => {
+    const db = realDb();
+    const before = await db.prepare("SELECT COUNT(*) as n FROM customer_snapshot").first<{ n: number }>();
+    expect(before).not.toBeNull();
+    for (let start = 0; start < 521; start += 50) {
+      await db.batch(Array.from({ length: Math.min(50, 521 - start) }, (_, i) =>
+        db.prepare(
+          "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, ?, ?, ?)"
+        ).bind(100_000 + start + i, `Local Ω ${start + i}, "quoted"`, i % 2, SYNCED_AT)
+      ));
+    }
+    const at50 = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db, SECRET, undefined, "50");
+    const atDefault = await callExport(customerSnapshotRoutes, SPECS[0]!.path, db);
+    expect(at50.status).toBe(200);
+    expect(atDefault.status).toBe(200);
+    expect(at50.headers.get("etag")).toBe(atDefault.headers.get("etag"));
+    const bytes50 = new Uint8Array(await at50.arrayBuffer());
+    expect(bytes50).toEqual(new Uint8Array(await atDefault.arrayBuffer()));
+    expect(new TextDecoder().decode(bytes50).split("\n")).toHaveLength(before!.n + 521 + 2);
   });
 
   it("rejects the app token (not the sync secret) on exports", async () => {

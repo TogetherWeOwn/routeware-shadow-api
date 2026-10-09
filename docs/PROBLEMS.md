@@ -13,10 +13,11 @@ section below.
 | `method-not-allowed` | 405 | <a name="method-not-allowed"></a>The upstream does not support the HTTP method (e.g. customer hard delete). |
 | `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
 | `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
+| `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
-| `internal` | 500 | <a name="internal"></a>An unexpected error. Details are logged, not returned. |
+| `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
 ## CSV control characters (`bad-request`)
 
@@ -188,9 +189,10 @@ so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
 Throttle storage errors fail open to the pre-throttle 401 behavior — auth
-stays enforced, only the counting degrades. Each fail-open logs exactly one
-`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
-is a fixed category, never IP/token/PII). Operator alarm path — log query +
+stays enforced, only the counting degrades. Fail-opens log at most one
+structured error event per isolate per 60-second window: `msg` is always
+`AUTH THROTTLE FAIL-OPEN`, and a separate fixed-category `reason` field names
+the failure class (never IP/token/PII). Operator alarm path — log query +
 alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
@@ -363,6 +365,17 @@ counter that rejects the same way without buffering the file. The limit
 covers operator uploads only — the report `sync` path is uncapped (upstream
 export size is the operator's own config) — and a rejected import never
 touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
+
+## Unsupported snapshot import media type (`unsupported-media-type`)
+
+`POST /api/v1/{customer,address,container}-snapshot/import` accepts raw CSV
+bytes with `Content-Type: text/csv` or `application/octet-stream` (media types
+are case-insensitive; parameters such as `charset=utf-8` are allowed). A request
+with a body and any other or missing media type returns 415
+`application/problem+json` after snapshot authentication, the size check and the
+empty-body check, and before the body is read or D1 is changed. A POST with no
+body keeps its 400 empty-body response. The response uses a fixed detail and
+does not echo submitted bytes. Pinned by `test/snapshotImportEdges.test.ts`.
 
 ## Query-param allowlist (load-long-modal probe)
 

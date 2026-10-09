@@ -306,14 +306,25 @@ describe("throttle fail-open paths", () => {
   // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
   // so reading `console.error` back does not return the installed spy (same
   // pattern as test/dataEntityPostHandlers.test.ts).
-  const loggedErrors: unknown[][] = [];
+  // The logger emits one structured object per event (`console.error(record)`),
+  // so capture the first argument rather than the whole argument list.
+  const loggedErrors: Record<string, unknown>[] = [];
   const realConsoleError = console.error;
+
+  // Exact shape `logEvent` (src/lib/logger.ts) emits for a fail-open.
+  const failOpenEvent = (reason: string) => ({
+    level: "error",
+    msg: "AUTH THROTTLE FAIL-OPEN",
+    route: "authThrottle.failOpen",
+    reason,
+    ms: null
+  });
 
   beforeEach(() => {
     resetAuthThrottleFailOpenLogForTests();
     loggedErrors.length = 0;
     console.error = (...args: unknown[]) => {
-      loggedErrors.push(args);
+      loggedErrors.push(args[0] as Record<string, unknown>);
     };
   });
 
@@ -406,8 +417,9 @@ describe("throttle fail-open paths", () => {
       expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
     }
 
-    // Assert — exactly one line, fixed category, no IP/token/PII.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+    // Assert — exactly one event, fixed category, no IP/token/PII (the object
+    // has no field that could carry one).
+    expect(loggedErrors).toEqual([failOpenEvent("do_error")]);
   });
 
   it("logs non-OK and malformed fail-opens once per window, then again after the window", async () => {
@@ -422,16 +434,16 @@ describe("throttle fail-open paths", () => {
     await recordAuthFailure(badStatus, req, now);
     await recordAuthFailure(malformed, req, now + 1);
 
-    // Assert — the first line wins; the second is deduped within the window.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"]]);
+    // Assert — the first event wins; the second is deduped within the window.
+    expect(loggedErrors).toEqual([failOpenEvent("do_non_ok status=500")]);
 
     // Act — past the window edge the alarm fires again.
     await recordAuthFailure(malformed, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
 
     // Assert
     expect(loggedErrors).toEqual([
-      ["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"],
-      ["AUTH THROTTLE FAIL-OPEN do_malformed"]
+      failOpenEvent("do_non_ok status=500"),
+      failOpenEvent("do_malformed")
     ]);
   });
 });

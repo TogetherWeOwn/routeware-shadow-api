@@ -645,8 +645,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at
-10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,2026-01-01T00:00:00.000Z
+                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,_shadow_csv_encoding,synced_at
+10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -670,7 +670,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/import": {
       "post": {
-        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -690,6 +690,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date
 10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,",
@@ -736,6 +741,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import address CSV body into D1",
@@ -1044,8 +1052,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at
-100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,2026-01-01T00:00:00.000Z
+                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,_shadow_csv_encoding,synced_at
+100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1069,7 +1077,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/import": {
       "post": {
-        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -1089,6 +1097,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote
 100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,",
@@ -1135,6 +1148,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import container CSV into D1",
@@ -1285,7 +1301,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
+        "operationId": "listCustomerSnapshot",
         "parameters": [
           {
             "in": "query",
@@ -1332,7 +1349,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
-              "example": 50,
+              "example": 10,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -1501,8 +1518,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at
-345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,2026-01-01T00:00:00.000Z
+                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,_shadow_csv_encoding,synced_at
+345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1548,6 +1565,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled
 123,,Co 123,Jane,,Doe,,,,,,,true",
@@ -1594,6 +1616,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import CSV body into D1",
@@ -2531,11 +2556,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/health": {
       "get": {
-        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`.",
+        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`. **Try it:** select Test Request and Send; no Authorization header or request body is needed.",
+        "operationId": "health",
         "responses": {
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "service": "routeware-shadow-api",
+                  "status": "ok",
+                  "version": "1.0.0",
+                },
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse",
                 },
@@ -3365,7 +3396,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/snapshots/{table}/{date}": {
       "get": {
-        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh \`...-snapshot/export\` to verify an archive before recovery.",
+        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators compare the download with a fresh \`...-snapshot/export\` to verify an archive before recovery; the export adds the \`_shadow_csv_encoding\` column and spreadsheet escapes, so compare business values rather than bytes.",
         "parameters": [
           {
             "in": "path",

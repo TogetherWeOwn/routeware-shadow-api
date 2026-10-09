@@ -255,6 +255,37 @@ describe("refreshAfterRoutewareSave", () => {
     expect(calls.graph).toEqual([]);
   });
 
+  it("names the error class when the container owner lookup throws before any sync", async () => {
+    // Arrange — the D1 lookup itself fails.
+    const env = {
+      CUSTOMER_DB: {
+        prepare() {
+          throw new TypeError("D1 lookup failed");
+        }
+      }
+    } as unknown as Env;
+
+    // Act
+    await refreshAfterRoutewareSave(
+      env,
+      sessionStub,
+      "container",
+      formBody({ PickupAddressID: "10" }),
+      '{"success":true}'
+    );
+
+    // Assert — no sync ran; the record carries the class, never the message.
+    expect(calls.synced).toEqual([]);
+    expect(loggedErrors.map((args) => args[0])).toContainEqual(
+      expect.objectContaining({
+        msg: "Post-save refresh failed",
+        entity: "container",
+        kind: "TypeError"
+      })
+    );
+    expect(JSON.stringify(loggedErrors)).not.toContain("D1 lookup failed");
+  });
+
   it("falls back to single-entity eviction when the D1 sync throws, and never rejects", async () => {
     // Arrange — the graph ids are unknown when the sync throws.
     behavior.syncError = "D1_ERROR: no such table";
@@ -274,7 +305,13 @@ describe("refreshAfterRoutewareSave", () => {
       { kind: "customer", id: 5 },
       { kind: "address", id: 10 }
     ]);
-    expect(loggedErrors.length).toBeGreaterThanOrEqual(1);
+    expect(loggedErrors.map((args) => args[0])).toContainEqual(
+      expect.objectContaining({
+        msg: "Post-save snapshot sync failed; evicting affected cache keys",
+        entity: "address",
+        kind: "Error"
+      })
+    );
   });
 
   it("falls back to the customer plus the posted container when the container sync throws", async () => {

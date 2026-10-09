@@ -1,5 +1,6 @@
 import { CsvControlCharacterError } from "../lib/csvParse";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { InvalidSnapshotCsvError } from "../lib/snapshot/streamSync";
 
 /**
  * Edge guards for the `...-snapshot/import` routes (TOG-6279), kept in their
@@ -14,6 +15,26 @@ export type SnapshotImportGuardInput = {
   /** Value of the `Content-Length` header, or `null` when absent. */
   contentLength: string | null;
 };
+
+/** Reject non-CSV media types before reading the body or writing D1. */
+export function rejectUnsupportedSnapshotImportContentType(
+  input: { url: string; contentType: string | null },
+  env?: Env
+): Response | null {
+  // Media types are case-insensitive and may carry parameters (RFC 9110 §8.3.1).
+  const mediaType = input.contentType?.split(";", 1)[0].trim().toLowerCase();
+  if (mediaType === "text/csv" || mediaType === "application/octet-stream") {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("unsupported-media-type", env),
+    title: "Unsupported Media Type",
+    status: 415,
+    detail:
+      "Snapshot import requires Content-Type: text/csv or application/octet-stream. See docs/PROBLEMS.md#unsupported-media-type.",
+    instance: new URL(input.url).pathname
+  });
+}
 
 /**
  * Fail-fast size guard: when the declared `Content-Length` exceeds
@@ -80,9 +101,13 @@ export function mapSnapshotImportError(
       status: 400,
       detail: e instanceof CsvControlCharacterError
         ? `CSV row ${e.rowNumber} contains a disallowed control character. See docs/PROBLEMS.md#bad-request.`
-        : "Snapshot import body is not valid CSV. See docs/PROBLEMS.md#bad-request.",
+        : `${invalidCsvMessage(e)} See docs/PROBLEMS.md#bad-request.`,
       instance: new URL(url).pathname
     });
   }
   return null;
+}
+
+function invalidCsvMessage(e: unknown): string {
+  return (e instanceof InvalidSnapshotCsvError && e.clientMessage) || "Snapshot import body is not valid CSV.";
 }
