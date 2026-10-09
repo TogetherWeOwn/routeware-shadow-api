@@ -5,6 +5,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 const FOREIGN_ORIGIN = "https://app.example.com";
 
+const PREFLIGHT_ROUTES: ReadonlyArray<{ method: string; path: string }> = [
+  { method: "GET", path: "/api/v1/shadow/health" },
+  { method: "GET", path: "/api/v1/readiness" },
+  { method: "GET", path: "/api/v1/routeware/account/login-page" },
+  { method: "POST", path: "/api/v1/routeware/data/app-settings-get" },
+  { method: "GET", path: "/api/v1/routeware/reports/query-request-is-complete" },
+  { method: "POST", path: "/api/v1/routeware/customer/save-long-form" },
+  { method: "DELETE", path: "/api/v1/routeware/customer" },
+  { method: "POST", path: "/api/v1/routeware/address/save-address-form" },
+  { method: "POST", path: "/api/v1/routeware/container/save-container-form" },
+  { method: "POST", path: "/api/v1/data/container" },
+  { method: "GET", path: "/api/v1/customer-snapshot/changes" },
+  { method: "POST", path: "/api/v1/customer-snapshot/import" },
+  { method: "POST", path: "/api/v1/address-snapshot/import" },
+  { method: "GET", path: "/api/v1/container-snapshot/export" },
+  { method: "POST", path: "/api/v1/data-snapshot/sync" },
+  { method: "GET", path: "/api/v1/data-snapshot/orphans" },
+  { method: "GET", path: "/api/v1/snapshots/customer/2026-10-01" }
+];
+
 /**
  * Call the Worker through the same `exports.default.fetch()` surface the
  * acceptance check uses. Adds `Authorization: Bearer <token>` unless `token`
@@ -196,5 +216,30 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
     expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  describe.each(PREFLIGHT_ROUTES)("preflight $method $path", ({ method, path }) => {
+    it("answers without a token with 204, CORS and hardening headers", async () => {
+      const response = await call(
+        path,
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": method,
+            "Access-Control-Request-Headers": "authorization, content-type"
+          }
+        },
+        null
+      );
+      expect(response.status).toBe(204);
+      expect(response.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+      expect(response.headers.get("access-control-allow-methods")).toContain(method);
+      expect(response.headers.get("access-control-allow-methods")).toContain("OPTIONS");
+      expect(response.headers.get("access-control-allow-headers")).toMatch(/authorization/i);
+      expect(response.headers.get("access-control-max-age")).toBe("86400");
+      expect(response.headers.get("access-control-allow-credentials")).toBeNull();
+      expectHardened(response);
+    });
   });
 });
