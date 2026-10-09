@@ -17,6 +17,7 @@
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
+    "snapshot:split-import": "node scripts/split-and-import-snapshot.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
     "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",

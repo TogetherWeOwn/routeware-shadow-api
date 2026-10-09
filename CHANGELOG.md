@@ -15,6 +15,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - TOG-8895: Snapshot CSV imports reject NUL/control characters and lone CR
   cell content before D1 binding, with a PII-free row-numbered 400. Upstream
   report sync parsing stays permissive; earlier valid import batches may remain.
+- TOG-18867: Oversized marked snapshot exports round-trip through one supported
+  entry point, `node scripts/split-and-import-snapshot.mjs` (a CLI, not a
+  route): it splits the original download into at most 5 MiB / 500-row parts
+  repeating the complete header and marker, validates all parts before
+  uploading any, then POSTs them sequentially in order. The HTTP 50 MiB cap
+  and the marker format are unchanged (see CUSTOMER_SNAPSHOT.md).
 - TOG-8877: `GET /api/v1/customer-snapshot/changes` incremental-sync feed —
   rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. A
   bare `since` replays every later run whole; chunked deltas page with the

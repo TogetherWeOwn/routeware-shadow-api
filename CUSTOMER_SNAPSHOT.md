@@ -227,6 +227,19 @@ helper emits 12 admissible parts while preserving all 6,000 decoded rows
 (`test/snapshotExportImportBatches.test.ts`). This is a bounded recovery path,
 not a promise that every uncapped export can be imported as one request.
 
+The one supported entry point for this recovery is the CLI (not a route — the
+50 MiB server cap is unchanged, every part is its own Worker invocation with
+its own D1 budget, and no new network surface is added):
+
+`node scripts/split-and-import-snapshot.mjs --table=container --file=./export.csv --base-url=<worker-origin>`
+
+It streams the file into bounded part files (never the whole export in memory),
+validates ALL parts (byte size, row count, header identity) before uploading
+ANY, then POSTs parts sequentially in order; `--dry-run` prints the part plan
+without uploading. Only `CUSTOMER_SNAPSHOT_SYNC_SECRET` authorizes imports.
+Byte-for-byte parity with the server helper is pinned by
+`test/snapshotSplitImport.test.ts`.
+
 ### D1: “Too many API requests by single Worker invocation”
 
 Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). This project uses **multi-row `INSERT` statements** (up to the 100 bound-parameter cap) to pack many CSV rows per statement.
