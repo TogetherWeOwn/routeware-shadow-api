@@ -65,6 +65,19 @@ async function storeThenExpire(stub: DurableObjectStub) {
   await vi.advanceTimersByTimeAsync(1);
 }
 
+/**
+ * Acquire the refresh lock through the stub and return its ownership token
+ * (TOG-18959). Holder-only releases (`releaseRefreshLock`, the holder's
+ * `storeSession`) must present this token.
+ */
+async function acquire(stub: DurableObjectStub): Promise<string> {
+  const response = await stub.fetch("https://auth/lock");
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
+}
+
 const invalidExpiries = [
   { label: "expired", expiry: () => Date.now() - 1 },
   { label: "exact expiry boundary", expiry: () => Date.now() },
@@ -101,14 +114,14 @@ describe("concurrent refresh requires a validated unexpired session", () => {
     const { stub, values, fetch } = harness();
     await storeThenExpire(stub);
     values.set("expiresAtMs", expiry());
-    await stub.fetch("https://auth/lock");
+    const lockToken = await acquire(stub);
     let completed = false;
     const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
       () => { completed = true; return null; },
       (err: unknown) => { completed = true; return err; }
     );
     await vi.advanceTimersByTimeAsync(0);
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, lockToken);
     await vi.advanceTimersByTimeAsync(500);
     expect(completed).toBe(false);
     await vi.advanceTimersByTimeAsync(1499);
@@ -158,11 +171,11 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   it("accepts a later valid publication without extending the original deadline", async () => {
     const { stub } = harness();
     await storeThenExpire(stub);
-    await stub.fetch("https://auth/lock");
+    const lockToken = await acquire(stub);
     let completed = false;
     const pending = waitForConcurrentRefresh(stub, 2000, 500).then(() => { completed = true; });
     await vi.advanceTimersByTimeAsync(0);
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, lockToken);
     await vi.advanceTimersByTimeAsync(1500);
     expect(completed).toBe(false);
     await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
@@ -174,10 +187,11 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   it("all real establishSession waiters reuse one publication without logging in", async () => {
     const { stub, fetch } = harness();
     await storeThenExpire(stub);
-    await stub.fetch("https://auth/lock");
+    const lockToken = await acquire(stub);
     const pending = Promise.all(Array.from({ length: 3 }, () => establishSession(env, stub, env.LOGIN_URL)));
     await vi.advanceTimersByTimeAsync(0);
-    await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
+    // The test acts as the holder publishing: its token releases its own lock.
+    await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000, lockToken);
     await vi.advanceTimersByTimeAsync(500);
     await pending;
 
@@ -195,7 +209,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       const remainingMs = leg === "proactive" ? 1000 : 61_000;
       const expiresAtMs = Date.now() + remainingMs;
       await storeSession(stub, COOKIE, expiresAtMs);
-      await stub.fetch("https://auth/lock");
+      const lockToken = await acquire(stub);
       const seenCookies: string[] = [];
       const forwardTimes: number[] = [];
       const upstream = vi.fn(async (_input: unknown, init?: RequestInit) => {
@@ -217,7 +231,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       expect(seenCookies).toEqual(leg === "reactive" ? [COOKIE] : []);
       await vi.advanceTimersByTimeAsync(remainingMs);
       expect(Date.now()).toBe(expiresAtMs);
-      await releaseRefreshLock(stub);
+      await releaseRefreshLock(stub, lockToken);
       // Covers both the inherited 20s budget and current main's unchanged 90s budget.
       await vi.advanceTimersByTimeAsync(120_000);
       const result = await settled;

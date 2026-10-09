@@ -32,9 +32,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  */
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000, lockToken);
   })
 }));
 

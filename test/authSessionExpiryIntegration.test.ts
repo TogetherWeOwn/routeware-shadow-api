@@ -8,11 +8,11 @@ const RENEWED_COOKIE = ".WebRW=SYNTHETIC-INTEGRATION-RENEWAL-NOT-A-CREDENTIAL";
 
 // Real publication/lock helpers; only the credential-consuming login is synthetic.
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: async (env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: async (env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     auth.attempts += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
     const { sessionExpiryMs } = await import("../src/lib/sessionState");
-    await storeSession(stub, RENEWED_COOKIE, sessionExpiryMs(env));
+    await storeSession(stub, RENEWED_COOKIE, sessionExpiryMs(env), lockToken);
   }
 }));
 vi.mock("../src/lib/browserAuth", () => ({
@@ -20,7 +20,19 @@ vi.mock("../src/lib/browserAuth", () => ({
 }));
 
 import { establishSession } from "../src/lib/establishSession";
+import { releaseRefreshLock } from "../src/lib/sessionRefreshLock";
 import { fetchGetCustomerDetailFull } from "../src/lib/detailFullSync";
+
+/** Must match LOCK_TTL_MS in src/authSession.do.ts. */
+const LOCK_TTL_MS = 120_000;
+
+async function acquireToken(stub: DurableObjectStub, path = "/lock"): Promise<string> {
+  const response = await stub.fetch(`https://auth${path}`);
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
+}
 
 const env = {
   AUTH_MODE: "http",
@@ -115,6 +127,29 @@ describe("AuthSession expiry at publication and post-save detail refresh", () =>
     expect(h.values.get("refreshing")).toBe(true);
     expect(h.values.get("lockedAt")).toBe(expiresAtMs);
     expect((await h.session.fetch(new Request("https://auth/lock"))).status).toBe(423);
+  });
+
+  it("a superseded holder's late unlock cannot release the live holder's lock (TOG-18959)", async () => {
+    const h = await harness();
+    // Arrange — holder A acquires, then crashes without unlocking.
+    const tokenA = await acquireToken(h.stub);
+    expect(h.values.get("refreshing")).toBe(true);
+
+    // Act — past the TTL, holder B takes over explicitly and gets its own token.
+    vi.setSystemTime(Date.now() + LOCK_TTL_MS + 1);
+    const tokenB = await acquireToken(h.stub, "/takeover");
+    expect(tokenB).not.toBe(tokenA);
+    // A's late failure path runs with its stale token (what
+    // `establishSession`'s catch would send via `releaseRefreshLock`).
+    await releaseRefreshLock(h.stub, tokenA);
+
+    // Assert — the stale release fails closed: B's live lock survives and a
+    // fresh acquisition is still refused, while B can still release its own.
+    expect(h.values.get("refreshing")).toBe(true);
+    expect((await h.session.fetch(new Request("https://auth/lock"))).status).toBe(423);
+    await releaseRefreshLock(h.stub, tokenB);
+    expect(h.values.get("refreshing")).toBe(false);
+    expect((await h.session.fetch(new Request("https://auth/lock"))).status).toBe(200);
   });
 
   it("fails authentication when a supported short TTL expires before publication", async () => {

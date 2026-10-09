@@ -202,10 +202,15 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   return { ok, loginStatus: loginRes.status, cookieNames: Object.keys(jar), jar };
 }
 
-/** Establish a session over HTTP and store it in the AuthSession Durable Object. */
+/**
+ * Establish a session over HTTP and store it in the AuthSession Durable
+ * Object. `lockToken` proves this caller holds the refresh lock so the DO
+ * releases it as part of the write (TOG-18959).
+ */
 export async function establishSessionViaHttp(
   env: Env,
-  stub: DurableObjectStub
+  stub: DurableObjectStub,
+  lockToken?: string | null
 ): Promise<void> {
   const result = await httpLogin(env);
   if (!result.ok) {
@@ -215,5 +220,5 @@ export async function establishSessionViaHttp(
   }
   const cookieHeader = cookieHeaderFrom(result.jar);
   const expiresAtMs = sessionExpiryMs(env);
-  await storeSession(stub, cookieHeader, expiresAtMs);
+  await storeSession(stub, cookieHeader, expiresAtMs, lockToken);
 }
