@@ -23,9 +23,11 @@ function hasSafeDryRun(markdown: string): boolean {
     /^npx --no-install wrangler deploy --dry-run(?:=true)? --env="" --outdir "\$PAPERCLIP_RUN_SCRATCH_DIR\/worker-dry-run"$/.test(steps[3]);
 }
 
+const repositoryDeployStop = /Keep the repository-scoped\s+`PRODUCTION_DEPLOY_ENABLED` variable set to `false` throughout this rehearsal/;
+
 function safetyBoundary(markdown: string): boolean {
   return markdown.includes("**Production stays OFF.**") &&
-    /Leave `PRODUCTION_DEPLOY_ENABLED` unset/.test(markdown) &&
+    repositoryDeployStop.test(markdown) &&
     markdown.includes("not go-live approval") &&
     markdown.includes("Do not pass `--remote` during this rehearsal.") &&
     markdown.includes("Do not dispatch workflows or invoke a probe");
@@ -43,6 +45,15 @@ describe("production deploy rehearsal documentation", () => {
     ]) {
       expect(safetyBoundary(checklist.replace(phrase, ""))).toBe(false);
     }
+    expect(safetyBoundary(checklist.replace(repositoryDeployStop, ""))).toBe(false);
+  });
+
+  it("keeps the handover stop compatible with the rehearsal precondition", () => {
+    const phase1 = handover.split("### Phase 1")[1]?.split("### Phase 2")[0] ?? "";
+    expect(phase1).toMatch(/repository-scoped\s+`PRODUCTION_DEPLOY_ENABLED` variable to `false`/);
+    expect(checklist).toMatch(repositoryDeployStop);
+    expect(checklist).toContain("it overrides an applicable organization-level value for this repository");
+    expect(checklist).toMatch(/Do not\s+add, edit or\s+delete a variable as part of this rehearsal\./);
   });
 
   it("offers only read-only metadata and credential-free local shell commands", () => {
@@ -95,8 +106,7 @@ describe("production deploy rehearsal documentation", () => {
   });
 
   it("does not equate local checks, missing metadata or skipped probes with live readiness", () => {
-    expect(checklist).toContain("Organization variables can apply");
-    expect(checklist).toContain("alone does not prove effective absence");
+    expect(checklist).toContain("An absent repository value does not establish that the effective gate is off.");
     expect(checklist).toMatch(/Local success does\s+not establish that production migrations are current/);
     expect(checklist).toContain("Authed probes skipped for missing credentials are **SKIPPED**, never green");
     expect(checklist).toContain("an unknown cron verdict is **NOT VERIFIED**");
