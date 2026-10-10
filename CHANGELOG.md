@@ -11,6 +11,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   login inside a 60-second window; remaining waiters fail fast with the
   existing 502 instead of waiting out the budget, and a hung holder still
   sees zero takeovers.
+- TOG-19015: The static-path report-fetch throw (`Report fetch failed: …`)
+  is status-only again — upstream `statusText` (upstream-controlled free text
+  that reaches the cron `error` log field via the `[step]` wrap) is no longer
+  interpolated, matching the query-id door. No other `src/` throw embeds
+  `statusText`; the `statusText` uses in `src/lib/cors.ts` and
+  `src/lib/upstreamForward.ts` only preserve it on forwarded responses, never
+  in thrown or logged messages.
+
 - TOG-18933: `DELETE /api/v1/customer-snapshot/{customerId}` and its docs
   (`docs/PROBLEMS.md`, `CUSTOMER_SNAPSHOT.md`, `docs/R2-RETENTION.md`) now
   state the erasure scope explicitly: removed = the D1 `customer_snapshot`
@@ -51,8 +59,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   removes the apostrophe only from marked rows, and unmarked uploads are untouched.
   A marked export is larger (21 header bytes, 2 bytes per row, plus escape and quote
   bytes), so an export within that margin of the unchanged 50 MiB import cap can
-  now return 413 on direct re-import. The archived-CSV readback
-  (`/api/v1/snapshots/{table}/{date}`) is unchanged. See CUSTOMER_SNAPSHOT.md.
+  now return 413 on direct re-import. The archived-CSV readback is re-encoded the
+  same way (TOG-18829). See CUSTOMER_SNAPSHOT.md.
+
+- TOG-18829: `GET /api/v1/snapshots/{table}/{date}` serves each archived Routeware CSV
+  with the export's spreadsheet escaping and `_shadow_csv_encoding` marker (value `1`,
+  after the archived columns on every row and in the header; LF row endings), so
+  opening a readback in a spreadsheet cannot evaluate an upstream formula. Blank data
+  records are dropped and cells trimmed as the importer's row parsers read them. Stored R2 objects
+  and the sync input are unchanged. `Content-Length` and the quoted FNV-1a 64 ETag
+  describe the served bytes; `If-None-Match` returns 304; a replacement during the
+    download returns 409 `conflict`, and a deletion returns 404. A readback can be larger
+  than the archive, so a direct re-import near the 50 MiB limit can return 413. See
+  CUSTOMER_SNAPSHOT.md.
 
 - TOG-7595: A snapshot import body whose first header cell is wrong gets a
   400 bad-request that names the column the header row must start with
