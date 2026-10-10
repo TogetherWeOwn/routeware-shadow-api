@@ -232,6 +232,46 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/version comment/);
   });
 
+  it("fails when a name-first step floats on a moving tag (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@v4",
+      ""
+    ].join("\n");
+    const errors = findUnpinnedFirstPartyActions(workflow);
+    expect(errors.some((e) => e.includes("actions/checkout") && e.includes("@v4"))).toBe(true);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
+  });
+
+  it("fails when a quoted ref floats on a moving tag (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      '      - uses: "actions/checkout@v4"',
+      ""
+    ].join("\n");
+    const errors = findUnpinnedFirstPartyActions(workflow);
+    expect(errors.some((e) => e.includes("actions/checkout") && e.includes("@v4"))).toBe(true);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
+  });
+
+  it("accepts a name-first SHA pin with a version comment (TOG-19017)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: Checkout",
+      "        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4",
+      ""
+    ].join("\n");
+    expect(findUnpinnedFirstPartyActions(workflow)).toEqual([]);
+    expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).not.toThrow();
+  });
+
   it("ignores third-party actions (only checkout/setup-node are pinned) (TOG-19017)", () => {
     const workflow = [
       "jobs:",

@@ -276,7 +276,10 @@ export function assertEveryJobHasTimeout(workflowText, label = "workflow") {
 export function findUnpinnedFirstPartyActions(workflowText) {
   const errors = [];
   for (const rawLine of String(workflowText).split("\n")) {
-    const match = rawLine.match(/^\s*- uses:\s*(actions\/[A-Za-z0-9_-]+)@(\S+)\s*(#.*)?$/);
+    // TOG-19017 fix: match `uses:` with or without the list dash so a
+    // name-first step (`- name: …` / `uses: …`) cannot slip past the guard,
+    // and tolerate an optional quote around the ref.
+    const match = rawLine.match(/^\s*(?:- )?uses:\s*["']?(actions\/[A-Za-z0-9_-]+)@([^\s"']+)["']?\s*(#.*)?$/);
     if (!match || !PINNED_FIRST_PARTY_ACTIONS.includes(match[1])) {
       continue;
     }
