@@ -31,9 +31,11 @@ docs (the same shape `wrangler r2 bucket lifecycle set --file` accepts), with
   literal string prefix, and neither alias key starts with `snapshot-history/`.
   The trailing slash additionally excludes any hypothetical
   `snapshot-history2/...` key. Verified with sample keys in § Validation.
-- Manifest and CSV expire independently: they have separate upload times, so a
-  manifest may vanish up to one publication interval before/after its CSV.
-  Treat an unpaired CSV as unverified (per `R2-RETENTION.md`), never as latest.
+- Manifest and CSV expire independently: they have separate upload times, moments
+  apart within a single run (CSV first, manifest second), so they expire moments
+  apart — never a publication interval apart, and the CSV always goes first. A
+  history CSV with no manifest at all is an incomplete publication. Treat an
+  unpaired CSV as unverified (per `R2-RETENTION.md`), never as latest.
 
 ### Existing-object semantics (per the R2 lifecycle docs)
 
