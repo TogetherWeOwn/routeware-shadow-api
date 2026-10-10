@@ -151,20 +151,17 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
     expect(batches.flat().flatMap((s) => s.binds)[2]).toBe("line1\r\nline2");
   });
 
-  it("passes a NUL byte through to D1 unaltered", async () => {
-    // Arrange — no stripping, no rejection: the stream carries bytes
-    // faithfully and D1 stores what it is given.
+  it("rejects a NUL byte before any D1 write", async () => {
     const { db, batches } = recordingDb();
 
-    // Act
-    const r = await syncCustomerSnapshotFromStream(
+    await expect(syncCustomerSnapshotFromStream(
       db,
-      stringToUint8Stream(`${CUSTOMER_HEADER}\n${ROW(1, "a\u0000b")}`)
-    );
+      stringToUint8Stream(`${CUSTOMER_HEADER}\n${ROW(1, "a\u0000b")}`),
+      undefined,
+      { rejectControlCharacters: true }
+    )).rejects.toThrow("CSV row 2 contains a disallowed control character.");
 
-    // Assert
-    expect(r).toEqual({ upserted: 1, rowCount: 1, deleted: 0 });
-    expect(batches.flat().flatMap((s) => s.binds)[2]).toBe("a\u0000b");
+    expect(batches).toEqual([]);
   });
 
   it("imports 10k rows with no truncation (125 batches of 80)", async () => {

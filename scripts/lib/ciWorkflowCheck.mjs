@@ -201,3 +201,117 @@ export function assertNoPrTriggerSkips(workflowText) {
     );
   }
 }
+
+/**
+ * First-party actions that must never float on a moving tag. A retagged
+ * `v4` can silently change what CI runs; a SHA plus a `# vN` version comment
+ * keeps the build reproducible while still telling Dependabot which track
+ * to bump (TOG-19017).
+ */
+const PINNED_FIRST_PARTY_ACTIONS = ["actions/checkout", "actions/setup-node"];
+
+/**
+ * Name every job in the workflow text. Job headers sit at 2-space indent
+ * under `jobs:`; the slice starts at the `jobs:` line so the `on:` trigger
+ * children (`  pull_request:`, …) are never mistaken for jobs.
+ *
+ * @param {unknown} workflowText
+ * @returns {string[]}
+ */
+function listJobNames(workflowText) {
+  const text = String(workflowText);
+  const jobsAt = text.search(/^jobs:$/m);
+  if (jobsAt < 0) {
+    return [];
+  }
+  const jobsSection = text.slice(jobsAt);
+  return [...jobsSection.matchAll(/^  ([A-Za-z0-9_-]+):$/gm)].map((match) => match[1]);
+}
+
+/**
+ * Collect every real job (has its own `runs-on:`) missing a job-level
+ * `timeout-minutes:`. Without a bound, a hung runner stalls the PR forever
+ * instead of failing loudly (TOG-19017). Pure: no I/O, no network, findings
+ * name jobs only.
+ *
+ * @param {unknown} workflowText
+ * @returns {string[]}
+ */
+export function findJobsMissingTimeouts(workflowText) {
+  const text = String(workflowText);
+  return listJobNames(text).filter((name) => {
+    const block = extractJobBlock(text, name);
+    if (!block || !/^    runs-on:/m.test(block)) {
+      return false;
+    }
+    return !/^    timeout-minutes: \d+\s*$/m.test(block);
+  });
+}
+
+/**
+ * Throw when any job in the workflow lacks `timeout-minutes:`.
+ *
+ * @param {unknown} workflowText
+ * @param {string} [label]
+ * @returns {void}
+ */
+export function assertEveryJobHasTimeout(workflowText, label = "workflow") {
+  const missing = findJobsMissingTimeouts(workflowText);
+  if (missing.length > 0) {
+    throw new Error(
+      `CI timeout guards failed (TOG-19017): ${label} jobs without 'timeout-minutes:': ${missing.join(", ")}`
+    );
+  }
+}
+
+/**
+ * Collect every first-party `uses:` that floats on a tag or pins a SHA
+ * without a version comment. Findings name the action and the offending
+ * ref shape only — never file contents or credentials (TOG-19017). Pure:
+ * no I/O, no network.
+ *
+ * @param {unknown} workflowText
+ * @returns {string[]}
+ */
+export function findUnpinnedFirstPartyActions(workflowText) {
+  const errors = [];
+  for (const rawLine of String(workflowText).split("\n")) {
+    // TOG-19017 fix: match `uses:` with or without the list dash so a
+    // name-first step (`- name: …` / `uses: …`) cannot slip past the guard,
+    // and tolerate an optional quote around the ref.
+    const match = rawLine.match(/^\s*(?:- )?uses:\s*["']?(actions\/[A-Za-z0-9_-]+)@([^\s"']+)["']?\s*(#.*)?$/);
+    if (!match || !PINNED_FIRST_PARTY_ACTIONS.includes(match[1])) {
+      continue;
+    }
+    const [, action, ref, comment] = match;
+    if (!/^[0-9a-f]{40}$/.test(ref)) {
+      errors.push(
+        `${action} must be pinned to a 40-char commit SHA, found '@${ref}' (TOG-19017)`
+      );
+      continue;
+    }
+    if (!comment || !/v\d+/.test(comment)) {
+      errors.push(
+        `${action} pin must carry a version comment (e.g. '# v4') so the track stays visible to Dependabot (TOG-19017)`
+      );
+    }
+  }
+  return errors;
+}
+
+/**
+ * Throw when any first-party action floats on a moving tag or pins a SHA
+ * without a version comment.
+ *
+ * @param {unknown} workflowText
+ * @param {string} [label]
+ * @returns {void}
+ */
+export function assertFirstPartyActionsPinned(workflowText, label = "workflow") {
+  const errors = findUnpinnedFirstPartyActions(workflowText);
+  if (errors.length > 0) {
+    throw new Error(
+      `CI action-pin guards failed (TOG-19017) in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
+    );
+  }
+}

@@ -1,4 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { addressRowExample, addressExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
@@ -13,6 +15,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   ADDRESS_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -24,11 +27,13 @@ import {
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
-  parsePositiveIdParam
+  parsePositiveIdParam,
+  snapshotWriteResultExample
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 address snapshot: reads plus the CSV sync/import writers. */
@@ -43,27 +48,33 @@ const addressSnapshotListRoute = createRoute({
     "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      pickupAddressId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Address line substring (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0),
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      q: snapshotSearchQuery.optional().describe("Address line substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()
         .int()
         .optional()
         .describe("Last pickup_address_id from the previous page's nextCursor; takes precedence over offset")
+        .openapi({ example: 9 })
     })
   },
   responses: {
     200: {
       description: "Rows and total",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [addressRowExample], total: 1, nextCursor: null }
+        }
+      }
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -132,7 +143,7 @@ const addressSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: addressExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
@@ -148,7 +159,8 @@ addressSnapshotRoutes.openapi(addressSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     ADDRESS_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 
@@ -160,12 +172,17 @@ const addressSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `pickupAddressId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ pickupAddressId: z.coerce.number().int() })
+    params: z.object({ pickupAddressId: z.coerce.number().int().openapi({ example: 10 }) })
   },
   responses: {
     200: {
       description: "Row",
-      content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
+      content: {
+        "application/json": {
+          schema: z.record(z.string(), z.unknown()),
+          example: addressRowExample
+        }
+      }
     },
     400: {
       description: "Invalid id (application/problem+json)"
@@ -227,7 +244,8 @@ const addressSnapshotSyncRoute = createRoute({
             rowCount: z.number().int(),
             deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
-          })
+          }),
+          example: snapshotWriteResultExample
         }
       }
     },
@@ -273,7 +291,7 @@ const addressSnapshotImportRoute = createRoute({
   path: "/api/v1/address-snapshot/import",
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
-  description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  description: "Raw CSV (Routeware Address Details custom report); `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
     query: dryRunQuery,
     body: {
@@ -285,7 +303,8 @@ const addressSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -294,11 +313,13 @@ const addressSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() }),
+          example: snapshotWriteResultExample
         }
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
@@ -326,12 +347,18 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
     const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

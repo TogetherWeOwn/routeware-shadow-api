@@ -26,9 +26,13 @@ Two facts govern every change here, and neither is obvious from the code:
    redirect shape*, not on `resp.ok`. The existing guards are the pattern to copy:
    - `isLoginRedirect()` (`src/lib/loginRedirect.ts`) — requires status 302 *and* a `location`
      naming `/Account/Login` or `Login.aspx`.
-   - `forwardWithSessionRetry()` (`src/lib/forwardWithSessionRetry.ts`) — returns early on
-     `status === 200 || !isLoginRedirect(response)`, otherwise re-establishes the session and retries
-     once.
+   - `forwardWithSessionRetry()` (`src/lib/forwardWithSessionRetry.ts`) — re-establishes the session
+     and retries once only for a login redirect or an HTTP-200 login form. Other responses do not
+     trigger a retry. Client-facing retry passthrough routes use `forwardPassthrough()`
+     (`src/lib/forwardPassthrough.ts`): upstream HTTP 400–599 keeps its status but receives a fixed
+     local `upstream-error` problem body, never upstream body bytes, headers or status text. This
+     applies on both attempts regardless of content type. Successful HTML/JSON and redirects are
+     unchanged. Internal save consumers retain the raw helper for their own sanitized envelopes.
    - `src/lib/routewareQueryReportCsv.ts` — throws when a report response body starts `<!DOCTYPE` or
      contains `<html`, because that *is* the failure signal: `"QueryRequestIsComplete returned HTML
      (session lost or error page)"`.
@@ -143,6 +147,8 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 
 | Command | What it does |
 |---|---|
+| `npm run first-run` | Fresh-clone path: `check:devvars`, `db:migrate:local`, `db:seed`, then `smoke:readiness` against a loopback `wrangler dev` that it starts and stops. Stops at the first failing step (`scripts/first-run.mjs`). |
+| `npm run help` | Lists every package.json script grouped by namespace (`scripts/help.mjs`). |
 | `npm run dev` | `wrangler dev` (local Miniflare; runs `check:devvars` first; no `--remote` needed since HTTP login skips Browser Rendering). |
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
 | `npm run typecheck` | `tsc --noEmit`. |
@@ -158,16 +164,21 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 ### Deploys are not yours to run
 
 `.github/workflows/ci.yml` can deploy to production on a push to `main`, but only when the
-repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. That job targets production only.
-Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
+job-level `vars.PRODUCTION_DEPLOY_ENABLED == 'true'` condition matches (case-insensitively). The
+`vars` context may include organization-, repository-, or environment-level configuration; do not
+infer that the gate is off from a repository-only variable listing. See [`HANDOVER.md`](HANDOVER.md)
+§&nbsp;0 for the scope checks. That job targets production only. Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-CI uses self-hosted runners labeled `two-selfhosted`. The build and hygiene jobs are credential-free;
-`shadow-api-v1` evaluates an optional `CF_TOKEN` gate and skips contract execution without it.
-Deploy remains skipped while `PRODUCTION_DEPLOY_ENABLED` is absent. Read
-[`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased enable procedure and rollback. If Actions is
-disabled or runners are unavailable, local verification is not a substitute for exact-head CI.
+CI uses self-hosted runners labeled `two-selfhosted`. On pull requests targeting `main`, changed-area
+detection selects the credential-free `build` and optional `shadow-api-v1` jobs when relevant paths
+change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs. Without `CF_TOKEN`,
+the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
+matches `true`; an unset repository variable alone does not prove that no applicable organization
+variable can enable it. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased scope verification,
+enable and stop procedures. If Actions is disabled or runners are unavailable, local verification is not a substitute
+for exact-head CI.
 
 ### Verification loop
 

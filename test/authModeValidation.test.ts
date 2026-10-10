@@ -61,17 +61,28 @@ function envWith(mode: unknown): Env {
   } as unknown as Env;
 }
 
-/** Minimal refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
+ * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
@@ -125,7 +136,7 @@ describe("establishSession with a typo'd AUTH_MODE (TOG-6531)", () => {
 
   it("rejects without attempting either login strategy and releases the lock", async () => {
     // Arrange — typo'd mode, free lock
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     const stub = lockStub(state);
 
     // Act
@@ -159,16 +170,24 @@ const originalFetch = globalThis.fetch;
  * `test/openapiDocsGate.test.ts` does.
  */
 function typoAppEnv(): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock" || path === "/throttle/clear" || path === "/throttle/failure") {
-        state.refreshing = path === "/unlock" ? false : state.refreshing;
+        if (path === "/unlock" && state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+          state.refreshing = false;
+          state.lockToken = null;
+        }
         return Response.json({ blocked: false, retryAfterSec: 0 });
       }
       if (path === "/get") {

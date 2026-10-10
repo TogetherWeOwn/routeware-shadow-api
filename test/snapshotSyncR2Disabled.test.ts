@@ -37,10 +37,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=r2-disabled-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=r2-disabled-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -137,15 +137,21 @@ async function expectR2Untouched(): Promise<void> {
 
 function expectDisabledLogged(table: "customer" | "address" | "container"): void {
   expect(
-    logged.some((l) =>
-      l.includes(`R2 snapshot archive disabled for ${table}: SNAPSHOTS_R2_ENABLED=false`)
-    ),
-    `expected the R2-disabled log line for ${table}`
-  ).toBe(true);
+    logged,
+    `expected the R2-disabled log event for ${table}`
+  ).toContainEqual(
+    expect.objectContaining({
+      level: "info",
+      msg: "R2 snapshot archive disabled",
+      route: "snapshot.r2.archive",
+      table,
+      reason: "SNAPSHOTS_R2_ENABLED=false"
+    })
+  );
 }
 
-const logged: string[] = [];
-const realConsoleLog = console.log;
+const logged: Array<Record<string, unknown>> = [];
+const realConsoleInfo = console.info;
 
 describe("sync routes with R2 archiving disabled", () => {
   const originalFetch = globalThis.fetch;
@@ -156,8 +162,8 @@ describe("sync routes with R2 archiving disabled", () => {
 
   beforeEach(async () => {
     logged.length = 0;
-    console.log = (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
+    console.info = (...args: unknown[]) => {
+      logged.push(args[0] as Record<string, unknown>);
     };
     globalThis.fetch = (async (
       input: RequestInfo | URL,
@@ -215,7 +221,7 @@ describe("sync routes with R2 archiving disabled", () => {
   });
 
   afterEach(() => {
-    console.log = realConsoleLog;
+    console.info = realConsoleInfo;
     globalThis.fetch = originalFetch;
   });
 

@@ -55,7 +55,8 @@ Full evidence: [TOG-7385](/TOG/issues/TOG-7385) comment linked above.
   before ever reaching the cron-freshness check (probe 3b). This is the exact
   monitoring gap the runbook §4 schedule note names: a SKIP-only (here
   fail-on-localhost) scheduled run checks no cron freshness. Operator follow-up
-  is setting `SHADOW_API_BASE` (repo variable) plus the bearer secret —
+  is setting the effective `vars.SHADOW_API_BASE` value (repository or applicable
+  organization scope) plus the bearer secret —
   deliberately **not** done here (read-only card; secrets/vars are
   owner-gated). No cron-miss signal is implied: the 07:00 cron evidence stands
   per §2a, and the probe failure is a prober-config failure.

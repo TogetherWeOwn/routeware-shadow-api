@@ -204,7 +204,7 @@ type PostBody = {
  * `@cloudflare/vitest-pool-workers` the console methods are bound accessors, so
  * reading `console.error` back does not return the installed spy.
  */
-const loggedErrors: unknown[][] = [];
+const loggedErrors: Array<Record<string, unknown>> = [];
 const realConsoleError = console.error;
 
 beforeEach(() => {
@@ -220,7 +220,7 @@ beforeEach(() => {
   behavior.syncResult = { addressIds: [10], containerIds: [100] };
   loggedErrors.length = 0;
   console.error = (...args: unknown[]) => {
-    loggedErrors.push(args);
+    loggedErrors.push(args[0] as Record<string, unknown>);
   };
 });
 
@@ -268,8 +268,13 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
 
     // Assert
     expect(loggedErrors).toHaveLength(1);
-    expect(loggedErrors[0][0]).toBe("syncCustomerDetailFullToD1");
-    expect(loggedErrors[0][1]).toBeInstanceOf(Error);
+    expect(loggedErrors[0]).toMatchObject({
+      level: "error",
+      msg: "Local customer snapshot sync failed",
+      route: "POST /api/v1/data/customer",
+      ms: null
+    });
+    expect(loggedErrors[0].error).toBeUndefined();
   });
 
   it("invalidates both the customer and the posted address when the address sync throws", async () => {

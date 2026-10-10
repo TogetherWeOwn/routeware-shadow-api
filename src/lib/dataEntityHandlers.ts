@@ -10,6 +10,7 @@ import {
   bundleJsonString
 } from "./dataEntityRead";
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
+import { errorKind, logEvent } from "./logger";
 import {
   entityDataCacheControlValue,
   getCachedDataEntity,
@@ -22,6 +23,8 @@ import { forwardWithSessionRetry } from "./forwardWithSessionRetry";
 import { establishSession } from "./establishSession";
 import { problemJsonResponse, problemType } from "./problem";
 import { readSessionState } from "./sessionState";
+import { readUpstreamText } from "./upstreamBody";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import {
   parseCustomerIdFromSaveResponse,
   routewarePostLooksSuccessful,
@@ -324,7 +327,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
     bodyBuffer,
     establishSession
   );
-  const upText = await up.text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
   // TOG-6535: `posted` is parsed for ids only and never echoed — the full
   // form map is customer PII and must not leave the handler.
   const posted = urlEncodedToObject(buf);
@@ -349,8 +352,13 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch (e) {
-        console.error("syncCustomerDetailFullToD1", e);
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local customer snapshot sync failed",
+          route: "POST /api/v1/data/customer",
+          kind: errorKind(syncErr)
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
       }
@@ -446,7 +454,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     bodyBuffer,
     establishSession
   );
-  const upText = await up.text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
   // TOG-6535: `posted` is parsed for ids only and never echoed.
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
@@ -473,8 +481,13 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch (e) {
-        console.error("post address sync", e);
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local address snapshot sync failed",
+          route: "POST /api/v1/data/address",
+          kind: errorKind(syncErr)
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
         if (pickupAddressId !== null) {
@@ -569,7 +582,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     bodyBuffer,
     establishSession
   );
-  const upText = await up.text();
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
   // TOG-6535: `posted` is parsed for ids only and never echoed.
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
@@ -606,8 +619,13 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
-      } catch (e) {
-        console.error("post container sync", e);
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local container snapshot sync failed",
+          route: "POST /api/v1/data/container",
+          kind: errorKind(syncErr)
+        });
         localSync = syncFailed();
         await invalidateDataEntity("customer", customerId);
         if (postedContainerId !== null) {

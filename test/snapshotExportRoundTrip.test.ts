@@ -10,11 +10,14 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 /**
  * TOG-8887 (R3-11) — export → reimport round-trip idempotence.
  *
- * Every `*-snapshot/export` route (customer, address, container — `data-snapshot`
- * runs a chained sync but serves no export route) must paste back into its
- * matching `...-snapshot/import` with no loss: export → import → export keeps
- * the row count and every business cell, across boolean spellings, RFC 4180
- * quoting, and unicode cells.
+ * Import-compatible data from each `*-snapshot/export` route (customer,
+ * address, container — `data-snapshot` serves no export route) must paste back
+ * into its matching import with no loss: export → import → export keeps every
+ * business cell across booleans, RFC 4180 quoting and Unicode.
+ * Report-origin controls and lone cell CR remain in exports but are rejected
+ * by HTTP import. Lossless recovery of those rows uses the in-code archive
+ * restore in docs/R2-RESTORE-RUNBOOK.md §6, pinned separately by
+ * snapshotRestoreControlBoundary.test.ts; these assertions remain unchanged.
  *
  * Shape per table: POST import (edge-case seed) → GET export (A) → POST import
  * (A verbatim, `synced_at` column included — the row parsers ignore it by
@@ -166,6 +169,11 @@ async function roundTrip(
   const textA = await resA.text();
   const linesA = await logicalLines(textA);
   expect(linesA.length - 1).toBe(expectedRows);
+  // Compare with the original unmarked seed too: two equally corrupted
+  // exports must not make a lossy encoding look like a successful round-trip.
+  expect(parseBusinessRows(spec, linesA)).toEqual(
+    parseBusinessRows(spec, await logicalLines(seedCsv))
+  );
 
   // Act — reimport the export verbatim (synced_at column included).
   const re = await postImport(spec.importPath, textA);
@@ -221,7 +229,8 @@ const CUSTOMER_SEED = [
   '88109,,Bool Co 9,,,,,,,,,,no',
   '88110,,Bool Co 10,,,,,,,,,,NO',
   '88111,,Bool Co 11,,,,,,,,,,',
-  '88112,,Bool Co 12,,,,,,,,,,True'
+  '88112,,Bool Co 12,,,,,,,,,,True',
+  `88113,,=1+1,+1+1,-1+1,@SUM(A1),'=1+1,'literal,'',+15550101,,"=1+1"";=2+2",true`
 ].join("\r\n");
 
 const ADDRESS_HEADER =
@@ -247,7 +256,7 @@ const CONTAINER_HEADER =
   "Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote";
 
 /**
- * Short 16-column upstream shape on purpose: the export serves the full 29
+ * Short 16-column upstream shape on purpose: the export serves the full 30
  * columns (UD-*, service codes, ...), so this also pins short → full → short
  * stability (missing columns import as null, export as empty, reimport as
  * null).
@@ -296,7 +305,9 @@ describe("snapshot export → reimport round-trip (TOG-8887)", () => {
 
   it("customer export re-imports cleanly: row count + checksum over spellings, quoting, unicode", async () => {
     // Act
-    const { textA } = await roundTrip(SPECS.customer, CUSTOMER_SEED, 12);
+    const { textA } = await roundTrip(SPECS.customer, CUSTOMER_SEED, 13);
+    expect(textA).toContain(`"'=1+1"`);
+    expect(textA).toContain(`"''=1+1"`);
 
     // Assert — spot checks on the canonicalized export A: CRLF converged to
     // LF, alternate spellings rendered true/false, empty Enabled defaulted
@@ -320,7 +331,7 @@ describe("snapshot export → reimport round-trip (TOG-8887)", () => {
     expect(byId.get(88111)).toBe(true); // seeded empty → default true
     // Assert — all seeded ids present (upsert keyed on customer_id).
     expect([...byId.keys()].sort((a, b) => a - b)).toEqual(
-      Array.from({ length: 12 }, (_, i) => 88101 + i)
+      Array.from({ length: 13 }, (_, i) => 88101 + i)
     );
   });
 
@@ -383,10 +394,12 @@ describe("snapshot export → reimport round-trip (TOG-8887)", () => {
       3
     );
 
-    // Assert — the 16-column seed came back as the full 29-column export
+    // Assert — the 16-column seed came back as the full 30-column export
     // (UD-*/service-code columns present, empty), and survives the reimport.
     const header = (await logicalLines(textA))[0]!;
-    expect(header.split(",")).toHaveLength(29);
+    expect(header.split(",")).toHaveLength(30);
+    expect(header.split(",").at(-2)).toBe("_shadow_csv_encoding");
+    expect(header.split(",").at(-1)).toBe("synced_at");
     expect(header).toContain("UD-Material_Stream-UD");
     expect(textB).toContain('"SN-1, ""A"""');
     expect(textB).toContain('"99 Industrial, Bldg ""C"""');

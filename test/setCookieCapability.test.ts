@@ -57,17 +57,28 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
   } as unknown as Env;
 }
 
-/** Refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
+ * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
@@ -177,7 +188,7 @@ describe("establishSession never launches the browser without getSetCookie (TOG-
 
   it("auto mode rethrows without a browser launch and releases the lock", async () => {
     // Arrange — free lock, capability missing.
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     removeGetSetCookie();
     globalThis.fetch = (async () => {
       throw new Error("unexpected upstream fetch: capability assert must run first");
@@ -208,16 +219,24 @@ const ctx = {
  * forward → reactive re-login → onError path with a stubbed upstream.
  */
 function capabilityAppEnv(fetchImpl: typeof fetch): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/throttle/clear" || path === "/throttle/failure") {

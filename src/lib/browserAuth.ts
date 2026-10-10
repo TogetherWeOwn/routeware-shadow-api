@@ -1,4 +1,5 @@
 import puppeteer from "@cloudflare/puppeteer";
+import { errorKind, logEvent } from "./logger";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 
@@ -34,26 +35,38 @@ export function hasRouteWareSessionCookies(cookieNames: readonly string[]): bool
   return BROWSER_LOGIN.requiredCookies.every((name) => cookieNames.includes(name));
 }
 
+function browserAuthError(name: string, message: string): Error {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
+
+/**
+ * Browser Rendering login. `lockToken` proves this caller holds the refresh
+ * lock so the DO releases it as part of the write (TOG-18959).
+ */
 export async function establishSessionWithBrowser(
   env: Env,
   stub: DurableObjectStub,
-  bootstrapUrl: string
+  bootstrapUrl: string,
+  lockToken?: string | null
 ): Promise<void> {
   const username = credential(env.LOGIN_USERNAME);
   const password = credential(env.LOGIN_PASSWORD);
-  if (!username || !password) {
-    throw new Error(
-      "LOGIN_USERNAME and LOGIN_PASSWORD are missing for browser auth. " +
-        "For wrangler dev: add a .dev.vars file next to wrangler.toml (see .dev.vars.example). " +
-        "Note: wrangler secret put only configures deployed Workers, not local dev. " +
-        "Run: node scripts/check-devvars.mjs. " +
-        "If you edited .dev.vars on Windows, save with LF line endings (dos2unix .dev.vars)."
-    );
-  }
 
   let browser: Awaited<ReturnType<typeof puppeteer.launch>> | undefined;
 
   try {
+    if (!username || !password) {
+      throw browserAuthError(
+        "MissingCredentials",
+        "LOGIN_USERNAME and LOGIN_PASSWORD are missing for browser auth. " +
+          "For wrangler dev: add a .dev.vars file next to wrangler.toml (see .dev.vars.example). " +
+          "Note: wrangler secret put only configures deployed Workers, not local dev. " +
+          "Run: node scripts/check-devvars.mjs. " +
+          "If you edited .dev.vars on Windows, save with LF line endings (dos2unix .dev.vars)."
+      );
+    }
     browser = await puppeteer.launch(env.BROWSER);
     const page = await browser.newPage();
 
@@ -82,24 +95,31 @@ export async function establishSessionWithBrowser(
     const hasRouteWareAuth = hasRouteWareSessionCookies(cookieNames);
 
     if (!hasRouteWareAuth) {
-      throw new Error(
+      throw browserAuthError(
+        "SessionCookiesMissing",
         "Authentication failed: RouteWare session cookies missing after headless login " +
           "(expected .WebRW, RCCApi, RCCApiRefresh in devtools Application → Cookies). " +
           "In production, set `LOGIN_USERNAME` and `LOGIN_PASSWORD` with `wrangler secret put` " +
           "(not only `.dev.vars`). " +
           "If secrets are set, the login may have failed: wrong password, " +
           "MFA/lockout, or a changed login form (selectors in browserAuth.ts). " +
-          "Check Worker logs for BROWSER AUTH ERROR and try logging in manually to Routeware to verify the account."
+          "Check Worker logs for the \"Browser authentication failed\" record (kind SessionCookiesMissing) " +
+          "and try logging in manually to Routeware to verify the account."
       );
     }
 
     const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
     const expiresAtMs = sessionExpiryMs(env);
 
-    await storeSession(stub, cookieHeader, expiresAtMs);
+    await storeSession(stub, cookieHeader, expiresAtMs, lockToken);
   } catch (err) {
     // The refresh lock is released by `establishSession`, which owns it.
-    console.error("BROWSER AUTH ERROR", err);
+    logEvent({
+      level: "error",
+      msg: "Browser authentication failed",
+      route: "auth.browser",
+      kind: errorKind(err)
+    });
     throw err;
   } finally {
     if (browser) {
