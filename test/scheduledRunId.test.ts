@@ -7,10 +7,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * invocations could not be correlated because `src/scheduled.ts` minted no
  * per-invocation id — the `base` log object carried event/mode/configSource/
  * d1LimitRisk/cron/scheduledTime only. Every `logEvent` on this path must now
- * carry one `crypto.randomUUID()` minted at `scheduled()` entry and spread via
- * `base`: stable within one run (including the fallback warning, the
- * persistence-failure lines, and the `skipped-overlap` line), distinct across
- * runs, and PII-free (a bare UUID — never exception text or row data).
+ * carry one `crypto.randomUUID()` minted at `scheduled()` entry: spread via
+ * `base` onto the scheduled-owned lines (this file, runners mocked) and
+ * threaded through `SnapshotSyncRunOptions` — plus the `x-run-id` subrequest
+ * header on the chained path — into the orchestration skip lines, the
+ * R2-archive lines, and the per-table sub-invocations (pinned unmocked in
+ * `test/scheduledRunIdThreading.test.ts` and at the routes in
+ * `test/snapshotRunIdHeader.test.ts`). Stable within one run (including the
+ * fallback warning, the persistence-failure lines, and the `skipped-overlap`
+ * line), distinct across runs, and PII-free (a bare UUID — never exception
+ * text or row data).
  */
 
 const UUID_RE =

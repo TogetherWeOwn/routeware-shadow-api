@@ -7,10 +7,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 - TOG-19134: Every `data-snapshot-sync` scheduled log line now carries a
   `runId` per-run correlation id: one `crypto.randomUUID()` minted at
-  `scheduled()` entry and spread via the shared log base, so the success,
-  failed, skipped-overlap, fallback-warning and persistence-failure lines
-  from one run share the same id. Stable within a run, distinct across
-  runs; a bare UUID, PII-free by construction. See
+  `scheduled()` entry, spread via the shared log base onto the
+  success/failed/skipped-overlap/fallback-warning/persistence-failure lines
+  and threaded through `SnapshotSyncRunOptions` into the orchestration skip
+  lines and the R2-archive lines. On the chained path the id rides to each
+  per-table sub-invocation on the `x-run-id` header (UUID-validated at the
+  per-table routes; malformed values are dropped, never fail a sync), so one
+  run's records correlate across invocations. Stable within a run, distinct
+  across runs; a bare UUID, PII-free by construction. See
   `docs/CRON-SYNC-ALARM-RUNBOOK.md` §0 for the updated example shape.
 
 - TOG-19015: The static-path report-fetch throw (`Report fetch failed: …`)

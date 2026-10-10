@@ -54,12 +54,13 @@ function syncTableWithR2(
   env: Env,
   table: SnapshotArchiveTable,
   body: ReadableStream<Uint8Array>,
-  sync: (stream: ReadableStream<Uint8Array>) => Promise<SnapshotSyncCounts>
+  sync: (stream: ReadableStream<Uint8Array>) => Promise<SnapshotSyncCounts>,
+  runId?: string
 ): Promise<SnapshotSyncCounts & { r2: R2ArchiveDetail }> {
   let archive: R2ArchiveDetail | null = null;
   return archiveReportCsvToR2AfterD1(env, table, body, sync, (d) => {
     archive = d;
-  }).then((counts) => ({
+  }, runId).then((counts) => ({
     ...counts,
     r2: archive ?? { status: "failed", reason: "R2 outcome unreported" }
   }));
@@ -73,7 +74,42 @@ function syncTableWithR2(
  */
 export type SnapshotSyncRunOptions = {
   dryRun?: boolean;
+  /**
+   * Per-run correlation id (TOG-19134): when present, every `logEvent` on the
+   * sync path carries it. Minted once per `scheduled()` firing and threaded
+   * from the cron base; chained per-table subrequests forward it on the
+   * `x-run-id` header (validated at the per-table routes), so a
+   * sub-invocation's skip and R2-archive lines share the originating run's id.
+   * A bare UUID — PII-free by construction. Absent for direct route calls
+   * without the header (those lines carry no id, as before).
+   */
+  runId?: string;
 };
+
+const RUN_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates an inbound `x-run-id` header value (TOG-19134). Returns the id
+ * only when it is UUID-shaped; anything else (absent, blank, malformed, or a
+ * non-UUID string that could carry attacker text) is dropped — correlation
+ * must never fail a sync or smuggle free text into the logs.
+ */
+export function parseRunIdHeader(
+  value: string | null | undefined
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim();
+  return RUN_ID_RE.test(v) ? v : undefined;
+}
+
+/**
+ * Spreads `{ runId }` onto a log call when the run carries one; spreads
+ * nothing otherwise, so no-`runId` callers emit byte-identical records.
+ */
+function runIdField(opts: SnapshotSyncRunOptions): { runId?: string } {
+  return opts.runId ? { runId: opts.runId } : {};
+}
 
 export async function runCustomerSnapshotSync(
   env: Env,
@@ -86,7 +122,8 @@ export async function runCustomerSnapshotSync(
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.customer",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -104,7 +141,8 @@ export async function runCustomerSnapshotSync(
       level: "info",
       msg: "Customer snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.customer",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
     return syncCustomerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CUST, {
       reconcile: true,
@@ -117,7 +155,8 @@ export async function runCustomerSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -132,7 +171,8 @@ export async function runAddressSnapshotSync(
       level: "info",
       msg: "Address snapshot sync skipped: source is not configured",
       route: "snapshot.address",
-      table: "address"
+      table: "address",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -150,7 +190,8 @@ export async function runAddressSnapshotSync(
       level: "info",
       msg: "Address snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.address",
-      table: "address"
+      table: "address",
+      ...runIdField(opts)
     });
     return syncAddressSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_ADDR, {
       reconcile: true,
@@ -163,7 +204,8 @@ export async function runAddressSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -178,7 +220,8 @@ export async function runContainerSnapshotSync(
       level: "info",
       msg: "Container snapshot sync skipped: source is not configured",
       route: "snapshot.container",
-      table: "container"
+      table: "container",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -196,7 +239,8 @@ export async function runContainerSnapshotSync(
       level: "info",
       msg: "Container snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.container",
-      table: "container"
+      table: "container",
+      ...runIdField(opts)
     });
     return syncContainerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CONT, {
       reconcile: true,
@@ -209,7 +253,8 @@ export async function runContainerSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -359,10 +404,15 @@ export async function runDataSnapshotSyncChainedHttp(
     throw new Error("CUSTOMER_SNAPSHOT_SYNC_SECRET is not set");
   }
   const base = publicBaseUrl.replace(/\/$/, "");
-  const h = {
+  // The per-run id rides to each chained sub-invocation on `x-run-id`
+  // (TOG-19134): the per-table routes UUID-validate it and thread it into
+  // their own skip and R2-archive lines, so one run's records correlate
+  // across invocations. Sent only when the caller supplied one.
+  const h: Record<string, string> = {
     authorization: `Bearer ${bearer}`,
-    "content-type": "application/json"
-  } as const;
+    "content-type": "application/json",
+    ...(opts.runId ? { "x-run-id": opts.runId } : {})
+  };
   const plan = getDataSnapshotPlan(env);
   const out: DataSnapshotResult = {
     customer: null,
@@ -435,7 +485,8 @@ export async function runDataSnapshotSyncChainedHttp(
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.orchestration",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
   }
   if (plan.runAddress) {
@@ -453,14 +504,16 @@ export async function runDataSnapshotSyncChainedHttp(
         msg: "Address snapshot sync skipped because customer is not configured",
         route: "snapshot.orchestration",
         table: "address",
-        dependency: "customer"
+        dependency: "customer",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Address snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "address"
+        table: "address",
+        ...runIdField(opts)
       });
     }
   }
@@ -481,14 +534,16 @@ export async function runDataSnapshotSyncChainedHttp(
         msg: "Container snapshot sync skipped because a required parent source is not configured",
         route: "snapshot.orchestration",
         table: "container",
-        dependency: "customer-or-address"
+        dependency: "customer-or-address",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Container snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "container"
+        table: "container",
+        ...runIdField(opts)
       });
     }
   }
@@ -500,7 +555,10 @@ export async function runDataSnapshotSyncChainedHttp(
  * Large imports can hit D1’s per-invocation query cap; use
  * {@link runDataSnapshotSyncChainedHttp} for `POST /data-snapshot/sync` instead.
  */
-export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult> {
+export async function runDataSnapshotSync(
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
+): Promise<DataSnapshotResult> {
   const plan = getDataSnapshotPlan(env);
   const out: DataSnapshotResult = {
     customer: null,
@@ -509,7 +567,7 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
   };
   if (plan.runCustomer) {
     try {
-      out.customer = await runCustomerSnapshotSync(env);
+      out.customer = await runCustomerSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("customer snapshot", "customer", e, out);
     }
@@ -518,12 +576,13 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.orchestration",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
   }
   if (plan.runAddress) {
     try {
-      out.address = await runAddressSnapshotSync(env);
+      out.address = await runAddressSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("address snapshot", "address", e, out);
     }
@@ -534,20 +593,22 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         msg: "Address snapshot sync skipped because customer is not configured",
         route: "snapshot.orchestration",
         table: "address",
-        dependency: "customer"
+        dependency: "customer",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Address snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "address"
+        table: "address",
+        ...runIdField(opts)
       });
     }
   }
   if (plan.runContainer) {
     try {
-      out.container = await runContainerSnapshotSync(env);
+      out.container = await runContainerSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("container snapshot", "container", e, out);
     }
@@ -560,14 +621,16 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         msg: "Container snapshot sync skipped because a required parent source is not configured",
         route: "snapshot.orchestration",
         table: "container",
-        dependency: "customer-or-address"
+        dependency: "customer-or-address",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Container snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "container"
+        table: "container",
+        ...runIdField(opts)
       });
     }
   }

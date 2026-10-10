@@ -27,7 +27,12 @@ names ever leave the Worker):
 Every record from one firing — primary, fallback `warn`, persistence-failure
 `error`, and `skipped-overlap` — carries the same `runId` (one
 `crypto.randomUUID()` minted at `scheduled()` entry, TOG-19134; a bare UUID,
-PII-free). Filter on `runId` to pull a single run's records together.
+PII-free). The id is threaded beyond the scheduled-owned lines: the
+`snapshot.orchestration` skip lines and the `snapshot.r2.*` archive lines
+carry it too, and on the chained path each per-table sub-invocation receives
+it on the `x-run-id` header (UUID-validated at the per-table routes), so a
+run's records correlate across invocations. Filter on `runId` to pull a
+single run's records together.
 
 Two secondary records can accompany the primary one. Neither changes `outcome`. A `warn`
 with msg `SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation` marks a
