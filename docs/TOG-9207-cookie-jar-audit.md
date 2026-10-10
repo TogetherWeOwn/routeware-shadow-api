@@ -33,12 +33,10 @@ Auditor: Security Engineer · 2026-09-28 · code at `src/lib/httpAuth.ts`, tests
    ARE enforced (finding 1).
 3. **Verified — jar never logged.** `httpAuth.ts` contains zero `console`
    calls; the login-failure throw carries cookie names only (test asserts no
-   value bytes survive). Adjacent paths: the `sessionRefreshLock` warn logs a
-   lock-release `err.message` (lock path carries no cookie); the
-   `establishSession` fallback warn logs the login `err.message` (names-only,
-   fixed identifiers); `BROWSER AUTH ERROR` logs the caught error object —
-   puppeteer protocol errors / the names-only auth message, never jar values
-   (jar values flow only into the `storeSession` POST body to the DO).
+   value bytes survive). Adjacent paths: the `sessionRefreshLock` unlock-failure
+   record and the `establishSession` fallback record carry fixed messages only;
+   the `Browser authentication failed` record carries the error class as `kind`,
+   never the message (jar values flow only into the `storeSession` POST body to the DO).
 4. **Accepted — anti-forgery token cache key embeds the full cookie header**
    (`src/lib/customerSaveAutoToken.ts:121`). Isolate-local in-memory `Map`,
    never logged; session rotation evicts by construction (new session = new

@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -14,6 +15,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   CUSTOMER_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { invalidateDataEntity } from "../lib/entityDataCache";
@@ -31,7 +33,8 @@ import {
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
@@ -40,16 +43,17 @@ export const customerSnapshotRoutes = createRouteModule();
 const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
+  operationId: "listCustomerSnapshot",
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
-      q: z.string().optional().describe("Company name substring (case-insensitive)").openapi({ example: "ExampleCo" }),
+      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
-      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()
@@ -71,7 +75,7 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -261,7 +265,8 @@ customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     CUSTOMER_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 
@@ -401,7 +406,8 @@ const customerSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled\n123,,Co 123,Jane,,Doe,,,,,,,true"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -416,6 +422,7 @@ const customerSnapshotImportRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV file as the raw request body."
@@ -443,12 +450,18 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
     const r = await syncCustomerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))
@@ -472,7 +485,22 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
  *
  * This erases the cached report extract only — it never touches upstream
  * Routeware (which exposes no customer hard delete; see
- * `docs/PROBLEMS.md#method-not-allowed`). FK-safe by refusal, not by cascade:
+ * `docs/PROBLEMS.md#method-not-allowed`). Erasure removes the D1
+ * `customer_snapshot` row and evicts the data-entity cache entry. It does not
+ * remove R2 history CSVs, daily aliases, latest pointers, or the
+ * archived-CSV readback, and it does not touch upstream Routeware. The row
+ * returns on the next sync — or on the next save for that customer through
+ * the proxy — while upstream still holds it (no suppression
+ * list; see TOG-18933). Any R2 restore or CSV import of an archive taken
+ * before the erasure re-inserts the row, and D1 Time Travel can restore it
+ * for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
+ * after any restore. This route removes only the `customer_snapshot` row:
+ * the customer's `address_snapshot` and `container_snapshot` rows are not
+ * removed by this route. There is no address or container DELETE route —
+ * address rows leave D1 only through upstream-driven reconciliation or
+ * through direct privileged `wrangler d1 execute` deletes in container →
+ * address → customer FK order before retrying the customer delete.
+ * FK-safe by refusal, not by cascade:
  * D1 enforces the snapshot FK chain unconditionally, so deleting a customer
  * that still has address rows fails closed and is mapped to 400 naming the
  * blocking children — an orphan is never written. Exactly one row is ever
@@ -484,7 +512,7 @@ const customerSnapshotDeleteRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:
-    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it. Any R2 restore or CSV import of an archive taken before the erasure re-inserts the row, and D1 Time Travel can restore it for up to 30 days (7 days on the Workers Free plan), so re-apply erasures after any restore. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },

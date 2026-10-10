@@ -526,13 +526,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Address line substring (case-insensitive)",
+            "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Address line substring (case-insensitive)",
+              "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
               "example": "Main",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -628,7 +629,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -644,8 +645,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,synced_at
-10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,2026-01-01T00:00:00.000Z
+                "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date,_shadow_csv_encoding,synced_at
+10,345734,1,1 Main St,Example City,TX,76541,1,,false,true,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -669,7 +670,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/address-snapshot/import": {
       "post": {
-        "description": "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -689,6 +690,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date
 10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,",
@@ -735,6 +741,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import address CSV body into D1",
@@ -911,13 +920,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Substring on location or serial (case-insensitive)",
+            "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Substring on location or serial (case-insensitive)",
+              "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
               "example": "C-100",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -1026,7 +1036,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -1042,8 +1052,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,synced_at
-100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,2026-01-01T00:00:00.000Z
+                "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote,UD-Cost_Share-UD,UD-Enclosure_Doors-UD,UD-Last_Compactor_Inspection-UD,UD-Last_Enclosure_Inspection-UD,UD-Material_Stream-UD,Color,ServiceCodeType,ServiceCode_input,ServiceCode,ServiceDate,RouteIDs,FrequencyIDs,_shadow_csv_encoding,synced_at
+100,10,1,C-100-A,,false,,false,,,true,1 Main St,Example City,TX,76541,,,,,,,Blue,,,,,,,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1067,7 +1077,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot/import": {
       "post": {
-        "description": "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
+        "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
             "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
@@ -1087,6 +1097,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote
 100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,",
@@ -1133,6 +1148,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import container CSV into D1",
@@ -1283,7 +1301,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
+        "operationId": "listCustomerSnapshot",
         "parameters": [
           {
             "in": "query",
@@ -1298,13 +1317,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Company name substring (case-insensitive)",
+            "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Company name substring (case-insensitive)",
+              "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
               "example": "ExampleCo",
+              "maxLength": 100,
               "type": "string",
             },
           },
@@ -1329,7 +1349,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "default": 50,
-              "example": 50,
+              "example": 10,
               "maximum": 500,
               "minimum": 1,
               "type": "integer",
@@ -1398,7 +1418,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects an out-of-range \`limit\`/\`offset\` or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",
@@ -1498,8 +1518,8 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,synced_at
-345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,2026-01-01T00:00:00.000Z
+                "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled,_shadow_csv_encoding,synced_at
+345734,1,ExampleCo,Jane,,Doe,,C-1001,,555-0100,,,true,1,2026-01-01T00:00:00.000Z
 ",
                 "schema": {
                   "type": "string",
@@ -1545,6 +1565,11 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "requestBody": {
           "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+              },
+            },
             "text/csv": {
               "example": "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix,CustomerNumber,SubCustomerNumber,Phone1,Phone2,Comments,Enabled
 123,,Co 123,Jane,,Doe,,,,,,,true",
@@ -1591,6 +1616,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "415": {
+            "description": "Unsupported Content-Type (application/problem+json)",
           },
         },
         "summary": "Import CSV body into D1",
@@ -1670,7 +1698,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/{customerId}": {
       "delete": {
-        "description": "Hard-deletes one \`customer_snapshot\` row by \`customerId\` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no row exists. Refuses with 400 \`bad-request\` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete also evicts the cached data-entity customer bundle so the erased PII stops serving immediately.",
+        "description": "Hard-deletes one \`customer_snapshot\` row by \`customerId\` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no row exists. Refuses with 400 \`bad-request\` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 \`customer_snapshot\` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it. Any R2 restore or CSV import of an archive taken before the erasure re-inserts the row, and D1 Time Travel can restore it for up to 30 days (7 days on the Workers Free plan), so re-apply erasures after any restore. This route removes only the \`customer_snapshot\` row: the customer's \`address_snapshot\` and \`container_snapshot\` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged \`wrangler d1 execute\` deletes in container → address → customer FK order before retrying the customer delete.",
         "parameters": [
           {
             "in": "path",
@@ -2528,11 +2556,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/health": {
       "get": {
-        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`.",
+        "description": "The one route the \`/api/v1/*\` bearer gate allows without a token. Returns 200 when the Worker is running; it does not check D1, R2, or report config — that is \`GET /api/v1/readiness\`. **Try it:** select Test Request and Send; no Authorization header or request body is needed.",
+        "operationId": "health",
         "responses": {
           "200": {
             "content": {
               "application/json": {
+                "example": {
+                  "service": "routeware-shadow-api",
+                  "status": "ok",
+                  "version": "1.0.0",
+                },
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse",
                 },
@@ -3362,7 +3396,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/snapshots/{table}/{date}": {
       "get": {
-        "description": "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`, same bytes as the D1 sync). Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh \`...-snapshot/export\` to verify an archive before recovery.",
+        "description": "Streams the Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`), re-encoded for spreadsheets: records are split as the importer splits them, blank data records are dropped as its row parsers drop them, and each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a \`_shadow_csv_encoding\` column with value \`1\` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. The ETag is a content hash of the served bytes, and \`If-None-Match\` with the current tag returns 304. Operators compare the download with a fresh \`...-snapshot/export\` by business values, not bytes.",
         "parameters": [
           {
             "in": "path",
@@ -3395,15 +3429,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "text/csv": {
-                "example": "CustomerID,CompanyName,Enabled
-345734,ExampleCo,true
+                "example": "CustomerID,CompanyName,Enabled,_shadow_csv_encoding
+345734,ExampleCo,true,1
 ",
                 "schema": {
                   "type": "string",
                 },
               },
             },
-            "description": "Archived CSV bytes (synthetic customer-report excerpt)",
+            "description": "Archive re-encoded for spreadsheets (synthetic customer-report excerpt)",
+          },
+          "304": {
+            "description": "\`If-None-Match\` matched the current content ETag; empty body",
           },
           "400": {
             "description": "Invalid table or date (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum or not shaped \`YYYY-MM-DD\` before any R2 read runs.",
@@ -3412,7 +3449,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "404": {
-            "description": "No archive for that table and date (application/problem+json)",
+            "description": "No archive for that table and date, including one deleted during the download (application/problem+json)",
+          },
+          "409": {
+            "description": "The archive was replaced between the two reads of one download (application/problem+json). Retry the download.",
           },
           "503": {
             "description": "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound.",

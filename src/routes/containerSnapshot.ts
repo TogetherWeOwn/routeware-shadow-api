@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
@@ -14,6 +15,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   CONTAINER_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -30,7 +32,8 @@ import {
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 container snapshot: reads plus the CSV sync/import writers. */
@@ -48,7 +51,7 @@ const containerSnapshotListRoute = createRoute({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
       containerId: z.coerce.number().int().optional().openapi({ example: 100 }),
-      q: z.string().optional().describe("Substring on location or serial (case-insensitive)").openapi({ example: "C-100" }),
+      q: snapshotSearchQuery.optional().describe("Substring on location or serial (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "C-100" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -72,7 +75,7 @@ const containerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -170,7 +173,8 @@ containerSnapshotRoutes.openapi(containerSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     CONTAINER_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 
@@ -303,7 +307,7 @@ const containerSnapshotImportRoute = createRoute({
   path: "/api/v1/container-snapshot/import",
   tags: ["container-snapshot"],
   summary: "Import container CSV into D1",
-  description: "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  description: "Raw CSV; `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
     query: dryRunQuery,
     body: {
@@ -315,7 +319,8 @@ const containerSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote\n100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -330,6 +335,7 @@ const containerSnapshotImportRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as the raw request body."
@@ -357,12 +363,18 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
     const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

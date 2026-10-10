@@ -5,10 +5,12 @@
  * blocking signal — `npm audit` is advisory-only unless something fails the
  * build on its output. This gate runs `npm audit --omit=dev --json` and
  * fails on any high/critical advisory that is not explicitly allowlisted
- * below. Moderate/low advisories are reported but never block: the current
- * tree carries ~25 of them (mostly Hono middleware adapters this Worker
+ * below. Moderate/low advisories are reported but never block: historically
+ * the tree carried ~25 of them (mostly Hono middleware adapters this Worker
  * never mounts — JSX, Lambda, toSSG), and gating on those would hold the
- * gate permanently red and teach everyone to ignore it.
+ * gate permanently red and teach everyone to ignore it. As of TOG-18932
+ * (hono 4.13.13) the tree carries 0 below-threshold advisories — every
+ * reported GHSA is high and allowlisted.
  *
  * Prod-only (`--omit=dev`) is deliberate: devDependencies (vitest, wrangler,
  * playwright) never ship to the Worker, and their advisory surface would
@@ -36,30 +38,18 @@ export const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 
 /**
- * Reviewed high/critical advisories present in the tree as of TOG-8904
- * (2026-09-28, `npm audit --omit=dev`: 8 packages, 8 distinct high GHSA,
+ * Reviewed high/critical advisories present in the tree as of TOG-18932
+ * (2026-10-09, `npm audit --omit=dev`: 7 packages, 3 distinct high GHSA,
  * 0 critical). Each entry must carry a remediation path; entries are
  * removed — never edited into permanence — once the advisory is gone.
+ *
+ * Retired in TOG-18932 (hono ^4.13.7 bump + `npm audit fix`, non-breaking):
+ * GHSA-28wg-ghj8-5hjv, GHSA-xwg4-73v4-xw9w (nanoid → 5.1.16),
+ * GHSA-96hv-2xvq-fx4p (ws → 8.22.0), GHSA-mwp4-54f8-5fhr (ip-address →
+ * 10.7.3), GHSA-rpmf-866q-6p89 (basic-ftp → 5.3.1), GHSA-88fw-hqm2-52qc
+ * (hono → 4.13.13).
  */
 export const AUDIT_ALLOWLIST = [
-  {
-    id: "GHSA-28wg-ghj8-5hjv",
-    package: "nanoid",
-    reason:
-      "Transitive via @scalar/* (API reference UI). Non-secure generator loop " +
-      "needs a negative size input; not reachable from Worker code. Fix rides " +
-      "the upstream @scalar release — Dependabot proposes it.",
-    addedIn: "TOG-8904",
-  },
-  {
-    id: "GHSA-xwg4-73v4-xw9w",
-    package: "nanoid",
-    reason:
-      "Transitive via @scalar/* (API reference UI), same chain as above. " +
-      "Integer wraparound needs attacker-controlled size input; not reachable " +
-      "from Worker code. Same upstream remediation.",
-    addedIn: "TOG-8904",
-  },
   {
     id: "GHSA-7pqw-9j4j-h8q3",
     package: "extract-zip",
@@ -79,35 +69,6 @@ export const AUDIT_ALLOWLIST = [
     addedIn: "TOG-8904",
   },
   {
-    id: "GHSA-96hv-2xvq-fx4p",
-    package: "ws",
-    reason:
-      "Transitive via @cloudflare/puppeteer (ws@8.20.0; fixed upstream in " +
-      "8.22.0). Tiny-fragment memory-exhaustion DoS needs a malicious WS " +
-      "peer on the browser-automation socket, not the Worker fetch path. " +
-      "Fix rides the upstream puppeteer bump — Dependabot proposes it.",
-    addedIn: "TOG-8904",
-  },
-  {
-    id: "GHSA-mwp4-54f8-5fhr",
-    package: "ip-address",
-    reason:
-      "Transitive via the puppeteer proxy-agent chain (socks proxy support " +
-      "in browser tooling). Octal/decimal SSRF differential needs " +
-      "attacker-influenced proxy resolution; the Worker makes no proxied " +
-      "requests. Same upstream remediation.",
-    addedIn: "TOG-8904",
-  },
-  {
-    id: "GHSA-rpmf-866q-6p89",
-    package: "basic-ftp",
-    reason:
-      "Transitive via the puppeteer proxy-agent chain (FTP proxy support in " +
-      "browser tooling). Malicious-FTP-server DoS needs an FTP proxy fetch; " +
-      "the Worker fetches HTTPS only. Same upstream remediation.",
-    addedIn: "TOG-8904",
-  },
-  {
     id: "GHSA-c475-qrg2-pj4r",
     package: "basic-ftp",
     reason:
@@ -119,18 +80,6 @@ export const AUDIT_ALLOWLIST = [
       "pins ^5.0.2, so the fix rides the upstream proxy-agent chain — " +
       "Dependabot proposes it.",
     addedIn: "TOG-11682",
-  },
-  {
-    id: "GHSA-88fw-hqm2-52qc",
-    package: "hono",
-    reason:
-      "Direct dependency (hono@4.12.14; fixed upstream in >4.13.4). CORS " +
-      "credentialed-wildcard reflection applies only when `origin` is left " +
-      "at the wildcard default with credentials — this repo sets explicit " +
-      "origins (see the CORS audit, docs/TOG-8368). Remediation is a minor " +
-      "hono bump, which Dependabot proposes weekly; removing this entry is " +
-      "part of that PR (the staleness rule enforces it).",
-    addedIn: "TOG-8904",
   },
 ];
 

@@ -289,7 +289,7 @@ a route is dropped).
 Each of these is unreachable defence in depth, kept on purpose. Removing them is behaviour-neutral
 but is **not** a test-only change.
 
-- **`streamSync.ts:49`, `:111`, `:173`** — the `if (!cols) continue;` guards. Line 0 either sets
+- **`streamSync.ts:171`, `:266`, `:361`** — the `if (!cols) continue;` guards. Line 0 either sets
   `cols` via `mapCsvHeaders` or throws, so no later line can see a null `cols`.
 - **`addressSnapshot.ts:107`, `customerSnapshot.ts:123`, `containerSnapshot.ts:106`** — the
   `!Number.isFinite(id)` 400 guard in all three by-id handlers. `z.coerce.number().int()` on the path

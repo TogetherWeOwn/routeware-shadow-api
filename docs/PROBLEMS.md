@@ -6,17 +6,52 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
-| `unauthorized` | 401 | Missing or invalid `Authorization: Bearer <token>`. See below. |
-| `forbidden` | 404 | A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
-| `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
-| `method-not-allowed` | 405 | The upstream does not support the HTTP method (e.g. customer hard delete). |
-| `rate-limited` | 429 | Too many failed bearer-auth attempts from one IP. See below. |
-| `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
-| `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
-| `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
+| `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
+| `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
+| `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
+| `method-not-allowed` | 405 | <a name="method-not-allowed"></a>The upstream does not support the HTTP method (e.g. customer hard delete). |
+| `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
+| `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
+| `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
+| `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
+| `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
+| `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
-| `internal` | 500 | An unexpected error. Details are logged, not returned. |
+| `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
+
+## CSV control characters (`bad-request`)
+
+All three snapshot `.../import` routes reject NUL, vertical tab, other C0
+controls (U+0000–U+001F except tab/LF/CR), DEL/C1 controls (U+007F–U+009F),
+and lone CR inside a cell. Headers, unused columns, and whitespace-only
+records are checked before trimming or binding any values to D1. The error
+names the logical CSV row without echoing submitted values:
+
+```
+CSV row 2 contains a disallowed control character.
+See docs/PROBLEMS.md#bad-request.
+```
+
+The header is row 1; embedded quoted newlines do not advance the row number.
+Empty records are skipped by the stream reader, but whitespace-only and
+invalid-ID records count. Tabs and quoted LF/CRLF remain supported. CR-only
+record separators remain supported; a lone CR **inside a quoted cell** is
+rejected, not silently removed. This is the API's import policy, stricter
+for cell CR than [RFC 4180 §2](https://datatracker.ietf.org/doc/html/rfc4180#section-2).
+Upstream report syncs and the default shared parser retain their permissive
+behavior; import routes explicitly enable control rejection.
+
+Fix the named record (remove forbidden controls or replace cell CR with LF)
+and retry. No rejected record is written, and import never reconciles/deletes.
+Earlier flushed batches of valid rows may remain; the upload is not atomic.
+
+This policy also applies to the API's own exports and raw R2 report archives:
+report-origin controls are retained by sync/export, so those CSVs may not be
+HTTP-importable. Do not discover compatibility through a partial restore.
+For recovery without control sanitization, use the integrity-verified in-code
+report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-programmatic-restore-in-code-path).
+Export → HTTP import is lossless only for import-compatible business cells.
 
 ## Dangling snapshot references (`bad-request`)
 
@@ -39,9 +74,17 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 `DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
 customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). The same FK chain refuses a delete
-while address rows still reference the customer, mapped to 400 (never an
-orphan, never a cascade):
+is untouched; see `method-not-allowed`). Erasure removes the D1
+`customer_snapshot` row and evicts the data-entity cache entry. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback, and it does not touch upstream Routeware. The row
+returns on the next sync — or on the next save for that customer through
+the proxy — while upstream still holds it. Any R2 restore or CSV import of
+an archive taken before the erasure re-inserts the row, and D1 Time Travel
+can restore it for up to 30 days (7 days on the Workers Free plan), so
+re-apply erasures after any restore. The same FK chain
+refuses a delete while address rows still reference the customer, mapped to
+400 (never an orphan, never a cascade):
 
 ```
 Cannot delete customer_id=42: 2 address row(s) still reference it
@@ -49,8 +92,15 @@ Cannot delete customer_id=42: 2 address row(s) still reference it
 See docs/PROBLEMS.md#bad-request.
 ```
 
-Fix: delete the listed addresses first, then retry. The `detail` names up to
-20 blocking integer keys — integer keys only, never PII.
+Fix: remove the listed addresses, then retry. There is no address or
+container DELETE route — "delete the addresses first" means either waiting
+for the upstream deletion to reconcile (detail-full sync or report-sync
+drops the child rows once upstream stops reporting them) or deleting them
+directly with privileged `wrangler d1 execute` in container → address →
+customer FK order. This route removes only the `customer_snapshot` row: the
+customer's `address_snapshot` and `container_snapshot` rows are not removed
+by this route. The `detail` names up to 20 blocking integer keys — integer
+keys only, never PII.
 
 ## Authentication (`unauthorized`)
 
@@ -137,19 +187,28 @@ Cloudflare overwrites, so clients cannot spoof it); `X-Forwarded-For` is
 honored only when `THROTTLE_TRUST_XFF="true"` (dev/test) — production
 XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
 value can neither evade the throttle by rotation nor frame a victim's bucket.
-After 20 failures inside a 60-second window, further failed
-attempts from that IP get `429 Too Many Requests` with a problem+json body and
-a `Retry-After` header, for 60 seconds. The block is per-IP, not per-token, so
-rotating candidate tokens does not evade it.
+After 19 failed checks inside a 60-second window, the 20th check from that IP
+returns `429 Too Many Requests` and starts a 60-second block. Further failed
+checks while that block is active also return 429 and restart the 60-second
+timer, so continued failures keep `Retry-After` at 60 seconds. Each 429 has a
+problem+json body, a `Retry-After` header reporting the remaining block
+duration (at most 60 seconds), and `X-RateLimit-Limit` (`19`, the failed checks
+allowed per window),
+`X-RateLimit-Remaining` (`0`), and `X-RateLimit-Reset` (an absolute Unix
+timestamp in seconds; for older Durable Objects that omit the expiry, it is a
+conservative estimate derived from `Retry-After`). CORS exposes `Retry-After` and
+all three `X-RateLimit-*` headers through `Access-Control-Expose-Headers`. The
+block is per-IP, not per-token, so rotating candidate tokens does not evade it.
 
 Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
 Throttle storage errors fail open to the pre-throttle 401 behavior — auth
-stays enforced, only the counting degrades. Each fail-open logs exactly one
-`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
-is a fixed category, never IP/token/PII). Operator alarm path — log query +
+stays enforced, only the counting degrades. Fail-opens log at most one
+structured error event per isolate per 60-second window: `msg` is always
+`AUTH THROTTLE FAIL-OPEN`, and a separate fixed-category `reason` field names
+the failure class (never IP/token/PII). Operator alarm path — log query +
 alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
@@ -163,18 +222,18 @@ the bearer check, which an attacker without the token cannot do, and a reset
 from one IP never touches another IP's counter. Pinned by
 `test/throttleResetIsolation.test.ts`.
 
-Shared-NAT note: clients behind one egress IP share a single 20-failure
+Shared-NAT note: clients behind one egress IP share a single 19-failure
 budget, so a bad actor — or a misconfigured client retrying a stale token —
 behind the same NAT can cause `429` responses for other clients' failed
 attempts from that IP. This never blocks legitimate traffic: a request with
 the valid token always passes, even while its IP is blocked, and clears the
 shared counter. Operator remedy: confirm the affected client is sending the
 current token (one good request clears the block immediately); otherwise the
-block expires on its own after 60 seconds. If `429`s recur from one egress
+block expires 60 seconds after the last failed check. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
 
-<a id="upstream-error"></a>
+<a name="upstream-error"></a>
 
 ## Loud upstream errors (`upstream-error`)
 
@@ -322,6 +381,26 @@ counter that rejects the same way without buffering the file. The limit
 covers operator uploads only — the report `sync` path is uncapped (upstream
 export size is the operator's own config) — and a rejected import never
 touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
+
+## Unsupported snapshot import media type (`unsupported-media-type`)
+
+`POST /api/v1/{customer,address,container}-snapshot/import` accepts raw CSV
+bytes with `Content-Type: text/csv` or `application/octet-stream` (media types
+are case-insensitive; parameters such as `charset=utf-8` are allowed). A request
+with a body and any other or missing media type returns 415
+`application/problem+json` after snapshot authentication, the size check and the
+empty-body check, and before the body is read or D1 is changed. A POST with no
+body keeps its 400 empty-body response. The response uses a fixed detail and
+does not echo submitted bytes. Pinned by `test/snapshotImportEdges.test.ts`.
+
+## Archive replaced during a readback (`conflict`)
+
+`GET /api/v1/snapshots/{table}/{date}` reads the R2 archive twice: once to
+measure the re-encoded body's exact length and ETag, then again to stream it,
+conditional on the stored ETag. If a sync replaces that date's object between
+the two reads, the route returns 409 `application/problem+json` naming the table
+and date and streams nothing. Retry the download; the next attempt measures the
+current object. The readback never modifies the stored object.
 
 ## Query-param allowlist (load-long-modal probe)
 

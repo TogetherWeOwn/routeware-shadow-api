@@ -1,6 +1,7 @@
 import { establishSessionWithBrowser } from "./browserAuth";
 import { establishSessionViaHttp } from "./httpAuth";
 import { isLoginPageUnavailableError } from "./loginPageError";
+import { logEvent } from "./logger";
 import { isMissingSetCookieCapabilityError } from "./setCookieCapabilityError";
 import {
   acquireRefreshLock,
@@ -121,10 +122,12 @@ async function login(
     ) {
       throw err;
     }
-    console.warn(
-      "HTTP auth failed; falling back to Browser Rendering:",
-      err instanceof Error ? err.message : String(err)
-    );
+    logEvent({
+      level: "warn",
+      msg: "HTTP authentication failed; falling back to Browser Rendering",
+      route: "auth.login",
+      fallback: "browser"
+    });
     return establishSessionWithBrowser(env, stub, bootstrapUrl);
   }
 }

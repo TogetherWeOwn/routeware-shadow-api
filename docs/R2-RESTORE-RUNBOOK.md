@@ -21,10 +21,21 @@ These are different buckets, including in local simulation.
 | `snapshots/YYYY-MM-DD/container.csv` | Raw container report CSV; first header `ContainerID` |
 | `snapshots/YYYY-MM-DD.manifest.json` | Version-1 manifest of uploaded files: keys, SHA-256 digests and byte sizes |
 
+Date-alias keys are date-predictable (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`,
+UTC date). Per-run `snapshot-history/` keys and `snapshot-latest/` pointers are documented
+in `docs/R2-RETENTION.md` and are not covered by this runbook's date-alias procedure;
+do not substitute a history key for a date-alias key without a freshly reviewed procedure.
+
 Dates are UTC. The manifest is **outside** the date directory. Its shape is
 `{version:1,date:"YYYY-MM-DD",files:{"customer.csv":{key,sha256,bytes},...}}`.
 An entry describes the exact CSV bytes, not parsed rows or a D1 SQL dump; it
-contains no D1 schema or row count. See `src/lib/r2SnapshotArchive.ts`.
+contains no D1 schema or row count. See `src/lib/r2SnapshotArchive.ts`. A passing
+manifest proves byte integrity, not import compatibility: public `.../import`
+rejects forbidden control characters and lone-CR cell content even when those bytes
+came from our archive or `.../export` (see `docs/PROBLEMS.md#csv-control-characters-bad-request`
+and `test/snapshotRestoreControlBoundary.test.ts`). Do not start an HTTP restore to
+discover whether the CSV is compatible: a late 400 can leave earlier batches written.
+Neither restore path is atomic.
 
 - A successful D1 sync precedes the best-effort archive upload. A successful
   sync does **not** prove that its R2 archive exists; check the object and manifest.
@@ -377,6 +388,64 @@ that stream into the existing per-table stream-sync functions in FK order.
 This helper is not a standalone HTTP R2-to-D1 restore endpoint and does not
 replace manifest verification or recovery authorization.
 
+**Use this in-code path for report-origin archive recovery.** It retrieves the archived
+stream and uses the same permissive parsing as upstream report sync (leave
+`rejectControlCharacters` disabled, the default). Public `.../import` is not a general
+disaster-recovery route: use §5/§7 HTTP imports only for CSVs whose entire contents are
+already known to satisfy `docs/PROBLEMS.md#csv-control-characters-bad-request`, verified
+by the offline control pre-check below. Do not strip controls from a recovery archive to
+make the check pass.
+
+```bash
+python3 - "$DATE" <<'PY'
+from datetime import date
+from pathlib import Path
+import sys
+try:
+    day = date.fromisoformat(sys.argv[1]).isoformat()
+except (IndexError, ValueError):
+    sys.exit("Invalid DATE; expected YYYY-MM-DD.")
+failed = False
+for table in ("customer", "address", "container"):
+    path = Path("$RUN") / f"{table}.csv"
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        print(f"{path}: unreadable or invalid UTF-8; STOP")
+        failed = True
+        continue
+    rejected = any(
+        (ord(ch) < 0x20 and ch not in "\t\n\r")
+        or 0x7f <= ord(ch) <= 0x9f
+        or (ch == "\r" and text[i + 1:i + 2] != "\n")
+        for i, ch in enumerate(text)
+    )
+    if rejected:
+        print(f"{path}: control-incompatible; use the in-code path below, not HTTP import")
+        failed = True
+if failed:
+    sys.exit(1)
+print("All selected CSVs passed the offline control pre-check.")
+PY
+```
+
+On a failed pre-check, do not run HTTP imports: use the code-deployment procedure next
+or a separately verified D1 backup. The in-code path is not currently a runnable
+production command: the repository has no route, CLI or deployed caller for this helper
+(the existing drill runs in Vitest only). An operator must first implement and deploy an
+authorized restore entry point using the sample below, validate it against staging
+bindings, and obtain the normal production-change authorization before executing a real
+recovery. Do not paste this TypeScript into a shell or assume `wrangler` exposes an
+invocation for it. After that prerequisite, pass the §4 integrity gate against the same
+date and bucket (`restoreSnapshotCsvFromR2` retrieves bytes but does not verify the
+manifest), run the three tables in FK order with `syncCustomerSnapshotFromStream`,
+`syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream` (default
+upsert-without-reconciliation options, restamping `synced_at`), and keep the entry point
+separate from public HTTP import without adding an import-validation opt-out. Re-apply
+customer erasures after any restore: an archive taken before a customer erasure re-inserts
+the erased row (the API keeps no suppression list), so track erased `customerId` values
+out of band and re-`DELETE` each one afterwards (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+
 ## 7. Deployed incident recovery — separately authorized, never a drill
 
 **Do not execute this section during review.** Production recovery requires the
@@ -387,21 +456,21 @@ plan privately. Approval to read R2 or run a scratch drill is **not** approval t
 write a deployed database. If authority or target identity is uncertain, stop.
 
 Before writes, the operator must arrange an approved maintenance window that
-quiesces the snapshot cron and other D1 writers. Do not disable a security gate,
-probe an import route, run `/sync`, migrate schema, or wipe tables. This is an
-upsert recovery, **not** a point-in-time rewind: existing ids are updated, missing
-ids are inserted, and ids absent from the CSV remain. For an empty lost table,
-post-import count must equal its distinct valid CSV ids. A nonempty target needs
-an approved merge plan (expected union of ids and retained rows); do not assume
-its count equals the archive's count. Whole-database rewind is a different,
-separately approved operation.
+quiesces the snapshot cron and other D1 writers and freezes Worker deployments and
+binding edits. Do not disable a security gate, probe an import route, run `/sync`,
+migrate schema, or wipe tables. This is an upsert recovery, **not** a point-in-time
+rewind: existing ids are updated, missing ids are inserted, and ids absent from
+the CSV remain. For an empty lost table, post-import count must equal its distinct
+valid CSV ids. A nonempty target needs an approved merge plan (expected union of
+ids and retained rows); do not assume its count equals the archive's count.
+Whole-database rewind is a different, separately approved operation.
 
 ### 7.1 Bind the approved deployed target and capture an undo point
 
 Use the maintained repo config, **not** `$RUN/wrangler.toml`. Match the approved
-Worker's `CUSTOMER_DB` binding to the same D1 id in that config; the Worker URL
-alone does not establish identity. The `test` environment is not evidence of a
-staging deployment or permission to write it.
+Worker's active `CUSTOMER_DB` binding to the same D1 id in that config; the Worker
+URL alone does not establish identity. The `test` environment is not evidence of
+a staging deployment or permission to write it.
 
 | Approved environment | Wrangler environment flag | D1 name | Source R2 bucket |
 |---|---|---|---|
@@ -409,11 +478,18 @@ staging deployment or permission to write it.
 | `test` | `--env test` | `routeware-customer-snapshot-test` | `routeware-csv-snapshots-test` |
 
 In terminal B, export `RECOVERY_ENV` as exactly `default` or `test`, and
-`RECOVERY_BASE` as the approved HTTPS Worker origin, with no path/query. Obtain
-Wrangler authorization and `CUSTOMER_SNAPSHOT_SYNC_SECRET` from the approved
-secret store/environment injection. Never type its value in a command, put it in
-the context file, use a CLI token flag, or print it. Do not retrieve a secret from
-git history or change credentials if authorization fails.
+`RECOVERY_BASE` as the approved HTTPS Worker origin, with no path/query. Confirm
+and export `RECOVERY_D1_ID` from the approved active Worker binding and
+`RECOVERY_WORKER_VERSION_ID` from its active deployment. The deployment must
+route 100% of traffic to one version; if it is split, or the binding/version is
+unclear, stop. Also confirm and export `RECOVERY_WORKERS_PLAN`, the effective
+`RECOVERY_WORKERS_SUBREQUEST_LIMIT`, `RECOVERY_WORKERS_CPU_LIMIT_MS`, and
+incident-approved `RECOVERY_D1_BUDGET` for this exact deployed target as defined
+in §7.2; if any value is unknown, stop.
+Wrangler authorization and `CUSTOMER_SNAPSHOT_SYNC_SECRET` must come from the
+approved secret store/environment injection. Never type the secret in a command,
+put it in the context file, use a CLI token flag, or print it. Do not retrieve a
+secret from git history or change credentials if authorization fails.
 
 ```bash
 (
@@ -430,8 +506,22 @@ esac
 [ "$BUCKET" = "$SOURCE_BUCKET" ] || { printf 'STOP: source bucket does not match the approved environment; create a new context\n' >&2; exit 1; }
 export SOURCE_BUCKET
 : "${RECOVERY_BASE:?export the approved Worker origin}"
-declare -p D1_NAME DEPLOYED_FLAGS RECOVERY_BASE SOURCE_BUCKET > "$RUN/deployed-context.bash"
+: "${RECOVERY_D1_ID:?confirm the active Worker D1 binding id}"
+: "${RECOVERY_WORKER_VERSION_ID:?confirm the active Worker version id}"
+: "${RECOVERY_WORKERS_PLAN:?confirm the deployed target plan}"
+: "${RECOVERY_WORKERS_SUBREQUEST_LIMIT:?confirm the deployed internal-service limit}"
+: "${RECOVERY_WORKERS_CPU_LIMIT_MS:?confirm the deployed CPU limit in ms}"
+: "${RECOVERY_D1_BUDGET:?record the approved per-import budget}"
+export RECOVERY_ENV D1_NAME SOURCE_BUCKET RECOVERY_D1_ID \
+  RECOVERY_WORKER_VERSION_ID RECOVERY_WORKERS_PLAN \
+  RECOVERY_WORKERS_SUBREQUEST_LIMIT RECOVERY_WORKERS_CPU_LIMIT_MS \
+  RECOVERY_D1_BUDGET
+declare -p RECOVERY_ENV D1_NAME DEPLOYED_FLAGS RECOVERY_BASE SOURCE_BUCKET \
+  RECOVERY_D1_ID RECOVERY_WORKER_VERSION_ID RECOVERY_WORKERS_PLAN \
+  RECOVERY_WORKERS_SUBREQUEST_LIMIT RECOVERY_WORKERS_CPU_LIMIT_MS \
+  RECOVERY_D1_BUDGET > "$RUN/deployed-context.bash"
 npx wrangler d1 info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/deployed-d1-info.json"
+npx wrangler deployments status "${DEPLOYED_FLAGS[@]}" --json > "$RUN/worker-deployment-before.json"
 npx wrangler d1 time-travel info "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --json > "$RUN/pre-recovery-bookmark.json"
 npx wrangler d1 execute "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --remote --json --command \
   'SELECT COUNT(*) AS customers FROM customer_snapshot;
@@ -440,8 +530,16 @@ npx wrangler d1 execute "$D1_NAME" "${DEPLOYED_FLAGS[@]}" --remote --json --comm
 )
 ```
 
-Inspect these private files **before proceeding**: account/id must match the
-approved target and the bookmark must be usable within its retention window.
+Inspect these private files **before proceeding**: the D1 id in Wrangler output
+must equal `RECOVERY_D1_ID` and the approved active Worker binding; deployment
+status must show the recorded version at 100%; and the bookmark must be usable
+within its retention window. Keep the Worker version and binding frozen for the
+maintenance window. Before each HTTP import, the §7.2 gate re-reads deployment
+status and the recorded version metadata; it requires exactly one version at
+100% and that version's `CUSTOMER_DB` D1 id and CPU limit to match the receipt.
+If either query fails, the deployment is split, required metadata is missing, or
+any value differs, the gate stops before HTTP; obtain fresh approval and a new
+preflight receipt.
 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) is
 always on for the current D1 backend (7 days Free / 30 days Paid); do not infer
 the current plan or backend from this repo. If a usable bookmark cannot be
@@ -464,28 +562,51 @@ fixture Worker for real PII.
 
 The HTTP imports cap **each body at 50 MiB** (`SNAPSHOT_IMPORT_MAX_BYTES`); archive
 writers have no equivalent cap. A small body can still exceed the deployed
-Worker's D1 invocation budget. Before the first deployed write, export:
+Worker's internal-service subrequest limit. Before the first deployed write, export:
 
 - `RECOVERY_TABLES`: approved space-separated table names in FK order, for example
   `customer address container`.
 - `RECOVERY_WORKERS_PLAN`: exactly `free` or `paid`, **confirmed for the approved
   target**, not inferred from local Wrangler or the source bucket.
-- `RECOVERY_D1_BUDGET`: the approved positive integer per-import invocation budget,
-  no greater than that plan's limit (Free: 50; Paid: 1,000). Unknown plan/budget
-  means **STOP**, not a default to Paid or a request to upgrade.
+- `RECOVERY_WORKERS_SUBREQUEST_LIMIT`: the effective per-invocation internal-service
+  limit for that deployed Worker, confirmed from its current plan and configuration.
+  Workers Free allows 1,000 requests to Cloudflare internal services (separate from
+  its 50 external-subrequest limit); Workers Paid uses the configured limit (10,000
+  by default, up to 10 million). The D1 limits page still shows a legacy
+  1,000-Paid/50-Free row that points to Workers subrequest limits; reconcile it
+  against the current linked Workers limits, the active Worker and actual target.
+  If any applicable D1 or Worker limit is unclear or lower, **STOP** until resolved;
+  never assume a larger limit. This repository's current `wrangler.toml` does not
+  set `limits.subrequests`, which does not prove what is deployed.
+- `RECOVERY_D1_BUDGET`: the incident-approved positive integer internal-service
+  subrequest budget per import. It must leave at least 10% headroom (minimum one
+  call) below the verified effective limit; the gate also reserves calls for
+  shared-route overhead. No limit increase, plan upgrade, or new spend is implied.
+- `RECOVERY_WORKERS_CPU_LIMIT_MS`: the positive effective CPU-time limit in
+  milliseconds for the confirmed active Worker version. The repository config's
+  `cpu_ms = 300_000` is not proof of the deployed setting; unknown means **STOP**.
 
-[D1 invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
-are separate from the body ceiling. The gate below conservatively counts SQL statements and batch calls, adds one
-possible child foreign-key diagnostic D1 query, and checks **each table
-separately**: each HTTP import is a new invocation. Confirm that the deployed
-importer matches this checked-out source before relying on its batch model. The
-general [Workers subrequest page](https://developers.cloudflare.com/workers/platform/limits/#subrequests)
-currently lists different internal-service limits and does not specify D1 batch
-accounting; this runbook uses the lower D1-specific ceiling and charges every SQL
-statement rather than assuming a batch is one query. Also confirm available daily
-row quotas, storage and the approved Worker's runtime limits privately; this
-offline gate cannot prove those or parent FK compatibility. Passing it is
-necessary, not a promise of runtime success.
+Cloudflare defines a subrequest as a Worker request to a Cloudflare service,
+including D1. `D1Database.batch()` sends multiple SQL statements inside one call,
+so this gate counts each importer `db.batch()` call once, not each SQL statement
+as a separate Worker subrequest. It adds one successful-auth Durable Object call
+and, for address/container, one possible foreign-key diagnostic D1 call. Each
+table's HTTP import is a separate Worker invocation. This model is valid only for
+the exact verified route/auth code and importer; include any other service calls
+in that deployed path, or stop if the path has changed. The import code does not
+make external fetches; if that changes, budget the separate external limit too.
+
+Before the first deployed write, also verify privately that the complete selected
+imports fit the remaining D1 read/write allocation and storage capacity for this
+account/database, including write amplification from indexes and account usage
+outside this Worker. Use current D1 Metrics/Row Metrics and the account's plan and
+billing budget; stop if remaining quota/capacity is unknown, insufficient, or
+would exceed the approved no-new-spend budget. Confirm the deployed CPU limit and
+that a same-size successful run or approved non-production rehearsal demonstrates
+sufficient runtime margin. The snapshot cron and other D1 writers must remain
+quiesced. This offline gate cannot prove daily/monthly quota, storage, runtime
+success, or parent FK compatibility. Passing it is necessary, not a promise of
+runtime success.
 
 Run the all-files preflight before **any table write**. It uses the existing
 stream-sync parsers with `dryRun: true`, `requireDataRows: true` and a throwing D1
@@ -494,6 +615,21 @@ access. It does not count physical newlines or use the non-streaming CSV parser:
 quoted multiline fields follow the actual import dialect. Stop on an oversized,
 over-budget or unimportable archive and obtain an approved alternative; do not
 begin a partial chain or improvise CSV splitting during an incident.
+
+**When a table cannot fit the HTTP budget:** do not raise the budget, upgrade the plan,
+or split the CSV ad hoc. Obtain fresh incident approval for one of these usable
+alternatives, then execute it under the same maintenance window, binding freeze, manifest
+gate and FK order: (a) the §6 programmatic restore via a staging-validated, separately
+deployed restore entry point (it does not consume the per-invocation HTTP-import
+subrequest budget the same way; verify its own budget before use); (b) a direct D1 SQL
+restore via privileged `wrangler d1 execute` with FK-ordered SQL derived from the verified
+CSV (bypasses the Worker HTTP limit; subject to D1 SQL/API limits, verify privately);
+(c) whole-database Time Travel or SQL-export restore per `D1-BACKUP-RESTORE-RUNBOOK.md`
+(whole-database impact, separately approved); or (d) a revised selection that skips the
+over-budget table with explicit child-dependency confirmation, followed by a rerun of this
+all-files gate. Unlike `.../sync`, `.../import` requires data rows (`requireDataRows: true`),
+validates controls before binding, and never reconciles/deletes; it upserts
+import-compatible business cells but cannot restore every archive.
 
 **Legitimate empty archives:** header-only/blank/zero-valid-row files stop the
 whole selection before even the customer import. They cannot clear a table:
@@ -516,13 +652,26 @@ import { dirname, relative } from 'node:path';
 import { build } from 'esbuild';  // lockfile's installed Wrangler dependency; no download
 try {
   const { ROOT, RUN, DATE, BUCKET, RECOVERY_BASE, RECOVERY_TABLES,
-    RECOVERY_WORKERS_PLAN: plan, RECOVERY_D1_BUDGET: budgetText } = process.env;
+    RECOVERY_ENV: environment, D1_NAME: d1Name, RECOVERY_D1_ID: d1Id,
+    RECOVERY_WORKER_VERSION_ID: workerVersionId,
+    RECOVERY_WORKERS_PLAN: plan, RECOVERY_WORKERS_SUBREQUEST_LIMIT: limitText,
+    RECOVERY_WORKERS_CPU_LIMIT_MS: cpuLimitText,
+    RECOVERY_D1_BUDGET: budgetText } = process.env;
   // Invalidate any old gate receipt before checking a revised selection.
   writeFileSync(`${RUN}/approved-recovery-tables.json`, 'null');
-  const limit = plan === 'free' ? 50 : plan === 'paid' ? 1000 : 0;
+  const platformMax = plan === 'free' ? 1000 : plan === 'paid' ? 10_000_000 : 0;
+  const workerLimit = Number(limitText);
+  const cpuLimit = Number(cpuLimitText);
   const budget = Number(budgetText);
-  if (!limit || !/^[1-9]\d*$/.test(budgetText ?? '') ||
-      !Number.isSafeInteger(budget) || budget > limit) throw new Error();
+  const expectedD1Name = environment === 'default' ? 'routeware-customer-snapshot' :
+    environment === 'test' ? 'routeware-customer-snapshot-test' : null;
+  const headroom = Math.max(1, Math.ceil(workerLimit * 0.1));
+  if (!expectedD1Name || d1Name !== expectedD1Name || !d1Id || !workerVersionId ||
+      !/^[1-9]\d*$/.test(cpuLimitText ?? '') || !Number.isSafeInteger(cpuLimit) ||
+      !platformMax || !/^[1-9]\d*$/.test(limitText ?? '') ||
+      !Number.isSafeInteger(workerLimit) || workerLimit > platformMax ||
+      !/^[1-9]\d*$/.test(budgetText ?? '') || !Number.isSafeInteger(budget) ||
+      budget > workerLimit - headroom) throw new Error();
   const base = new URL(RECOVERY_BASE);
   if (base.protocol !== 'https:' || base.username || base.password ||
       base.pathname !== '/' || base.search || base.hash) throw new Error();
@@ -572,14 +721,19 @@ try {
     });
     if (!Number.isSafeInteger(rowCount) || rowCount <= 0) throw new Error();
     const batchCalls = Math.ceil(rowCount / batchRows);
-    const statements = Math.floor(rowCount / batchRows) * Math.ceil(batchRows / sqlRows) +
+    // Informational only: SQL statements are not individual Worker subrequests.
+    const sqlStatements = Math.floor(rowCount / batchRows) * Math.ceil(batchRows / sqlRows) +
       Math.ceil((rowCount % batchRows) / sqlRows);
-    const upperBound = Math.max(batchCalls, statements) + (table === 'customer' ? 0 : 1);
+    // One auth-throttle Durable Object call; children may make one FK diagnostic D1 call.
+    const upperBound = batchCalls + (table === 'customer' ? 1 : 2);
     if (upperBound > budget) throw new Error();
-    files[table] = { bytes: csv.length, sha256, rowCount, batchCalls, statements, upperBound };
+    files[table] = { bytes: csv.length, sha256, rowCount, batchCalls, sqlStatements, upperBound };
   }
   writeFileSync(`${RUN}/approved-recovery-tables.json`, JSON.stringify({
-    version: 1, head, date: DATE, bucket: BUCKET, base: RECOVERY_BASE, plan, budget, tables, files
+    version: 1, head, date: DATE, environment, d1Name, d1Id,
+    workerVersionId, workerCpuLimitMs: cpuLimit, bucket: BUCKET,
+    base: RECOVERY_BASE, plan, workerSubrequestLimit: workerLimit, budget,
+    tables, files
   }));
   console.log('PASS: every selected archive is importable and within the approved invocation budget');
 } catch {
@@ -590,17 +744,31 @@ JS
 )
 ```
 
-The private gate receipt binds the committed parser SHA, target origin, bucket,
-date, approved plan/budget, ordered selection and each file's bytes/digest,
-accepted-row count and budget calculation. Customer/address streams flush every
-80 accepted rows; containers every 40. SQL packs at most 7/6/3 rows respectively,
-restarting at each flush (`streamSync.ts`, `tableSql.ts`, `upsert.ts`). The bound
-is the greater of batch calls and SQL statements, plus one possible
-FK-diagnostic D1 query for a child import. The shared auth throttle uses a
-Durable Object, not D1, so its Worker subrequest is outside this D1 query
-budget. For example, 40,001 container rows need 1,001 batch calls and 14,001
-statements; the conservative bound is 14,002, so the file fails the Paid 1,000
-gate before any write.
+The private gate receipt binds the committed parser SHA, target environment, D1
+name/id, active Worker version and CPU limit, target origin, bucket, date,
+confirmed plan and effective Worker subrequest limit, approved budget, ordered
+selection, and each file's bytes/digest, accepted-row count and call calculation.
+It is a snapshot, not a live Cloudflare lock: freeze deployments and binding
+edits for the maintenance window. Before each POST, the import command fetches
+fresh deployment status and metadata for the approved version and stops unless
+the version, `CUSTOMER_DB` binding, and CPU limit still match. Customer/address streams flush
+every 80 accepted rows; containers every 40. SQL packs at most 7/6/3 rows
+respectively, restarting at each flush (`streamSync.ts`, `tableSql.ts`, `upsert.ts`).
+The gate counts one subrequest for each `db.batch()` call, plus one
+successful-auth Durable Object call and, for child tables, one possible
+FK-diagnostic D1 call. SQL statement count is recorded for inspection only. The
+approved budget must also leave at least 10% of the verified internal-service
+limit unused. Quota, storage, billing and CPU-margin checks remain explicit
+operator prerequisites; a receipt does not imply they passed.
+
+For example, 40,001 container rows require 1,001 `db.batch()` calls and a bound
+of 1,003 including route overhead. This fits a 9,000-call budget when the verified
+Paid default is 10,000, but stops if the deployed limit is 1,000. The recorded
+2026-09-27 cron evidence reports 109,894 customer rows, 111,620 address rows and
+44,279 container rows touched; the source batch sizes imply 1,374, 1,396 and 1,107
+`db.batch()` calls respectively. That history supports the call-based model but
+does not prove the current target's plan/config or the selected archive's size;
+confirm both before relying on it ([cron evidence](TOG-8387-cron-drill-schedule.md)).
 Do not edit the receipt. A failed preflight invalidates any earlier receipt.
 
 Row counts follow importer behavior: invalid-id/blank rows are skipped and
@@ -629,15 +797,34 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 try {
   const { ROOT, RUN, DATE, RECOVERY_BASE, RECOVERY_TABLE: table, BUCKET, SOURCE_BUCKET,
-    CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } = process.env;
+    RECOVERY_ENV: environment, D1_NAME: d1Name, RECOVERY_D1_ID: d1Id,
+    RECOVERY_WORKER_VERSION_ID: workerVersionId,
+    RECOVERY_WORKERS_PLAN: plan, RECOVERY_WORKERS_SUBREQUEST_LIMIT: limitText,
+    RECOVERY_WORKERS_CPU_LIMIT_MS: cpuLimitText,
+    RECOVERY_D1_BUDGET: budgetText, CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } = process.env;
   const approval = JSON.parse(readFileSync(`${RUN}/approved-recovery-tables.json`, 'utf8'));
   const order = ['customer', 'address', 'container'];
   const tables = approval?.tables;
-  const limit = approval?.plan === 'free' ? 50 : approval?.plan === 'paid' ? 1000 : 0;
+  const platformMax = plan === 'free' ? 1000 : plan === 'paid' ? 10_000_000 : 0;
+  const workerLimit = Number(limitText);
+  const cpuLimit = Number(cpuLimitText);
+  const budget = Number(budgetText);
+  const expectedD1Name = environment === 'default' ? 'routeware-customer-snapshot' :
+    environment === 'test' ? 'routeware-customer-snapshot-test' : null;
+  const headroom = Math.max(1, Math.ceil(workerLimit * 0.1));
   if (!order.includes(table) || !secret || BUCKET !== SOURCE_BUCKET ||
-      approval?.version !== 1 || approval.date !== DATE || approval.bucket !== BUCKET ||
-      approval.base !== RECOVERY_BASE || !Number.isSafeInteger(approval.budget) ||
-      !limit || approval.budget <= 0 || approval.budget > limit ||
+      !expectedD1Name || d1Name !== expectedD1Name || !d1Id || !workerVersionId ||
+      !/^[1-9]\d*$/.test(cpuLimitText ?? '') || !Number.isSafeInteger(cpuLimit) ||
+      approval?.version !== 1 || approval.date !== DATE ||
+      approval.environment !== environment || approval.d1Name !== d1Name ||
+      approval.d1Id !== d1Id || approval.workerVersionId !== workerVersionId ||
+      approval.workerCpuLimitMs !== cpuLimit || approval.bucket !== BUCKET ||
+      approval.base !== RECOVERY_BASE || approval.plan !== plan ||
+      approval.workerSubrequestLimit !== workerLimit || approval.budget !== budget ||
+      !platformMax || !/^[1-9]\d*$/.test(limitText ?? '') ||
+      !Number.isSafeInteger(workerLimit) || workerLimit > platformMax ||
+      !/^[1-9]\d*$/.test(budgetText ?? '') || !Number.isSafeInteger(budget) ||
+      budget > workerLimit - headroom ||
       !Array.isArray(tables) || !tables.length || !tables.includes(table) ||
       tables.some((t, i) => !order.includes(t) ||
         (i > 0 && order.indexOf(t) <= order.indexOf(tables[i - 1]))) ||
@@ -664,6 +851,26 @@ try {
         entry.bytes !== bytes.length || entry.sha256 !== sha256) throw new Error();
     if (selected === table) csv = bytes;
   }
+  // Re-read live deployment/version metadata after local checks and immediately before the POST.
+  const environmentFlags = environment === 'test' ? ['--env', 'test'] : [];
+  const wranglerJson = (args) => JSON.parse(execFileSync('npx', [
+    '--no-install', 'wrangler', ...args, ...environmentFlags, '--json'
+  ], { cwd: ROOT, encoding: 'utf8' }));
+  const activeDeployment = wranglerJson(['deployments', 'status']);
+  const activeVersions = activeDeployment?.versions;
+  const activeVersion = Array.isArray(activeVersions) && activeVersions.length === 1
+    ? activeVersions[0] : null;
+  const deployedVersion = wranglerJson(['versions', 'view', workerVersionId]);
+  const targetBindings = deployedVersion.resources?.bindings?.filter(
+    (binding) => binding?.name === 'CUSTOMER_DB'
+  );
+  if (!activeVersion || activeVersion.version_id !== workerVersionId ||
+      activeVersion.percentage !== 100 || deployedVersion.id !== workerVersionId ||
+      !Array.isArray(targetBindings) || targetBindings.length !== 1 ||
+      targetBindings[0].type !== 'd1' ||
+      (targetBindings[0].database_id ?? targetBindings[0].id) !== d1Id ||
+      deployedVersion.resources?.limits?.cpu_ms !== cpuLimit) throw new Error();
+
   const response = await fetch(new URL(`/api/v1/${table}-snapshot/import`, base), {
     method: 'POST', redirect: 'error',
     headers: { Authorization: `Bearer ${secret}`, 'Content-Type': 'text/csv' }, body: csv
@@ -712,6 +919,13 @@ the approved empty-table/union expectations and both orphan counts to zero.
 Privately query sampled primary keys with `d1 execute --remote --command SELECT…`
 and compare their values to the verified CSV; unaffected tables must match their
 pre-recovery state. A 200 or import acknowledgment alone is not incident closure.
+Re-apply customer erasures after any restore: an archive taken before a customer
+erasure re-inserts the erased row, so track erased `customerId` values out of band
+(the API keeps no suppression list) and re-`DELETE` each one after the restore
+(see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response
+is retained; the `&&` chain below stops after a failed request without exiting the
+interactive shell, and no chain step is retried after an error.
 
 Only after this evidence passes may the operator restore normal writers under
 the approved maintenance plan. For an authorized undo, obtain explicit approval
@@ -737,6 +951,9 @@ Historical baseline: the 2026-09-28 `test/r2SnapshotRestore.test.ts` drill used
 isolated test D1/R2 bindings, restored two synthetic rows per table in FK order
 and compared pre/post values. It is not proof of current live bucket availability
 or current-head acceptance; the manual drill above is independently repeatable.
+The control-boundary regression is pinned by `test/snapshotRestoreControlBoundary.test.ts`:
+HTTP import stays strict for control-bearing business cells while the in-code sync path
+preserves them.
 
 Stop terminal A with Ctrl-C **before** removing state. Verify its port is closed
 (and stop only leftover processes belonging to this scratch run). In terminal B,
@@ -752,7 +969,14 @@ discarding its new scratch state; there is no production change to roll back.
 
 - [R2 object GET/PUT and lifecycle list](https://developers.cloudflare.com/workers/wrangler/commands/r2/)
 - [D1 execute and migrations commands](https://developers.cloudflare.com/d1/wrangler-commands/)
-- [D1 limits and batch limits](https://developers.cloudflare.com/d1/platform/limits/)
+- [Workers subrequest limits](https://developers.cloudflare.com/workers/platform/limits/#subrequests)
+- [Workers subrequest limit changelog](https://developers.cloudflare.com/changelog/post/2026-02-11-subrequests-limit/)
+- [Wrangler `limits.subrequests` and `limits.cpu_ms` configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#limits)
+- [Worker deployments status and versions commands](https://developers.cloudflare.com/workers/wrangler/commands/workers/#deployments-list)
+- [D1 `batch()` API](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)
+- [D1 platform limits (confirm current Worker-linked limit)](https://developers.cloudflare.com/d1/platform/limits/)
+- [D1 pricing, usage and row/storage metrics](https://developers.cloudflare.com/workers/platform/pricing/#d1)
+- [Workers CPU-time limits](https://developers.cloudflare.com/workers/platform/limits/#cpu-time)
 - [esbuild's installed JavaScript build API](https://esbuild.github.io/api/#build)
 - [Local data: use the same persistence directory for every command](https://developers.cloudflare.com/workers/local-development/local-data/)
 - [Wrangler dev](https://developers.cloudflare.com/workers/wrangler/commands/workers/)
