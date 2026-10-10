@@ -86,6 +86,9 @@ can therefore permanently delete old matching data; removing/disabling a rule
 only stops future expiry and cannot recover deleted objects. Do not activate
 retention as part of an ordinary deploy or rollback.
 
+The proposed rule JSON and hold procedure are recorded in
+`R2-LIFECYCLE-PROPOSAL.md` (TOG-19231); the rule remains not enabled.
+
 ## Customer-row erasure leaves R2 untouched (TOG-18933)
 
 `DELETE /api/v1/customer-snapshot/{customerId}` removes the D1
