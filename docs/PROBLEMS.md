@@ -14,6 +14,7 @@ section below.
 | `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
 | `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
 | `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
+| `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
@@ -73,9 +74,17 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 `DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
 customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). The same FK chain refuses a delete
-while address rows still reference the customer, mapped to 400 (never an
-orphan, never a cascade):
+is untouched; see `method-not-allowed`). Erasure removes the D1
+`customer_snapshot` row and evicts the data-entity cache entry. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback, and it does not touch upstream Routeware. The row
+returns on the next sync — or on the next save for that customer through
+the proxy — while upstream still holds it. Any R2 restore or CSV import of
+an archive taken before the erasure re-inserts the row, and D1 Time Travel
+can restore it for up to 30 days (7 days on the Workers Free plan), so
+re-apply erasures after any restore. The same FK chain
+refuses a delete while address rows still reference the customer, mapped to
+400 (never an orphan, never a cascade):
 
 ```
 Cannot delete customer_id=42: 2 address row(s) still reference it
@@ -83,8 +92,15 @@ Cannot delete customer_id=42: 2 address row(s) still reference it
 See docs/PROBLEMS.md#bad-request.
 ```
 
-Fix: delete the listed addresses first, then retry. The `detail` names up to
-20 blocking integer keys — integer keys only, never PII.
+Fix: remove the listed addresses, then retry. There is no address or
+container DELETE route — "delete the addresses first" means either waiting
+for the upstream deletion to reconcile (detail-full sync or report-sync
+drops the child rows once upstream stops reporting them) or deleting them
+directly with privileged `wrangler d1 execute` in container → address →
+customer FK order. This route removes only the `customer_snapshot` row: the
+customer's `address_snapshot` and `container_snapshot` rows are not removed
+by this route. The `detail` names up to 20 blocking integer keys — integer
+keys only, never PII.
 
 ## Authentication (`unauthorized`)
 
@@ -376,6 +392,15 @@ with a body and any other or missing media type returns 415
 empty-body check, and before the body is read or D1 is changed. A POST with no
 body keeps its 400 empty-body response. The response uses a fixed detail and
 does not echo submitted bytes. Pinned by `test/snapshotImportEdges.test.ts`.
+
+## Archive replaced during a readback (`conflict`)
+
+`GET /api/v1/snapshots/{table}/{date}` reads the R2 archive twice: once to
+measure the re-encoded body's exact length and ETag, then again to stream it,
+conditional on the stored ETag. If a sync replaces that date's object between
+the two reads, the route returns 409 `application/problem+json` naming the table
+and date and streams nothing. Retry the download; the next attempt measures the
+current object. The readback never modifies the stored object.
 
 ## Query-param allowlist (load-long-modal probe)
 
