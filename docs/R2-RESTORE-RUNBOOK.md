@@ -397,9 +397,10 @@ by the offline control pre-check below. Do not strip controls from a recovery ar
 make the check pass.
 
 ```bash
-python3 - "$DATE" <<'PY'
+RUN="$RUN" python3 - "$DATE" <<'PY'
 from datetime import date
 from pathlib import Path
+import os
 import sys
 try:
     day = date.fromisoformat(sys.argv[1]).isoformat()
@@ -407,7 +408,7 @@ except (IndexError, ValueError):
     sys.exit("Invalid DATE; expected YYYY-MM-DD.")
 failed = False
 for table in ("customer", "address", "container"):
-    path = Path("$RUN") / f"{table}.csv"
+    path = Path(os.environ["RUN"]) / f"{table}.csv"
     try:
         text = path.read_bytes().decode("utf-8")
     except (OSError, UnicodeDecodeError):
@@ -717,7 +718,8 @@ try {
         entry.key !== `snapshots/${DATE}/${table}.csv` || entry.sha256 !== sha256) throw new Error();
     const [parse, batchRows, sqlRows] = specs[table];
     const { rowCount } = await parse(noD1, new Response(csv).body, undefined, {
-      dryRun: true, requireDataRows: true, maxBytes: source.SNAPSHOT_IMPORT_MAX_BYTES
+      dryRun: true, requireDataRows: true, maxBytes: source.SNAPSHOT_IMPORT_MAX_BYTES,
+      rejectControlCharacters: true
     });
     if (!Number.isSafeInteger(rowCount) || rowCount <= 0) throw new Error();
     const batchCalls = Math.ceil(rowCount / batchRows);
