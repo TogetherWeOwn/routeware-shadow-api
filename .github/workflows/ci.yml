@@ -26,13 +26,16 @@ jobs:
     # would leave required checks unreported). Full suite on push-to-main,
     # nightly schedule, or when infra/filter/deps change (rule 4).
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: every job carries a bound so a hung runner can never stall
+    # the PR forever (previously only pr-lint set timeout-minutes).
+    timeout-minutes: 10
     outputs:
       code: ${{ steps.filter.outputs.code }}
       probe: ${{ steps.filter.outputs.probe }}
       infra: ${{ steps.filter.outputs.infra }}
       full: ${{ steps.filter.outputs.full }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history: merge-base diff needs the base commit present. A
           # shallow checkout would silently compute an empty diff.
@@ -98,9 +101,11 @@ jobs:
     # changed. docs-only PRs skip this; push/main + nightly run it via full.
     if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: bound the full typecheck + coverage suite (heaviest CI job).
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -113,12 +118,16 @@ jobs:
         run: npm run types
       - name: Typecheck
         run: npm run typecheck
+      - name: Console lint
+        run: npm run lint
       - name: Test (with coverage ratchet)
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
+      - name: Validate R2 preflight against deployed config (offline)
+        run: node scripts/check-r2-deploy-config.mjs
       - name: Validate Worker build (no deploy)
         # Bundles the Worker and validates wrangler.toml bindings. --dry-run does
         # not call the Cloudflare API, so no account or token is needed.
@@ -132,11 +141,13 @@ jobs:
     # whether the job runs at all. NOT a required check (hybrid, per TOG-14898).
     if: needs.changes.outputs.probe == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: bound so a hung contract run can never stall the PR.
+    timeout-minutes: 15
     # Skipped-check allowlist: the staging probe stays visible while operator
     # credentials are gated. The gate emits the reason and links TODO TOG-135.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -159,17 +170,22 @@ jobs:
     # job would let PII or a secret land while `ci-ok` stays green. LIGHT
     # (~1 min credential-free checks), so always running it costs nothing.
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: bound (gitleaks download + drift gates must fail fast, not hang).
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # Full history: the blocking secret scan below covers git history, not
           # just the working tree. A shallow checkout would silently scan one commit.
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: Hermetic post-deploy probe regressions
+        # Always run even for probe-only PRs whose filtered build is skipped.
+        run: npm run test:probe
       - name: Regenerate Worker types (TOG-8373)
         # worker-configuration.d.ts is gitignored — regenerate it here so the
         # baked-secrets gate below inspects current wrangler.toml [vars].
@@ -263,6 +279,8 @@ jobs:
     if: always()
     needs: [changes, build, shadow-api-v1, hygiene]
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: bound like every other job (trivial aggregation, small cap).
+    timeout-minutes: 5
     steps:
       - name: Verify required jobs passed or were skipped
         run: |
@@ -283,17 +301,31 @@ jobs:
     runs-on: [self-hosted, two-selfhosted]
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
+    # Preflight and deploy read this same config; shell vars are not Worker vars.
+    env:
+      WRANGLER_CONFIG: wrangler.toml
     # Serialize deploys so overlapping merges can't race; don't cancel an in-flight one.
     concurrency:
       group: deploy-production
       cancel-in-progress: false
+    # TOG-19017: bound so a stalled deploy (D1 migrate, wrangler push) fails
+    # loudly instead of holding the production environment forever.
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
       - run: npm ci
+      - name: R2 bucket preflight (TOG-6290)
+        # Read-only `wrangler r2 bucket info <name> --json` lookup: the SNAPSHOTS
+        # bucket must exist before deploy, else snapshot CSV archiving silently
+        # drops. Fails closed naming the fix (`wrangler r2 bucket create`); skips
+        # cleanly when the deployed config has SNAPSHOTS_R2_ENABLED="false".
+        run: node scripts/check-r2-preflight.mjs --config="$WRANGLER_CONFIG"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       - name: Apply D1 migrations (remote)
         # Runs before deploy so the schema is present before the new code goes live.
         run: npm run db:migrate:remote
@@ -303,6 +335,6 @@ jobs:
         # Uses the repo's pinned Wrangler. Worker secrets (SHADOW_API_TOKEN, etc.) are
         # set once via `wrangler secret put` and are not touched by deploy. account_id
         # lives in wrangler.toml, so only the API token is needed here.
-        run: npx wrangler deploy
+        run: npx wrangler deploy --config "$WRANGLER_CONFIG"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

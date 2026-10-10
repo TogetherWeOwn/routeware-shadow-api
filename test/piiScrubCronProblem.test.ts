@@ -8,14 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * emission paths as "clean" without a single assertion proving it:
  *
  * - site 1: `src/scheduled.ts` copies per-table results into the
- *   `data-snapshot-sync` log line. A spread there would carry any extra
+ *   `data-snapshot-sync` log record. A spread there would carry any extra
  *   property (company name, phone, …) straight into the cron log.
  * - site 11: `runDataSnapshotSyncChainedHttp` used to embed a 1200-char slice
  *   of each per-table subrequest body in its throw, which landed in the cron
- *   `error` field. FIXED by TOG-9205 (R4-04/B1): the throw carries step tag +
- *   status only, zero body bytes — pinned below by feeding PII-shaped extras
- *   through both and proving only counts (success) or the fixed shape
- *   (failure) survive.
+ *   `error` field. FIXED twice: TOG-9205 (R4-04/B1) cut the throw to step tag +
+ *   status only, and the structured logger drops exception text entirely — the
+ *   failure record carries only the allowlisted `table`. Pinned below by
+ *   feeding PII-shaped extras through both and proving only counts (success)
+ *   or the fixed shape (failure) survive.
  *
  * - problem+json `detail`/`instance`: every route builds them from numeric
  *   ids, fixed strings and pathnames. Query strings here can carry customer
@@ -41,7 +42,7 @@ function expectNoPii(text: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Cron log line (`src/scheduled.ts`, audit site 1).
+// Cron log record (`src/scheduled.ts`, audit site 1).
 // ---------------------------------------------------------------------------
 
 const cronBehavior: {
@@ -97,10 +98,12 @@ const { stringToUint8Stream } = await import("../src/lib/csvStream");
 const { SnapshotForeignKeyError } = await import("../src/lib/snapshot/upsert");
 const { customerSnapshotRoutes } = await import("../src/routes/customerSnapshot");
 
-const logs: string[] = [];
-const errors: unknown[][] = [];
-const warns: string[] = [];
-const real = { log: console.log, error: console.error, warn: console.warn };
+// logEvent hands the console one structured object per record, so the spies keep
+// the object and assertions read its fields. Serialize before any leak check.
+const logs: Record<string, unknown>[] = [];
+const errors: Record<string, unknown>[] = [];
+const warns: Record<string, unknown>[] = [];
+const real = { info: console.info, error: console.error, warn: console.warn };
 
 /** Captures the promise handed to waitUntil so the test can await it. */
 function fakeCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -138,21 +141,28 @@ async function runScheduled(env: Env): Promise<void> {
   await settled();
 }
 
-/** Parses the single structured stdout line; asserts the greppable prefix. */
+/** The single primary outcome record (info level); its envelope is checked before any field is read. */
 function loggedLine(): Record<string, unknown> {
   expect(logs).toHaveLength(1);
-  expect(logs[0].startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(logs[0].slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+  expect(logs[0]).toMatchObject({
+    level: "info",
+    msg: "data-snapshot-sync",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof logs[0].ms).toBe("number");
+  return logs[0];
 }
 
+/** The single failure record (error level); its envelope is checked before any field is read. */
 function errorLine(): Record<string, unknown> {
   expect(errors).toHaveLength(1);
-  expect(errors[0]).toHaveLength(1);
-  expect(String(errors[0][0]).startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(String(errors[0][0]).slice("data-snapshot-sync ".length)) as Record<
-    string,
-    unknown
-  >;
+  expect(errors[0]).toMatchObject({
+    level: "error",
+    msg: "data-snapshot-sync failed",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof errors[0].ms).toBe("number");
+  return errors[0];
 }
 
 beforeEach(() => {
@@ -161,19 +171,19 @@ beforeEach(() => {
   logs.length = 0;
   errors.length = 0;
   warns.length = 0;
-  console.log = (...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
+  console.info = (...a: unknown[]) => {
+    logs.push(a[0] as Record<string, unknown>);
   };
   console.error = (...a: unknown[]) => {
-    errors.push(a);
+    errors.push(a[0] as Record<string, unknown>);
   };
   console.warn = (...a: unknown[]) => {
-    warns.push(a.map(String).join(" "));
+    warns.push(a[0] as Record<string, unknown>);
   };
 });
 
 afterEach(() => {
-  console.log = real.log;
+  console.info = real.info;
   console.error = real.error;
   console.warn = real.warn;
 });
@@ -195,21 +205,34 @@ describe("cron success line carries counts only (site 1)", () => {
       container: null
     };
 
-    // Act — single-invocation path; the log line is shared by both modes.
+    // Act — single-invocation path; the record is shared by both modes.
     await runScheduled(envWith());
 
     // Assert — exact tables, counts in the summary, row data nowhere.
     const line = loggedLine();
-    expect(line.outcome).toBe("success");
+    expect(line).toMatchObject({
+      outcome: "success",
+      mode: "single-invocation",
+      configSource: "fallback-single-invocation",
+      d1LimitRisk: true
+    });
     expect(line.tables).toEqual({
       customer: { upserted: 3, rowCount: 4, deleted: 1 },
       address: { upserted: 5, rowCount: 6 },
       container: null
     });
     expect(line.summary).toContain("customer: 3 upserted, 4 rows, 1 deleted");
+    // The fallback warning is its own record and must carry no row data either.
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toMatchObject({
+      level: "warn",
+      msg: "SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation",
+      route: "scheduled.data-snapshot-sync",
+      ms: null
+    });
     expectNoPii(JSON.stringify(line));
-    expectNoPii(logs[0]);
-    expectNoPii(warns.join("\n"));
+    expectNoPii(JSON.stringify(logs));
+    expectNoPii(JSON.stringify(warns));
   });
 
   it("emits exact key sets on every table", async () => {
@@ -223,8 +246,24 @@ describe("cron success line carries counts only (site 1)", () => {
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
-    // Assert — a new key on any table breaks the contract loudly.
+    // Assert — a new key on the record or on any table breaks the contract loudly.
     const line = loggedLine();
+    expect(Object.keys(line).sort()).toEqual([
+      "configSource",
+      "cron",
+      "d1LimitRisk",
+      "durationMs",
+      "event",
+      "level",
+      "mode",
+      "ms",
+      "msg",
+      "outcome",
+      "route",
+      "scheduledTime",
+      "summary",
+      "tables"
+    ]);
     const tables = line.tables as Record<string, Record<string, unknown> | null>;
     expect(Object.keys(tables.customer ?? {}).sort()).toEqual([
       "deleted",
@@ -241,21 +280,49 @@ describe("cron success line carries counts only (site 1)", () => {
   });
 });
 
-describe("cron failure line carries message only (site 1)", () => {
-  it("logs the message without row data, stack, or table results", async () => {
+describe("cron failure line carries the allowlisted table only (site 1)", () => {
+  it("logs the table without message, row data, stack, or table results", async () => {
     // Arrange — the realistic D1 failure shape (status text, no body).
     cronBehavior.error = "[customer snapshot] D1_ERROR: database is locked";
 
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
-    // Assert — failures go to stderr with null tables and the fixed summary;
-    // `error` is the message string, never an object dump with a stack.
+    // Assert — failures are one error record (`data-snapshot-sync failed`) with
+    // null tables and the fixed summary, and no primary info record. Only the
+    // allowlisted `table` and the error class name (`kind`) travel; the exception
+    // text (which could carry row data or upstream body bytes) never reaches the log.
     expect(logs).toEqual([]);
     const line = errorLine();
-    expect(line.outcome).toBe("failed");
-    expect(line.error).toBe("[customer snapshot] D1_ERROR: database is locked");
-    expect(typeof line.error).toBe("string");
+    expect(line).toMatchObject({
+      event: "data-snapshot-sync",
+      outcome: "failed",
+      mode: "chained-http",
+      configSource: "SHADOW_API_PUBLIC_BASE",
+      d1LimitRisk: false,
+      cron: "0 7 * * *",
+      scheduledTime: "2026-09-27T07:00:00.000Z",
+      table: "customer"
+    });
+    expect(Object.keys(line).sort()).toEqual([
+      "configSource",
+      "cron",
+      "d1LimitRisk",
+      "durationMs",
+      "event",
+      "kind",
+      "level",
+      "mode",
+      "ms",
+      "msg",
+      "outcome",
+      "route",
+      "scheduledTime",
+      "summary",
+      "table",
+      "tables"
+    ]);
+    expect(line).not.toHaveProperty("error");
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
     expect(line.summary).toBe("sync threw before any table result was recorded");
     expectNoPii(JSON.stringify(line));
@@ -325,8 +392,9 @@ describe("chained runner carries counts, never row data (site 11)", () => {
   it("failure carries zero subrequest body bytes, even for a PII-shaped problem body (TOG-9205)", async () => {
     // Arrange — the subrequest answers a problem+json body smuggling
     // PII-shaped row fields alongside the fixed shape. The thrown message
-    // lands verbatim in the cron `failed` line, so it carries step tag +
-    // status only — the body is consumed and discarded (R4-04/B1).
+    // lands verbatim in the cron `data-snapshot-sync failed` record's `error`
+    // field, so it carries step tag + status only — the body is consumed and
+    // discarded (R4-04/B1).
     chainedBehavior.status = 500;
     chainedBehavior.body = JSON.stringify({
       type: "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#misconfigured",

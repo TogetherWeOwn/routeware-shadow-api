@@ -332,7 +332,7 @@ describe("fetchReportCsvForPath", () => {
     expect(calls.established).toHaveLength(1);
   });
 
-  it("throws with the status and status text when the retry also fails", async () => {
+  it("throws status-only when the retry also fails", async () => {
     // Arrange — this throw is what tags the scheduled run with a failing step;
     // returning the error page instead would be parsed as an empty CSV.
     behavior.responses = [
@@ -351,7 +351,7 @@ describe("fetchReportCsvForPath", () => {
 
     // Assert
     expect(error).toBeInstanceOf(Error);
-    expect(error.message).toBe("Report fetch failed: 503 Service Unavailable");
+    expect(error.message).toBe("Report fetch failed: 503");
   });
 
   it("accepts a retry that succeeds with a non-200 but still-ok status", async () => {

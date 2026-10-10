@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
+import { assertEveryJobHasTimeout, assertFirstPartyActionsPinned, assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
@@ -21,6 +21,13 @@ function jobBlock(name) {
 // while the invariant check stayed green.
 assertNoPrTriggerSkips(workflow);
 
+// TOG-19017: a hung job must fail loudly instead of stalling the PR forever,
+// so every job carries timeout-minutes; and first-party actions must pin to a
+// commit SHA (with a version comment) so a moved tag can never silently
+// change what CI runs.
+assertEveryJobHasTimeout(workflow, "ci.yml");
+assertFirstPartyActionsPinned(workflow, "ci.yml");
+
 // TOG-14898 (CI standard TOG-14877): change detection + job-level gating +
 // one required aggregator + nightly full suite. Native git diff vs merge
 // base (no third-party action); job-level `if: needs.changes.outputs.*`
@@ -37,6 +44,11 @@ assert.match(changesJob, /full:/, "changes must output a full boolean for push/s
 assert.match(workflow, /- cron: "23 4 \* \* \*"/, "ci must run the nightly full suite on schedule (TOG-14877 rule 5)");
 
 const buildGated = jobBlock("build");
+assert.match(
+  buildGated,
+  /^        run: node scripts\/check-r2-deploy-config\.mjs$/m,
+  "build must verify R2 preflight against Wrangler's offline deployed bindings",
+);
 assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job (TOG-14898)");
 assert.match(
   buildGated,
@@ -63,6 +75,7 @@ assert.match(ciOkJob, /needs: \[changes, build, shadow-api-v1, hygiene\]/, "ci-o
 // present so a workflow edit can never silently drop title lint.
 const prLint = await readFile(new URL("../.github/workflows/pr-lint.yml", import.meta.url), "utf8");
 assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional Commits titles (TOG-14898)");
+assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a self-hosted runner with other CI jobs
@@ -88,7 +101,7 @@ assert.match(
 );
 // Wrangler is a locked dev dependency, not a preinstalled runner tool. Require
 // setup and installation in order, before the credential-free local check.
-const hygieneNode = hygiene.search(/^      - uses: actions\/setup-node@v\d+$/m);
+const hygieneNode = hygiene.search(/^      - uses: actions\/setup-node@[0-9a-f]{40} # v\d+$/m);
 const hygieneInstall = hygiene.search(/^      - run: npm ci$/m);
 const hygieneDrift = hygiene.search(/^        run: npm run check:d1-drift$/m);
 assert.ok(hygieneNode >= 0, "hygiene must set up Node for the D1 drift check (TOG-6275)");
@@ -187,6 +200,8 @@ assert.match(
 // workflow so deploy verification runs on a schedule. Pin it present: the
 // cron, the skip-safe npm script, and the read-only GET-only probe paths.
 const probeWorkflow = await readFile(new URL("../.github/workflows/post-deploy-probe.yml", import.meta.url), "utf8");
+assertEveryJobHasTimeout(probeWorkflow, "post-deploy-probe.yml");
+assertFirstPartyActionsPinned(probeWorkflow, "post-deploy-probe.yml");
 assert.match(probeWorkflow, /- cron: "30 7 \* \* \*"/, "post-deploy-probe workflow must run on its daily schedule (TOG-8365)");
 assert.match(probeWorkflow, /run: npm run probe:post-deploy:scheduled/, "post-deploy-probe workflow must use the skip-safe scheduled script (TOG-8365)");
 assert.doesNotMatch(probeWorkflow, /\b(POST|PUT|PATCH|DELETE)\b/, "post-deploy-probe workflow must stay read-only (TOG-8365)");
@@ -210,6 +225,18 @@ assert.equal(
   "deploy must require push/main and PRODUCTION_DEPLOY_ENABLED",
 );
 assert.match(deploy, /^    environment: production$/m, "deploy must use the production environment");
+// The R2 bucket preflight runs read-only in deploy before migrations go live:
+// a missing SNAPSHOTS bucket fails closed naming the fix; R2-disabled deploys
+// skip cleanly. Pin it present so the archive leg can never ship unverified.
+assert.match(deploy, /^      WRANGLER_CONFIG: wrangler\.toml$/m, "deploy must pin its shared top-level TOML config");
+const preflightRun = '        run: node scripts/check-r2-preflight.mjs --config="$WRANGLER_CONFIG"';
+const deployRun = '        run: npx wrangler deploy --config "$WRANGLER_CONFIG"';
+assert.ok(deploy.includes(preflightRun), "R2 preflight must use the shared deploy config");
+assert.ok(deploy.includes(deployRun), "Worker deployment must use the shared preflight config");
+const preflightAt = deploy.indexOf(preflightRun);
+const migrationsAt = deploy.indexOf("        run: npm run db:migrate:remote");
+assert.ok(migrationsAt > preflightAt, "R2 preflight must run before remote migrations");
+assert.ok(deploy.indexOf(deployRun) > migrationsAt, "Worker deployment must follow migrations");
 assert.match(
   deploy,
   /CLOUDFLARE_API_TOKEN: \$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/,

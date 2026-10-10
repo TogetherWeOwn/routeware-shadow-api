@@ -7,6 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
+    "first-run": "node scripts/first-run.mjs",
+    "help": "node scripts/help.mjs",
     "predev": "npm run check:devvars",
     "dev": "wrangler dev",
     "check:devvars": "node scripts/check-devvars.mjs",
@@ -15,12 +17,13 @@
     "check:d1-drift": "node scripts/check-d1-drift.mjs",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
+    "check:r2-preflight": "node scripts/check-r2-preflight.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
     "verify:config": "node scripts/verify-config.mjs",
     "probe:post-deploy": "node scripts/post-deploy-probe.mjs",
-    "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --skip-if-no-token",
+    "probe:post-deploy:scheduled": "node scripts/post-deploy-probe.mjs --scheduled --skip-if-no-token",
     "smoke:readiness": "node scripts/smoke-readiness.mjs",
     "verify:r2-manifest": "node scripts/verify-r2-manifest.mjs",
     "dev:remote": "wrangler dev --remote",
@@ -30,9 +33,10 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "lint": "node scripts/check-console-usage.mjs",
+    "test": "npm run test:probe && vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "npm run test:probe && vitest run --coverage",
     "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",
     "discovery:setup": "npm --prefix tools/api-discovery install && npm run setup --prefix tools/api-discovery",
     "discovery:process": "npm run process --prefix tools/api-discovery",
@@ -41,13 +45,14 @@
     "discovery:codegen": "npm run codegen --prefix tools/api-discovery",
     "discovery:verify": "npm run discovery:process && npm test",
     "secret:login-username": "wrangler secret put LOGIN_USERNAME",
-    "secret:login-password": "wrangler secret put LOGIN_PASSWORD"
+    "secret:login-password": "wrangler secret put LOGIN_PASSWORD",
+    "test:probe": "node --test scripts/post-deploy-probe.test.mjs"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
     "@hono/zod-openapi": "^1.3.0",
     "@scalar/hono-api-reference": "^0.9.48",
-    "hono": "^4.12.14",
+    "hono": "^4.13.7",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -55,6 +60,7 @@
     "@vitest/coverage-istanbul": "^4.1.10",
     "typescript": "^5.6.3",
     "vitest": "^4.1.5",
-    "wrangler": "^4.54.0"
+    "wrangler": "^4.54.0",
+    "marked": "18.1.0"
   }
 }

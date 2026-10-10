@@ -22,9 +22,12 @@ jobs:
   probe:
     name: Probe deployed Worker (skip-safe)
     runs-on: [self-hosted, two-selfhosted]
+    # TOG-19017: bound so a hung probe against a down Worker pages via red,
+    # not via a forever-running job.
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -33,9 +36,10 @@ jobs:
         # --skip-if-no-token: no bearer configured yet, so the authed probes
         # log SKIP and exit 0; the public probe still runs and failures fail
         # the job. SHADOW_API_BASE and SHADOW_API_TOKEN come from the
-        # environment when the operator configures them (same names as
-        # scripts/smoke-readiness.mjs); unset vars fall back to the local
-        # default, which fails the public probe and pages — intended.
+        # environment when the operator configures an approved staging target.
+        # --scheduled rejects missing/invalid/local targets before any fetch;
+        # a configuration error keeps the job red, never silently skips it.
+        # See docs/SCHEDULED-PROBE.md. Never substitute production.
         run: npm run probe:post-deploy:scheduled
         env:
           SHADOW_API_BASE: ${{ vars.SHADOW_API_BASE }}

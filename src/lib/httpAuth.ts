@@ -2,6 +2,7 @@ import { LoginPageUnavailableError } from "./loginPageError";
 import { MissingSetCookieCapabilityError } from "./setCookieCapabilityError";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
+import { readUpstreamText } from "./upstreamBody";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeout";
 
@@ -178,7 +179,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     throw new LoginPageUnavailableError(pageRes.status, "login page");
   }
   mergeSetCookies(jar, pageRes);
-  const html = await pageRes.text();
+  const html = await readUpstreamText(pageRes, timeoutMs);
 
   // 2) GET the Ext.NET init script (same session) for the anti-forgery token.
   let token = extractAntiForgeryFromExtNet(html);
@@ -196,7 +197,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
       throw new LoginPageUnavailableError(axRes.status, "init script");
     }
     mergeSetCookies(jar, axRes);
-    token = extractAntiForgeryFromExtNet(await axRes.text());
+    token = extractAntiForgeryFromExtNet(await readUpstreamText(axRes, timeoutMs));
   }
   if (!token) {
     throw new Error("Anti-forgery token not found on login page/init script.");
@@ -230,10 +231,15 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   return { ok, loginStatus: loginRes.status, cookieNames: Object.keys(jar), jar };
 }
 
-/** Establish a session over HTTP and store it in the AuthSession Durable Object. */
+/**
+ * Establish a session over HTTP and store it in the AuthSession Durable
+ * Object. `lockToken` proves this caller holds the refresh lock so the DO
+ * releases it as part of the write (TOG-18959).
+ */
 export async function establishSessionViaHttp(
   env: Env,
-  stub: DurableObjectStub
+  stub: DurableObjectStub,
+  lockToken?: string | null
 ): Promise<void> {
   const result = await httpLogin(env);
   if (!result.ok) {
@@ -243,5 +249,5 @@ export async function establishSessionViaHttp(
   }
   const cookieHeader = cookieHeaderFrom(result.jar);
   const expiresAtMs = sessionExpiryMs(env);
-  await storeSession(stub, cookieHeader, expiresAtMs);
+  await storeSession(stub, cookieHeader, expiresAtMs, lockToken);
 }

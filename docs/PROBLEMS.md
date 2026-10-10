@@ -6,16 +6,52 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | The request was malformed — a missing/invalid id, an empty body where one is required, or a snapshot row with a dangling foreign key (see below). |
-| `unauthorized` | 401 | Missing or invalid `Authorization: Bearer <token>`. See below. |
-| `forbidden` | 404 | A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
-| `not-found` | 404 | No matching route, or no snapshot row/graph for the requested id. |
-| `method-not-allowed` | 405 | The upstream does not support the HTTP method (e.g. customer hard delete). |
-| `rate-limited` | 429 | Too many failed bearer-auth attempts from one IP. See below. |
-| `payload-too-large` | 413 | A `...-snapshot/import` body exceeds the size limit. See below. |
-| `misconfigured` | 503 | A required var/secret or report path is not set on the Worker. |
-| `bad-gateway` | 502 | The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
-| `internal` | 500 | An unexpected error. Details are logged, not returned. |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
+| `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
+| `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
+| `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
+| `method-not-allowed` | 405 | <a name="method-not-allowed"></a>The upstream does not support the HTTP method (e.g. customer hard delete). |
+| `rate-limited` | 429 | <a name="rate-limited"></a>Too many failed bearer-auth attempts from one IP. See below. |
+| `payload-too-large` | 413 | <a name="payload-too-large"></a>A `...-snapshot/import` body exceeds the size limit. See below. |
+| `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
+| `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
+| `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
+| `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
+| `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
+| `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
+
+## CSV control characters (`bad-request`)
+
+All three snapshot `.../import` routes reject NUL, vertical tab, other C0
+controls (U+0000–U+001F except tab/LF/CR), DEL/C1 controls (U+007F–U+009F),
+and lone CR inside a cell. Headers, unused columns, and whitespace-only
+records are checked before trimming or binding any values to D1. The error
+names the logical CSV row without echoing submitted values:
+
+```
+CSV row 2 contains a disallowed control character.
+See docs/PROBLEMS.md#bad-request.
+```
+
+The header is row 1; embedded quoted newlines do not advance the row number.
+Empty records are skipped by the stream reader, but whitespace-only and
+invalid-ID records count. Tabs and quoted LF/CRLF remain supported. CR-only
+record separators remain supported; a lone CR **inside a quoted cell** is
+rejected, not silently removed. This is the API's import policy, stricter
+for cell CR than [RFC 4180 §2](https://datatracker.ietf.org/doc/html/rfc4180#section-2).
+Upstream report syncs and the default shared parser retain their permissive
+behavior; import routes explicitly enable control rejection.
+
+Fix the named record (remove forbidden controls or replace cell CR with LF)
+and retry. No rejected record is written, and import never reconciles/deletes.
+Earlier flushed batches of valid rows may remain; the upload is not atomic.
+
+This policy also applies to the API's own exports and raw R2 report archives:
+report-origin controls are retained by sync/export, so those CSVs may not be
+HTTP-importable. Do not discover compatibility through a partial restore.
+For recovery without control sanitization, use the integrity-verified in-code
+report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-programmatic-restore-in-code-path).
+Export → HTTP import is lossless only for import-compatible business cells.
 
 ## Dangling snapshot references (`bad-request`)
 
@@ -38,9 +74,17 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 `DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
 customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). The same FK chain refuses a delete
-while address rows still reference the customer, mapped to 400 (never an
-orphan, never a cascade):
+is untouched; see `method-not-allowed`). Erasure removes the D1
+`customer_snapshot` row and evicts the data-entity cache entry. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback, and it does not touch upstream Routeware. The row
+returns on the next sync — or on the next save for that customer through
+the proxy — while upstream still holds it. Any R2 restore or CSV import of
+an archive taken before the erasure re-inserts the row, and D1 Time Travel
+can restore it for up to 30 days (7 days on the Workers Free plan), so
+re-apply erasures after any restore. The same FK chain
+refuses a delete while address rows still reference the customer, mapped to
+400 (never an orphan, never a cascade):
 
 ```
 Cannot delete customer_id=42: 2 address row(s) still reference it
@@ -48,8 +92,15 @@ Cannot delete customer_id=42: 2 address row(s) still reference it
 See docs/PROBLEMS.md#bad-request.
 ```
 
-Fix: delete the listed addresses first, then retry. The `detail` names up to
-20 blocking integer keys — integer keys only, never PII.
+Fix: remove the listed addresses, then retry. There is no address or
+container DELETE route — "delete the addresses first" means either waiting
+for the upstream deletion to reconcile (detail-full sync or report-sync
+drops the child rows once upstream stops reporting them) or deleting them
+directly with privileged `wrangler d1 execute` in container → address →
+customer FK order. This route removes only the `customer_snapshot` row: the
+customer's `address_snapshot` and `container_snapshot` rows are not removed
+by this route. The `detail` names up to 20 blocking integer keys — integer
+keys only, never PII.
 
 ## Authentication (`unauthorized`)
 
@@ -136,19 +187,28 @@ Cloudflare overwrites, so clients cannot spoof it); `X-Forwarded-For` is
 honored only when `THROTTLE_TRUST_XFF="true"` (dev/test) — production
 XFF-only callers share the `"unknown"` bucket, so a client-controlled XFF
 value can neither evade the throttle by rotation nor frame a victim's bucket.
-After 20 failures inside a 60-second window, further failed
-attempts from that IP get `429 Too Many Requests` with a problem+json body and
-a `Retry-After` header, for 60 seconds. The block is per-IP, not per-token, so
-rotating candidate tokens does not evade it.
+After 19 failed checks inside a 60-second window, the 20th check from that IP
+returns `429 Too Many Requests` and starts a 60-second block. Further failed
+checks while that block is active also return 429 and restart the 60-second
+timer, so continued failures keep `Retry-After` at 60 seconds. Each 429 has a
+problem+json body, a `Retry-After` header reporting the remaining block
+duration (at most 60 seconds), and `X-RateLimit-Limit` (`19`, the failed checks
+allowed per window),
+`X-RateLimit-Remaining` (`0`), and `X-RateLimit-Reset` (an absolute Unix
+timestamp in seconds; for older Durable Objects that omit the expiry, it is a
+conservative estimate derived from `Retry-After`). CORS exposes `Retry-After` and
+all three `X-RateLimit-*` headers through `Access-Control-Expose-Headers`. The
+block is per-IP, not per-token, so rotating candidate tokens does not evade it.
 
 Only failures count: a valid token always passes and resets the IP's counter,
 so legitimate traffic is unaffected. The public `GET /api/v1/health` probe and
 CORS preflight never touch the throttle.
 
 Throttle storage errors fail open to the pre-throttle 401 behavior — auth
-stays enforced, only the counting degrades. Each fail-open logs exactly one
-`AUTH THROTTLE FAIL-OPEN <reason>` stderr line per 60-second window (reason
-is a fixed category, never IP/token/PII). Operator alarm path — log query +
+stays enforced, only the counting degrades. Fail-opens log at most one
+structured error event per isolate per 60-second window: `msg` is always
+`AUTH THROTTLE FAIL-OPEN`, and a separate fixed-category `reason` field names
+the failure class (never IP/token/PII). Operator alarm path — log query +
 alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
@@ -162,16 +222,47 @@ the bearer check, which an attacker without the token cannot do, and a reset
 from one IP never touches another IP's counter. Pinned by
 `test/throttleResetIsolation.test.ts`.
 
-Shared-NAT note: clients behind one egress IP share a single 20-failure
+Shared-NAT note: clients behind one egress IP share a single 19-failure
 budget, so a bad actor — or a misconfigured client retrying a stale token —
 behind the same NAT can cause `429` responses for other clients' failed
 attempts from that IP. This never blocks legitimate traffic: a request with
 the valid token always passes, even while its IP is blocked, and clears the
 shared counter. Operator remedy: confirm the affected client is sending the
 current token (one good request clears the block immediately); otherwise the
-block expires on its own after 60 seconds. If `429`s recur from one egress
+block expires 60 seconds after the last failed check. If `429`s recur from one egress
 IP, find the client burning the budget and fix its token, or route operator
 traffic through a distinct egress IP.
+
+<a name="upstream-error"></a>
+
+## Loud upstream errors (`upstream-error`)
+
+Client-facing routes using `forwardPassthrough` retain upstream HTTP 400–599,
+including 401, 429 and 503, but replace the response with local
+`application/problem+json` titled "Upstream request failed" and the fixed detail:
+"Routeware returned an error. Its response body has been withheld."
+The body is never inspected, buffered or logged; upstream headers (including
+`Set-Cookie`, `Location` and debug headers) and status text are not relayed.
+A fixed local `Cache-Control: no-store` prevents caching the replacement error,
+including heuristically cacheable 404/410 statuses, without copying upstream headers.
+This contains possible customer/session material in HTML, JSON, text or binary
+error pages on both the first forward and the single post-login retry.
+
+The eleven retry passthroughs are home/index, app-settings-get,
+query-request-is-complete, customers-read, detail-full, customer-types-read,
+add-new-long, load-long-modal and the customer/address/container save routes.
+Successful responses and redirects keep their existing contracts; silent
+HTML-200 failure guards remain in place. Loud errors do not trigger another
+login or retry. Internal `/api/v1/data/*` save consumers continue to use the raw
+retry helper and their own sanitized envelope, preserving byte-count diagnostics.
+The sessionless login-page probe is a direct forward, not a retry passthrough,
+and is outside this control's scope.
+
+Pinned by `test/passthroughLoudFailure.test.ts`, with synthetic customer, phone
+and session markers only. This is an intentional compatibility change: clients
+must use the HTTP status and local problem fields, not upstream error text or
+headers (including upstream `Retry-After`). Worker-generated timeout and
+session-refresh problems retain their existing types and details.
 
 ## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
 
@@ -180,19 +271,54 @@ Every Routeware fetch runs under a bounded per-attempt budget
 upstream host held the Worker until the 300s CPU limit mid-sync. Now each
 fetch races a timer covering time-to-headers only (the `fetch` promise): the
 timer is cleared once headers arrive, so a large report CSV that starts
-quickly is never cut off mid-stream. A timeout fails fast to 502
-problem+json — never a 500, never a hang — with a fixed PII-free detail (no
-URL, no body). A caller abort (client disconnect) with the timer unfired
-rethrows verbatim and is never misreported as a 502.
+quickly is never cut off mid-stream. Handlers that must buffer a response
+use a **separate total body-read deadline**, starting when consumption begins
+(`src/lib/upstreamBody.ts`). That deadline uses `UPSTREAM_TIMEOUT_MS` too
+(default 15s; invalid/absent uses the default), not the remainder of the
+header budget. Each buffered read can therefore spend one header budget plus
+one body budget. Completing headers does not make a never-finishing JSON or
+modal body successful.
 
-Per-step budgets (single-retry max, so a forwarded step costs at most 2x one
-attempt):
+A timeout of the primary forwarded response fails fast to 502 problem+json
+with a fixed PII-free detail (no URL, no body). The body deadline aborts the
+original fetch and cancels pending reads; passthrough validation cancels both
+clone/tee branches on timeout. Cancellation is not awaited, because an
+underlying source can itself hang. The forwarding retry wrapper propagates a
+timeout without refreshing the session or replaying the request. A timed-out
+save response does not begin its local D1 refresh. Its upstream result is
+**unknown**: verify the record before deciding whether to submit again.
+A caller abort with the header timer unfired rethrows verbatim, never a 502.
 
-| Step (code) | Budget / attempt | Worst case | Retry rule |
+Existing caller policies remain unchanged: with `AUTH_MODE=auto`, an HTTP
+login timeout can fall back to Browser Rendering in `establishSession` rather
+than immediately returning 502 (`AUTH_MODE=http` propagates it). After a
+confirmed successful save, a timeout of the separate detail-full refresh is
+caught: the routeware tier retains the successful save response, and the data
+tier reports `localSync.code="sync_failed"` while retaining save success.
+Neither case replays a timed-out save.
+
+Buffered coverage: customer list/detail/type reads, app settings, report
+completion control polls, customer/address/container saves at both routeware
+and data tiers, detail-full refresh reads, anti-forgery modals, HTTP login HTML
+and init scripts, and interactive login-page sniffing. Successful passthrough
+validation preserves the original response bytes and headers.
+
+Intentionally untouched: raw report CSV downloads and CSV-to-D1/R2 consumption
+(including the archive's whole-CSV buffer) have **no total-body deadline**.
+Report-download login sniffing retains its existing unbounded behavior for
+nonstandard content types; it explicitly opts out so a legitimate long CSV
+served as text/plain is not cut off. The sessionless login-page probe only
+forwards a stream and remains header-bounded. Chained same-Worker sync response
+reads are not Routeware responses and are outside this fix.
+
+Per-step **header** budgets (single-retry max, so headers cost at most 2x one
+attempt; buffered consumers additionally get the body budget described above):
+
+| Step (code) | Header budget / attempt | Worst header time | Retry rule |
 |---|---|---|---|
 | Interactive forwards (`forwardWithSessionRetry`: API passthrough, modals, saves) | 15s (`DEFAULT_UPSTREAM_TIMEOUT_MS`) | 30s | retried once only for the login redirect / 200-with-login-form; timeouts never retried |
 | Sessionless login-page probe (`forwardToUpstream` direct, no retry wrapper) | 15s (default) | 15s | single attempt, no retry |
-| HTTP login (`httpAuth.httpLogin`: login-page GET, ext.NET init GET, login POST) | 15s per fetch | 45s for the three fetches | no retry inside; the caller owns the single login-redirect retry |
+| HTTP login (`httpAuth.httpLogin`: login-page GET, ext.NET init GET, login POST) | 15s per fetch | 45s for the three fetches | no retry inside; `establishSession` can fall back to Browser Rendering in auto mode |
 | Report-CSV downloads (`routewareQueryReportCsv`, `snapshot/reportFetch`) | 60s (`REPORT_UPSTREAM_TIMEOUT_MS`) | 120s | one re-login + retry; timeouts never retried |
 | Query-report poll (`pollQueryRequestIsComplete`: 2.5s × 24 attempts ≈ 60s) | ≈60s poll + 60s download | fits in one Worker invocation | poll loop, not a fetch retry |
 
@@ -227,7 +353,7 @@ already passed the report budget. Pinned by
 `test/upstreamTimeoutRoutes.test.ts` (hung upstream → timely
 `UpstreamTimeoutError` on each fixed path + source-wiring assertions).
 
-Why timeouts are never retried: the single retry is reserved for the login
+Why timed-out forwards are never retried: the single retry is reserved for the login
 redirect (provably safe — `forwardWithSessionRetry` retries only that), while
 retrying a timeout could double-execute a non-idempotent POST. Pinned by
 `test/upstreamTimeout.test.ts` (hung upstream → exactly one attempt, then 502)
@@ -255,6 +381,26 @@ counter that rejects the same way without buffering the file. The limit
 covers operator uploads only — the report `sync` path is uncapped (upstream
 export size is the operator's own config) — and a rejected import never
 touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
+
+## Unsupported snapshot import media type (`unsupported-media-type`)
+
+`POST /api/v1/{customer,address,container}-snapshot/import` accepts raw CSV
+bytes with `Content-Type: text/csv` or `application/octet-stream` (media types
+are case-insensitive; parameters such as `charset=utf-8` are allowed). A request
+with a body and any other or missing media type returns 415
+`application/problem+json` after snapshot authentication, the size check and the
+empty-body check, and before the body is read or D1 is changed. A POST with no
+body keeps its 400 empty-body response. The response uses a fixed detail and
+does not echo submitted bytes. Pinned by `test/snapshotImportEdges.test.ts`.
+
+## Archive replaced during a readback (`conflict`)
+
+`GET /api/v1/snapshots/{table}/{date}` reads the R2 archive twice: once to
+measure the re-encoded body's exact length and ETag, then again to stream it,
+conditional on the stored ETag. If a sync replaces that date's object between
+the two reads, the route returns 409 `application/problem+json` naming the table
+and date and streams nothing. Retry the download; the next attempt measures the
+current object. The readback never modifies the stored object.
 
 ## Query-param allowlist (load-long-modal probe)
 

@@ -1,4 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { containerRowExample, containerExportExample } from "./payloadExamples";
+import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
@@ -13,6 +15,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   CONTAINER_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -24,11 +27,13 @@ import {
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
-  parsePositiveIdParam
+  parsePositiveIdParam,
+  snapshotWriteResultExample
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 container snapshot: reads plus the CSV sync/import writers. */
@@ -43,28 +48,34 @@ const containerSnapshotListRoute = createRoute({
     "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     query: z.object({
-      customerId: z.coerce.number().int().optional(),
-      pickupAddressId: z.coerce.number().int().optional(),
-      containerId: z.coerce.number().int().optional(),
-      q: z.string().optional().describe("Substring on location or serial (case-insensitive)"),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any"),
-      limit: z.coerce.number().int().min(1).max(500).default(50),
-      offset: z.coerce.number().int().min(0).default(0),
+      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      containerId: z.coerce.number().int().optional().openapi({ example: 100 }),
+      q: snapshotSearchQuery.optional().describe("Substring on location or serial (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "C-100" }),
+      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
         .number()
         .int()
         .optional()
         .describe("Last container_id from the previous page's nextCursor; takes precedence over offset")
+        .openapi({ example: 99 })
     })
   },
   responses: {
     200: {
       description: "Rows and total",
-      content: { "application/json": { schema: snapshotListResponse } }
+      content: {
+        "application/json": {
+          schema: snapshotListResponse,
+          example: { rows: [containerRowExample], total: 1, nextCursor: null }
+        }
+      }
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects an out-of-range `limit`/`offset` or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
     }
   }
 });
@@ -146,7 +157,7 @@ const containerSnapshotExportRoute = createRoute({
   responses: {
     200: {
       description: "CSV download (header line plus one line per row)",
-      content: { "text/csv": { schema: z.string() } }
+      content: { "text/csv": { schema: z.string(), example: containerExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
     401: { description: "Unauthorized" }
@@ -162,7 +173,8 @@ containerSnapshotRoutes.openapi(containerSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     CONTAINER_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 
@@ -174,12 +186,17 @@ const containerSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `containerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ containerId: z.coerce.number().int() })
+    params: z.object({ containerId: z.coerce.number().int().openapi({ example: 100 }) })
   },
   responses: {
     200: {
       description: "Row",
-      content: { "application/json": { schema: z.record(z.string(), z.unknown()) } }
+      content: {
+        "application/json": {
+          schema: z.record(z.string(), z.unknown()),
+          example: containerRowExample
+        }
+      }
     },
     400: {
       description: "Invalid id (application/problem+json)"
@@ -243,7 +260,8 @@ const containerSnapshotSyncRoute = createRoute({
             rowCount: z.number().int(),
             deleted: z.number().int().optional(),
             skipped: z.boolean().optional()
-          })
+          }),
+          example: snapshotWriteResultExample
         }
       }
     },
@@ -289,7 +307,7 @@ const containerSnapshotImportRoute = createRoute({
   path: "/api/v1/container-snapshot/import",
   tags: ["container-snapshot"],
   summary: "Import container CSV into D1",
-  description: "Raw CSV. Bear same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  description: "Raw CSV; `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
     query: dryRunQuery,
     body: {
@@ -301,7 +319,8 @@ const containerSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked,Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote\n100,10,,SN-100,,false,,false,,,true,1 Main St,Killeen,TX,76541,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -310,11 +329,13 @@ const containerSnapshotImportRoute = createRoute({
       description: "Result",
       content: {
         "application/json": {
-          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() })
+          schema: z.object({ upserted: z.number().int(), rowCount: z.number().int(), deleted: z.number().int().optional() }),
+          example: snapshotWriteResultExample
         }
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as the raw request body."
@@ -342,12 +363,18 @@ containerSnapshotRoutes.openapi(containerSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
     const r = await syncContainerSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

@@ -86,7 +86,7 @@ database_name = "routeware-customer-snapshot"
 database_id = "2f6b26b2-6810-4d15-a2a0-fcbe273c56d2"
 migrations_dir = "migrations/d1"
 
-# Raw CSV from Routeware (same stream as D1), `snapshots/UTC-date/{customer|address|container}.csv`
+# Raw CSV from Routeware (same stream as D1): per-run `snapshot-history/UTC-date/<run>/{customer|address|container}.csv` and date aliases `snapshots/UTC-date/{customer|address|container}.csv`
 [[r2_buckets]]
 binding = "SNAPSHOTS"
 bucket_name = "routeware-csv-snapshots"

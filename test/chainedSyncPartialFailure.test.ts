@@ -11,7 +11,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  *    per-table counts — a partial 200 would read as success. The body is the
  *    generic `internal` problem+json: no per-table keys, zero upstream bytes.
  * 2. **No body leak**: no byte of the upstream HTML body reaches the response
- *    or any log line (`APP ERROR`, cron `failed` line). Fixed by TOG-9205
+ *    or any log record (`Unhandled request error`, cron `data-snapshot-sync
+ *    failed`). Fixed by TOG-9205
  *    (R4-04): `post()` in `src/lib/snapshot/orchestration.ts` used to embed a
  *    1200-char slice of the subrequest body in the thrown error, and both log
  *    lines printed it verbatim. This file is the reappearance tripwire: if
@@ -20,9 +21,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  * Non-goals (owned elsewhere): exact `detail` wording and any future
  * fixed-shape fields (table/step/status) belong to TOG-9205, so this file
  * asserts the stable subset only. Per-table counts for *completed* tables on
- * the cron `failed` line belong to TOG-6546 (partial progress) — pinned here
- * are only the pieces stable across both: the failed/unattempted tables stay
- * null and the step tag survives.
+ * the cron `data-snapshot-sync failed` record belong to TOG-6546 (partial
+ * progress) — pinned here are only the pieces stable across both: the
+ * failed/unattempted tables stay null and the allowlisted table survives.
  *
  * Hermetic like `test/syncSummaryContract.test.ts`: the real app against the
  * real test `CUSTOMER_DB` (migrated via `./d1TestMigrations`); only
@@ -32,9 +33,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  */
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -75,14 +76,21 @@ function db(): D1Database {
 /** Chained-subrequest URLs the runner attempted, in order. */
 const requested: string[] = [];
 
-const captured: { logs: string[]; errors: string[]; warns: string[] } = {
+// logEvent hands the console one structured object per record. Keep the objects:
+// joining them as strings would yield "[object Object]" and blind the leak probe.
+const captured: {
+  logs: Record<string, unknown>[];
+  errors: Record<string, unknown>[];
+  warns: Record<string, unknown>[];
+} = {
   logs: [],
   errors: [],
   warns: []
 };
 
+/** Every captured record, serialized, so the leak probe reads the field values. */
 function allCaptured(): string {
-  return [...captured.logs, ...captured.errors, ...captured.warns].join("\n");
+  return JSON.stringify([...captured.logs, ...captured.errors, ...captured.warns]);
 }
 
 async function postCombinedSync(): Promise<{ status: number; raw: string }> {
@@ -113,10 +121,17 @@ async function runCronChained(): Promise<void> {
   await Promise.all(pending);
 }
 
+/** The single cron failure record, selected by its msg and checked for the failed envelope. */
 function failedCronLine(): Record<string, unknown> {
-  const line = captured.errors.find((s) => s.startsWith("data-snapshot-sync "));
-  expect(line).toBeDefined();
-  return JSON.parse(line!.slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+  const failed = captured.errors.filter((r) => r.msg === "data-snapshot-sync failed");
+  expect(failed).toHaveLength(1);
+  expect(failed[0]).toMatchObject({
+    level: "error",
+    msg: "data-snapshot-sync failed",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof failed[0].ms).toBe("number");
+  return failed[0];
 }
 
 async function rowCount(table: string): Promise<number> {
@@ -142,14 +157,14 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     captured.logs = [];
     captured.errors = [];
     captured.warns = [];
-    vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => {
-      captured.logs.push(a.map(String).join(" "));
+    vi.spyOn(console, "info").mockImplementation((...a: unknown[]) => {
+      captured.logs.push(a[0] as Record<string, unknown>);
     });
     vi.spyOn(console, "error").mockImplementation((...a: unknown[]) => {
-      captured.errors.push(a.map(String).join(" "));
+      captured.errors.push(a[0] as Record<string, unknown>);
     });
     vi.spyOn(console, "warn").mockImplementation((...a: unknown[]) => {
-      captured.warns.push(a.map(String).join(" "));
+      captured.warns.push(a[0] as Record<string, unknown>);
     });
     globalThis.fetch = (async (
       input: RequestInfo | URL,
@@ -245,23 +260,48 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     // Arrange / Act — same partial failure through the chained cron path.
     await runCronChained();
 
-    // Assert — outcome is failed (never success/unconfigured), the error
-    // names the failed step for triage, and the unattempted table stays
-    // null. Completed-table counts are NOT pinned here — TOG-6546 (partial
-    // progress) owns that evolution; pinning all-null would collide with it.
+    // Assert — the failed record keeps the envelope (outcome failed, never
+    // success/unconfigured), its allowlisted `table` names the failed step
+    // for triage with no exception text, and
+    // the failed and unattempted tables stay null. Completed-table counts are
+    // NOT pinned here — TOG-6546 (partial progress) owns that evolution;
+    // pinning all-null would collide with it.
     const line = failedCronLine();
-    expect(line.outcome).toBe("failed");
-    expect(String(line.error)).toContain("[chained address]");
-    expect((line.tables as Record<string, unknown>).container).toBeNull();
+    expect(line).toMatchObject({
+      event: "data-snapshot-sync",
+      outcome: "failed",
+      mode: "chained-http",
+      configSource: "SHADOW_API_PUBLIC_BASE",
+      d1LimitRisk: false,
+      cron: "0 7 * * *",
+      scheduledTime: "2026-09-28T07:00:00.000Z"
+    });
+    expect(line.table).toBe("address");
+    expect(line).not.toHaveProperty("error");
+    const tables = line.tables as Record<string, unknown>;
+    expect(tables.address).toBeNull();
+    expect(tables.container).toBeNull();
     expect(requested.some((u) => u.endsWith("/container-snapshot/sync"))).toBe(false);
   });
 
-  it("zero upstream bytes reach the response or any log line", async () => {
-    // Arrange / Act — both failure surfaces: the combined HTTP route (whose
-    // throw lands in the `APP ERROR` log) and the chained cron path (whose
-    // throw lands in the `failed` line's `error` field).
+  it("zero upstream bytes reach the response or any log record", async () => {
+    // Arrange / Act — both failure surfaces: the combined HTTP route (500 via
+    // app.onError, which logs `Unhandled request error` with no error text) and
+    // the chained cron path (the `data-snapshot-sync failed` record, which
+    // carries only the allowlisted `table` — never the thrown message).
     const res = await postCombinedSync();
     await runCronChained();
+
+    // Positive control: both surfaces must be captured, or the probes below
+    // pass vacuously.
+    expect(captured.errors.find((r) => r.msg === "Unhandled request error")).toMatchObject({
+      kind: "ChainedHttpError"
+    });
+    expect(captured.errors.find((r) => r.msg === "data-snapshot-sync failed")).toMatchObject({
+      table: "address",
+      status: 500,
+      kind: "ChainedHttpError"
+    });
 
     // Assert — TOG-9205 (R4-04/B1): `post()` in orchestration.ts carries
     // table/step/status only, zero subrequest body bytes. The response half

@@ -32,11 +32,16 @@ This note records where freshness comes from and how to tune it.
 
 ## Observability
 
-Every `getCachedDataEntity` call logs one line:
+Every `getCachedDataEntity` call emits one structured event, passed as a single
+object to `console.info`:
 
+```json
+{"level":"info","msg":"Entity data cache hit","route":"cache.entityData","ms":null,"entity":"customer","hits":3,"misses":1}
 ```
-entityDataCache <kind> hit|miss hits=<n> misses=<n>
-```
+
+A miss has `"msg":"Entity data cache miss"`. `entity` is the kind
+(`customer`, `address`, or `container`); `hits` and `misses` are the running
+totals for that kind.
 
 Counts only — no ids, no bodies, no ETags (customer PII lives behind these
 keys). In `wrangler dev`, repeat `GET /api/v1/data/customer?id=<id>` calls

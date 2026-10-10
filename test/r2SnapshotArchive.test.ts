@@ -129,24 +129,24 @@ describe("putReadableStreamToR2", () => {
 });
 
 describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
-  const logged: string[] = [];
-  const errored: string[] = [];
-  const realLog = console.log;
+  const logged: Array<Record<string, unknown>> = [];
+  const errored: Array<Record<string, unknown>> = [];
+  const realInfo = console.info;
   const realError = console.error;
 
   beforeEach(() => {
     logged.length = 0;
     errored.length = 0;
-    console.log = (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
+    console.info = (...args: unknown[]) => {
+      logged.push(args[0] as Record<string, unknown>);
     };
     console.error = (...args: unknown[]) => {
-      errored.push(args.map(String).join(" "));
+      errored.push(args[0] as Record<string, unknown>);
     };
   });
 
   afterEach(() => {
-    console.log = realLog;
+    console.info = realInfo;
     console.error = realError;
   });
 
@@ -196,14 +196,23 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
       }
     );
 
-    // Assert — D1 saw the full CSV, R2 got the CSV put plus the manifest
-    // sidecar put (TOG-8881), success was logged.
+    // Assert — both CSVs, then history sidecar and daily manifest, then latest.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe("CustomerID\n1,,Acme");
-    expect(putCalls).toHaveLength(2);
-    expect(putCalls[0].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
-    expect(logged.some((l) => l.startsWith("R2 snapshot stored:"))).toBe(true);
+    expect(putCalls).toHaveLength(5);
+    expect(putCalls[0].key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[2].key).toBe(`${putCalls[0].key}.manifest.json`);
+    expect(putCalls[3].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(putCalls[4].key).toBe("snapshot-latest/customer.json");
+    expect(logged).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot stored",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/)
+      })
+    );
   });
 
   it("writes nothing to R2 when D1 fails — no phantom archive", async () => {
@@ -242,7 +251,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
     expect(result).toBe("ok");
     expect(d1Ran).toBe(true);
     expect(logged).toEqual([
-      expect.stringContaining("R2 snapshot archive disabled for customer: SNAPSHOTS binding unbound")
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "customer",
+        reason: "SNAPSHOTS binding unbound"
+      })
     ]);
   });
 
@@ -260,7 +275,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
     // Assert
     expect(putCalls).toEqual([]);
     expect(logged).toEqual([
-      expect.stringContaining("R2 snapshot archive disabled for address: SNAPSHOTS_R2_ENABLED=false")
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "address",
+        reason: "SNAPSHOTS_R2_ENABLED=false"
+      })
     ]);
   });
 
@@ -285,7 +306,14 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
 
     // Assert — caller sees the D1 result; the R2 failure is a logged error.
     expect(result).toEqual({ upserted: 2 });
-    expect(errored.some((l) => l.includes("R2 snapshot put failed"))).toBe(true);
+    expect(errored).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        msg: "R2 snapshot put failed",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/)
+      })
+    );
   });
 });
 

@@ -63,12 +63,16 @@ export default defineConfig({
        * Re-measured hermetically 2026-09-28 at `2d61255` (TOG-5826):
        * statements 90.98% (2160/2374), branches 88.27% (1416/1604),
        * functions 93.67% (311/332), lines 91.51% (2103/2298).
+       * Ratcheted 2026-10-08 (TOG-7577) after a hermetic full run:
+       * statements 94.70%, branches 90.59%, functions 96.46%, lines 95.20%.
+       * Ratcheted 2026-10-09 (TOG-9219) after a hermetic full run:
+       * statements 96.27%, branches 91.51%, functions 97.58%, lines 96.60%.
        */
       thresholds: {
-        statements: 90,
-        branches: 88,
-        functions: 93,
-        lines: 91
+        statements: 96,
+        branches: 91,
+        functions: 97,
+        lines: 96
       }
     }
   }

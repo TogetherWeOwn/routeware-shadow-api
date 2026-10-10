@@ -24,6 +24,7 @@ concurrency:
 
 env:
   REQUIRE_CARD_REF: "true"
+  PR_STANDARDS_MODE: "warn"
 
 jobs:
   pr-lint:
@@ -31,67 +32,20 @@ jobs:
     runs-on: [self-hosted, two-selfhosted]
     timeout-minutes: 5
     steps:
-      - name: Check title, body and commits
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          sparse-checkout: .github
+          sparse-checkout-cone-mode: true
+      - name: Unit-test the lint
+        run: python3 -m unittest discover -s .github/scripts -p 'test_pr_standards.py'
+      - name: Check title, body, branch and commits
         env:
           EVENT: ${{ github.event_name }}
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
           AUTHOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          REPO_PRIVATE: ${{ github.event.repository.private }}
           COMMITS: ${{ toJSON(github.event.commits) }}
-        shell: python3 {0}
-        run: |
-          import json, os, re, sys
-
-          TYPES = "feat|fix|perf|refactor|test|docs|build|ci|chore|revert|style|security"
-          HEADER = re.compile(rf"^({TYPES})(\([A-Za-z0-9._/,-]+\))?!?: \S.*$")
-          HELP = ("Expected a Conventional Commits header, e.g. 'fix(auth): refuse expired sudo "
-                  "sessions' or 'feat(events): shareable event page'. Allowed types: "
-                  + TYPES.replace("|", ", ") + ". Put the card ID in the body as 'Refs: TOG-1234'.")
-
-          def header_errors(text):
-              errs = []
-              if not HEADER.match(text):
-                  errs.append("not a Conventional Commits header")
-              if len(text) > 100:
-                  errs.append(f"{len(text)} chars (max 100)")
-              if text.rstrip().endswith("."):
-                  errs.append("ends with a period")
-              return errs
-
-          failed = False
-          if os.environ["EVENT"] == "pull_request":
-              title = os.environ.get("TITLE", "").strip()
-              body = os.environ.get("BODY", "") or ""
-              author = os.environ.get("AUTHOR", "")
-              if author.endswith("[bot]") and author.startswith(("dependabot", "renovate")):
-                  if header_errors(title):
-                      print(f"::warning::{author} title '{title}' is not conventional; set "
-                            "commit-message.prefix (e.g. chore(deps)) in the bot config.")
-                  sys.exit(0)
-              errs = header_errors(title)
-              if errs:
-                  failed = True
-                  print(f"::error title=PR title::'{title}': {'; '.join(errs)}. {HELP}")
-              text = re.sub(r"<!--.*?-->", "", body, flags=re.S)
-              if len(re.sub(r"\s", "", text)) < 40:
-                  failed = True
-                  print("::error title=PR body::The description is empty. Say what changed, why, "
-                        "and how it was tested (see the PR template).")
-              if not re.search(r"\bTOG-\d+\b", body):
-                  level = "error" if os.environ["REQUIRE_CARD_REF"] == "true" else "warning"
-                  failed = failed or level == "error"
-                  print(f"::{level} title=Card reference::Add 'Refs: TOG-1234' to the PR body.")
-          else:
-              for c in json.loads(os.environ.get("COMMITS") or "[]") or []:
-                  subject = (c.get("message") or "").splitlines()[0] if c.get("message") else ""
-                  if subject.startswith(("Merge ", "Revert \"")):
-                      continue
-                  errs = header_errors(subject)
-                  if errs:
-                      failed = True
-                      print(f"::error title=Commit on main::{c.get('id','')[:10]} '{subject}': "
-                            f"{'; '.join(errs)}. Merge PRs with squash and the PR title as the "
-                            "commit title.")
-          if failed:
-              sys.exit(1)
-          print("PR conventions OK")
+        run: python3 .github/scripts/pr_standards.py
