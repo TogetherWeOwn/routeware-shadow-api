@@ -394,10 +394,16 @@ stream and uses the same permissive parsing as upstream report sync (leave
 disaster-recovery route: use §5/§7 HTTP imports only for CSVs whose entire contents are
 already known to satisfy `docs/PROBLEMS.md#csv-control-characters-bad-request`, verified
 by the offline control pre-check below. Do not strip controls from a recovery archive to
-make the check pass.
+make the check pass. The pre-check runs like every other recovery block (subshell,
+`set -euo pipefail`, sourced `RECOVERY_CONTEXT`) and checks only the selected tables:
+`RECOVERY_TABLES` (or `SELECTED_TABLES`) as a space-separated subset, defaulting to
+`customer` for the §3 drill, so a subset run does not demand absent tables.
 
 ```bash
-RUN="$RUN" python3 - "$DATE" <<'PY'
+(
+set -euo pipefail
+source "${RECOVERY_CONTEXT:?use the context created in section 2}"
+python3 - "$DATE" <<'PY'
 from datetime import date
 from pathlib import Path
 import os
@@ -406,8 +412,12 @@ try:
     day = date.fromisoformat(sys.argv[1]).isoformat()
 except (IndexError, ValueError):
     sys.exit("Invalid DATE; expected YYYY-MM-DD.")
+allowed = ("customer", "address", "container")
+selection = os.environ.get("RECOVERY_TABLES", os.environ.get("SELECTED_TABLES", "customer")).strip().split()
+if not selection or any(t not in allowed for t in selection):
+    sys.exit("Invalid table selection; expected subset of 'customer address container'.")
 failed = False
-for table in ("customer", "address", "container"):
+for table in selection:
     path = Path(os.environ["RUN"]) / f"{table}.csv"
     try:
         text = path.read_bytes().decode("utf-8")
@@ -428,6 +438,7 @@ if failed:
     sys.exit(1)
 print("All selected CSVs passed the offline control pre-check.")
 PY
+)
 ```
 
 On a failed pre-check, do not run HTTP imports: use the code-deployment procedure next
