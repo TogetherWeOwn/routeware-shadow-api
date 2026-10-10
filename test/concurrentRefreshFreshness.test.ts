@@ -20,10 +20,10 @@ const env = { AUTH_MODE: "http", LOGIN_URL: "https://upstream.invalid/WebRW/Acco
 // why the modules under test are imported dynamically, not statically.
 const httpLoginCalls = { count: 0 };
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, FRESH_COOKIE, Date.now() + 120_000);
+    await storeSession(stub, FRESH_COOKIE, Date.now() + 120_000, lockToken);
   })
 }));
 vi.mock("../src/lib/browserAuth", () => ({
@@ -94,9 +94,9 @@ const invalidExpiries = [
 async function lockWithToken(stub: DurableObjectStub): Promise<string> {
   const response = await stub.fetch("https://auth/lock");
   expect(response.status).toBe(200);
-  const token = (await response.text()).trim();
-  expect(token.length).toBeGreaterThan(0);
-  return token;
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
 }
 
 async function settleWait(stub: DurableObjectStub) {
@@ -199,10 +199,15 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   it("all real establishSession waiters reuse one publication without logging in", async () => {
     const { stub, fetch } = harness();
     await storeThenExpire(stub);
-    await stub.fetch("https://auth/lock");
+    // The holder's token threads through its own publication (TOG-18959): a
+    // tokenless `/set` stores but no longer releases a live holder's lock, so
+    // publishing without it would leave the waiters queued until their budget.
+    const lockResponse = await stub.fetch("https://auth/lock");
+    expect(lockResponse.status).toBe(200);
+    const holderToken = ((await lockResponse.json()) as { lockToken: string }).lockToken;
     const pending = Promise.all(Array.from({ length: 3 }, () => establishSession(env, stub, env.LOGIN_URL)));
     await vi.advanceTimersByTimeAsync(0);
-    await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
+    await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000, holderToken);
     await vi.advanceTimersByTimeAsync(500);
     await pending;
 

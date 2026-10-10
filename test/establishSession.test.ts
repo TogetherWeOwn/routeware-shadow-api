@@ -13,21 +13,21 @@ const LOCK_TTL_MS = 120_000;
 // session through the REAL storeSession, so this file exercises the actual
 // store-and-unlock wiring rather than a reimplementation of it.
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     if (httpLoginShouldFail) {
       throw new Error("HTTP login failed (status 500)");
     }
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=http", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=http", Date.now() + 60_000, lockToken);
   })
 }));
 
 vi.mock("../src/lib/browserAuth", () => ({
-  establishSessionWithBrowser: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionWithBrowser: vi.fn(async (_env: Env, stub: DurableObjectStub, _bootstrapUrl: string, lockToken?: string | null) => {
     browserLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=browser", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=browser", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -44,13 +44,16 @@ const { isConcurrentRefreshTimeout } = await import("../src/lib/sessionRefreshLo
 type LockState = {
   refreshing: boolean;
   lockedAt: number | null;
+  lockToken: string | null;
   cookieHeader: string | null;
 };
 
 /**
- * Durable Object stub fake implementing the real /lock, /unlock, /set, /get
- * semantics, including the LOCK_TTL_MS stale-lock expiry: a lock older than
- * the TTL is treated as crashed and re-granted, matching `AuthSession`.
+ * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
+ * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
+ * TOG-18959 lock-token owner check: a lock older than the TTL is treated as
+ * crashed and re-granted with a fresh token, and only the matching token
+ * releases a held lock — matching `AuthSession`.
  */
 function fakeStub(
   state: LockState,
@@ -60,7 +63,7 @@ function fakeStub(
     fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
 
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         const now = Date.now();
         const heldAndFresh =
           state.refreshing === true &&
@@ -71,14 +74,22 @@ function fakeStub(
         }
         state.refreshing = true;
         state.lockedAt = now;
-        return new Response("OK");
+        state.lockToken = `synthetic-lock-token-${now}`;
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
         if ("unlockFailure" in options) {
           throw options.unlockFailure;
         }
+        if (state.refreshing === true) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as { lockToken?: unknown };
+          if (typeof state.lockToken !== "string" || body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
         state.lockedAt = null;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/set") {
@@ -87,10 +98,13 @@ function fakeStub(
           // Mirrors the DO's parseSetBody rejection: 400 and the lock stays held.
           return new Response("Bad Request", { status: 400 });
         }
-        const body = JSON.parse(String(init?.body)) as { cookieHeader: string };
+        const body = JSON.parse(String(init?.body)) as { cookieHeader: string; lockToken?: unknown };
         state.cookieHeader = body.cookieHeader;
-        state.refreshing = false;
-        state.lockedAt = null;
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockedAt = null;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       if (path === "/get") {
@@ -106,7 +120,7 @@ function fakeStub(
 }
 
 function freshState(): LockState {
-  return { refreshing: false, lockedAt: null, cookieHeader: null };
+  return { refreshing: false, lockedAt: null, lockToken: null, cookieHeader: null };
 }
 
 function envWith(mode: string): Env {
@@ -145,6 +159,7 @@ describe("establishSession refresh-lock serialization", () => {
     const state: LockState = {
       refreshing: false,
       lockedAt: null,
+      lockToken: null,
       cookieHeader: ".WebRW=stale"
     };
     const stub = fakeStub(state);
@@ -171,6 +186,7 @@ describe("establishSession refresh-lock serialization", () => {
       const state: LockState = {
         refreshing: true,
         lockedAt: Date.now(),
+        lockToken: "synthetic-crashed-holder",
         cookieHeader: null
       };
       const stub = fakeStub(state);
@@ -204,6 +220,7 @@ describe("establishSession refresh-lock serialization", () => {
       const state: LockState = {
         refreshing: true,
         lockedAt: Date.now(),
+        lockToken: "synthetic-crashed-holder",
         cookieHeader: null
       };
       const stub = fakeStub(state);
@@ -400,6 +417,7 @@ describe("establishSession refresh-lock serialization", () => {
     const state: LockState = {
       refreshing: true,
       lockedAt: Date.now(),
+      lockToken: "synthetic-prior-holder",
       cookieHeader: ".WebRW=already-established"
     };
     const stub = fakeStub(state);

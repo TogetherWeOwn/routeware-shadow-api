@@ -32,13 +32,13 @@ const httpLoginCalls = { count: 0 };
 let httpLoginShouldFail = false;
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     if (httpLoginShouldFail) {
       throw new Error("Synthetic takeover login failure");
     }
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, FRESH_COOKIE, Date.now() + 120_000);
+    await storeSession(stub, FRESH_COOKIE, Date.now() + 120_000, lockToken);
   })
 }));
 vi.mock("../src/lib/browserAuth", () => ({
@@ -70,9 +70,9 @@ async function failedHolderSetup(stub: DurableObjectStub): Promise<string> {
   await vi.advanceTimersByTimeAsync(1);
   const response = await stub.fetch("https://auth/lock");
   expect(response.status).toBe(200);
-  const token = (await response.text()).trim();
-  expect(token.length).toBeGreaterThan(0);
-  return token;
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
 }
 
 function settleAll(count: number, stub: DurableObjectStub) {
@@ -240,13 +240,15 @@ describe("failed-release takeover (CISO option B)", () => {
   });
 
   it("/takeover refuses a live cookie without changing state", async () => {
-    // Arrange — a failed release happened, but a live cookie is stored.
+    // Arrange — a failed release happened, but a live cookie is stored. The
+    // publication lands while no lock is held; the later grant owns the lock
+    // whose failed release the test records (a tokenless `/set` never releases
+    // a live holder's lock under TOG-18959, so the order matters).
     const { stub, values } = harness();
-    await stub.fetch("https://auth/lock");
     await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
-    // The publication cleared the first lock; this second grant owns the lock
-    // whose failed release the test records.
-    const holderToken = (await (await stub.fetch("https://auth/lock")).text()).trim();
+    const lockResponse = await stub.fetch("https://auth/lock");
+    expect(lockResponse.status).toBe(200);
+    const holderToken = ((await lockResponse.json()) as { lockToken: string }).lockToken;
     await releaseRefreshLock(stub, holderToken);
     expect(typeof values.get("failedReleaseAtMs")).toBe("number");
 
@@ -285,7 +287,8 @@ describe("failed-release takeover (CISO option B)", () => {
     expect(typeof anchor).toBe("number");
     const takeoverResponse = await stub.fetch("https://auth/takeover", { method: "POST" });
     expect(takeoverResponse.status).toBe(200);
-    const winnerToken = (await takeoverResponse.text()).trim();
+    const winnerToken = ((await takeoverResponse.json()) as { lockToken: string }).lockToken;
+    expect(typeof winnerToken).toBe("string");
     expect(winnerToken.length).toBeGreaterThan(0);
     const claimed = values.get("takeoverAtMs");
     expect(typeof claimed).toBe("number");
@@ -312,12 +315,12 @@ describe("failed-release takeover (CISO option B)", () => {
     // login alongside B's still-running one.
     const { stub, values } = harness();
     await storeSession(stub, FAILED_COOKIE, Date.now() + 300_000);
-    const tokenA = (await (await stub.fetch("https://auth/lock")).text()).trim();
+    const tokenA = ((await (await stub.fetch("https://auth/lock")).json()) as { lockToken: string }).lockToken;
     expect(tokenA.length).toBeGreaterThan(0);
     await vi.advanceTimersByTimeAsync(120_000 + 1);
     const tokenBResponse = await stub.fetch("https://auth/lock");
     expect(tokenBResponse.status).toBe(200);
-    const tokenB = (await tokenBResponse.text()).trim();
+    const tokenB = ((await tokenBResponse.json()) as { lockToken: string }).lockToken;
     expect(tokenB.length).toBeGreaterThan(0);
     expect(tokenB).not.toBe(tokenA);
     const bLockedAt = values.get("lockedAt");

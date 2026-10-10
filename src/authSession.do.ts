@@ -57,43 +57,6 @@ export const LOCK_TTL_MS = 120_000;
  */
 export const TAKEOVER_WINDOW_MS = 60_000;
 
-const LOCK_TOKEN_HEADER = "x-lock-token";
-
-/**
- * Mint an ownership token for a freshly granted refresh lock (TOG-18119,
- * reviewer finding 2): `/lock` and `/takeover` return it in the 200 body, and
- * `/unlock` only releases a token-held lock when the caller presents the same
- * token. A superseded holder whose lock outlived `LOCK_TTL_MS` can otherwise
- * send a late `/unlock` that releases the NEXT holder's live lock and records
- * a bogus failed release — admitting a takeover login while a holder is still
- * refreshing. Only timestamp/flag bytes are stored; the token itself is an
- * opaque random nonce, never a credential or cookie.
- */
-function newLockToken(): string {
-  try {
-    const cryptoObj = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-    if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
-      return cryptoObj.randomUUID();
-    }
-  } catch {
-    // Fall through to the Math.random fallback below.
-  }
-  return `${Date.now().toString(36)}-${Math.floor(Math.random() * 2 ** 53).toString(36)}`;
-}
-
-/** Read the ownership token a caller presents on `/unlock`, if any. */
-async function readUnlockToken(req: Request, url: URL): Promise<string | null> {
-  const header = req.headers.get(LOCK_TOKEN_HEADER);
-  if (header && header.length > 0) {
-    return header;
-  }
-  const query = url.searchParams.get("token");
-  if (query && query.length > 0) {
-    return query;
-  }
-  return null;
-}
-
 type StoredSession = { cookieHeader: string; expiresAtMs: number };
 
 /**
@@ -114,6 +77,19 @@ function parseSetBody(body: unknown): StoredSession | null {
     return null;
   }
   return { cookieHeader, expiresAtMs };
+}
+
+/**
+ * Extract an optional refresh-lock ownership token from a `/set` or `/unlock`
+ * body. The token is opaque here (issued by `/lock`/`/takeover`); absent or
+ * malformed means "no proof of ownership", never a throw inside the DO.
+ */
+function parseLockToken(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const { lockToken } = body as Record<string, unknown>;
+  return typeof lockToken === "string" && lockToken.length > 0 ? lockToken : null;
 }
 
 /**
@@ -237,13 +213,25 @@ export class AuthSession {
     }
 
     if (url.pathname === "/set") {
-      const session = parseSetBody(await req.json().catch(() => null));
+      const raw = await req.json().catch(() => null);
+      const session = parseSetBody(raw);
       if (!session) {
         // Storing a malformed session would silently corrupt every later expiry
         // check (a NaN expiry makes proactive refresh never fire again).
         return new Response("Bad Request", { status: 400 });
       }
+      // Only the lock holder releases the refresh lock (TOG-18959). A live
+      // session write without a matching token is still stored, but a live
+      // holder's lock survives it — so a superseded holder or a waiter that
+      // never acquired the lock cannot release another holder's live lock.
+      const presentedToken = parseLockToken(raw);
 
+      // The write lands either way, but a held lock is released only for the
+      // matching token (TOG-18959) — so a superseded holder or a waiter that
+      // never acquired the lock cannot release another holder's live lock.
+      // The read-check-write runs inside one storage transaction so a
+      // concurrent /lock grant cannot interleave between the check and the
+      // clear and lose a live holder's lock.
       const published = await this.state.storage.transaction(async (txn) => {
         if (session.expiresAtMs <= Date.now()) {
           await this.readLiveSession(txn);
@@ -251,23 +239,46 @@ export class AuthSession {
         }
         await txn.put(session);
         await txn.setAlarm(session.expiresAtMs);
-        await txn.put("refreshing", false);
-        await txn.delete("lockedAt");
-        await txn.delete("lockToken");
         await txn.delete("expiredEvicted");
-        // A successful publication ends any failed-release episode (TOG-18119,
-        // CISO option B): the fresh cookie is live, so no takeover is owed.
-        await txn.delete("failedReleaseAtMs");
-        await txn.delete("takeoverAtMs");
+        const refreshing = await txn.get<boolean>("refreshing");
+        if (refreshing !== true) {
+          // No live holder: settle orphan lock keys and close any episode.
+          await txn.put("refreshing", false);
+          await txn.delete("lockedAt");
+          await txn.delete("lockToken");
+          await txn.delete("failedReleaseAtMs");
+          await txn.delete("takeoverAtMs");
+          return true;
+        }
+        const heldToken = await txn.get<string>("lockToken");
+        if (
+          typeof heldToken === "string" && heldToken.length > 0 &&
+          presentedToken === heldToken
+        ) {
+          // The holder's own publish: release its lock and end any
+          // failed-release episode (TOG-18119, CISO option B) — the fresh
+          // cookie is live, so no takeover is owed.
+          await txn.put("refreshing", false);
+          await txn.delete("lockedAt");
+          await txn.delete("lockToken");
+          await txn.delete("failedReleaseAtMs");
+          await txn.delete("takeoverAtMs");
+        }
+        // A non-holder's write is stored but never releases a live lock.
         return true;
       });
       if (!published) {
         return new Response("Session expired", { status: 409 });
       }
-      // This acknowledges the committed write and lock release, not authentication.
+      // This acknowledges the committed write, not authentication (and, for a
+      // non-holder write, not a lock release).
       return new Response("OK");
     }
 
+    // `/lock` grants a fresh lock and mints an ownership token the holder must
+    // present to `/unlock` and its own `/set` (TOG-18959). The token is never
+    // exposed via `/get`. `/takeover` below is a separate route — the
+    // failed-release episode election — not a stale-lock alias.
     if (url.pathname === "/lock") {
       const refreshing = await this.state.storage.get<boolean>("refreshing");
       const lockedAt = await this.state.storage.get<number>("lockedAt");
@@ -280,15 +291,14 @@ export class AuthSession {
       if (heldAndFresh) {
         return new Response("LOCKED", { status: 423 });
       }
-      // Granting the lock mints an ownership token (TOG-18119, reviewer
-      // finding 2): the winner presents it on `/unlock`, so a superseded
-      // holder's late unlock can no longer release this lock. A stale lock
-      // re-granted here replaces the previous token with the new winner's.
-      const token = newLockToken();
+      // A stale lock re-granted here replaces the previous token with the new
+      // winner's, so a superseded holder's late unlock can no longer release
+      // this lock.
+      const lockToken = crypto.randomUUID();
       await this.state.storage.put("refreshing", true);
       await this.state.storage.put("lockedAt", now);
-      await this.state.storage.put("lockToken", token);
-      return new Response(token);
+      await this.state.storage.put("lockToken", lockToken);
+      return Response.json({ lockToken });
     }
 
     if (url.pathname === "/unlock") {
@@ -302,33 +312,34 @@ export class AuthSession {
       // Transactional with the release so the anchor can never describe a
       // lock that is still held.
       //
-      // Ownership (TOG-18119, reviewer finding 2): when the stored lock carries
-      // a token, only the matching token releases it. A superseded holder's
-      // late `/unlock` (stale or missing token) changes nothing — neither the
-      // live holder's lock nor the episode bookkeeping. Locks granted before
-      // tokens existed carry no token and still release (deploy transition).
+      // Ownership (TOG-18959): only the matching token releases a held lock.
+      // A missing or mismatched token — a superseded holder, a waiter that
+      // never acquired the lock, or a legacy caller — fails closed with 403
+      // and the live holder keeps its lock; the TTL still bounds a lock whose
+      // token was lost.
       //
       // Takeover budget (TOG-18119, reviewer finding 1): the takeover winner's
       // own failed `/unlock` (its `lockedAt` equals its `takeoverAtMs`) keeps
       // the anchor and the spent budget even past the window, instead of
       // starting a fresh episode that would admit a third login.
       const now = Date.now();
-      const presented = await readUnlockToken(req, url);
-      await this.state.storage.transaction(async (txn) => {
+      const presentedToken = parseLockToken(await req.json().catch(() => null));
+      const outcome = await this.state.storage.transaction(async (txn) => {
         const refreshing = (await txn.get<boolean>("refreshing")) ?? false;
         if (refreshing !== true) {
+          // Idempotent when nothing is held; also sweeps orphaned lock keys.
           await txn.put("refreshing", false);
           await txn.delete("lockedAt");
           await txn.delete("lockToken");
-          return;
+          return "ok" as const;
         }
-        const storedToken = await txn.get<unknown>("lockToken");
+        const heldToken = await txn.get<unknown>("lockToken");
         if (
-          typeof storedToken === "string" &&
-          storedToken.length > 0 &&
-          presented !== storedToken
+          typeof heldToken !== "string" ||
+          heldToken.length === 0 ||
+          presentedToken !== heldToken
         ) {
-          return;
+          return "forbidden" as const;
         }
         const lockedAt = await txn.get<unknown>("lockedAt");
         const takeoverAt = await txn.get<unknown>("takeoverAtMs");
@@ -340,7 +351,7 @@ export class AuthSession {
           typeof takeoverAt === "number" &&
           lockedAt === takeoverAt
         ) {
-          return;
+          return "ok" as const;
         }
         const prev = await txn.get<unknown>("failedReleaseAtMs");
         const active =
@@ -351,7 +362,11 @@ export class AuthSession {
           await txn.put("failedReleaseAtMs", now);
           await txn.delete("takeoverAtMs");
         }
+        return "ok" as const;
       });
+      if (outcome === "forbidden") {
+        return new Response("Forbidden", { status: 403 });
+      }
       return new Response("OK");
     }
 
@@ -408,18 +423,18 @@ export class AuthSession {
         if (cookieLive) {
           return "ineligible" as const;
         }
-        const token = newLockToken();
+        const lockToken = crypto.randomUUID();
         await txn.put("refreshing", true);
         await txn.put("lockedAt", now);
-        await txn.put("lockToken", token);
+        await txn.put("lockToken", lockToken);
         await txn.put("takeoverAtMs", now);
-        return { status: "ok", token } as const;
+        return { status: "ok", lockToken } as const;
       });
       if (outcome === "locked") {
         return new Response("LOCKED", { status: 423 });
       }
       if (typeof outcome === "object") {
-        return new Response(outcome.token);
+        return Response.json({ lockToken: outcome.lockToken });
       }
       return new Response("NOT ELIGIBLE", { status: 409 });
     }

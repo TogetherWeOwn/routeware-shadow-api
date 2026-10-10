@@ -42,9 +42,9 @@ function harness() {
 async function lockWithToken(stub: DurableObjectStub): Promise<string> {
   const response = await stub.fetch("https://auth/lock");
   expect(response.status).toBe(200);
-  const token = (await response.text()).trim();
-  expect(token.length).toBeGreaterThan(0);
-  return token;
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
 }
 
 function captureConsole() {
@@ -209,7 +209,10 @@ describe("AuthSession stored-session audit", () => {
 
     await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock", {
+      method: "POST",
+      body: "{}"
+    });
     expect(logs[2]).toHaveBeenCalledExactlyOnceWith({
       level: "warn",
       msg: "Failed to release the auth refresh lock; it will expire via its TTL",

@@ -67,33 +67,54 @@ export function concurrentRefreshTimeoutProblem(
 }
 
 /**
- * Ownership token for the refresh lock (TOG-18119, reviewer finding 2).
- * `/lock` and `/takeover` mint one per grant; the holder presents it on
- * `/unlock` so a superseded holder's late unlock cannot release a live lock.
+ * Narrow an unknown `/lock` (or `/takeover`) response body to an ownership
+ * token. A missing or malformed token means the grant cannot be proven — the
+ * caller must not act as the holder.
  */
-export type LockToken = string;
-
-/** Header carrying the ownership token on `/unlock`. */
-export const LOCK_TOKEN_HEADER = "x-lock-token";
-
-/**
- * Acquire the refresh lock. Resolves to the ownership token when this caller
- * now holds the lock, or `null` when someone else does. The token must be
- * passed to `releaseRefreshLock` — unlocking without it releases nothing once
- * the DO has minted tokens.
- */
-export async function acquireRefreshLock(stub: DurableObjectStub): Promise<LockToken | null> {
-  const response = await stub.fetch("https://auth/lock");
-  if (response.status !== 200) {
+function parseLockTokenGrant(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) {
     return null;
   }
-  const token = (await response.text()).trim();
-  return token.length > 0 ? token : null;
+  const { lockToken } = body as Record<string, unknown>;
+  return typeof lockToken === "string" && lockToken.length > 0 ? lockToken : null;
 }
 
 /**
- * Release the lock after a failed refresh. The DO's `/set` already clears it on
- * success, so this is only needed on the error path. Never throws — a failure to
+ * Ask the DO for the refresh lock. Returns the ownership token when this
+ * caller now holds the lock, or `null` when someone else does (423) or the
+ * request fails. The token is opaque and PII-free; it only proves lock
+ * ownership to `/unlock` and `/set`. `/takeover` is not a stale-lock alias —
+ * it is the failed-release episode election (see `acquireTakeoverLock`).
+ */
+async function requestLockToken(
+  stub: DurableObjectStub,
+  path: "/lock" | "/takeover",
+  init?: RequestInit
+): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await stub.fetch(`https://auth${path}`, init);
+  } catch {
+    return null;
+  }
+  if (response.status !== 200) {
+    return null;
+  }
+  return parseLockTokenGrant(await response.json().catch(() => null));
+}
+
+/** Ownership token when this caller now holds the refresh lock; null otherwise. */
+export async function acquireRefreshLock(
+  stub: DurableObjectStub
+): Promise<string | null> {
+  return requestLockToken(stub, "/lock");
+}
+
+/**
+ * Release the lock after a failed refresh. The holder's `/set` already clears
+ * it on success, so this is only needed on the error path. Only the matching
+ * token releases a held lock — a superseded holder's stale token fails closed
+ * with 403 and the live holder keeps its lock. Never throws — a failure to
  * unlock must not mask the original error, and the DO expires a stale lock anyway.
  * Do not inspect rejected values: they may contain credentials or throw on coercion.
  * The token is sent so the DO can verify ownership; a release without it (or with
@@ -101,17 +122,13 @@ export async function acquireRefreshLock(stub: DurableObjectStub): Promise<LockT
  */
 export async function releaseRefreshLock(
   stub: DurableObjectStub,
-  token?: LockToken | null
+  lockToken?: string | null
 ): Promise<void> {
   try {
-    if (token) {
-      await stub.fetch("https://auth/unlock", {
-        method: "POST",
-        headers: { [LOCK_TOKEN_HEADER]: token }
-      });
-    } else {
-      await stub.fetch("https://auth/unlock");
-    }
+    await stub.fetch("https://auth/unlock", {
+      method: "POST",
+      body: JSON.stringify(lockToken ? { lockToken } : {})
+    });
   } catch {
     logEvent({
       level: "warn",
@@ -124,20 +141,25 @@ export async function releaseRefreshLock(
 /**
  * Publish a freshly-established session to the Durable Object.
  *
- * Throws if the DO rejects the write. That matters: the DO clears the refresh
- * lock as part of a successful `/set`, so a silently-ignored rejection would
- * leave the lock held until its TTL expires while no session was ever stored —
- * wedging authentication. Throwing routes the failure into `establishSession`'s
+ * `lockToken` proves this caller holds the refresh lock: the DO stores the
+ * session either way, but clears the lock only for the matching token. A
+ * non-holder's write therefore never releases a live holder's lock.
+ *
+ * Throws if the DO rejects the write. That matters: the holder's `/set` clears
+ * its own lock on success, so a silently-ignored rejection would leave the
+ * lock held until its TTL expires while no session was ever stored — wedging
+ * authentication. Throwing routes the failure into `establishSession`'s
  * catch, which releases the lock.
  */
 export async function storeSession(
   stub: DurableObjectStub,
   cookieHeader: string,
-  expiresAtMs: number
+  expiresAtMs: number,
+  lockToken?: string | null
 ): Promise<void> {
   const response = await stub.fetch("https://auth/set", {
     method: "POST",
-    body: JSON.stringify({ cookieHeader, expiresAtMs })
+    body: JSON.stringify(lockToken ? { cookieHeader, expiresAtMs, lockToken } : { cookieHeader, expiresAtMs })
   });
   if (!response.ok) {
     throw new Error(
@@ -190,13 +212,8 @@ export async function waitForConcurrentRefresh(
  * cookie — re-read and decide). A rejected fetch propagates: like `/lock`, a
  * failing `/takeover` call is a real error, not a lost race.
  */
-export async function acquireTakeoverLock(stub: DurableObjectStub): Promise<LockToken | null> {
-  const response = await stub.fetch("https://auth/takeover", { method: "POST" });
-  if (response.status !== 200) {
-    return null;
-  }
-  const token = (await response.text()).trim();
-  return token.length > 0 ? token : null;
+export async function acquireTakeoverLock(stub: DurableObjectStub): Promise<string | null> {
+  return requestLockToken(stub, "/takeover", { method: "POST" });
 }
 
 /** Outcome of `waitForPublicationOrTakeover`: the holder published, or this caller won the takeover. */
@@ -207,10 +224,9 @@ export type WaiterOutcome = "published" | "takeover";
  * holds when it won the takeover (for its eventual `/unlock`). `null` on
  * "published" — no lock is held.
  */
-export type WaiterSettlement = {
-  outcome: WaiterOutcome;
-  token: LockToken | null;
-};
+export type WaiterSettlement =
+  | { outcome: "published"; token: null }
+  | { outcome: "takeover"; token: string };
 
 /**
  * Wait for the holder's fresh session exactly like
