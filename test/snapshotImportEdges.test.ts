@@ -106,6 +106,38 @@ type ProblemBody = {
   detail?: string;
 };
 
+/**
+ * TOG-7597 — the live wire shape of a bodyless POST. `curl -X POST` with no
+ * `Content-Length`/`Transfer-Encoding` arrives as an empty non-null stream,
+ * never the `null` body the unit harness builds — so the `!body` guard alone
+ * cannot be the only pin. Both shapes must 400, never a silent 200 zeros.
+ */
+function postImportBodyless(path: string): Promise<Response> {
+  return exports.default.fetch(`http://test.local${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${SYNC_SECRET}`,
+      "content-type": "text/csv"
+    }
+  });
+}
+
+function postImportEmptyStream(path: string): Promise<Response> {
+  return exports.default.fetch(`http://test.local${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${SYNC_SECRET}`,
+      "content-type": "text/csv"
+    },
+    body: new ReadableStream({
+      start(c) {
+        c.close();
+      }
+    }),
+    duplex: "half"
+  } as RequestInit);
+}
+
 describe("snapshot import edges (TOG-6279)", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
@@ -193,6 +225,33 @@ ${spec.row}`, {
     it("rejects an empty-string body with 400, not a silent 200 zeros", async () => {
       // Act
       const res = await postImport(spec.base, "");
+
+      // Assert
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toContain("problem+json");
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(BAD_REQUEST);
+      expect(body.status).toBe(400);
+    });
+
+    it("rejects a bodyless POST with 400, not a silent 200 zeros", async () => {
+      // Act — no body key at all: the null-body half of the TOG-7597 pair,
+      // answered by the handler's empty-body guard before any D1 write.
+      const res = await postImportBodyless(spec.base);
+
+      // Assert
+      expect(res.status).toBe(400);
+      expect(res.headers.get("content-type")).toContain("problem+json");
+      const body = (await res.json()) as ProblemBody;
+      expect(body.type).toBe(BAD_REQUEST);
+      expect(body.status).toBe(400);
+    });
+
+    it("rejects an empty-stream POST with 400, not a silent 200 zeros", async () => {
+      // Act — an empty non-null stream: the live wire shape of `curl -X POST`
+      // with no Content-Length/Transfer-Encoding (TOG-7597). The guard lets it
+      // through, so the import's requireDataRows rejection must 400 it.
+      const res = await postImportEmptyStream(spec.base);
 
       // Assert
       expect(res.status).toBe(400);
