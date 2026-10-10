@@ -30,8 +30,11 @@ import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 const browserLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/browserAuth", () => ({
-  establishSessionWithBrowser: vi.fn(async () => {
+  establishSessionWithBrowser: vi.fn(async (env: Env, stub: DurableObjectStub, _bootstrapUrl: string, lockToken?: string | null) => {
     browserLoginCalls.count += 1;
+    const { storeSession } = await import("../src/lib/sessionRefreshLock");
+    const { sessionExpiryMs } = await import("../src/lib/sessionState");
+    await storeSession(stub, ".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL", sessionExpiryMs(env), lockToken);
   })
 }));
 
@@ -60,24 +63,39 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
   } as unknown as Env;
 }
 
-/** Refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Refresh-lock stub: /lock grants a token, /unlock and /set verify it,
+ * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
         return Response.json({ cookieHeader: null, expiresAtMs: null, refreshing: false });
       }
       if (path === "/set") {
-        state.refreshing = false;
+        const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       return new Response("Not Found", { status: 404 });
@@ -177,7 +195,7 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode rethrows the 403 without a browser launch and releases the lock", async () => {
     // Arrange — free lock, upstream login page 403s.
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     globalThis.fetch = (async () =>
       new Response(PII_BODY, { status: 403 })) as unknown as typeof fetch;
 
@@ -197,7 +215,7 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode still falls back to the browser on a genuine 200 markup change", async () => {
     // Arrange — 200 page, no token anywhere: the case the fallback exists for.
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     globalThis.fetch = (async () =>
       new Response("<html><body>redesigned login, no token</body></html>", {
         status: 200,
@@ -222,16 +240,24 @@ const ctx = {
  * forward → reactive re-login → onError path with a stubbed upstream.
  */
 function blockedAppEnv(fetchImpl: typeof fetch): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/throttle/clear" || path === "/throttle/failure") {

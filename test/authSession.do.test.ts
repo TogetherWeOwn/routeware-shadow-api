@@ -19,15 +19,17 @@ type StoredValue = string | number | boolean;
 /** Minimal in-memory stand-in for the subset of DurableObjectState the DO uses. */
 function fakeState(): DurableObjectState {
   const store = new Map<string, StoredValue>();
-  return {
-    storage: {
-      get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
-      put: async (key: string, value: StoredValue): Promise<void> => {
-        store.set(key, value);
-      },
-      delete: async (key: string): Promise<boolean> => store.delete(key)
-    }
-  } as unknown as DurableObjectState;
+  const storage = {
+    get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
+    put: async (key: string, value: StoredValue): Promise<void> => {
+      store.set(key, value);
+    },
+    delete: async (key: string): Promise<boolean> => store.delete(key),
+    // Single-threaded tests need no real isolation: run the callback directly.
+    transaction: async <T>(callback: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
+      callback(storage as unknown as DurableObjectTransaction)
+  };
+  return { storage } as unknown as DurableObjectState;
 }
 
 function makeSession(): AuthSession {
@@ -52,6 +54,18 @@ type SessionSnapshot = {
 async function readState(session: AuthSession): Promise<SessionSnapshot> {
   const response = await call(session, "/get");
   return (await response.json()) as SessionSnapshot;
+}
+
+/**
+ * Acquire the refresh lock and return its ownership token (TOG-18959).
+ * `/unlock` and a holder's `/set` must present this token to release the lock.
+ */
+async function acquireToken(session: AuthSession): Promise<string> {
+  const response = await call(session, "/lock");
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
 }
 
 describe("AuthSession Durable Object", () => {
@@ -91,15 +105,52 @@ describe("AuthSession Durable Object", () => {
 
     it("clears a held lock so a completed refresh cannot wedge authentication", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/lock");
+      const session = await makeSession();
+      const lockToken = await acquireToken(session);
 
-      // Act
-      await call(session, "/set", { cookieHeader: ".WebRW=fresh", expiresAtMs: 1 });
+      // Act — the holder's write presents its token, releasing its own lock
+      await call(session, "/set", { cookieHeader: ".WebRW=fresh", expiresAtMs: Date.now() + 60_000, lockToken });
 
       // Assert — refreshing reset, and the lock is immediately re-acquirable
       expect((await readState(session)).refreshing).toBe(false);
       expect((await call(session, "/lock")).status).toBe(200);
+    });
+
+    it("stores the session but keeps a live holder's lock on a tokenless write", async () => {
+      // Arrange — a holder owns the lock; a non-holder publishes (TOG-18959)
+      const session = await makeSession();
+      await acquireToken(session);
+
+      // Act — no lockToken presented
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=non-holder",
+        expiresAtMs: Date.now() + 60_000
+      });
+
+      // Assert — the write lands (availability), but the holder's lock survives
+      expect(response.status).toBe(200);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=non-holder");
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await call(session, "/lock")).status).toBe(423);
+    });
+
+    it("stores the session but keeps a live holder's lock on a mismatched token", async () => {
+      // Arrange
+      const session = await makeSession();
+      await acquireToken(session);
+
+      // Act — a superseded holder's stale token
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=stale-holder",
+        expiresAtMs: Date.now() + 60_000,
+        lockToken: "stale-or-forged-token"
+      });
+
+      // Assert — stored, but the live lock is untouched
+      expect(response.status).toBe(200);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=stale-holder");
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await call(session, "/lock")).status).toBe(423);
     });
 
     it.each([
@@ -166,21 +217,71 @@ describe("AuthSession Durable Object", () => {
       // Act
       const response = await call(session, "/lock");
 
-      // Assert
+      // Assert — a token is issued, and /get never exposes it
       expect(response.status).toBe(200);
+      const body = (await response.json()) as { lockToken: unknown };
+      expect(typeof body.lockToken).toBe("string");
+      expect((body.lockToken as string).length).toBeGreaterThan(0);
       expect((await readState(session)).refreshing).toBe(true);
+      expect(JSON.stringify(await readState(session))).not.toContain(body.lockToken);
+    });
+
+    it("issues a fresh token on every grant", async () => {
+      // Arrange
+      const session = await makeSession();
+
+      // Act
+      const first = await acquireToken(session);
+      await call(session, "/unlock", { lockToken: first });
+      const second = await acquireToken(session);
+
+      // Assert — rotation, so a superseded holder's token never matches again
+      expect(second).not.toBe(first);
     });
 
     it("returns 423 to a second caller while the lock is held and fresh", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/lock");
+      const session = await makeSession();
+      await acquireToken(session);
 
       // Act
       const second = await call(session, "/lock");
 
       // Assert
       expect(second.status).toBe(423);
+    });
+  });
+
+  describe("/takeover", () => {
+    it("refuses a takeover while the lock is held and fresh", async () => {
+      // Arrange
+      const session = await makeSession();
+      await acquireToken(session);
+
+      // Act
+      const response = await call(session, "/takeover");
+
+      // Assert
+      expect(response.status).toBe(423);
+    });
+
+    it("recovers a stale lock with a fresh token the old holder cannot use", async () => {
+      // Arrange — the holder crashed without unlocking
+      const session = await makeSession();
+      const staleToken = await acquireToken(session);
+
+      // Act — past the TTL, an explicit takeover re-grants with a new token
+      vi.setSystemTime(new Date(Date.now() + LOCK_TTL_MS + 1));
+      const takeover = await call(session, "/takeover");
+      expect(takeover.status).toBe(200);
+      const freshToken = ((await takeover.json()) as { lockToken: string }).lockToken;
+      expect(freshToken).not.toBe(staleToken);
+
+      // Assert — the crashed holder's token no longer releases anything
+      expect((await call(session, "/unlock", { lockToken: staleToken })).status).toBe(403);
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await call(session, "/unlock", { lockToken: freshToken })).status).toBe(200);
+      expect((await readState(session)).refreshing).toBe(false);
     });
   });
 
@@ -225,11 +326,11 @@ describe("AuthSession Durable Object", () => {
   describe("/unlock", () => {
     it("releases the lock so the next caller can acquire it", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/lock");
+      const session = await makeSession();
+      const lockToken = await acquireToken(session);
 
-      // Act
-      const response = await call(session, "/unlock");
+      // Act — the holder presents its token
+      const response = await call(session, "/unlock", { lockToken });
 
       // Assert
       expect(response.status).toBe(200);
@@ -239,15 +340,46 @@ describe("AuthSession Durable Object", () => {
 
     it("preserves the stored cookie when releasing the lock", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: 42 });
-      await call(session, "/lock");
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: Date.now() + 60_000 });
+      const lockToken = await acquireToken(session);
 
       // Act
-      await call(session, "/unlock");
+      await call(session, "/unlock", { lockToken });
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=keep-me");
+    });
+
+    it("is idempotent when no lock is held", async () => {
+      // Arrange — never locked
+      const session = await makeSession();
+
+      // Act — tokenless, nothing to own
+      const response = await call(session, "/unlock");
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect((await readState(session)).refreshing).toBe(false);
+    });
+
+    it.each([
+      { label: "a missing token", body: {} },
+      { label: "a mismatched token", body: { lockToken: "stale-or-forged-token" } },
+      { label: "a non-JSON body", body: undefined }
+    ])("refuses to release a live holder's lock with $label", async ({ body }) => {
+      // Arrange — a live holder owns the lock
+      const session = await makeSession();
+      await acquireToken(session);
+
+      // Act
+      const response = await call(session, "/unlock", body);
+
+      // Assert — 403 (or 200-OK idempotent only when free — never here):
+      // the live lock survives the non-holder's release attempt
+      expect(response.status).toBe(403);
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await call(session, "/lock")).status).toBe(423);
     });
   });
 

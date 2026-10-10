@@ -21,7 +21,10 @@ function harness() {
       values.set(key, value);
     },
     delete: vi.fn(async (key: string): Promise<boolean> => values.delete(key)),
-    setAlarm: vi.fn(async (): Promise<void> => {})
+    setAlarm: vi.fn(async (): Promise<void> => {}),
+    // Single-threaded tests need no real isolation: run the callback directly.
+    transaction: async <T>(callback: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
+      callback(storage as unknown as DurableObjectTransaction)
   };
   const state = { storage } as unknown as DurableObjectState;
   let session = new AuthSession(state, {} as Env);
@@ -109,9 +112,9 @@ describe("AuthSession stored-session audit", () => {
     const { stub } = harness();
     await storeSession(stub, COOKIE, sessionExpiryMs({ SESSION_TTL_SECONDS: 60 } as unknown as Env));
     await readSessionState(stub);
+    const lockToken = ((await (await stub.fetch("https://auth/lock")).json()) as { lockToken: string }).lockToken;
     await stub.fetch("https://auth/lock");
-    await stub.fetch("https://auth/lock");
-    await releaseRefreshLock(stub);
+    await releaseRefreshLock(stub, lockToken);
     await waitForConcurrentRefresh(stub);
     expect((await stub.fetch("https://auth/set", {
       method: "POST",
@@ -148,7 +151,7 @@ describe("AuthSession stored-session audit", () => {
       if (kind === "missing-expiry") {
         values.delete("expiresAtMs");
       }
-      await stub.fetch("https://auth/lock");
+      const lockToken = ((await (await stub.fetch("https://auth/lock")).json()) as { lockToken: string }).lockToken;
       let completed = false;
       const pending = waitForConcurrentRefresh(stub, 2000, 500).then(() => {
         completed = true;
@@ -157,7 +160,7 @@ describe("AuthSession stored-session audit", () => {
       expect(completed).toBe(false);
 
       // The failed holder's /unlock leaves its previous session in storage.
-      await releaseRefreshLock(stub);
+      await releaseRefreshLock(stub, lockToken);
       await vi.advanceTimersByTimeAsync(500);
       await pending;
 
@@ -200,7 +203,10 @@ describe("AuthSession stored-session audit", () => {
 
     await expect(releaseRefreshLock(stub)).resolves.toBeUndefined();
 
-    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock");
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("https://auth/unlock", {
+      method: "POST",
+      body: "{}"
+    });
     expect(logs[2]).toHaveBeenCalledExactlyOnceWith({
       level: "warn",
       msg: "Failed to release the auth refresh lock; it will expire via its TTL",
