@@ -9,11 +9,14 @@ enabled").
 
 ## Proposed rule
 
-File: `r2-lifecycle-proposal.snapshot-history.json`. The JSON body is the
+File: `r2-lifecycle-proposal.snapshot-history.json`. The JSON body is exactly the
 S3 `PutBucketLifecycleConfiguration` request shape from the
 [R2 object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)
-docs (the same shape `wrangler r2 bucket lifecycle set --file` accepts), with
-`Status: Enabled` recording the as-applied intent — not current state:
+docs (the same shape `wrangler r2 bucket lifecycle set --file` accepts) — no
+extra keys, so the file is appliable as-is when R5-16 authorizes it — with
+`Status: Enabled` recording the as-applied intent, not current state. The
+PROPOSED-ONLY warning lives here in this doc, not in the JSON, so the file
+stays a byte-clean request body:
 
 | Field | Proposed value | Why |
 |---|---|---|
@@ -91,8 +94,9 @@ object tags:
 
 ## Validation
 
-Validated offline 2026-10-09 with a scratch Node script (no credentials, no
-network): the JSON parses; `Rules` is a 1-entry array (limit 1000); rule `ID`
+Validated offline 2026-10-09/10 with a scratch Node script (no credentials, no
+network): the JSON parses and carries no top-level keys besides `Rules`
+(byte-clean request body); `Rules` is a 1-entry array (limit 1000); rule `ID`
 is non-empty and unique; `Status` is `Enabled`; `Filter.Prefix` is the string
 `snapshot-history/`; `Expiration` carries exactly one of `Days`/`Date`
 (`Days: 30`, positive integer); no `Transitions` element; sample keys confirm
