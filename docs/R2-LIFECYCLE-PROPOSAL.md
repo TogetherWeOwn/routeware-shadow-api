@@ -12,11 +12,16 @@ enabled").
 File: `r2-lifecycle-proposal.snapshot-history.json`. The JSON body is exactly the
 S3 `PutBucketLifecycleConfiguration` request shape from the
 [R2 object lifecycles](https://developers.cloudflare.com/r2/buckets/object-lifecycles/)
-docs (the same shape `wrangler r2 bucket lifecycle set --file` accepts) — no
-extra keys, so the file is appliable as-is when R5-16 authorizes it — with
-`Status: Enabled` recording the as-applied intent, not current state. The
-PROPOSED-ONLY warning lives here in this doc, not in the JSON, so the file
-stays a byte-clean request body:
+docs — no extra keys, so the file stays a byte-clean S3/REST request body. It is
+**not** the shape `wrangler r2 bucket lifecycle set --file` accepts: per those
+same docs, `set --file` takes the Cloudflare REST put-object-lifecycle-configuration
+body and sets the bucket's **entire** configuration (replacing every existing
+rule, including the default 7-day multipart-abort rule), so the file is not
+appliable via `set`. The R5-16 apply path is the additive
+`wrangler r2 bucket lifecycle add` command (hold procedure, step 4), which adds
+one rule and leaves existing rules untouched — with `Status: Enabled` recording
+the as-applied intent, not current state. The PROPOSED-ONLY warning lives here
+in this doc, not in the JSON:
 
 | Field | Proposed value | Why |
 |---|---|---|
@@ -87,7 +92,14 @@ object tags:
    approval, and a synthetic-data restore proof in an isolated staging bucket/D1
    pair are preconditions, not footnotes (see `R2-RETENTION.md`).
 4. **Enable only via the R5-16 `Operator:` card** (exact command + rollback),
-   after TOG-18890..92 staging evidence lands.
+   after TOG-18890..92 staging evidence lands. The command is additive:
+   `wrangler r2 bucket lifecycle add <BUCKET> snapshot-history-30d-expiry snapshot-history/ --expire-days 30`
+   ([`r2 bucket lifecycle add`](https://developers.cloudflare.com/workers/wrangler/commands/r2/#r2-bucket-lifecycle-add)).
+   Never `lifecycle set --file`: `set` replaces the whole configuration and would
+   delete the default 7-day multipart-abort rule and any other live rules,
+   violating the `R2-RETENTION.md` "do not replace unrelated bucket rules"
+   precondition. Rollback is deleting the added rule, verified by `lifecycle list`
+   readback showing the prior rule set restored.
 5. **Release needs its own approval.** A hold copy is deleted only under a new
    recorded approval naming the matter id; expiry of the hold itself is set at
    hold creation and recorded in the register.
@@ -109,8 +121,9 @@ while `snapshots/2026-10-09/customer.csv` and
 - Validated against the **documented S3 shape and constraints** in the R2
   lifecycle docs, not against a published machine-readable R2 lifecycle schema —
   Cloudflare publishes no downloadable JSON Schema for it. The authoritative
-  pre-apply check remains `wrangler r2 bucket lifecycle set --file` dry-run
-  output plus `lifecycle list` readback on the **staging** bucket during R5-16.
+  pre-apply check is `lifecycle list` readback on the **staging** bucket during
+  R5-16 (before, to confirm no conflicting rule; after, to confirm the added
+  rule): neither `lifecycle add` nor `lifecycle set` offers a dry-run mode.
 - Tag-condition support in R2 lifecycle filters was not verified from the docs;
   the hold procedure therefore avoids tags entirely.
 - Live bucket rules were not inspected (no credentials used); the pre-enablement
