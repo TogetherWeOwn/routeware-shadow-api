@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-18119: A request waiting on a concurrent Routeware session refresh no
+  longer succeeds with the failed holder's expired cookie. After an explicit
+  failed release, one queued waiter may take over with a single bounded fresh
+  login inside a 60-second window; remaining waiters fail fast with the
+  existing 502 instead of waiting out the budget, and a hung holder still
+  sees zero takeovers.
 - TOG-19015: The static-path report-fetch throw (`Report fetch failed: …`)
   is status-only again — upstream `statusText` (upstream-controlled free text
   that reaches the cron `error` log field via the `[step]` wrap) is no longer

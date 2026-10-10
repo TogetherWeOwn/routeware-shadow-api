@@ -3,10 +3,11 @@ import { establishSessionViaHttp } from "./httpAuth";
 import { isLoginPageUnavailableError } from "./loginPageError";
 import { logEvent } from "./logger";
 import { isMissingSetCookieCapabilityError } from "./setCookieCapabilityError";
+import { readSessionState } from "./sessionState";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
-  waitForConcurrentRefresh
+  waitForPublicationOrTakeover
 } from "./sessionRefreshLock";
 
 /** The closed set of valid `AUTH_MODE` values (lowercase, post-trim). */
@@ -73,15 +74,26 @@ export async function establishSession(
 ): Promise<void> {
   // The lock token proves this caller holds the refresh lock: only the
   // matching token releases it via `/unlock` or the holder's `/set`
-  // (TOG-18959). A null token means someone else holds it.
-  const lockToken = await acquireRefreshLock(stub);
+  // (TOG-18959). It is granted by `/lock` directly, or by `/takeover` after
+  // waiting — and is presented on the failure-path `/unlock` so a late
+  // release can never clear another holder's live lock.
+  let lockToken = await acquireRefreshLock(stub);
   if (lockToken === null) {
-    // Another request is already refreshing. Wait for it rather than logging in
-    // again (the lock auto-expires if that refresh dies). On deadline the wait
-    // throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it propagates so the
-    // caller fails closed to 502 instead of forwarding with the expired cookie.
-    await waitForConcurrentRefresh(stub);
-    return;
+    // Another request is already refreshing. Wait for its publication — or,
+    // after its explicit failed release, take over with one bounded fresh
+    // login (TOG-18119, CISO option B: the atomic `/takeover` elects a single
+    // winner inside the failed-release window; losers wait on the new
+    // holder). On deadline, or once a failed takeover spent the window
+    // budget, the wait throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it
+    // propagates so the caller fails closed to 502 instead of forwarding with
+    // the expired cookie.
+    const settlement = await waitForPublicationOrTakeover(stub);
+    if (settlement.outcome === "published") {
+      return;
+    }
+    // "takeover": this caller won the atomic `/takeover` and now holds the
+    // lock — fall through to the holder login path below.
+    lockToken = settlement.token;
   }
 
   try {
@@ -92,6 +104,20 @@ export async function establishSession(
     // can never drop another holder's live lock.
     await releaseRefreshLock(stub, lockToken);
     throw err;
+  }
+
+  // A successful publication released our lock. Validate the published material
+  // outside the catch: a delayed write/read can expire. Lock ownership is NOT
+  // checked here — another caller may legitimately hold the lock for the next
+  // refresh by the time this read lands, while our just-published cookie is
+  // still live. Only the cookie and its expiry determine success.
+  const session = await readSessionState(stub);
+  if (
+    typeof session.cookieHeader !== "string" || session.cookieHeader.length === 0 ||
+    typeof session.expiresAtMs !== "number" || !Number.isFinite(session.expiresAtMs) ||
+    session.expiresAtMs <= Date.now()
+  ) {
+    throw new Error("Session refresh completed without an available live session.");
   }
 }
 

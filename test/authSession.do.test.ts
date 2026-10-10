@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthSession } from "../src/authSession.do";
 import { sessionExpiryMs } from "../src/lib/sessionState";
+import { authSessionTestState } from "./authSessionTestState";
 
 /**
  * Unit tests for the `AuthSession` Durable Object — the sole holder of the
@@ -14,33 +15,36 @@ import { sessionExpiryMs } from "../src/lib/sessionState";
 /** Must match LOCK_TTL_MS in src/authSession.do.ts. */
 const LOCK_TTL_MS = 120_000;
 
-type StoredValue = string | number | boolean;
-
-/** Minimal in-memory stand-in for the subset of DurableObjectState the DO uses. */
-function fakeState(): DurableObjectState {
-  const store = new Map<string, StoredValue>();
-  const storage = {
-    get: async <T>(key: string): Promise<T | undefined> => store.get(key) as T | undefined,
-    put: async (key: string, value: StoredValue): Promise<void> => {
-      store.set(key, value);
-    },
-    delete: async (key: string): Promise<boolean> => store.delete(key),
-    // Single-threaded tests need no real isolation: run the callback directly.
-    transaction: async <T>(callback: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
-      callback(storage as unknown as DurableObjectTransaction)
-  };
-  return { storage } as unknown as DurableObjectState;
+async function makeSession(): Promise<AuthSession> {
+  const fake = authSessionTestState();
+  const session = new AuthSession(fake.state, {} as Env);
+  await fake.ready();
+  return session;
 }
 
-function makeSession(): AuthSession {
-  return new AuthSession(fakeState(), {} as Env);
+/**
+ * Like `makeSession`, but exposes the raw storage map so at-rest eviction can
+ * be asserted without any `/get` — a `/get` read evicts and tombstones itself,
+ * which would mask a no-op `alarm()` or a missing constructor repair.
+ */
+async function makeInspectableSession(initial: Record<string, unknown> = {}) {
+  const fake = authSessionTestState(initial);
+  const session = new AuthSession(fake.state, {} as Env);
+  await fake.ready();
+  return { session, values: fake.values, storage: fake.storage };
 }
 
-function call(session: AuthSession, path: string, body?: unknown): Promise<Response> {
+function call(
+  session: AuthSession,
+  path: string,
+  body?: unknown,
+  headers?: Record<string, string>
+): Promise<Response> {
   return session.fetch(
     new Request(`https://do.local${path}`, {
-      method: body === undefined ? "GET" : "POST",
-      body: body === undefined ? undefined : JSON.stringify(body)
+      method: body === undefined && headers === undefined ? "GET" : "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers
     })
   );
 }
@@ -56,6 +60,13 @@ async function readState(session: AuthSession): Promise<SessionSnapshot> {
   return (await response.json()) as SessionSnapshot;
 }
 
+async function readRaw(
+  session: AuthSession
+): Promise<SessionSnapshot & { expired?: boolean }> {
+  const response = await call(session, "/get");
+  return (await response.json()) as SessionSnapshot & { expired?: boolean };
+}
+
 /**
  * Acquire the refresh lock and return its ownership token (TOG-18959).
  * `/unlock` and a holder's `/set` must present this token to release the lock.
@@ -69,10 +80,19 @@ async function acquireToken(session: AuthSession): Promise<string> {
 }
 
 describe("AuthSession Durable Object", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe("/get", () => {
     it("returns an empty session before anything is stored", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const state = await readState(session);
@@ -85,7 +105,7 @@ describe("AuthSession Durable Object", () => {
   describe("/set", () => {
     it("stores the cookie header and expiry, and reports them back", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       const expiresAtMs = 1_900_000_000_000;
 
       // Act
@@ -165,7 +185,7 @@ describe("AuthSession Durable Object", () => {
       { label: "a non-object body", body: "nope" }
     ])("rejects $label with 400 instead of storing it", async ({ body }) => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/set", body);
@@ -181,8 +201,9 @@ describe("AuthSession Durable Object", () => {
 
     it("does not clobber a good session when a later malformed /set arrives", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs: 1000 });
+      const session = await makeSession();
+      const expiresAtMs = Date.now() + 60_000;
+      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs });
 
       // Act
       const response = await call(session, "/set", {
@@ -193,26 +214,211 @@ describe("AuthSession Durable Object", () => {
       // Assert
       expect(response.status).toBe(400);
       expect((await readState(session)).cookieHeader).toBe(".WebRW=good");
-      expect((await readState(session)).expiresAtMs).toBe(1000);
+      expect((await readState(session)).expiresAtMs).toBe(expiresAtMs);
     });
 
     it("overwrites a previously stored cookie", async () => {
       // Arrange
-      const session = makeSession();
-      await call(session, "/set", { cookieHeader: ".WebRW=old", expiresAtMs: 1 });
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=old", expiresAtMs: Date.now() + 1000 });
 
       // Act
-      await call(session, "/set", { cookieHeader: ".WebRW=new", expiresAtMs: 2 });
+      await call(session, "/set", { cookieHeader: ".WebRW=new", expiresAtMs: Date.now() + 2000 });
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=new");
     });
   });
 
+  describe("expiry eviction", () => {
+    it("flags an idle-expired session on /get and clears the stale cookie", async () => {
+      // Arrange — a live session that expires while idle.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=idle",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+
+      // Act
+      const state = await readRaw(session);
+
+      // Assert — stale material is gone, and the eviction is flagged so the
+      // proactive refresh fires instead of a wasted cookieless forward.
+      expect(state.cookieHeader).toBeNull();
+      expect(state.expiresAtMs).toBeNull();
+      expect(state.expired).toBe(true);
+    });
+
+    it("reports no expired flag on a cold start that never stored a session", async () => {
+      // Arrange
+      const session = await makeSession();
+
+      // Act
+      const state = await readRaw(session);
+
+      // Assert — stays on the reactive first-forward path for cookieless upstreams.
+      expect(state.expired).toBeUndefined();
+    });
+
+    it("alarm() evicts an expired session and keeps a live one", async () => {
+      // Arrange
+      const expired = await makeSession();
+      await call(expired, "/set", {
+        cookieHeader: ".WebRW=old",
+        expiresAtMs: Date.now() + 1_000
+      });
+      const live = await makeSession();
+      await call(live, "/set", {
+        cookieHeader: ".WebRW=fresh",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 2_000));
+
+      // Act
+      await expired.alarm();
+      await live.alarm();
+
+      // Assert
+      const expiredState = await readRaw(expired);
+      expect(expiredState.cookieHeader).toBeNull();
+      expect(expiredState.expired).toBe(true);
+      const liveState = await readRaw(live);
+      expect(liveState.cookieHeader).toBe(".WebRW=fresh");
+      expect(liveState.expired).toBeUndefined();
+    });
+
+    it("reports expired on /get after alarm() evicted first (no wasted cold-start forward)", async () => {
+      // Arrange — a live session that expires while idle, alarm runs first.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=idle",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+      await session.alarm();
+
+      // Act — the next request reads after the alarm already cleared material.
+      const state = await readRaw(session);
+
+      // Assert — tombstone survives the alarm so proactive refresh fires
+      // instead of a wasted cookieless forward.
+      expect(state.cookieHeader).toBeNull();
+      expect(state.expiresAtMs).toBeNull();
+      expect(state.expired).toBe(true);
+    });
+
+    it("clears the expiry tombstone on the next successful /set", async () => {
+      // Arrange — expire while idle and let alarm() persist the marker.
+      const session = await makeSession();
+      await call(session, "/set", {
+        cookieHeader: ".WebRW=old",
+        expiresAtMs: Date.now() + 60_000
+      });
+      vi.setSystemTime(new Date(Date.now() + 61_000));
+      await session.alarm();
+      expect((await readRaw(session)).expired).toBe(true);
+
+      // Act — publish a fresh session.
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=fresh",
+        expiresAtMs: Date.now() + 60_000
+      });
+
+      // Assert — marker cleared, live session reports no expired flag.
+      expect(response.status).toBe(200);
+      const state = await readRaw(session);
+      expect(state.cookieHeader).toBe(".WebRW=fresh");
+      expect(state.expired).toBeUndefined();
+    });
+
+    describe("at-rest eviction (storage-direct, no /get)", () => {
+      it("alarm() evicts an expired session at rest and persists the tombstone", async () => {
+        // Arrange — a live session that expires with no request arriving.
+        const { session, values, storage } = await makeInspectableSession();
+        await call(session, "/set", {
+          cookieHeader: ".WebRW=idle",
+          expiresAtMs: Date.now() + 60_000
+        });
+        vi.setSystemTime(new Date(Date.now() + 61_000));
+
+        // Act — the alarm fires; nothing reads through /get.
+        await session.alarm();
+
+        // Assert — storage holds no cookie material, the tombstone is set for
+        // the next /get, and the spent alarm is cleared. A no-op alarm() fails
+        // the first assertion; a missing tombstone write fails the second.
+        expect(values.has("cookieHeader")).toBe(false);
+        expect(values.has("expiresAtMs")).toBe(false);
+        expect(values.get("expiredEvicted")).toBe(true);
+        expect(await storage.getAlarm()).toBeNull();
+      });
+
+      it("constructor repair evicts a pre-alarm expired session before serving requests", async () => {
+        // Arrange — storage written before alarms existed holds an
+        // already-expired session and no alarm.
+        const fake = authSessionTestState({
+          cookieHeader: ".WebRW=legacy",
+          expiresAtMs: Date.now() - 1
+        });
+
+        // Act — constructing the object runs the startup repair.
+        const session = new AuthSession(fake.state, {} as Env);
+        await fake.ready();
+
+        // Assert — storage-direct: no request (and no /get eviction) involved.
+        // Removing the constructor repair leaves the stale cookie in storage.
+        expect(fake.values.has("cookieHeader")).toBe(false);
+        expect(fake.values.get("expiredEvicted")).toBe(true);
+        expect(await fake.storage.getAlarm()).toBeNull();
+
+        // A later /get reports the expiry flag, not the stale cookie.
+        const state = await readRaw(session);
+        expect(state.cookieHeader).toBeNull();
+        expect(state.expired).toBe(true);
+      });
+
+      it("alarm() re-arms a missing alarm for a live session without touching the cookie", async () => {
+        // Arrange — a live session whose alarm was lost.
+        const { session, values, storage } = await makeInspectableSession();
+        const expiresAtMs = Date.now() + 60_000;
+        await call(session, "/set", { cookieHeader: ".WebRW=live", expiresAtMs });
+        await storage.deleteAlarm();
+
+        // Act
+        await session.alarm();
+
+        // Assert — the alarm is restored to the recorded expiry and the live
+        // material is untouched. Removing the re-arm leaves no alarm scheduled.
+        expect(await storage.getAlarm()).toBe(expiresAtMs);
+        expect(values.get("cookieHeader")).toBe(".WebRW=live");
+      });
+    });
+
+    it("rejects a /set whose expiry already passed with 409 and keeps the live session", async () => {
+      // Arrange
+      const session = await makeSession();
+      const expiresAtMs = Date.now() + 60_000;
+      await call(session, "/set", { cookieHeader: ".WebRW=good", expiresAtMs });
+
+      // Act
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=stale",
+        expiresAtMs: Date.now() - 1
+      });
+
+      // Assert
+      expect(response.status).toBe(409);
+      const state = await readRaw(session);
+      expect(state.cookieHeader).toBe(".WebRW=good");
+      expect(state.expiresAtMs).toBe(expiresAtMs);
+    });
+  });
+
   describe("/lock", () => {
     it("grants the lock when free and marks the session as refreshing", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/lock");
@@ -259,45 +465,37 @@ describe("AuthSession Durable Object", () => {
       await acquireToken(session);
 
       // Act
-      const response = await call(session, "/takeover");
+      const response = await session.fetch(
+        new Request("https://do.local/takeover", { method: "POST" })
+      );
 
       // Assert
       expect(response.status).toBe(423);
     });
 
-    it("recovers a stale lock with a fresh token the old holder cannot use", async () => {
-      // Arrange — the holder crashed without unlocking
+    it("stays ineligible on a stale lock with no failed-release episode", async () => {
+      // Arrange — the holder crashed without unlocking, and no failed release
+      // was ever recorded. Stale-lock recovery goes through `/lock`; the
+      // episode election needs an explicit failed release.
       const session = await makeSession();
-      const staleToken = await acquireToken(session);
+      await acquireToken(session);
 
-      // Act — past the TTL, an explicit takeover re-grants with a new token
+      // Act — past the TTL, with no episode anchor
       vi.setSystemTime(new Date(Date.now() + LOCK_TTL_MS + 1));
-      const takeover = await call(session, "/takeover");
-      expect(takeover.status).toBe(200);
-      const freshToken = ((await takeover.json()) as { lockToken: string }).lockToken;
-      expect(freshToken).not.toBe(staleToken);
+      const takeover = await session.fetch(
+        new Request("https://do.local/takeover", { method: "POST" })
+      );
 
-      // Assert — the crashed holder's token no longer releases anything
-      expect((await call(session, "/unlock", { lockToken: staleToken })).status).toBe(403);
+      // Assert — 409, and nothing changed: no claim, no steal
+      expect(takeover.status).toBe(409);
       expect((await readState(session)).refreshing).toBe(true);
-      expect((await call(session, "/unlock", { lockToken: freshToken })).status).toBe(200);
-      expect((await readState(session)).refreshing).toBe(false);
     });
   });
 
   describe("/lock stale-lock recovery", () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
-    });
-
-    afterEach(() => {
-      vi.useRealTimers();
-    });
-
     it("still refuses a second caller just before the TTL expires", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act
@@ -310,7 +508,7 @@ describe("AuthSession Durable Object", () => {
 
     it("treats a lock older than the TTL as stale so a crashed refresh cannot wedge auth", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
       await call(session, "/lock");
 
       // Act — the holder never unlocked (simulating a crash)
@@ -381,6 +579,31 @@ describe("AuthSession Durable Object", () => {
       expect((await readState(session)).refreshing).toBe(true);
       expect((await call(session, "/lock")).status).toBe(423);
     });
+
+    it("records no failed-release episode when a stale token is refused", async () => {
+      // Arrange — holder A locks, outlives the TTL, holder B re-acquires.
+      const session = await makeSession();
+      await call(session, "/set", { cookieHeader: ".WebRW=keep-me", expiresAtMs: Date.now() + 300_000 });
+      const stale = await acquireToken(session);
+      vi.setSystemTime(new Date(Date.now() + LOCK_TTL_MS + 1));
+      const live = await acquireToken(session);
+      expect(live).not.toBe(stale);
+
+      // Act — A's late unlock with its superseded token is refused; a
+      // tokenless one is refused too.
+      expect((await call(session, "/unlock", { lockToken: stale })).status).toBe(403);
+      expect((await call(session, "/unlock")).status).toBe(403);
+
+      // Assert — B's live lock survived both: still refreshing, cookie
+      // intact, re-lock refused, and no failed-release episode recorded (a
+      // bogus episode would admit a takeover login next to the live holder).
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=keep-me");
+      expect((await call(session, "/lock")).status).toBe(423);
+      expect(
+        (await session.fetch(new Request("https://do.local/takeover", { method: "POST" }))).status
+      ).toBe(423);
+    });
   });
 
   describe("sessionExpiryMs", () => {
@@ -421,7 +644,7 @@ describe("AuthSession Durable Object", () => {
   describe("unknown paths", () => {
     it("returns 404 rather than falling through to a default behavior", async () => {
       // Arrange
-      const session = makeSession();
+      const session = await makeSession();
 
       // Act
       const response = await call(session, "/not-a-real-endpoint");

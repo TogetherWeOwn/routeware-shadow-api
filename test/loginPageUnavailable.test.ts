@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { httpLogin } from "../src/lib/httpAuth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
+import { AuthSession } from "../src/authSession.do";
+import { authSessionTestState } from "./authSessionTestState";
 
 /**
  * Fail fast on a non-200 login page (TOG-6536).
@@ -215,7 +217,14 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode still falls back to the browser on a genuine 200 markup change", async () => {
     // Arrange — 200 page, no token anywhere: the case the fallback exists for.
-    const state = { refreshing: false, lockToken: null as string | null };
+    // Real DO so the lock-token threading (TOG-18959) is exercised end to end:
+    // the browser fallback publishes with the holder's token.
+    const fake = authSessionTestState();
+    const session = new AuthSession(fake.state, {} as Env);
+    await fake.ready();
+    const stub = {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) => session.fetch(new Request(input, init))
+    } as unknown as DurableObjectStub;
     globalThis.fetch = (async () =>
       new Response("<html><body>redesigned login, no token</body></html>", {
         status: 200,
@@ -223,10 +232,13 @@ describe("establishSession never launches the browser for a blocked login page (
       })) as unknown as typeof fetch;
 
     // Act
-    await establishSession(baseEnv(), lockStub(state), LOGIN_URL);
+    await establishSession(baseEnv(), stub, LOGIN_URL);
 
-    // Assert — the fallback ran exactly once.
+    // Assert — the fallback ran exactly once and published a usable session.
     expect(browserLoginCalls.count).toBe(1);
+    expect(fake.values.get("cookieHeader")).toBe(".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL");
+    expect(fake.values.get("expiresAtMs")).toBeGreaterThan(Date.now());
+    expect(fake.values.get("refreshing")).toBe(false);
   });
 });
 

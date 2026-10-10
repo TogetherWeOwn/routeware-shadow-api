@@ -353,6 +353,65 @@ describe("establishSession refresh-lock serialization", () => {
     expect(state.cookieHeader).toBeNull();
   });
 
+  it("accepts a live published session even when another caller re-locks before verification", async () => {
+    // Arrange — our login publishes a live cookie, but another caller takes
+    // the lock again before our post-login verification read lands. The guard
+    // must judge only the cookie material, not lock ownership.
+    const state = freshState();
+    const inner = fakeStub(state);
+    const innerFetch = inner.fetch.bind(inner);
+    const stub = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const response = await innerFetch(input, init);
+        const path = new URL(typeof input === "string" ? input : String(input)).pathname;
+        if (path === "/set") {
+          // Another caller immediately re-acquires the lock after our publish.
+          state.refreshing = true;
+          state.lockedAt = Date.now();
+        }
+        if (path === "/get") {
+          const body = (await response.json()) as Record<string, unknown>;
+          return Response.json({ ...body, refreshing: true });
+        }
+        return response;
+      }
+    } as unknown as DurableObjectStub;
+
+    // Act — must not throw "without an available live session"
+    await establishSession(envWith("http"), stub, envWith("http").LOGIN_URL);
+
+    // Assert — our cookie is live and the other caller's lock is untouched
+    expect(state.cookieHeader).toBe(".WebRW=http");
+    expect(state.refreshing).toBe(true);
+  });
+
+  it("rejects when the published session already expired by verification time", async () => {
+    // Arrange — login publishes, but the cookie is already past expiry when
+    // verified (delayed write/read). Must fail rather than report success.
+    const state = freshState();
+    const inner = fakeStub(state);
+    const innerFetch = inner.fetch.bind(inner);
+    const stub = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const response = await innerFetch(input, init);
+        const path = new URL(typeof input === "string" ? input : String(input)).pathname;
+        if (path === "/get") {
+          return Response.json({
+            cookieHeader: ".WebRW=http",
+            expiresAtMs: Date.now() - 1,
+            refreshing: false
+          });
+        }
+        return response;
+      }
+    } as unknown as DurableObjectStub;
+
+    // Act / Assert
+    await expect(
+      establishSession(envWith("http"), stub, envWith("http").LOGIN_URL)
+    ).rejects.toThrow(/without an available live session/);
+  });
+
   it("waits for the in-flight refresh instead of logging in again", async () => {
     // Arrange — someone else already holds the lock and has published a session
     const state: LockState = {

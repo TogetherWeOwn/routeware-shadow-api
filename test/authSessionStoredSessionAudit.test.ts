@@ -7,38 +7,44 @@ import {
   waitForConcurrentRefresh
 } from "../src/lib/sessionRefreshLock";
 import { readSessionState, sessionExpiryMs } from "../src/lib/sessionState";
+import { authSessionTestState } from "./authSessionTestState";
 
-// Synthetic fixture only. F1/F2 evidence tests still characterize unfixed defects;
-// the scoped release-warning regressions do not guarantee expiry or all auth-log redaction.
+// Synthetic fixture only. Expiry cases now assert eviction and fail-closed reads;
+// the scoped release-warning regressions do not guarantee all auth-log redaction.
 const COOKIE = ".WebRW=SYNTHETIC-AUDIT-NOT-A-CREDENTIAL";
 const LOCK_TTL_MS = 120_000;
 
 function harness() {
-  const values = new Map<string, unknown>();
-  const storage = {
-    get: async <T>(key: string): Promise<T | undefined> => values.get(key) as T | undefined,
-    put: async (key: string, value: unknown): Promise<void> => {
-      values.set(key, value);
-    },
-    delete: vi.fn(async (key: string): Promise<boolean> => values.delete(key)),
-    setAlarm: vi.fn(async (): Promise<void> => {}),
-    // Single-threaded tests need no real isolation: run the callback directly.
-    transaction: async <T>(callback: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
-      callback(storage as unknown as DurableObjectTransaction)
-  };
-  const state = { storage } as unknown as DurableObjectState;
-  let session = new AuthSession(state, {} as Env);
+  const fake = authSessionTestState();
+  let session = new AuthSession(fake.state, {} as Env);
   const stub = {
-    fetch: (input: string, init?: RequestInit) => session.fetch(new Request(input, init))
+    fetch: async (input: string, init?: RequestInit) => {
+      await fake.ready();
+      return session.fetch(new Request(input, init));
+    }
   } as unknown as DurableObjectStub;
   return {
-    values,
-    storage,
+    ...fake,
     stub,
-    recreate: () => {
-      session = new AuthSession(state, {} as Env);
+    recreate: async () => {
+      session = new AuthSession(fake.state, {} as Env);
+      await fake.ready();
     }
   };
+}
+
+/**
+ * Acquire the refresh lock through the real DO and return its ownership token.
+ * The DO mints a token per grant (TOG-18119, reviewer finding 2); the holder
+ * must present it on `/unlock`, so simulated holders thread it through
+ * `releaseRefreshLock` instead of releasing bare.
+ */
+async function lockWithToken(stub: DurableObjectStub): Promise<string> {
+  const response = await stub.fetch("https://auth/lock");
+  expect(response.status).toBe(200);
+  const body = (await response.json()) as { lockToken: unknown };
+  expect(typeof body.lockToken).toBe("string");
+  return body.lockToken as string;
 }
 
 function captureConsole() {
@@ -72,24 +78,26 @@ describe("AuthSession stored-session audit", () => {
   });
 
   it.each([0, 1, 86_400_000])(
-    "F1 evidence: expired cookie remains stored/readable at expiry + %i ms, including after recreation",
+    "evicts expired cookie at expiry + %i ms, including after recreation",
     async (offsetMs) => {
       const { stub, values, storage, recreate } = harness();
       const expiresAtMs = sessionExpiryMs({ SESSION_TTL_SECONDS: 1 } as unknown as Env);
       await storeSession(stub, COOKIE, expiresAtMs);
       storage.delete.mockClear();
       vi.setSystemTime(expiresAtMs + offsetMs);
-      recreate();
+      await recreate();
 
       expect(await readSessionState(stub)).toEqual({
-        cookieHeader: COOKIE,
-        expiresAtMs,
-        refreshing: false
+        cookieHeader: null,
+        expiresAtMs: null,
+        refreshing: false,
+        expired: true
       });
-      expect(values.get("cookieHeader")).toBe(COOKIE);
-      expect(values.get("expiresAtMs")).toBe(expiresAtMs);
-      expect(storage.delete).not.toHaveBeenCalled();
-      expect(storage.setAlarm).not.toHaveBeenCalled();
+      expect(values.has("cookieHeader")).toBe(false);
+      expect(values.has("expiresAtMs")).toBe(false);
+      expect(values.get("expiredEvicted")).toBe(true);
+      expect(storage.delete).toHaveBeenCalledWith(["cookieHeader", "expiresAtMs"]);
+      expect(await storage.getAlarm()).toBeNull();
     }
   );
 
@@ -104,7 +112,8 @@ describe("AuthSession stored-session audit", () => {
 
     expect((await stub.fetch("https://auth/lock")).status).toBe(200);
     expect(values.get("lockedAt")).toBe(Date.now());
-    expect(values.get("cookieHeader")).toBe(COOKIE);
+    expect((await readSessionState(stub)).cookieHeader).toBeNull();
+    expect(values.has("cookieHeader")).toBe(false);
   });
 
   it("emits no console output on normal session, lock, and rejected-payload paths", async () => {
@@ -112,9 +121,9 @@ describe("AuthSession stored-session audit", () => {
     const { stub } = harness();
     await storeSession(stub, COOKIE, sessionExpiryMs({ SESSION_TTL_SECONDS: 60 } as unknown as Env));
     await readSessionState(stub);
-    const lockToken = ((await (await stub.fetch("https://auth/lock")).json()) as { lockToken: string }).lockToken;
+    const token = await lockWithToken(stub);
     await stub.fetch("https://auth/lock");
-    await releaseRefreshLock(stub, lockToken);
+    await releaseRefreshLock(stub, token);
     await waitForConcurrentRefresh(stub);
     expect((await stub.fetch("https://auth/set", {
       method: "POST",
@@ -144,38 +153,35 @@ describe("AuthSession stored-session audit", () => {
   });
 
   it.each(["expired", "missing-expiry"])(
-    "F2 evidence: a waiter accepts the retained %s cookie after a failed holder unlocks",
+    "does not expose a %s cookie to a waiter after a failed holder unlocks",
     async (kind) => {
       const { stub, values } = harness();
-      await storeSession(stub, COOKIE, Date.now() - 1);
-      if (kind === "missing-expiry") {
-        values.delete("expiresAtMs");
-      }
-      const lockToken = ((await (await stub.fetch("https://auth/lock")).json()) as { lockToken: string }).lockToken;
-      let completed = false;
-      const pending = waitForConcurrentRefresh(stub, 2000, 500).then(() => {
-        completed = true;
-      });
-      await vi.advanceTimersByTimeAsync(0);
-      expect(completed).toBe(false);
-
-      // The failed holder's /unlock leaves its previous session in storage.
-      await releaseRefreshLock(stub, lockToken);
-      await vi.advanceTimersByTimeAsync(500);
-      await pending;
-
-      expect(completed).toBe(true);
-      expect((await readSessionState(stub)).cookieHeader).toBe(COOKIE);
-      expect(values.get("expiresAtMs") ?? null).toBe(
-        kind === "expired" ? Date.now() - 501 : null
+      const expiresAtMs = Date.now() + 1000;
+      await storeSession(stub, COOKIE, expiresAtMs);
+      if (kind === "missing-expiry") values.delete("expiresAtMs");
+      else vi.setSystemTime(expiresAtMs);
+      const token = await lockWithToken(stub);
+      const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
+        () => null,
+        (err: unknown) => err
       );
+      await vi.advanceTimersByTimeAsync(0);
+
+      await releaseRefreshLock(stub, token);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(isConcurrentRefreshTimeout(await settled)).toBe(true);
+      expect((await readSessionState(stub)).cookieHeader).toBeNull();
+      expect(values.has("cookieHeader")).toBe(false);
+      expect(values.has("expiresAtMs")).toBe(false);
     }
   );
 
   it("fails closed with a fixed-shape error when a holder remains refreshing", async () => {
     const logs = captureConsole();
     const { stub } = harness();
-    await storeSession(stub, COOKIE, Date.now() - 1);
+    const expiresAtMs = Date.now() + 1000;
+    await storeSession(stub, COOKIE, expiresAtMs);
+    vi.setSystemTime(expiresAtMs);
     await stub.fetch("https://auth/lock");
     const settled = waitForConcurrentRefresh(stub, 2000, 500).then(
       () => null,
