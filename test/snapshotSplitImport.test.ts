@@ -169,14 +169,16 @@ describe("entry-point plumbing", () => {
 
   it("imports strictly in order, accumulates, and names the failing part without content", async () => {
     const seen: number[] = [];
-    const summary = await importPartsInOrder(["p0", "p1", "p2"], async (part, index) => {
+    const summary = await importPartsInOrder(
+      ["p0", "p1", "p2"],
+      async (_part: string, index: number) => {
       seen.push(index);
       return { upserted: index + 1, rowCount: index + 1 };
     });
     expect(seen).toEqual([0, 1, 2]);
     expect(summary).toMatchObject({ parts: 3, upserted: 6, rowCount: 6 });
     await expect(
-      importPartsInOrder(["secret-part-content", "p1"], async (part) => {
+      importPartsInOrder(["secret-part-content", "p1"], async (part: string) => {
         if (part === "p1") throw new Error("HTTP 400");
         return { upserted: 1, rowCount: 1 };
       })
@@ -302,7 +304,7 @@ describe("container export over the cap round-trips through the entry point (tes
       .prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (95201, 95100, 1, '2026-10-09T00:00:00.000Z')")
       .run();
 
-    const summary = await importPartsInOrder(fromJs, async (part) => {
+    const summary = await importPartsInOrder(fromJs, async (part: string) => {
       const response = await exports.default.fetch("http://test.local/api/v1/container-snapshot/import", {
         method: "POST",
         headers: {

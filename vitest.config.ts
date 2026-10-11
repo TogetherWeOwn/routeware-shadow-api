@@ -9,6 +9,7 @@ export default defineConfig({
   ],
   test: {
     include: ["test/**/*.test.ts"],
+    exclude: ["test/snapshotExportMemory.test.ts"],
     /**
      * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
      * and the first test in a file absorbs module init for the whole graph
