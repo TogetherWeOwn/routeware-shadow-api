@@ -148,15 +148,16 @@ upstream body are never echoed):
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
 for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
-On the `/api/v1/routeware/*` passthrough save routes, a Routeware-side
+On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through
-as success). On the `/api/v1/data/*` saves above, the same silent upstream
+as success); an explicit Routeware 4xx/5xx instead keeps its own status under
+the `upstream-error` problem type. On the `/api/v1/data/*` saves above, the same silent upstream
 failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 `routewareStatus` and `upstreamBytes`) — check the `ok` field, not just the
 status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
-save envelope. See the [502 recipe](#502-distinguish-upstream-failure-from-client-authentication).
+save envelope. See the [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
@@ -202,6 +203,16 @@ is representative: `type` uses the default problem catalog URL, but an
 operator can override its base with `PROBLEM_TYPE_BASE`. Match the status and
 anchor, not the hostname. See [`PROBLEMS.md`](./PROBLEMS.md).
 
+**Branch on the `type` anchor, not only the status.** A 401 or 429 does not
+always come from this Worker's own gate:
+
+| `type` anchor | Source | Next step |
+|---|---|---|
+| `#unauthorized`, `#rate-limited` | The shadow-API bearer gate or auth throttle | The 401 and 429 recipes below |
+| `#upstream-error` | Routeware's own HTTP 400–599, **including 401 and 429**, on a `/api/v1/routeware/*` passthrough route | [Upstream errors keep their status](#upstream-errors-keep-their-status) |
+| `#bad-gateway` | An HTML error page behind an upstream HTTP 200, or an upstream timeout | The 502 recipe below |
+| No `type`: JSON with `"ok":false` and `routewareStatus` | An ordinary `/api/v1/data/*` save envelope, which can carry Routeware's own status (including 401 or 429) | The `/data/*` row in [Troubleshooting](#troubleshooting) |
+
 ### 401: fix the bearer or use the correct gate
 
 With the local Worker running, omit the bearer on a D1-only read:
@@ -246,7 +257,10 @@ curl -sS -i -H "Authorization: Bearer $SYNC" \
 Do not repeatedly guess tokens or automatically escalate every read to the
 sync secret. If the correct value still 401s, ask the operator to check the
 server-side token configuration; local `.dev.vars` changes need a Worker
-restart. Catalog: [`unauthorized`](./PROBLEMS.md#unauthorized).
+restart. This applies only when `type` ends in `#unauthorized`; a 401 ending
+in `#upstream-error` is Routeware's response, so changing the bearer will not
+help ([see below](#upstream-errors-keep-their-status)). Catalog:
+[`unauthorized`](./PROBLEMS.md#unauthorized).
 
 ### 429: stop invalid-auth retries
 
@@ -310,9 +324,12 @@ alternative:
 npm test -- test/authThrottle.test.ts
 ```
 
-Catalog: [`rate-limited`](./PROBLEMS.md#rate-limited).
+This recipe applies only when `type` ends in `#rate-limited`; a 429 ending in
+`#upstream-error` carries no `Retry-After`
+([see below](#upstream-errors-keep-their-status)). Catalog:
+[`rate-limited`](./PROBLEMS.md#rate-limited).
 
-### 502: distinguish upstream failure from client authentication
+### 502 and other upstream failures: distinguish them from client authentication
 
 An upstream HTTP 200 can still contain an HTML error page. For example,
 `GET /api/v1/routeware/reports/query-request-is-complete?requestID=abc-123`
@@ -358,22 +375,58 @@ request before retrying; the problem body never includes the raw HTML.
 
 For saves, **do not blindly replay the write**: verify the outcome first.
 The `/routeware/*` silent-save failures described in step 4 use 502
-problem+json, while `/data/*` saves can return ordinary JSON with `ok:false`
-(and a 200 or upstream error status). Anti-forgery preparation failures use
-problem+json separately. Check both HTTP status and the save envelope;
-not every `/data/*` 502 is an anti-forgery failure. Catalog:
+`bad-gateway` problem+json, an explicit Routeware 4xx/5xx on those routes keeps
+its own status as [`upstream-error`](#upstream-errors-keep-their-status), and
+`/data/*` saves can return ordinary JSON with `ok:false` (and a 200 or
+upstream error status). Anti-forgery preparation failures use problem+json
+separately. Check both HTTP status and the save envelope; not every `/data/*`
+502 is an anti-forgery failure. Catalog:
 [`bad-gateway`](./PROBLEMS.md#bad-gateway).
+
+### Upstream errors keep their status
+
+When Routeware itself answers a `/api/v1/routeware/*` passthrough route with
+HTTP 400–599, the Worker keeps that status (it can be 401, 429, 503 or any
+other, not only 502) but replaces the response with a fixed problem body and
+`Cache-Control: no-store`. The upstream body and headers are withheld, so
+there is **no `Retry-After`** and no upstream error text. Representative
+body for an upstream 429:
+
+```json
+{
+  "type": "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#upstream-error",
+  "title": "Upstream request failed",
+  "status": 429,
+  "detail": "Routeware returned an error. Its response body has been withheld."
+}
+```
+
+**Fix:** the request already passed this Worker's bearer gate, so do not
+change or rotate the bearer, and do not wait for a `Retry-After` header that
+will not arrive. Do not loop on retries. For a save, verify the record before
+resubmitting (see above), then ask the operator to check Routeware
+availability, the session, and the login path. The mocked fixture below
+reproduces this without calling the tenant:
+
+```bash
+npm test -- test/passthroughLoudFailure.test.ts \
+  -t "preserves HTTP 429, not its body"
+# 1 matching test passes by asserting HTTP 429 is kept with the upstream-error body.
+```
+
+Catalog: [`upstream-error`](./PROBLEMS.md#upstream-error).
 
 ## Troubleshooting
 
 | Symptom | Meaning |
 |---|---|
-| 401 on everything except `/health` | Missing/wrong bearer, or no token configured server-side (fails closed). General token on a privileged route also 401s — use the sync secret only for that gate. See [401 recipe](#401-fix-the-bearer-or-use-the-correct-gate). |
-| 429 | Too many failed auth attempts from your IP; stop the bad requests and honor `Retry-After`. See [429 recipe](#429-stop-invalid-auth-retries). |
+| 401 on everything except `/health`, `type` ends `#unauthorized` | Missing/wrong bearer, or no token configured server-side (fails closed). General token on a privileged route also 401s — use the sync secret only for that gate. See [401 recipe](#401-fix-the-bearer-or-use-the-correct-gate). |
+| 429, `type` ends `#rate-limited` | Too many failed auth attempts from your IP; stop the bad requests and honor `Retry-After`. See [429 recipe](#429-stop-invalid-auth-retries). |
+| 401, 429 or any 400–599 on a `/routeware/*` route, `type` ends `#upstream-error` | Routeware's own error, relayed with its status. Your bearer was accepted; do not change it, and there is no `Retry-After`. For a save, verify the record before resubmitting, then ask the operator. See [upstream errors](#upstream-errors-keep-their-status). |
 | 200 with `"rows":[]` | Auth works; D1 has no snapshot data yet (operator runs the sync). |
 | 404 `not-found` on `/data/*` | That id is not in D1. |
-| 502 on a `/routeware/*` save | Routeware rejected the save upstream; see the problem+json `detail`. |
-| 200 with `"ok":false` on a `/data/*` save | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`, fix the form, retry. |
+| 502 `bad-gateway` on a `/routeware/*` save | Routeware rejected the save with an HTTP 200 HTML error page, the upstream timed out, or anti-forgery preparation failed; see the problem+json `detail`. After a timeout the save may have completed, so verify the record before resubmitting. An explicit Routeware 4xx/5xx keeps its own status under `#upstream-error` (row above). |
+| `"ok":false` on a `/data/*` save (HTTP 200 or Routeware's status, no `type`) | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`. If `routewareStatus` is 401 or 429 it is Routeware's own error: do not change the bearer, there is no `Retry-After`, verify the record before resubmitting, then ask the operator. Otherwise fix the form, retry. |
 | 405 on `DELETE` | By design — disable via save (step 5). |
 
 Worker-generated problem responses are `application/problem+json` with a
