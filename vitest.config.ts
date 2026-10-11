@@ -4,7 +4,37 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   plugins: [
     cloudflareTest({
-      wrangler: { configPath: "./wrangler.toml", environment: "test" }
+      wrangler: { configPath: "./wrangler.toml", environment: "test" },
+      // Keep the test worker's bindings independent of Wrangler's local
+      // `.dev.vars` secrets, which otherwise override `[env.test.vars]`.
+      miniflare: {
+        bindings: {
+          TARGET_ORIGIN: "https://killeen.routeware.com",
+          TARGET_BASE_PATH: "/WebRW",
+          LOGIN_URL: "https://killeen.routeware.com/WebRW/Account/Login",
+          SESSION_TTL_SECONDS: 1800,
+          OPENAPI_DOCS_ENABLED: "true",
+          CUSTOMER_SAVE_AUTO_TOKEN: "true",
+          CUSTOMER_REPORT_EXPORT_PATH: "",
+          CUSTOMER_REPORT_QUERY_ID: "23",
+          ADDRESS_REPORT_EXPORT_PATH: "",
+          ADDRESS_REPORT_QUERY_ID: "24",
+          CONTAINER_REPORT_EXPORT_PATH: "",
+          CONTAINER_REPORT_QUERY_ID: "25",
+          REPORT_QUERY_START_DATE: "1900-01-01",
+          REPORT_QUERY_END_DATE: "1900-01-01",
+          CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-sync-secret",
+          SHADOW_API_TOKEN: "test-api-token",
+          SHADOW_API_READ_TOKEN: "test-read-token",
+          SHADOW_API_PUBLIC_BASE: "",
+          SNAPSHOTS_R2_ENABLED: "true",
+          AUTH_MODE: "auto",
+          PROBLEM_TYPE_BASE: "",
+          THROTTLE_TRUST_XFF: "true",
+          LOGIN_USERNAME: "test-user",
+          LOGIN_PASSWORD: "test-password-not-real"
+        }
+      }
     })
   ],
   test: {
