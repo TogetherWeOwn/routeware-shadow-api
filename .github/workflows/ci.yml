@@ -78,9 +78,10 @@ jobs:
           else
             echo "probe=false" >> "$GITHUB_OUTPUT"
           fi
-          # infra: the filter itself, workflow config, shared entry, discovery
-          # manifests. Any infra change means EVERYTHING runs (rule 4).
-          if echo "$files" | grep -qE '^(\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          # infra: the filter itself, workflow config, the .nvmrc Node pin,
+          # shared entry, discovery manifests. Any infra change means
+          # EVERYTHING runs (rule 4).
+          if echo "$files" | grep -qE '^(\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "infra=true" >> "$GITHUB_OUTPUT"
           else
             echo "infra=false" >> "$GITHUB_OUTPUT"
@@ -88,7 +89,7 @@ jobs:
           # full: root dep manifests also run EVERYTHING (rule 4), so a
           # package.json/lock bump runs build AND probe (verified TOG-14898).
           # Non-PR already exited above; on PRs full = infra OR root dep change.
-          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"

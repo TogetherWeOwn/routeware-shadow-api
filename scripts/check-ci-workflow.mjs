@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import {
   assertEveryJobHasTimeout,
   assertFirstPartyActionsPinned,
@@ -47,6 +47,13 @@ assert.match(changesJob, /outputs:\n(?:.*\n)*?.*code:/, "changes must output a c
 assert.match(changesJob, /probe:/, "changes must output a probe boolean (TOG-14898)");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean (TOG-14898)");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs (TOG-14898)");
+// TOG-22034: `.nvmrc` anchors the Node-pin guard that runs in `build`, so a
+// PR touching only `.nvmrc` must still run it, not merge green past it.
+assert.match(
+  changesJob,
+  /grep -qE '\^\([^']*\\\.nvmrc\$[^']*\)'; then\n\s+echo "full=true"/,
+  "changes must route .nvmrc to a full run so the Node-pin guard sees a .nvmrc-only PR (TOG-22034)",
+);
 assert.match(workflow, /- cron: "23 4 \* \* \*"/, "ci must run the nightly full suite on schedule (TOG-14877 rule 5)");
 
 const buildGated = jobBlock("build");
@@ -216,10 +223,12 @@ assert.doesNotMatch(probeWorkflow, /\b(POST|PUT|PATCH|DELETE)\b/, "post-deploy-p
 // `node-version` and the `engines.node` floor must repeat it, so a runtime
 // that reached end of life cannot linger in one job (or in the deploy that
 // runs `wrangler deploy`) after the rest moved on.
+// Every workflow file is read, so a new one cannot bring back an old pin.
 const nvmrc = await readFile(new URL("../.nvmrc", import.meta.url), "utf8");
-assertNodeVersionsMatchNvmrc(workflow, nvmrc, "ci.yml");
-assertNodeVersionsMatchNvmrc(probeWorkflow, nvmrc, "post-deploy-probe.yml");
-assertNodeVersionsMatchNvmrc(prLint, nvmrc, "pr-lint.yml");
+const workflowsDir = new URL("../.github/workflows/", import.meta.url);
+for (const name of (await readdir(workflowsDir)).filter((file) => /\.ya?ml$/.test(file)).sort()) {
+  assertNodeVersionsMatchNvmrc(await readFile(new URL(name, workflowsDir), "utf8"), nvmrc, name);
+}
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 assert.equal(
   packageJson.engines?.node,

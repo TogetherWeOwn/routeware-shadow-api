@@ -362,7 +362,65 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
       ""
     ].join("\n");
     const errors = findNodeVersionDrift(workflow, "22");
-    expect(errors.some((e) => e.includes("every actions/setup-node step"))).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 7");
+    expect(errors[0]).toContain("must set node-version");
+  });
+
+  it("checks each setup-node step, so a stray pin cannot offset a missing one (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          cache: npm",
+      "      - uses: some-org/other-action@v1",
+      "        with:",
+      '          node-version: "22"',
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 4");
+    expect(errors[0]).toContain("must set node-version");
+  });
+
+  it("finds the pin of a name-first setup-node step (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: Set up Node",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - name: No toolchain",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "      - run: npm test",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 9");
+  });
+
+  it("accepts node-version-file: .nvmrc, which cannot drift (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version-file: .nvmrc",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version-file: .tool-versions",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 7");
   });
 
   it("fails closed when .nvmrc holds no plain major (TOG-22034)", () => {

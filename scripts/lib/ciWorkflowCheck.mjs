@@ -329,43 +329,76 @@ export function parseNvmrcMajor(nvmrcText) {
   return match ? match[1] : null;
 }
 
+/** A `node-version:` line; group 1 is the unquoted value. */
+const NODE_VERSION_LINE = /^\s*node-version:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/;
+
+/** `node-version-file: .nvmrc` reads the one source directly, so it cannot drift. */
+const NODE_VERSION_FILE_NVMRC = /^\s*node-version-file:\s*["']?(?:\.\/)?\.nvmrc["']?\s*(?:#.*)?$/;
+
+/** A `uses: actions/setup-node@…` line, with or without the list dash. */
+const SETUP_NODE_USES = /^\s*(?:- )?uses:\s*["']?actions\/setup-node@/;
+
+/**
+ * Return the lines of the step that owns the `uses:` line at `usesIndex`:
+ * from its `- ` list item down to the next line at or left of that dash.
+ * A name-first step (`- name: …` then `uses: …`) starts at the nearest dash
+ * left of the `uses:` indent, so list items inside `with:` are skipped.
+ *
+ * @param {string[]} lines
+ * @param {number} usesIndex
+ * @returns {string[]}
+ */
+function stepLines(lines, usesIndex) {
+  const usesIndent = lines[usesIndex].search(/\S/);
+  let start = usesIndex;
+  if (!/^\s*- /.test(lines[start])) {
+    do {
+      start--;
+    } while (start >= 0 && !(/^\s*- /.test(lines[start]) && lines[start].indexOf("-") < usesIndent));
+    if (start < 0) {
+      return [lines[usesIndex]];
+    }
+  }
+  const dashColumn = lines[start].indexOf("-");
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === "" || lines[end].search(/\S/) > dashColumn)) {
+    end++;
+  }
+  return lines.slice(start, end);
+}
+
 /**
  * Collect every `node-version:` that differs from the `.nvmrc` major, plus
- * any `actions/setup-node` step that sets none (it would silently fall back
- * to whatever the runner ships). `.nvmrc` is the one place the version lives;
- * the workflow pins must repeat it exactly, so an EOL runtime cannot linger
- * in one job after the others move (TOG-22034). Pure: no I/O, no network.
+ * every `actions/setup-node` step that pins neither that major nor
+ * `node-version-file: .nvmrc` (without either it installs nothing and the
+ * job runs on whatever Node the runner ships). `.nvmrc` is the one place the
+ * version lives, so an end-of-life runtime cannot linger in one job after the
+ * others move (TOG-22034). Pure: no I/O, no network, findings name the line
+ * and the version only.
  *
  * @param {unknown} workflowText
  * @param {string} expectedMajor
  * @returns {string[]}
  */
 export function findNodeVersionDrift(workflowText, expectedMajor) {
+  const lines = String(workflowText).split("\n");
   const errors = [];
-  let setupSteps = 0;
-  let pins = 0;
-  String(workflowText)
-    .split("\n")
-    .forEach((line, index) => {
-      if (/^\s*(?:- )?uses:\s*["']?actions\/setup-node@/.test(line)) {
-        setupSteps++;
-      }
-      const match = line.match(/^\s*node-version:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/);
-      if (!match) {
-        return;
-      }
-      pins++;
-      if (match[1] !== expectedMajor) {
-        errors.push(
-          `line ${index + 1}: node-version '${match[1]}' must equal the .nvmrc major '${expectedMajor}' (TOG-22034)`
-        );
-      }
-    });
-  if (pins < setupSteps) {
-    errors.push(
-      `every actions/setup-node step must set node-version (${setupSteps} steps, ${pins} pins) (TOG-22034)`
-    );
-  }
+  lines.forEach((line, index) => {
+    const pin = line.match(NODE_VERSION_LINE);
+    if (pin && pin[1] !== expectedMajor) {
+      errors.push(
+        `line ${index + 1}: node-version '${pin[1]}' must equal the .nvmrc major '${expectedMajor}' (TOG-22034)`
+      );
+    }
+    if (
+      SETUP_NODE_USES.test(line) &&
+      !stepLines(lines, index).some((stepLine) => NODE_VERSION_LINE.test(stepLine) || NODE_VERSION_FILE_NVMRC.test(stepLine))
+    ) {
+      errors.push(
+        `line ${index + 1}: actions/setup-node step must set node-version (or node-version-file: .nvmrc) (TOG-22034)`
+      );
+    }
+  });
   return errors;
 }
 
