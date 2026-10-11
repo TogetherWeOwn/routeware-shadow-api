@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { assertEveryJobHasTimeout, assertFirstPartyActionsPinned, assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
+import {
+  assertEveryJobHasTimeout,
+  assertFirstPartyActionsPinned,
+  assertNodeVersionsMatchNvmrc,
+  assertNoPrTriggerSkips,
+  parseNvmrcMajor,
+} from "./lib/ciWorkflowCheck.mjs";
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
@@ -205,6 +211,21 @@ assertFirstPartyActionsPinned(probeWorkflow, "post-deploy-probe.yml");
 assert.match(probeWorkflow, /- cron: "30 7 \* \* \*"/, "post-deploy-probe workflow must run on its daily schedule (TOG-8365)");
 assert.match(probeWorkflow, /run: npm run probe:post-deploy:scheduled/, "post-deploy-probe workflow must use the skip-safe scheduled script (TOG-8365)");
 assert.doesNotMatch(probeWorkflow, /\b(POST|PUT|PATCH|DELETE)\b/, "post-deploy-probe workflow must stay read-only (TOG-8365)");
+
+// TOG-22034: `.nvmrc` is the one place the Node major lives. Every workflow
+// `node-version` and the `engines.node` floor must repeat it, so a runtime
+// that reached end of life cannot linger in one job (or in the deploy that
+// runs `wrangler deploy`) after the rest moved on.
+const nvmrc = await readFile(new URL("../.nvmrc", import.meta.url), "utf8");
+assertNodeVersionsMatchNvmrc(workflow, nvmrc, "ci.yml");
+assertNodeVersionsMatchNvmrc(probeWorkflow, nvmrc, "post-deploy-probe.yml");
+assertNodeVersionsMatchNvmrc(prLint, nvmrc, "pr-lint.yml");
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+assert.equal(
+  packageJson.engines?.node,
+  `>=${parseNvmrcMajor(nvmrc)}`,
+  "package.json engines.node must be >= the .nvmrc major (TOG-22034)",
+);
 
 const deploy = jobBlock("deploy");
 const shadowProbe = jobBlock("shadow-api-v1");

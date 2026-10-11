@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-22034: The supported Node runtime moves from 20 (end of life
+  2026-04-30, no more security fixes) to 22: `.nvmrc` is `22`,
+  `engines.node` is `>=22`, and every CI workflow (including the deploy job
+  that runs `wrangler deploy`) sets up Node 22. `npm run check:ci-workflow`
+  now fails when any workflow `node-version` or `engines.node` drifts from
+  the `.nvmrc` major.
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit
   failed release, one queued waiter may take over with a single bounded fresh

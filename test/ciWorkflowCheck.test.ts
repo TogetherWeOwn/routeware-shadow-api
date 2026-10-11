@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   assertEveryJobHasTimeout,
   assertFirstPartyActionsPinned,
+  assertNodeVersionsMatchNvmrc,
   assertNoPrTriggerSkips,
   findJobsMissingTimeouts,
+  findNodeVersionDrift,
   findPrTriggerSkips,
-  findUnpinnedFirstPartyActions
+  findUnpinnedFirstPartyActions,
+  parseNvmrcMajor
 } from "../scripts/lib/ciWorkflowCheck.mjs";
 
 /**
@@ -281,6 +284,90 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
       ""
     ].join("\n");
     expect(findUnpinnedFirstPartyActions(workflow)).toEqual([]);
+  });
+
+  it("reads the Node major from .nvmrc (TOG-22034)", () => {
+    expect(parseNvmrcMajor("22\n")).toBe("22");
+    expect(parseNvmrcMajor("v22.11.0")).toBe("22");
+    expect(parseNvmrcMajor("lts/*")).toBeNull();
+    expect(parseNvmrcMajor("")).toBeNull();
+  });
+
+  it("accepts setup-node steps pinned to the .nvmrc major (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - name: Second toolchain",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: 22",
+      ""
+    ].join("\n");
+    expect(findNodeVersionDrift(workflow, "22")).toEqual([]);
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "22\n", "fixture")).not.toThrow();
+  });
+
+  it("fails when a node-version drifts from the .nvmrc major (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "  deploy:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: '20'",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("'20'");
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "22\n", "fixture")).toThrow(/fixture.*'20'/s);
+  });
+
+  it("fails on a range or alias instead of the exact major (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: 22.x",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: lts/*",
+      ""
+    ].join("\n");
+    expect(findNodeVersionDrift(workflow, "22")).toHaveLength(2);
+  });
+
+  it("fails when a setup-node step drops its node-version (TOG-22034)", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          cache: npm",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors.some((e) => e.includes("every actions/setup-node step"))).toBe(true);
+  });
+
+  it("fails closed when .nvmrc holds no plain major (TOG-22034)", () => {
+    const workflow = ["jobs:", "  build:", "    steps:", "      - run: npm test", ""].join("\n");
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "lts/*", "fixture")).toThrow(/\.nvmrc/);
   });
 
   it("names jobs and keys only — never fixture content", () => {

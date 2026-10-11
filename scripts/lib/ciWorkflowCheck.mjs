@@ -315,3 +315,78 @@ export function assertFirstPartyActionsPinned(workflowText, label = "workflow") 
     );
   }
 }
+
+/**
+ * Read the Node major pinned by `.nvmrc` (`22`, `v22`, `22.11.0` → `"22"`).
+ * Returns null for aliases such as `lts/*`, which cannot anchor a drift
+ * check (TOG-22034).
+ *
+ * @param {unknown} nvmrcText
+ * @returns {string|null}
+ */
+export function parseNvmrcMajor(nvmrcText) {
+  const match = String(nvmrcText).trim().match(/^v?(\d+)(?:\.\d+){0,2}$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Collect every `node-version:` that differs from the `.nvmrc` major, plus
+ * any `actions/setup-node` step that sets none (it would silently fall back
+ * to whatever the runner ships). `.nvmrc` is the one place the version lives;
+ * the workflow pins must repeat it exactly, so an EOL runtime cannot linger
+ * in one job after the others move (TOG-22034). Pure: no I/O, no network.
+ *
+ * @param {unknown} workflowText
+ * @param {string} expectedMajor
+ * @returns {string[]}
+ */
+export function findNodeVersionDrift(workflowText, expectedMajor) {
+  const errors = [];
+  let setupSteps = 0;
+  let pins = 0;
+  String(workflowText)
+    .split("\n")
+    .forEach((line, index) => {
+      if (/^\s*(?:- )?uses:\s*["']?actions\/setup-node@/.test(line)) {
+        setupSteps++;
+      }
+      const match = line.match(/^\s*node-version:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/);
+      if (!match) {
+        return;
+      }
+      pins++;
+      if (match[1] !== expectedMajor) {
+        errors.push(
+          `line ${index + 1}: node-version '${match[1]}' must equal the .nvmrc major '${expectedMajor}' (TOG-22034)`
+        );
+      }
+    });
+  if (pins < setupSteps) {
+    errors.push(
+      `every actions/setup-node step must set node-version (${setupSteps} steps, ${pins} pins) (TOG-22034)`
+    );
+  }
+  return errors;
+}
+
+/**
+ * Throw when the workflow's Node pins drift from `.nvmrc`, or when `.nvmrc`
+ * holds no plain major to compare against.
+ *
+ * @param {unknown} workflowText
+ * @param {unknown} nvmrcText
+ * @param {string} [label]
+ * @returns {void}
+ */
+export function assertNodeVersionsMatchNvmrc(workflowText, nvmrcText, label = "workflow") {
+  const major = parseNvmrcMajor(nvmrcText);
+  if (!major) {
+    throw new Error("CI Node-pin guards failed (TOG-22034): .nvmrc must hold a plain Node major such as 22");
+  }
+  const errors = findNodeVersionDrift(workflowText, major);
+  if (errors.length > 0) {
+    throw new Error(
+      `CI Node-pin guards failed (TOG-22034) in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
+    );
+  }
+}
