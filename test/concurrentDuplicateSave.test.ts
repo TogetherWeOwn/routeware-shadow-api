@@ -170,6 +170,9 @@ async function seed(full: Graph): Promise<void> {
   await upsertContainerSnapshotRows(db, containers, 50, OLD);
 }
 
+/** The current test's requests, settled in `afterEach` so none outlives its test. */
+let inFlight: Promise<unknown> = Promise.resolve();
+
 /** Fires N identical saves at once; `settled` counts finished requests. */
 function fire(route: SaveRoute, body: string): { responses: Promise<Response[]>; settled: () => number } {
   let settled = 0;
@@ -187,6 +190,7 @@ function fire(route: SaveRoute, body: string): { responses: Promise<Response[]>;
       settled += 1;
     })
   );
+  inFlight = Promise.allSettled(requests);
   return { responses: Promise.all(requests), settled: () => settled };
 }
 
@@ -247,6 +251,10 @@ async function expectSavedGraph(): Promise<void> {
   expect(await ids("container_snapshot", "container_id")).toEqual([100, 101, 110, 200]);
   expect(await db.prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = 5").first("company_name"))
     .toBe("Saved customer");
+  await expectBystanderUntouched();
+}
+
+async function expectBystanderUntouched(): Promise<void> {
   expect(await db.prepare("SELECT synced_at FROM customer_snapshot WHERE customer_id = 6").first("synced_at")).toBe(OLD);
 }
 
@@ -283,12 +291,13 @@ beforeEach(async () => {
   await seed(graph(6, "Bystander", [[20, [200]]]));
 });
 
-afterEach(() => {
+afterEach(async () => {
   // Never leave a parked request behind for the next test.
   for (const hold of [upstream.saveHold, upstream.detailHold]) {
     hold.held = false;
     hold.waiting.splice(0).forEach((release) => release());
   }
+  await inFlight;
   vi.useRealTimers();
   globalThis.fetch = realFetch;
   console.error = realConsoleError;
@@ -348,5 +357,6 @@ describe.each(CUSTOMER_SAVES)("$name: N identical concurrent creates", (route) =
     expect(await ids("container_snapshot", "container_id"))
       .toEqual([100, 101, 110, 200, ...created.map((id) => id * 100)]);
     expect(await syncedAtOfCustomer5Graph()).toEqual(Array(1 + 2 + 3).fill(OLD));
+    await expectBystanderUntouched();
   });
 });
