@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LoginPageUnavailableError } from "../src/lib/loginPageError";
+import { MissingSetCookieCapabilityError } from "../src/lib/setCookieCapabilityError";
 import type { ConcurrentRefreshTimeoutError } from "../src/lib/sessionRefreshLock";
 
 const httpLoginCalls = { count: 0 };
@@ -334,6 +336,86 @@ describe("establishSession refresh-lock serialization", () => {
     expect(browserLoginCalls.count).toBe(1);
     expect(state.cookieHeader).toBe(".WebRW=browser");
     expect(state.refreshing).toBe(false);
+  });
+
+  describe("browser-fallback log marker", () => {
+    // The R5-17 keep/remove-Browser-Rendering decision queries this record, so
+    // its static shape is a contract: renaming a field breaks that query.
+    const SYNTHETIC_SECRET = "SYNTHETIC-HTTP-FAILURE-NOT-A-CREDENTIAL";
+    const MARKER = {
+      level: "warn",
+      msg: "HTTP authentication failed; falling back to Browser Rendering",
+      route: "auth.login",
+      ms: null,
+      fallback: "browser"
+    };
+
+    function fallbackMarkers(warn: { mock: { calls: unknown[][] } }): unknown[] {
+      return warn.mock.calls
+        .map((call) => call[0])
+        .filter((record) => (record as { fallback?: unknown } | null)?.fallback === "browser");
+    }
+
+    async function runWithHttpFailure(
+      mode: string,
+      failure: unknown,
+      warn: { mock: { calls: unknown[][] } }
+    ): Promise<unknown[]> {
+      const { establishSessionViaHttp } = await import("../src/lib/httpAuth");
+      vi.mocked(establishSessionViaHttp).mockRejectedValueOnce(failure);
+      const state = freshState();
+      await establishSession(envWith(mode), fakeStub(state), "https://upstream/Account/Login").catch(
+        () => undefined
+      );
+      return fallbackMarkers(warn);
+    }
+
+    it("emits exactly one allowlisted marker and no error text when auto mode falls back", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure("auto", new Error(SYNTHETIC_SECRET), warn);
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(markers).toEqual([MARKER]);
+        expect(Object.keys(markers[0] as object).sort()).toEqual(
+          ["fallback", "level", "ms", "msg", "route"]
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(SYNTHETIC_SECRET);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([
+      ["http mode", "http", new Error(SYNTHETIC_SECRET)],
+      ["blocked login page", "auto", new LoginPageUnavailableError(403, "synthetic")],
+      ["missing getSetCookie capability", "auto", new MissingSetCookieCapabilityError()]
+    ])("emits no marker and launches no browser for %s", async (_label, mode, failure) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure(mode, failure, warn);
+
+        expect(markers).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+        expect(browserLoginCalls.count).toBe(0);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("emits no marker when HTTP login succeeds in auto mode", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("auto"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(state.cookieHeader).toBe(".WebRW=http");
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it("releases the lock when the DO rejects the session write", async () => {
