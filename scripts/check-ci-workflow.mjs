@@ -142,6 +142,12 @@ const hygieneRegen = hygiene.search(/^      - name: Regenerate Worker types \(TO
 const hygieneGate = hygiene.search(/^      - name: No real secrets baked into worker-configuration\.d\.ts$/m);
 assert.ok(hygieneRegen >= 0, "hygiene must regenerate worker-configuration.d.ts via npm run types (TOG-8373)");
 assert.ok(hygieneGate > hygieneRegen, "hygiene must regenerate types before the baked-secrets gate (TOG-8373)");
+
+// Fresh checkouts do not contain the gitignored Worker declarations. Keep the
+// npm typecheck lifecycle hook responsible for generating them locally.
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+assert.equal(packageJson.scripts.pretypecheck, "npm run types", "typecheck must generate Worker declarations first");
+
 assert.match(
   hygiene,
   /if \[ ! -f worker-configuration\.d\.ts \]; then/,
