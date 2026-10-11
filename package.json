@@ -31,6 +31,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/check-console-usage.mjs",
     "test": "vitest run",
+    "test:snapshot-export-memory": "node --expose-gc ./node_modules/vitest/vitest.mjs run --config vitest.memory.config.ts",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",

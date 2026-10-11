@@ -32,6 +32,8 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Assert bounded snapshot export heap
+        run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
       - name: Validate Worker build (no deploy)
