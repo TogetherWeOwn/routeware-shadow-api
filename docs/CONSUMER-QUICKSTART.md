@@ -426,7 +426,7 @@ Catalog: [`upstream-error`](./PROBLEMS.md#upstream-error).
 | 200 with `"rows":[]` | Auth works; D1 has no snapshot data yet (operator runs the sync). |
 | 404 `not-found` on `/data/*` | That id is not in D1. |
 | 502 `bad-gateway` on a `/routeware/*` save | Routeware rejected the save with an HTTP 200 HTML error page, the upstream timed out, or anti-forgery preparation failed; see the problem+json `detail`. After a timeout the save may have completed, so verify the record before resubmitting. An explicit Routeware 4xx/5xx keeps its own status under `#upstream-error` (row above). |
-| `"ok":false` on a `/data/*` save (HTTP 200 or Routeware's status, no `type`) | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`. If `routewareStatus` is 401 or 429 it is Routeware's own error: do not change the bearer, there is no `Retry-After`, verify the record before resubmitting, then ask the operator. Otherwise fix the form, retry. |
+| `"ok":false` on a `/data/*` save (HTTP 200 or Routeware's status, no `type`) | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`. If `routewareStatus` is 401 or 429 it is Routeware's own error: do not change the bearer, there is no `Retry-After`, verify the record before resubmitting, then ask the operator. For any other status, also verify the record before resubmitting, fix the form if that is the cause, then retry. |
 | 405 on `DELETE` | By design — disable via save (step 5). |
 
 Worker-generated problem responses are `application/problem+json` with a
