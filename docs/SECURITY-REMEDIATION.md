@@ -221,7 +221,7 @@ the hygiene job (`Regenerate Worker types (TOG-8373)`) and the step `No real sec
 worker-configuration.d.ts` fails the job on any non-synthetic value of the four Worker-secret keys.
 Never force-add the file.
 
-The gitleaks step is blocking and scans the full history: `Secret scan (blocking)` in the
-hygiene job has no `continue-on-error` and runs `gitleaks detect --source . --redact --config
-.gitleaks.toml` over `fetch-depth: 0`. It became blocking because history is clean, which is the
-signal that this remediation is complete.
+The gitleaks step is blocking and scans this repository's full history: `Secret scan (blocking)`
+in the hygiene job has no `continue-on-error` and runs `gitleaks detect --source . --redact
+--config .gitleaks.toml` over `fetch-depth: 0`. This closes the recurrence gap in this repository;
+the incident remains open until the original repository is deleted (HANDOVER §5).

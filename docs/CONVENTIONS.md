@@ -189,7 +189,7 @@ pushing.
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
 
 When enabled, CI additionally runs `npx wrangler deploy --dry-run`, a hygiene job that fails on
-committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
+committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and a blocking full-history secret scan (gitleaks). **There is no lint or
 format step — none is configured.**
 
 ---
