@@ -204,6 +204,16 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The docs link + anchor check resolves every relative link in tracked *.md
+// files (file must be tracked, #anchor must match a heading slug or <a name>
+// anchor). Pin it present so a broken cross-link can never land without the
+// hygiene gate (TOG-18936).
+assert.match(
+  hygiene,
+  /^        run: npm run check:docs-links$/m,
+  "hygiene must run the docs link and anchor check (TOG-18936)"
+);
+
 // The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
 // workflow so deploy verification runs on a schedule. Pin it present: the
 // cron, the skip-safe npm script, and the read-only GET-only probe paths.

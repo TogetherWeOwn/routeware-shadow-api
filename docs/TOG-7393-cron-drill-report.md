@@ -5,7 +5,7 @@ end-to-end following the doc alone, on local dev (`wrangler dev --test-scheduled
 + local D1). **Method:** no deploy, no Cloudflare token, no Routeware tenant
 touched. Fixes landed in the runbook itself (§5 recipe hardened).
 
-Prior drill: [TOG-6280](docs/TOG-6280-cron-drill-report.md) (2026-09-27, all keys
+Prior drill: [TOG-6280](TOG-6280-cron-drill-report.md) (2026-09-27, all keys
 PASS). This trial re-ran every key and found two recipe gaps that have since
 appeared / were never covered.
 

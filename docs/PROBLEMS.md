@@ -50,7 +50,7 @@ This policy also applies to the API's own exports and raw R2 report archives:
 report-origin controls are retained by sync/export, so those CSVs may not be
 HTTP-importable. Do not discover compatibility through a partial restore.
 For recovery without control sanitization, use the integrity-verified in-code
-report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-programmatic-restore-in-code-path).
+report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-readback-route-handoff-and-programmatic-recovery).
 Export → HTTP import is lossless only for import-compatible business cells.
 
 ## Dangling snapshot references (`bad-request`)

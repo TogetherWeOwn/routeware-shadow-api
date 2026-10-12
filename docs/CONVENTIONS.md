@@ -182,7 +182,7 @@ for exact-head CI.
 
 ### Verification loop
 
-`npm run check:ci-workflow` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
+`npm run check:ci-workflow` → `npm run check:docs-links` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
 pushing.
 
 `npm ci` alone may install no devDependencies (npm's `omit=dev` is set in some environments, which
