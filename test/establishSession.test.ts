@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConcurrentRefreshTimeoutError } from "../src/lib/sessionRefreshLock";
+import { LoginPageUnavailableError } from "../src/lib/loginPageError";
 
 const httpLoginCalls = { count: 0 };
 const browserLoginCalls = { count: 0 };
@@ -334,6 +335,73 @@ describe("establishSession refresh-lock serialization", () => {
     expect(browserLoginCalls.count).toBe(1);
     expect(state.cookieHeader).toBe(".WebRW=browser");
     expect(state.refreshing).toBe(false);
+  });
+
+  it("emits exactly one auth.login fallback marker when auto-mode HTTP login fails", async () => {
+    // Arrange — the structured marker is the field set R5-17 queries on
+    const state = freshState();
+    const stub = fakeStub(state);
+    const env = envWith("auto");
+    httpLoginShouldFail = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      // Act
+      await establishSession(env, stub, env.LOGIN_URL);
+
+      // Assert — asserted on the real logEvent output, so a renamed call-site
+      // field or one dropped from the logger allowlist both turn this red
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ level: "warn", route: "auth.login", fallback: "browser" })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("emits no auth.login fallback marker in http mode", async () => {
+    // Arrange — http mode never falls back, so the marker must not appear
+    const state = freshState();
+    const stub = fakeStub(state);
+    const env = envWith("http");
+    httpLoginShouldFail = true;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      // Act
+      await expect(establishSession(env, stub, env.LOGIN_URL)).rejects.toThrow("HTTP login failed");
+
+      // Assert
+      expect(browserLoginCalls.count).toBe(0);
+      expect(warn).not.toHaveBeenCalledWith(expect.objectContaining({ route: "auth.login" }));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("emits no auth.login fallback marker when the login page is blocked", async () => {
+    // Arrange — a non-200 login page is never a browser case (TOG-6536)
+    const state = freshState();
+    const stub = fakeStub(state);
+    const env = envWith("auto");
+    const { establishSessionViaHttp } = await import("../src/lib/httpAuth");
+    vi.mocked(establishSessionViaHttp).mockRejectedValueOnce(
+      new LoginPageUnavailableError(403, "login page")
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      // Act
+      await expect(establishSession(env, stub, env.LOGIN_URL)).rejects.toThrow(
+        "Routeware login page unavailable: HTTP 403"
+      );
+
+      // Assert
+      expect(browserLoginCalls.count).toBe(0);
+      expect(warn).not.toHaveBeenCalledWith(expect.objectContaining({ route: "auth.login" }));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("releases the lock when the DO rejects the session write", async () => {
