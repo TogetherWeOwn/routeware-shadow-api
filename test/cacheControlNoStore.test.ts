@@ -1,4 +1,4 @@
-import { env, exports } from "cloudflare:workers";
+import { exports } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import { AUTH_THROTTLE_MAX_FAILURES } from "../src/lib/authThrottle";
 import { ensureD1TestTables } from "./d1TestMigrations";
@@ -129,6 +129,5 @@ describe("Cache-Control: no-store on /api/v1/* (TOG-22087)", () => {
       const res = await call(path);
       expect(res.headers.get("cache-control")).toBeNull();
     }
-    void env;
   });
 });
