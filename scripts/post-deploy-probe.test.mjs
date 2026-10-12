@@ -57,7 +57,7 @@ test("scheduled npm entry and workflow retain mandatory target validation", () =
   const workflow = fs.readFileSync(new URL("../.github/workflows/post-deploy-probe.yml", import.meta.url), "utf8");
   assert.match(workflow, /run: npm run probe:post-deploy:scheduled/);
   assert.match(workflow, /SHADOW_API_BASE: \$\{\{ vars\.SHADOW_API_BASE \}\}/);
-  assert.match(pkg.scripts.test, /npm run test:probe && vitest run/);
+  assert.match(pkg.scripts.test, /npm run test:probe && npm run test:console-usage && vitest run/);
   assert.match(pkg.scripts["test:coverage"], /npm run test:probe && vitest run --coverage/);
 });
 
