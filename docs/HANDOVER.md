@@ -430,13 +430,12 @@ immediately after** the transfer — every day both exist is a day the old one i
    `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
    regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored
    (`.gitignore:4`), is not tracked, and the hygiene job fails on any non-synthetic value of the four
-   Worker-secret keys in it (`.github/workflows/ci.yml:200-217`). Never force-add it.
-   `docs/SECURITY-REMEDIATION.md` (lines 214-227) still records this as open; its status needs the
-   security owner's update.
+   Worker-secret keys in it (`.github/workflows/ci.yml:209-226`). Never force-add it.
+   `docs/SECURITY-REMEDIATION.md` Step 3 records it as closed.
 5. ~~**Promote the CI gitleaks step to blocking** and drop `--no-git`.~~ **Done:** the step has no
-   `continue-on-error` and runs without `--no-git` over the full history (`.github/workflows/ci.yml:253-261`).
-   §5 (deleting the old repository) is still open. The runbook still lists this step as
-   `continue-on-error`; update it together with item 4.
+   `continue-on-error` and runs without `--no-git` over the full history (`.github/workflows/ci.yml:262-270`).
+   `docs/SECURITY-REMEDIATION.md` Step 3 records it as blocking. §5 (deleting the old repository) is
+   still open.
 
 ---
 
