@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
+  for having more than 5,000 addresses or 40,000 containers. It skips only
+  when the graph needs more than 900 D1 operations in one request, checked
+  before the first write so D1 is left untouched. The 8 MiB response cap
+  still applies, and graphs within budget now refresh D1 in full.
+
 - TOG-8375: Throttle 429s now include `X-RateLimit-Limit`,
   `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds), and CORS
   exposes them to browser clients; `Retry-After` is unchanged.

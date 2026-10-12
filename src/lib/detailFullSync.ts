@@ -21,20 +21,29 @@ export type GetCustomerDetailFullJson = {
 };
 
 /**
- * TOG-5937 size guards for the per-customer unbounded fetch.
+ * TOG-5937 / R2-18 size guards for the per-customer unbounded fetch.
  *
  * Upstream `GetCustomerDetailFull` takes no paging parameters, so one customer
- * always arrives as one response. Proven lossless at 500 addresses x 8
- * containers (`test/detailFullScaleSync.test.ts`); the limits below are 10x
- * that proven scale. Past them `fetch`/`sync` throw BEFORE buffering the whole
- * graph into the 128 MB isolate or fanning out tens of thousands of D1/cache
- * ops — the POST handlers already catch sync errors and fall back to coarse
- * cache invalidation, so an oversized graph degrades to "D1 refresh skipped"
- * rather than a blown invocation.
+ * always arrives as one response. The byte cap bounds the isolate before
+ * parsing. The D1 op budget bounds write fan-out and is checked before the
+ * first write, from the same batch sizes the upserts use, so a graph past the
+ * budget degrades to "D1 refresh skipped" with D1 untouched.
  */
 export const DETAIL_FULL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
-export const DETAIL_FULL_MAX_ADDRESSES = 5_000;
-export const DETAIL_FULL_MAX_CONTAINERS = 40_000;
+/** Workers Paid allows ~1000 D1 ops per invocation; keep headroom for the request's own cache I/O. */
+export const DETAIL_FULL_MAX_D1_OPS = 900;
+const DETAIL_FULL_BATCH = { customer: 80, address: 80, container: 50 } as const;
+
+function detailFullD1Ops(addressCount: number, containerCount: number): number {
+  const batches = (rows: number, size: number) => Math.ceil(rows / size);
+  // customer, address and container upsert batches, then the reconcile batch
+  return (
+    1 +
+    batches(addressCount, DETAIL_FULL_BATCH.address) +
+    batches(containerCount, DETAIL_FULL_BATCH.container) +
+    1
+  );
+}
 
 function n(v: unknown): number | null {
   if (v === null || v === undefined) {
@@ -195,23 +204,11 @@ export function mapDetailFullToRows(json: GetCustomerDetailFullJson): {
       s(a.DriverNote) ?? s(a["driver note"]) ?? null
     );
     addresses.push(addr);
-    if (addresses.length > DETAIL_FULL_MAX_ADDRESSES) {
-      throw new Error(
-        `GetCustomerDetailFull customer ${customer.customerId} too large ` +
-          `(>${DETAIL_FULL_MAX_ADDRESSES} addresses); skipping D1 refresh`
-      );
-    }
     const cons = a.Containers;
     if (Array.isArray(cons)) {
       for (const c of cons) {
         if (c && typeof c === "object") {
           containers.push(mapContainerItem(c as Record<string, unknown>, addr.pickupAddressId));
-          if (containers.length > DETAIL_FULL_MAX_CONTAINERS) {
-            throw new Error(
-              `GetCustomerDetailFull customer ${customer.customerId} too large ` +
-                `(>${DETAIL_FULL_MAX_CONTAINERS} containers); skipping D1 refresh`
-            );
-          }
         }
       }
     }
@@ -318,12 +315,19 @@ export async function syncCustomerDetailFullToD1(
       containers.some((c) => !addressIdSet.has(c.pickupAddressId))) {
     throw new Error("GetCustomerDetailFull has mismatched graph ids");
   }
-  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer], 80, syncedAt);
+  const ops = detailFullD1Ops(addresses.length, containers.length);
+  if (ops > DETAIL_FULL_MAX_D1_OPS) {
+    throw new Error(
+      `GetCustomerDetailFull customer ${customerId} too large ` +
+        `(${ops} D1 ops > ${DETAIL_FULL_MAX_D1_OPS} budget); skipping D1 refresh`
+    );
+  }
+  await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer], DETAIL_FULL_BATCH.customer, syncedAt);
   if (addresses.length) {
-    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses, 80, syncedAt);
+    await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses, DETAIL_FULL_BATCH.address, syncedAt);
   }
   if (containers.length) {
-    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, 50, syncedAt);
+    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, DETAIL_FULL_BATCH.container, syncedAt);
   }
   const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
   return {
