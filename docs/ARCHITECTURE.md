@@ -133,9 +133,12 @@ For the read-side aggregates and cache contract, see [ENTITY-DATA-CACHE.md](ENTI
 ## Session path
 
 The `AUTH_SESSION` binding points to `AuthSession`. Its `primary` instance
-stores `cookieHeader`, `expiresAtMs`, `refreshing` and `lockedAt` in DO storage.
-Internal `/get`, `/set`, `/lock` and `/unlock` operations expose state and
-coordinate refresh. They are not public API routes; the DO has no upstream
+stores `cookieHeader`, `expiresAtMs`, `refreshing`, `lockedAt`, `lockToken`,
+`expiredEvicted`, `failedReleaseAtMs` and `takeoverAtMs` in DO storage.
+Internal `/get`, `/set`, `/lock`, `/unlock` and `/takeover` operations expose state and
+coordinate refresh. `/lock` mints an ownership token that the holder's `/set`
+and `/unlock` must present; an `/unlock` without the right token gets 403.
+They are not public API routes; the DO has no upstream
 forwarding endpoint and no `/refresh` endpoint.
 
 Login runs in Worker helpers under the DO's refresh lock:
@@ -160,8 +163,11 @@ The HTTP cookie jar is flat name/value state, not a browser's domain/path-aware
 cookie store. Cookie deletion/expiry signals are applied during login merging.
 Forwarding uses manual redirects, supplies stored cookies instead of client
 cookies, and strips upstream `Set-Cookie`. `expiresAtMs` is a freshness timestamp,
-not automatic deletion of persisted cookies. Expiry and stale-lock recovery are
-request-driven; there is no DO session alarm in this implementation.
+not automatic deletion of persisted cookies. The DO schedules an alarm at
+`expiresAtMs`; `alarm()` evicts expired cookie material and records an
+`expiredEvicted` tombstone so the next request refreshes proactively.
+Lock-TTL recovery stays request-driven, and a bounded `/takeover` lets one
+waiter log in after an explicit failed release.
 
 ## Snapshot synchronization
 
@@ -181,14 +187,19 @@ reconcile-delete; timestamp guards prevent older runs from overwriting or
 removing newer rows. Child rows must have their D1 parents. These guards do not
 make the entire import a single transaction.
 
-When `SNAPSHOTS_R2_ENABLED="true"`, the R2 wrapper buffers the report CSV before
-replaying it into D1, then archives it **after successful D1 sync**. It is not
-end-to-end bounded streaming. Archive writes are best-effort: an R2 failure
-neither rolls back D1 nor fails the table's completed sync. Daily CSV keys are
-overwritten by later same-day runs; a hash/size manifest accompanies the archive.
+Unless `SNAPSHOTS_R2_ENABLED` is `"false"` or the `SNAPSHOTS` binding is absent
+(the committed config sets it to `"true"` with the binding), the R2 wrapper buffers
+the report CSV before replaying it into D1, then archives it **after successful D1 sync**.
+It is not end-to-end bounded streaming. Archive writes are best-effort: an R2 failure
+neither rolls back D1 nor fails the table's completed sync. Each run writes an immutable
+`snapshot-history/<date>/<timestamp>-<uuid>/<table>.csv` plus a per-run manifest, then
+overwrites the `snapshots/<date>/<table>.csv` alias, the date manifest and
+`snapshot-latest/<table>.json`. See [R2-RETENTION.md](R2-RETENTION.md) for the history
+and retention policy.
 
-`?dryRun=true` parses reports and returns would-be counts without D1 writes or
-reconcile-deletes, cache invalidation or R2 writes. It can read D1 for deletion
+`?dryRun=true` parses reports and returns would-be counts without D1 writes,
+reconcile-deletes or R2 writes. Neither dry-run nor real bulk sync/import evicts
+`caches.default` hydrated bundles. It can read D1 for deletion
 counts and skips FK validation because hypothetical parent writes are absent.
 This is still an upstream read, not an offline validation mode.
 
@@ -251,11 +262,8 @@ bearer middleware.
 - There is no dedicated cron-enabled flag in the handler.
   `SNAPSHOTS_R2_ENABLED` controls **archival only**, not whether cron runs.
 
-The resolver does not reject every non-bare input: empty query/fragment
-delimiters such as `https://shadow.example/#` can pass its parsed-component
-checks. Because the original string is then concatenated with the sync path,
-that example puts the path in a fragment and requests `/`, not `/api/v1/...`.
-Do not rely on malformed configuration always falling back safely.
+`resolveChainedBase` accepts only a bare http(s) origin; a path, userinfo, `?`
+or `#` (even empty) is rejected and selects the single-invocation fallback.
 
 `syncInFlight` skips overlapping scheduled bodies on the **same isolate**. It
 is not a distributed lock, does not cover manual syncs and is separate from
@@ -265,10 +273,12 @@ counts/status are best-effort persisted in `cron_sync_state` for readiness.
 Caught failures are logged rather than rethrown, so a platform event's success
 alone does not prove snapshots are fresh.
 
-**There is no `AuthSession.alarm()` or `setAlarm` at this implementation.**
-Session TTL checks and lock recovery happen on requests; Worker cron refreshes
-snapshots, not a separate DO alarm. The filename `CRON-SYNC-ALARM-RUNBOOK.md`
-refers to operational alerting, not a DO alarm implementation.
+The DO schedules an alarm at `expiresAtMs`; `alarm()` evicts expired cookie
+material and records an expiry tombstone so the next request refreshes
+proactively. Lock-TTL recovery stays request-driven, and a bounded `/takeover`
+lets one waiter log in after an explicit failed release. Worker cron refreshes
+snapshots, not the session. The filename `CRON-SYNC-ALARM-RUNBOOK.md`
+refers to operational alerting, not this DO alarm implementation.
 
 These are repository configuration/implementation facts, not evidence of the
 live deployment's trigger, overrides, data freshness or capacity.
