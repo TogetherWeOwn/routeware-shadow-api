@@ -32,6 +32,7 @@
     "db:seed": "node scripts/db-seed.mjs",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
+    "pretypecheck": "npm run types",
     "typecheck": "tsc --noEmit",
     "lint": "node scripts/check-console-usage.mjs",
     "test": "npm run test:probe && vitest run",
