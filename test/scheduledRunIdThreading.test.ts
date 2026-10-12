@@ -246,6 +246,43 @@ describe("runDataSnapshotSyncChainedHttp x-run-id header", () => {
   });
 });
 
+describe("scheduled() chained path sends one runId on every subrequest", () => {
+  it("stamps the minted runId on each per-table subrequest and on every scheduled line", async () => {
+    // Arrange — SHADOW_API_PUBLIC_BASE set: the chained-HTTP path.
+    const seen: Record<string, string>[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      seen.push({ ...(init.headers as Record<string, string>) });
+      return new Response(JSON.stringify({ upserted: 3, rowCount: 3 }), {
+        status: 200
+      });
+    });
+    const chainedEnv = {
+      ...configuredEnv(),
+      SHADOW_API_PUBLIC_BASE: "https://api.example.test"
+    } as unknown as Env;
+    const { ctx, settled } = fakeCtx();
+
+    // Act
+    await scheduled(controllerWith("2026-09-27T07:00:00.000Z"), chainedEnv, ctx);
+    await settled();
+
+    // Assert — one id minted per invocation, carried to all three tables.
+    expect(seen).toHaveLength(3);
+    const runId = seen[0]["x-run-id"];
+    expect(runId).toMatch(UUID_RE);
+    for (const headers of seen) {
+      expect(headers["x-run-id"]).toBe(runId);
+    }
+    const scheduledLines = [...logs, ...warns, ...errors].filter((l) =>
+      String(l.route ?? "").startsWith("scheduled.")
+    );
+    expect(scheduledLines.some((l) => l.msg === "data-snapshot-sync")).toBe(true);
+    for (const line of scheduledLines) {
+      expect(line.runId).toBe(runId);
+    }
+  });
+});
+
 describe("R2 archive leg runId threading", () => {
   it("carries runId onto the archive-disabled line", async () => {
     // Arrange — archive off, so the leg logs once and runs D1 only.
@@ -273,5 +310,39 @@ describe("R2 archive leg runId threading", () => {
       msg: "R2 snapshot archive disabled",
       runId: RUN_ID
     });
+  });
+
+  it("carries runId onto the put-failed line", async () => {
+    // Arrange — archive on, the CSV put rejects: the failed-archive line.
+    const env = {
+      SNAPSHOTS: {
+        put: async () => {
+          throw new Error("R2 unavailable");
+        }
+      }
+    } as unknown as Env;
+    let reported: unknown;
+
+    // Act
+    const result = await archiveReportCsvToR2AfterD1(
+      env,
+      "customer",
+      stringToUint8Stream("CustomerID\n1\n"),
+      async () => ({ upserted: 1, rowCount: 1 }),
+      (d) => {
+        reported = d;
+      },
+      RUN_ID
+    );
+
+    // Assert
+    expect(result).toEqual({ upserted: 1, rowCount: 1 });
+    expect(reported).toMatchObject({ status: "failed" });
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        msg: "R2 snapshot put failed",
+        runId: RUN_ID
+      })
+    );
   });
 });
