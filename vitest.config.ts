@@ -1,5 +1,19 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import os from "node:os";
 import { defineConfig } from "vitest/config";
+
+/**
+ * Local worker cap (TOG-19021). An uncapped `vitest run --coverage` spawns a
+ * worker per core, and each workers-pool worker boots its own workerd
+ * instance under istanbul instrumentation; on a loaded host the oversubscribed
+ * workers stall past the 30s timeout (same family as TOG-7666: uncapped local
+ * run failed `test/authThrottle.test.ts` "brute-forcing a bad token" at 30s
+ * while the same file passes alone in ~3.6s). Halving the core count leaves
+ * headroom for the host's other load while keeping most of the parallelism.
+ * CI keeps its own cap of 2 (self-hosted runners share each box between jobs).
+ * The vitest CLI `--maxWorkers` flag still overrides this default.
+ */
+const localMaxWorkers = Math.max(1, Math.floor(os.cpus().length / 2));
 
 export default defineConfig({
   plugins: [
@@ -19,18 +33,21 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     /**
-     * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
-     * spawns a worker per core per CI job, and several CI jobs share each
-     * self-hosted runner; under istanbul instrumentation the workers-pool
-     * tests then stall past the 30s timeout (red main 3657b4f, run
-     * 36357586974: 7 files, every failure a timeout; PR #85 the same).
-     * Capping at 2 workers cleared it with no test, assertion or timeout
-     * change (PR #89: the unrestricted run timed out 2 throttle tests, the
-     * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
-     * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
-     * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+     * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
+     * `vitest run --coverage` spawns a worker per core per job, and several
+     * CI jobs share each self-hosted runner; under istanbul instrumentation
+     * the workers-pool tests then stall past the 30s timeout (red main
+     * 3657b4f, run 36357586974: 7 files, every failure a timeout; PR #85 the
+     * same). Capping at 2 workers cleared it with no test, assertion or
+     * timeout change (PR #89: the unrestricted run timed out 2 throttle
+     * tests, the `--maxWorkers=2` rerun passed 78 files / 1,128 tests).
+     * Local runs cap at half the core count (`localMaxWorkers` above) for
+     * the same reason: an uncapped local run failed
+     * `test/authThrottle.test.ts` "brute-forcing a bad token" at the 30s
+     * timeout while the file passes alone in ~3.6s. GitHub Actions always
+     * sets CI=true. Pinned by `npm run check:ci-workflow`.
      */
-    maxWorkers: process.env.CI ? 2 : undefined,
+    maxWorkers: process.env.CI ? 2 : localMaxWorkers,
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.

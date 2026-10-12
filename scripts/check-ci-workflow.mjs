@@ -79,14 +79,20 @@ assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a self-hosted runner with other CI jobs
-// (red main 3657b4f). The cap lives in vitest.config.ts, gated on CI so
-// local runs keep full speed. Pin it present so a config edit can never
-// silently uncap CI.
+// (red main 3657b4f). The CI cap lives in vitest.config.ts, gated on CI.
+// TOG-19021: local runs cap at half the core count instead of uncapped, for
+// the same oversubscription reason. Pin both present so a config edit can
+// never silently uncap CI or local.
 const vitestConfig = await readFile(new URL("../vitest.config.ts", import.meta.url), "utf8");
 assert.match(
   vitestConfig,
-  /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*undefined/,
-  "vitest.config.ts must cap maxWorkers at 2 on CI (TOG-7666)",
+  /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
+  "vitest.config.ts must cap maxWorkers at 2 on CI and localMaxWorkers locally (TOG-7666/TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /localMaxWorkers\s*=\s*Math\.max\(1,\s*Math\.floor\(os\.cpus\(\)\.length\s*\/\s*2\)\)/,
+  "vitest.config.ts must default local maxWorkers to half the core count (TOG-19021)",
 );
 
 const hygiene = jobBlock("hygiene");

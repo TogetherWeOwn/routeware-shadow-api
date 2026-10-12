@@ -71,6 +71,38 @@ change.** This is a measurement correction, and it is the one time these floors 
 
 ---
 
+## Worker caps — why local runs don't use every core
+
+`vitest.config.ts` sets `maxWorkers` to **2 on CI** (`process.env.CI`, which GitHub
+Actions always sets) and to **half the core count locally**
+(`Math.max(1, Math.floor(os.cpus().length / 2))`). Both caps exist for the same
+reason: **worker oversubscription under istanbul instrumentation**.
+
+Each workers-pool worker boots its own workerd instance, and istanbul
+instrumentation adds ~65% to run time. An uncapped `vitest run --coverage`
+spawns a worker per core, so on a loaded host the workers contend past the 30s
+`testTimeout` and tests fail with timeouts that reproduce neither alone nor on
+an idle box:
+
+- **CI (TOG-7666):** several CI jobs share each self-hosted runner; the
+  unrestricted run stalled 7 files, every failure a timeout (red main
+  `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
+  no test, assertion or timeout change (PR #89: unrestricted timed out 2
+  throttle tests, `--maxWorkers=2` passed 78 files / 1,128 tests).
+- **Local (TOG-19021):** one uncapped local `vitest run --coverage` failed
+  `test/authThrottle.test.ts` ("brute-forcing a bad token") at the 30s
+  timeout while the same file passes alone in ~3.6s. Halving the core count
+  leaves headroom for whatever else the host is doing while keeping most of
+  the parallelism.
+
+Do not "restore full speed" by uncapping either side: a timeout failure after
+such a change is the cap doing its job, not a slow test. To override once,
+pass `--maxWorkers` on the vitest CLI (it wins over the config default), and
+if the new value proves stable, change `localMaxWorkers` instead so
+`npm run check:ci-workflow` keeps pinning the invariant.
+
+---
+
 ## Per-file invariants
 
 ### `dataEntityHandlers.ts` — 93.4% statements / 100% functions
