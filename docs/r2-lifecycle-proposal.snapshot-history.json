@@ -1,0 +1,14 @@
+{
+  "Rules": [
+    {
+      "ID": "snapshot-history-30d-expiry",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "snapshot-history/"
+      },
+      "Expiration": {
+        "Days": 30
+      }
+    }
+  ]
+}

@@ -33,10 +33,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=summary-contract-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=summary-contract-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 

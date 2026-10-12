@@ -202,10 +202,37 @@ describe("throttle DO endpoints", () => {
       storage: {
         get: async <T>(key: string): Promise<T | undefined> =>
           store.get(key) as T | undefined,
-        put: async (key: string, value: unknown): Promise<void> => {
-          store.set(key, value);
+        put: async (key: string | Record<string, unknown>, value?: unknown): Promise<void> => {
+          if (typeof key === "string") store.set(key, value as unknown);
+          else for (const [k, v] of Object.entries(key)) store.set(k, v);
         },
-        delete: async (key: string): Promise<boolean> => store.delete(key)
+        delete: async (key: string | string[]): Promise<boolean | number> => {
+          if (typeof key === "string") return store.delete(key);
+          return key.reduce((n, k) => n + Number(store.delete(k)), 0);
+        },
+        getAlarm: async (): Promise<number | null> => null,
+        setAlarm: async (): Promise<void> => {},
+        deleteAlarm: async (): Promise<void> => {},
+        transaction: async <T>(cb: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
+          cb(
+            {
+              get: async <T>(k: string) => store.get(k) as T | undefined,
+              put: async (k: string | Record<string, unknown>, v?: unknown) => {
+                if (typeof k === "string") store.set(k, v as unknown);
+                else for (const [kk, vv] of Object.entries(k)) store.set(kk, vv);
+              },
+              delete: async (k: string | string[]) => {
+                if (typeof k === "string") return store.delete(k);
+                return k.reduce((n, kk) => n + Number(store.delete(kk)), 0);
+              },
+              getAlarm: async () => null,
+              setAlarm: async () => {},
+              deleteAlarm: async () => {}
+            } as unknown as DurableObjectTransaction
+          )
+      },
+      blockConcurrencyWhile: async (cb: () => Promise<unknown>) => {
+        await cb();
       }
     } as unknown as DurableObjectState;
   }
