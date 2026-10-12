@@ -19,8 +19,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: pr-lint-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: true
+  # Per-PR group (TOG-23109): PR number for pull_request events, ref fallback
+  # otherwise (sha would make every push a unique group, so nothing would
+  # ever cancel). Cancel only on pull_request; push-to-main never cancels.
+  group: pr-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   REQUIRE_CARD_REF: "true"

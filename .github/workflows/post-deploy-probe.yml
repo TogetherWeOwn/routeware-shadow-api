@@ -15,8 +15,10 @@ permissions:
   contents: read
 
 concurrency:
+  # Schedule/dispatch-only workflow (TOG-23109): never cancel — an in-flight
+  # probe is the alert path, and there is no pull_request trigger.
   group: post-deploy-probe-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   probe:
