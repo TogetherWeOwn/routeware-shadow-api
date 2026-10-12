@@ -14,7 +14,7 @@ import { sessionExpiryMs } from "../src/lib/sessionState";
 /** Must match LOCK_TTL_MS in src/authSession.do.ts. */
 const LOCK_TTL_MS = 120_000;
 
-type StoredValue = string | number | boolean;
+type StoredValue = string | number | boolean | object;
 
 /** Minimal in-memory stand-in for the subset of DurableObjectState the DO uses. */
 function fakeState(): DurableObjectState {
@@ -47,6 +47,7 @@ type SessionSnapshot = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
   refreshing: boolean;
+  jar?: Array<Record<string, unknown>> | null;
 };
 
 async function readState(session: AuthSession): Promise<SessionSnapshot> {
@@ -64,7 +65,12 @@ describe("AuthSession Durable Object", () => {
       const state = await readState(session);
 
       // Assert
-      expect(state).toEqual({ cookieHeader: null, expiresAtMs: null, refreshing: false });
+      expect(state).toEqual({
+        cookieHeader: null,
+        expiresAtMs: null,
+        refreshing: false,
+        jar: null
+      });
     });
   });
 
@@ -85,7 +91,8 @@ describe("AuthSession Durable Object", () => {
       expect(await readState(session)).toEqual({
         cookieHeader: ".WebRW=cookie-a",
         expiresAtMs,
-        refreshing: false
+        refreshing: false,
+        jar: null
       });
     });
 
@@ -124,7 +131,8 @@ describe("AuthSession Durable Object", () => {
       expect(await readState(session)).toEqual({
         cookieHeader: null,
         expiresAtMs: null,
-        refreshing: false
+        refreshing: false,
+        jar: null
       });
     });
 
@@ -155,6 +163,54 @@ describe("AuthSession Durable Object", () => {
 
       // Assert
       expect((await readState(session)).cookieHeader).toBe(".WebRW=new");
+    });
+
+    it("round-trips a scoped jar (TOG-6529)", async () => {
+      // Arrange — scoped entries as storeSession writes them (FAKE values only).
+      const session = makeSession();
+      const jar = [
+        {
+          name: ".WebRW",
+          value: "FAKE-SESSION",
+          domain: "killeen.routeware.com",
+          hostOnly: true,
+          path: "/",
+          expiresAtMs: null,
+          secure: false
+        }
+      ];
+
+      // Act
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=FAKE-SESSION",
+        expiresAtMs: 1_900_000_000_000,
+        jar
+      });
+
+      // Assert
+      expect(response.status).toBe(200);
+      expect((await readState(session)).jar).toEqual(jar);
+    });
+
+    it("rejects a malformed jar with 400 instead of storing it (TOG-6529)", async () => {
+      // Arrange
+      const session = makeSession();
+
+      // Act — a jar entry with a missing domain is not a storable session.
+      const response = await call(session, "/set", {
+        cookieHeader: ".WebRW=x",
+        expiresAtMs: 1,
+        jar: [{ name: ".WebRW", value: "x", path: "/", expiresAtMs: null, secure: false }]
+      });
+
+      // Assert — rejected, and nothing was persisted
+      expect(response.status).toBe(400);
+      expect(await readState(session)).toEqual({
+        cookieHeader: null,
+        expiresAtMs: null,
+        refreshing: false,
+        jar: null
+      });
     });
   });
 

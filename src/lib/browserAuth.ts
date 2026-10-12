@@ -1,4 +1,5 @@
 import puppeteer from "@cloudflare/puppeteer";
+import { cookieHeaderFrom, fromBrowserCookies } from "./cookieJar";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 
@@ -72,10 +73,11 @@ export async function establishSessionWithBrowser(
       );
     }
 
-    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    const jar = fromBrowserCookies(cookies);
+    const cookieHeader = cookieHeaderFrom(jar);
     const expiresAtMs = sessionExpiryMs(env);
 
-    await storeSession(stub, cookieHeader, expiresAtMs);
+    await storeSession(stub, cookieHeader, expiresAtMs, jar);
   } catch (err) {
     // The refresh lock is released by `establishSession`, which owns it.
     console.error("BROWSER AUTH ERROR", err);

@@ -5,10 +5,21 @@ import {
   type AuthThrottleState
 } from "./lib/authThrottle";
 
+type StoredJarCookie = {
+  name: string;
+  value: string;
+  domain: string;
+  hostOnly: boolean;
+  path: string;
+  expiresAtMs: number | null;
+  secure: boolean;
+};
+
 type SessionState = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
   refreshing: boolean;
+  jar?: StoredJarCookie[] | null;
 };
 
 /**
@@ -23,7 +34,36 @@ type SessionState = {
  */
 export const LOCK_TTL_MS = 120_000;
 
-type StoredSession = { cookieHeader: string; expiresAtMs: number };
+type StoredSession = {
+  cookieHeader: string;
+  expiresAtMs: number;
+  jar?: StoredJarCookie[];
+};
+
+/**
+ * Narrow an unknown stored value to a scoped jar entry. Anything malformed
+ * is dropped (not fatal) — the forward path falls back to the unscoped
+ * `cookieHeader` when no usable jar entry survives.
+ */
+function isJarCookie(value: unknown): value is StoredJarCookie {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const c = value as Record<string, unknown>;
+  return (
+    typeof c.name === "string" &&
+    c.name.length > 0 &&
+    typeof c.value === "string" &&
+    typeof c.domain === "string" &&
+    c.domain.length > 0 &&
+    typeof c.hostOnly === "boolean" &&
+    typeof c.path === "string" &&
+    c.path.startsWith("/") &&
+    (c.expiresAtMs === null ||
+      (typeof c.expiresAtMs === "number" && Number.isFinite(c.expiresAtMs))) &&
+    typeof c.secure === "boolean"
+  );
+}
 
 /**
  * Validate a `/set` payload before it reaches storage. `req.json()` is `unknown`,
@@ -35,12 +75,18 @@ function parseSetBody(body: unknown): StoredSession | null {
   if (typeof body !== "object" || body === null) {
     return null;
   }
-  const { cookieHeader, expiresAtMs } = body as Record<string, unknown>;
+  const { cookieHeader, expiresAtMs, jar } = body as Record<string, unknown>;
   if (typeof cookieHeader !== "string" || cookieHeader.length === 0) {
     return null;
   }
   if (typeof expiresAtMs !== "number" || !Number.isFinite(expiresAtMs)) {
     return null;
+  }
+  if (jar !== undefined && jar !== null) {
+    if (!Array.isArray(jar) || !jar.every(isJarCookie)) {
+      return null;
+    }
+    return { cookieHeader, expiresAtMs, jar };
   }
   return { cookieHeader, expiresAtMs };
 }
@@ -78,7 +124,8 @@ export class AuthSession {
       const data: SessionState = {
         cookieHeader: (await this.state.storage.get("cookieHeader")) ?? null,
         expiresAtMs: (await this.state.storage.get("expiresAtMs")) ?? null,
-        refreshing: (await this.state.storage.get("refreshing")) ?? false
+        refreshing: (await this.state.storage.get("refreshing")) ?? false,
+        jar: (await this.state.storage.get("jar")) ?? null
       };
       return Response.json(data);
     }
@@ -93,6 +140,11 @@ export class AuthSession {
 
       await this.state.storage.put("cookieHeader", session.cookieHeader);
       await this.state.storage.put("expiresAtMs", session.expiresAtMs);
+      if (session.jar) {
+        await this.state.storage.put("jar", session.jar);
+      } else {
+        await this.state.storage.delete("jar");
+      }
       await this.state.storage.put("refreshing", false);
       await this.state.storage.delete("lockedAt");
       return new Response("OK");

@@ -1,7 +1,14 @@
+import type { CookieJar } from "./cookieJar";
+
 export type SessionState = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
   refreshing: boolean;
+  /**
+   * Scoped jar entries (TOG-6529). Absent/null for sessions stored before
+   * scoped storage — readers fall back to the unscoped `cookieHeader`.
+   */
+  jar?: CookieJar | null;
 };
 
 export async function readSessionState(
@@ -31,4 +38,24 @@ export function sessionExpiryMs(env: Env, nowMs: number = Date.now()): number {
     );
   }
   return nowMs + ttlSeconds * MS_PER_SECOND;
+}
+
+/**
+ * Current session TTL in ms, or `null` when `SESSION_TTL_SECONDS` is absent
+ * or unparseable.
+ *
+ * Unlike `sessionExpiryMs` (which throws — correct at login time, where a loud
+ * failure beats a Worker that quietly stops refreshing), the read path must
+ * never hard-fail traffic on a bad value: the next login attempt already fails
+ * loudly via `sessionExpiryMs`, so readers fall back to the stored expiry
+ * alone (the pre-TOG-6528 behavior).
+ */
+export function readSessionTtlMs(
+  env: Pick<Env, "SESSION_TTL_SECONDS">
+): number | null {
+  const ttlSeconds = Number(env.SESSION_TTL_SECONDS);
+  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    return null;
+  }
+  return ttlSeconds * MS_PER_SECOND;
 }

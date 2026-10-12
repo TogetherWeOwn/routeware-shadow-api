@@ -1,4 +1,5 @@
 import type { SessionState } from "./sessionState";
+import { cookieHeaderForUrl } from "./cookieJar";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import {
   DEFAULT_UPSTREAM_TIMEOUT_MS,
@@ -48,7 +49,19 @@ export async function forwardToUpstream(
     headers.set("X-Routeware-Shadow-Internal", options.internalMarker);
   }
 
-  if (session?.cookieHeader) {
+  // TOG-6529: a stored jar is authoritative — only in-scope, unexpired
+  // cookies for this URL. When the jar exists but nothing is in scope,
+  // NO Cookie header is sent (falling back to the unscoped header here
+  // would replay exactly the out-of-scope cookies this fixes; the
+  // login-redirect retry then re-establishes). The legacy unscoped header
+  // is used only for sessions stored before scoped storage existed.
+  const jar = session?.jar;
+  if (jar && jar.length > 0) {
+    const scoped = cookieHeaderForUrl(jar, upstreamUrl);
+    if (scoped) {
+      headers.set("Cookie", scoped);
+    }
+  } else if (session?.cookieHeader) {
     headers.set("Cookie", session.cookieHeader);
   }
 

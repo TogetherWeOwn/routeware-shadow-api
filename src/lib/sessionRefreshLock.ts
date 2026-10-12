@@ -1,6 +1,7 @@
 import { LOCK_TTL_MS } from "../authSession.do";
 import { problemJsonResponse, problemType } from "./problem";
 import { readSessionState } from "./sessionState";
+import type { CookieJar } from "./cookieJar";
 
 /**
  * Refresh-lock helpers for the `AuthSession` Durable Object.
@@ -95,11 +96,14 @@ export async function releaseRefreshLock(stub: DurableObjectStub): Promise<void>
 export async function storeSession(
   stub: DurableObjectStub,
   cookieHeader: string,
-  expiresAtMs: number
+  expiresAtMs: number,
+  jar?: CookieJar | null
 ): Promise<void> {
   const response = await stub.fetch("https://auth/set", {
     method: "POST",
-    body: JSON.stringify({ cookieHeader, expiresAtMs })
+    body: JSON.stringify(
+      jar && jar.length > 0 ? { cookieHeader, expiresAtMs, jar } : { cookieHeader, expiresAtMs }
+    )
   });
   if (!response.ok) {
     throw new Error(

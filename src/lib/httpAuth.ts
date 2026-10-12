@@ -1,7 +1,14 @@
+import { LoginPageUnavailableError } from "./loginPageError";
 import { storeSession } from "./sessionRefreshLock";
 import { sessionExpiryMs } from "./sessionState";
 import { applyBrowserHeaders } from "./upstreamHeaders";
 import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeout";
+import {
+  cookieHeaderForUrl,
+  cookieHeaderFrom,
+  mergeSetCookies,
+  type CookieJar
+} from "./cookieJar";
 
 /**
  * Browser-free Routeware login. The WebRW login is a plain form POST (captured
@@ -14,22 +21,15 @@ import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeo
  * local dev proxy. `establishSessionWithBrowser` remains the fallback.
  */
 
-type Jar = Record<string, string>;
+export type { CookieJar } from "./cookieJar";
+export { LoginPageUnavailableError } from "./loginPageError";
 
-function mergeSetCookies(jar: Jar, res: Response): void {
-  const list = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
-  for (const sc of list) {
-    const m = /^([^=;]+)=([^;]*)/.exec(sc);
-    if (m) {
-      jar[m[1].trim()] = m[2];
-    }
-  }
+function jarCookies(jar: CookieJar): string[] {
+  return jar.map((c) => c.name);
 }
 
-function cookieHeaderFrom(jar: Jar): string {
-  return Object.entries(jar)
-    .map(([k, v]) => `${k}=${v}`)
-    .join("; ");
+function jarHas(jar: CookieJar, name: string): boolean {
+  return jar.some((c) => c.name === name);
 }
 
 /** Extract the anti-forgery token from the Ext.NET init script (or login HTML). */
@@ -51,7 +51,7 @@ export type HttpLoginResult = {
   ok: boolean;
   loginStatus: number;
   cookieNames: string[];
-  jar: Jar;
+  jar: CookieJar;
   note?: string;
 };
 
@@ -63,7 +63,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     throw new Error("LOGIN_USERNAME / LOGIN_PASSWORD are not set.");
   }
   const origin = new URL(env.TARGET_ORIGIN).origin;
-  const jar: Jar = {};
+  const jar: CookieJar = [];
   // Bounded per-attempt budget (TOG-5835): a hung login host throws
   // `UpstreamTimeoutError` (a fixed PII-free string) instead of burning the
   // 300s CPU limit. No retry here — the caller (`forwardWithSessionRetry`)
@@ -78,22 +78,34 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     { headers: h1, redirect: "manual" },
     timeoutMs
   );
-  mergeSetCookies(jar, pageRes);
+  // Fail fast on a WAF/maintenance block (TOG-6536): without this, a
+  // non-200 page falls through to "token not found", which `establishSession`
+  // misreads as a markup change and answers with expensive Browser Rendering
+  // retries. The status (a fixed number) is safe for logs and 502s.
+  if (!pageRes.ok) {
+    throw new LoginPageUnavailableError(pageRes.status, "login page");
+  }
+  mergeSetCookies(jar, pageRes, env.LOGIN_URL);
   const html = await pageRes.text();
 
   // 2) GET the Ext.NET init script (same session) for the anti-forgery token.
   let token = extractAntiForgeryFromExtNet(html);
   const ax = /\/[\w/-]*extnet-init-js\/ext\.axd\?[a-f0-9]+/i.exec(html);
   if (!token && ax) {
+    const axUrl = new URL(ax[0], origin).toString();
     const h2 = new Headers();
     applyBrowserHeaders(h2, origin);
-    if (Object.keys(jar).length) h2.set("Cookie", cookieHeaderFrom(jar));
+    const axCookies = cookieHeaderForUrl(jar, axUrl);
+    if (axCookies) h2.set("Cookie", axCookies);
     const axRes = await fetchWithUpstreamTimeout(
-      new URL(ax[0], origin).toString(),
+      axUrl,
       { headers: h2, redirect: "manual" },
       timeoutMs
     );
-    mergeSetCookies(jar, axRes);
+    if (!axRes.ok) {
+      throw new LoginPageUnavailableError(axRes.status, "init script");
+    }
+    mergeSetCookies(jar, axRes, axUrl);
     token = extractAntiForgeryFromExtNet(await axRes.text());
   }
   if (!token) {
@@ -111,7 +123,8 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   h3.set("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
   h3.set("X-Requested-With", "XMLHttpRequest");
   h3.set("Referer", env.LOGIN_URL);
-  if (Object.keys(jar).length) h3.set("Cookie", cookieHeaderFrom(jar));
+  const loginCookies = cookieHeaderForUrl(jar, env.LOGIN_URL);
+  if (loginCookies) h3.set("Cookie", loginCookies);
   const loginRes = await fetchWithUpstreamTimeout(
     env.LOGIN_URL,
     {
@@ -122,10 +135,10 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     },
     timeoutMs
   );
-  mergeSetCookies(jar, loginRes);
+  mergeSetCookies(jar, loginRes, env.LOGIN_URL);
 
-  const ok = Boolean(jar[".WebRW"] && jar["RCCApi"] && jar["RCCApiRefresh"]);
-  return { ok, loginStatus: loginRes.status, cookieNames: Object.keys(jar), jar };
+  const ok = jarHas(jar, ".WebRW") && jarHas(jar, "RCCApi") && jarHas(jar, "RCCApiRefresh");
+  return { ok, loginStatus: loginRes.status, cookieNames: [...new Set(jarCookies(jar))], jar };
 }
 
 /** Establish a session over HTTP and store it in the AuthSession Durable Object. */
@@ -141,5 +154,5 @@ export async function establishSessionViaHttp(
   }
   const cookieHeader = cookieHeaderFrom(result.jar);
   const expiresAtMs = sessionExpiryMs(env);
-  await storeSession(stub, cookieHeader, expiresAtMs);
+  await storeSession(stub, cookieHeader, expiresAtMs, result.jar);
 }

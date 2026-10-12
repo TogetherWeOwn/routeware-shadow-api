@@ -35,6 +35,43 @@ function session(cookieHeader: string): SessionState {
   return { cookieHeader, expiresAtMs: Date.now() + 60_000, refreshing: false };
 }
 
+function scopedSession(): SessionState {
+  return {
+    cookieHeader: ".WebRW=stored; scoped=stored-path; expired=stored-dead",
+    expiresAtMs: Date.now() + 60_000,
+    refreshing: false,
+    jar: [
+      {
+        name: ".WebRW",
+        value: "stored",
+        domain: "killeen.routeware.com",
+        hostOnly: true,
+        path: "/",
+        expiresAtMs: null,
+        secure: false
+      },
+      {
+        name: "scoped",
+        value: "stored-path",
+        domain: "killeen.routeware.com",
+        hostOnly: true,
+        path: "/WebRW/Reports",
+        expiresAtMs: null,
+        secure: false
+      },
+      {
+        name: "expired",
+        value: "stored-dead",
+        domain: "killeen.routeware.com",
+        hostOnly: true,
+        path: "/",
+        expiresAtMs: Date.now() - 1,
+        secure: false
+      }
+    ]
+  };
+}
+
 describe("forwardToUpstream", () => {
   const originalFetch = globalThis.fetch;
 
@@ -147,6 +184,48 @@ describe("forwardToUpstream", () => {
 
       // Assert
       expect(calls[0]?.headers.get("Cookie")).toBe(".WebRW=stored");
+    });
+
+    it("sends only the in-scope, unexpired jar cookies for the URL (TOG-6529)", async () => {
+      // Arrange — the legacy header carries all three; the jar scopes them.
+      const calls = stubUpstream(new Response("ok"));
+      const incoming = new Request("http://test.local/api/v1/routeware/home/index");
+
+      // Act
+      await forwardToUpstream(incoming, UPSTREAM_URL, scopedSession(), null);
+
+      // Assert — path-scoped and expired cookies stay home.
+      expect(calls[0]?.headers.get("Cookie")).toBe(".WebRW=stored");
+    });
+
+    it("sends no Cookie header when the jar exists but nothing is in scope (TOG-6529)", async () => {
+      // Arrange — falling back to the legacy header here would replay exactly
+      // the out-of-scope cookies this fixes; the login-redirect retry then
+      // re-establishes instead.
+      const calls = stubUpstream(new Response("ok"));
+      const incoming = new Request("http://test.local/api/v1/routeware/home/index");
+      const outOfScope: SessionState = {
+        cookieHeader: "scoped=stored-path",
+        expiresAtMs: Date.now() + 60_000,
+        refreshing: false,
+        jar: [
+          {
+            name: "scoped",
+            value: "stored-path",
+            domain: "killeen.routeware.com",
+            hostOnly: true,
+            path: "/WebRW/Reports",
+            expiresAtMs: null,
+            secure: false
+          }
+        ]
+      };
+
+      // Act
+      await forwardToUpstream(incoming, UPSTREAM_URL, outOfScope, null);
+
+      // Assert
+      expect(calls[0]?.headers.get("Cookie")).toBeNull();
     });
   });
 
