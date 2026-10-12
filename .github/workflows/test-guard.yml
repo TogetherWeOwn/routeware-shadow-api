@@ -27,4 +27,7 @@ jobs:
   # Keep id and name byte-identical: a future org ruleset requires `test-guard`.
   test-guard:
     name: test-guard
-    uses: TogetherWeOwn/.github/.github/workflows/test-guard.yml@3fffeb9f9465f371763fcc3c789ed4baefe38f95
+    uses: TogetherWeOwn/.github/.github/workflows/test-guard.yml@866275517a9875f02110f946411401db8907ec8a
+    # Private repo: no GitHub-hosted minutes; the gate runs on the GARM pool.
+    with:
+      runs-on-json: '["self-hosted","two-selfhosted"]'
