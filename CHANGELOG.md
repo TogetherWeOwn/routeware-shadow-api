@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
+  for having more than 5,000 addresses or 40,000 containers. It skips only
+  when the graph needs more than 900 D1 operations in one request, checked
+  before the first write so D1 is left untouched. The 8 MiB response cap
+  still applies, and graphs within budget now refresh D1 in full.
+
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit
   failed release, one queued waiter may take over with a single bounded fresh

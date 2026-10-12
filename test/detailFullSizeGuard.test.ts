@@ -1,16 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-5937: the per-customer `GetCustomerDetailFull` fetch is unbounded by
- * design — upstream takes no paging parameters — so the sync path carries
- * explicit size guards instead. Past the guard the fetch/sync throws BEFORE
- * buffering the graph into the 128 MB isolate or fanning out D1/cache ops;
- * the POST handlers already catch sync errors and fall back to coarse cache
- * invalidation, so an oversized graph degrades to "D1 refresh skipped".
- *
- * Limits are 10x the proven-lossless 500-address x 8-container scale pinned in
- * `test/detailFullScaleSync.test.ts`. These tests pin the guard behaviour at
- * and just past each ceiling.
+ * TOG-5937 / R2-18: upstream `GetCustomerDetailFull` takes no paging
+ * parameters, so the sync path guards two things. The response byte cap bounds
+ * isolate memory before parsing. The D1 op budget bounds write fan-out and is
+ * checked before the first write, so an over-budget graph leaves D1 untouched
+ * rather than half-written. Row counts alone do not refuse a graph.
  */
 
 const calls: {
@@ -60,8 +55,7 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
 }));
 
 const {
-  DETAIL_FULL_MAX_ADDRESSES,
-  DETAIL_FULL_MAX_CONTAINERS,
+  DETAIL_FULL_MAX_D1_OPS,
   DETAIL_FULL_MAX_RESPONSE_BYTES,
   fetchGetCustomerDetailFull,
   syncCustomerDetailFullToD1
@@ -81,6 +75,18 @@ function json(payload: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" }
   });
+}
+
+/** One address carrying `n` containers. */
+function containerGraph(n: number) {
+  const containers: Array<Record<string, unknown>> = [];
+  for (let k = 1; k <= n; k += 1) {
+    containers.push({ ContainerID: k, PickupAddressID: 1001 });
+  }
+  return {
+    currentCustomer: { CustomerID: 5 },
+    data: [{ PickupAddressID: 1001, CustomerID: 5, Containers: containers }]
+  };
 }
 
 /** Minimal graph of `n` addresses with no containers. */
@@ -103,16 +109,41 @@ beforeEach(() => {
 });
 
 describe("detail-full size guards", () => {
-  it("fetches and syncs a graph exactly at the address ceiling", async () => {
+  it("syncs a large-but-legit graph past the old address ceiling in full", async () => {
     // Arrange
-    behavior.responses = [() => json(addressOnlyGraph(DETAIL_FULL_MAX_ADDRESSES))];
+    behavior.responses = [() => json(addressOnlyGraph(5_001))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
-    // Assert — the ceiling itself is still a servable graph.
-    expect(result.addressIds).toHaveLength(DETAIL_FULL_MAX_ADDRESSES);
+    // Assert — 5,001 addresses are 65 ops (customer + 63 address batches + reconcile).
+    expect(result.addressIds).toHaveLength(5_001);
+    expect(calls.addresses.flat()).toHaveLength(5_001);
     expect(calls.customers).toHaveLength(1);
+  });
+
+  it("syncs a graph past the old container ceiling in full", async () => {
+    // Arrange — 40,001 containers is 804 ops, inside the budget.
+    behavior.responses = [() => json(containerGraph(40_001))];
+
+    // Act
+    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
+
+    // Assert
+    expect(result.containerIds).toHaveLength(40_001);
+    expect(calls.containers.flat()).toHaveLength(40_001);
+  });
+
+  it("syncs the largest graph that fits the D1 op budget", async () => {
+    // Arrange — 1 customer + 1 address batch + 897 container batches + 1 reconcile = 900 ops.
+    behavior.responses = [() => json(containerGraph(44_850))];
+
+    // Act
+    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
+
+    // Assert
+    expect(DETAIL_FULL_MAX_D1_OPS).toBe(900);
+    expect(result.containerIds).toHaveLength(44_850);
   });
 
   it("refuses an oversized response body before parsing it", async () => {
@@ -133,12 +164,12 @@ describe("detail-full size guards", () => {
     expect(error.message).toContain("customer 5");
   });
 
-  it("refuses a graph past the address ceiling without writing a partial graph", async () => {
-    // Arrange
-    behavior.responses = [() => json(addressOnlyGraph(DETAIL_FULL_MAX_ADDRESSES + 1))];
+  it("refuses a graph one batch past the op budget without writing a partial graph", async () => {
+    // Arrange — 44,851 containers is 901 ops: one container batch over the budget.
+    behavior.responses = [() => json(containerGraph(44_851))];
 
-    // Act — the mapper throws before the first upsert, so D1 keeps the last
-    // good snapshot instead of a truncated one.
+    // Act — the budget is checked before the first upsert, so D1 keeps the
+    // last good snapshot instead of a truncated one.
     const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
       (e: unknown) => e
     )) as Error;
@@ -146,33 +177,9 @@ describe("detail-full size guards", () => {
     // Assert
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("too large");
+    expect(error.message).toContain("901 D1 ops");
     expect(calls.customers).toEqual([]);
     expect(calls.addresses).toEqual([]);
     expect(calls.containers).toEqual([]);
-  });
-
-  it("refuses a graph past the container ceiling", async () => {
-    // Arrange — one address carrying one container past the ceiling.
-    const containers: Array<Record<string, unknown>> = [];
-    for (let k = 1; k <= DETAIL_FULL_MAX_CONTAINERS + 1; k += 1) {
-      containers.push({ ContainerID: k, PickupAddressID: 1001 });
-    }
-    behavior.responses = [
-      () =>
-        json({
-          currentCustomer: { CustomerID: 5 },
-          data: [{ PickupAddressID: 1001, CustomerID: 5, Containers: containers }]
-        })
-    ];
-
-    // Act
-    const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
-      (e: unknown) => e
-    )) as Error;
-
-    // Assert
-    expect(error).toBeInstanceOf(Error);
-    expect(error.message).toContain("too large");
-    expect(calls.customers).toEqual([]);
   });
 });
