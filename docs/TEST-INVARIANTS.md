@@ -117,6 +117,21 @@ Mutation-verified six ways, including both casing swaps.
 
 Both mutation-verified.
 
+### Concurrent identical saves (TOG-8891)
+
+- `test/concurrentDuplicateSave.test.ts` fires 8 identical saves at once at each of the six save
+  routes (`/api/v1/routeware/{customer,address,container}/save-*` and
+  `POST /api/v1/data/{customer,address,container}`), through `app.fetch` with real D1 and the Cache
+  API. Every request answers 200, each is forwarded upstream exactly once, and D1 ends with one row
+  per id and the whole customer graph.
+- The newest-first case makes the sync with the newest `synced_at` write first. The older syncs that
+  land after it must neither overwrite it (the `synced_at <= excluded.synced_at` upsert guard) nor
+  delete it in `reconcileCustomerChildren`.
+- Identical creates are not deduplicated: Routeware takes no idempotency key, so 8 creates make 8
+  customers upstream. D1 mirrors exactly those 8, no more.
+
+Mutation-verified: dropping the upsert guard fails the newest-first case on all six routes.
+
 ### `upstreamTimeout.ts` / bounded upstream budgets (TOG-5835)
 
 `test/upstreamTimeout.test.ts` (11 tests) pins the retry-budget split the whole
