@@ -7,9 +7,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 - TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
   for having more than 5,000 addresses or 40,000 containers. It skips only
-  when the graph needs more than 900 D1 operations in one request, checked
-  before the first write so D1 is left untouched. The 8 MiB response cap
-  still applies, and graphs within budget now refresh D1 in full.
+  when the graph needs more than 900 D1 operations or more than 900 worst-case
+  cache invalidations (one `caches.default.delete` per graph id over up to two
+  invalidation passes) in one request — the Cache API shares the Workers
+  subrequest quota and caps at 1,000 calls per request, so the old caps would
+  have admitted graphs that exhaust the quota mid-request. Both budgets are
+  checked before the first write so D1 is left untouched. The 8 MiB response
+  cap still applies, and graphs within both budgets now refresh D1 in full.
+  The three `POST /api/v1/data/*` handlers also harden their post-save cache
+  eviction: an eviction failure after a successful upstream save is logged
+  server-side and keeps the fixed `sync_failed` outcome instead of rejecting
+  the handler.
 
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit

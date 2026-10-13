@@ -2,10 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * TOG-5937 / R2-18: upstream `GetCustomerDetailFull` takes no paging
- * parameters, so the sync path guards two things. The response byte cap bounds
- * isolate memory before parsing. The D1 op budget bounds write fan-out and is
- * checked before the first write, so an over-budget graph leaves D1 untouched
- * rather than half-written. Row counts alone do not refuse a graph.
+ * parameters, so the sync path guards three things. The response byte cap bounds
+ * isolate memory before parsing. The D1 op budget bounds write fan-out and the
+ * cache-invalidation budget bounds the per-id `caches.default.delete` fan-out
+ * every caller runs after the sync — both are checked before the first write,
+ * so an over-budget graph leaves D1 untouched rather than half-written. Row
+ * counts alone do not refuse a graph.
  */
 
 const calls: {
@@ -55,8 +57,11 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
 }));
 
 const {
+  DETAIL_FULL_MAX_CACHE_INVALIDATIONS,
   DETAIL_FULL_MAX_D1_OPS,
   DETAIL_FULL_MAX_RESPONSE_BYTES,
+  detailFullCacheInvalidations,
+  detailFullD1Ops,
   fetchGetCustomerDetailFull,
   syncCustomerDetailFullToD1
 } = await import("../src/lib/detailFullSync");
@@ -109,41 +114,121 @@ beforeEach(() => {
 });
 
 describe("detail-full size guards", () => {
-  it("syncs a large-but-legit graph past the old address ceiling in full", async () => {
-    // Arrange
-    behavior.responses = [() => json(addressOnlyGraph(5_001))];
+  it("syncs a graph inside both budgets in full", async () => {
+    // Arrange — 400 addresses are 7 D1 ops and 802 cache invalidations.
+    behavior.responses = [() => json(addressOnlyGraph(400))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
-    // Assert — 5,001 addresses are 65 ops (customer + 63 address batches + reconcile).
-    expect(result.addressIds).toHaveLength(5_001);
-    expect(calls.addresses.flat()).toHaveLength(5_001);
+    // Assert
+    expect(result.addressIds).toHaveLength(400);
+    expect(calls.addresses.flat()).toHaveLength(400);
     expect(calls.customers).toHaveLength(1);
   });
 
-  it("syncs a graph past the old container ceiling in full", async () => {
-    // Arrange — 40,001 containers is 804 ops, inside the budget.
+  it("syncs the largest graph that fits the cache-invalidation budget", async () => {
+    // Arrange — 1 address + 448 containers is 449 ids = 898 invalidations
+    // (2 passes) and 12 D1 ops, inside both budgets.
+    behavior.responses = [() => json(containerGraph(448))];
+
+    // Act
+    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
+
+    // Assert
+    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(900);
+    expect(result.containerIds).toHaveLength(448);
+    expect(calls.containers.flat()).toHaveLength(448);
+  });
+
+  it("syncs a graph at exactly the cache-invalidation budget", async () => {
+    // Arrange — 449 addresses is (1 + 449) * 2 = 900 invalidations: at, not over.
+    behavior.responses = [() => json(addressOnlyGraph(449))];
+
+    // Act
+    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
+
+    // Assert
+    expect(result.addressIds).toHaveLength(449);
+  });
+
+  it("refuses a graph one id past the cache-invalidation budget without writing", async () => {
+    // Arrange — 450 addresses is (1 + 450) * 2 = 902 invalidations.
+    behavior.responses = [() => json(addressOnlyGraph(450))];
+
+    // Act
+    const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
+      (e: unknown) => e
+    )) as Error;
+
+    // Assert
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("too large");
+    expect(error.message).toContain("902 cache invalidations");
+    expect(calls.customers).toEqual([]);
+    expect(calls.addresses).toEqual([]);
+    expect(calls.containers).toEqual([]);
+  });
+
+  it("refuses a 5,001-address graph on cache fan-out even though its D1 ops fit", async () => {
+    // Arrange — 65 D1 ops is inside the D1 budget, but (1 + 5,001) * 2 =
+    // 10,004 cache deletes would exhaust the per-request Cache API quota.
+    behavior.responses = [() => json(addressOnlyGraph(5_001))];
+
+    // Act
+    const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
+      (e: unknown) => e
+    )) as Error;
+
+    // Assert
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("too large");
+    expect(error.message).toContain("10004 cache invalidations");
+    expect(calls.customers).toEqual([]);
+    expect(calls.addresses).toEqual([]);
+    expect(calls.containers).toEqual([]);
+  });
+
+  it("refuses a 40,001-container graph on cache fan-out even though its D1 ops fit", async () => {
+    // Arrange — 804 D1 ops is inside the D1 budget, but (1 + 1 + 40,001) * 2 =
+    // 80,006 cache deletes would exhaust the per-request Cache API quota.
     behavior.responses = [() => json(containerGraph(40_001))];
 
     // Act
-    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
+    const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
+      (e: unknown) => e
+    )) as Error;
 
     // Assert
-    expect(result.containerIds).toHaveLength(40_001);
-    expect(calls.containers.flat()).toHaveLength(40_001);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toContain("too large");
+    expect(error.message).toContain("80006 cache invalidations");
+    expect(calls.customers).toEqual([]);
+    expect(calls.addresses).toEqual([]);
+    expect(calls.containers).toEqual([]);
   });
 
-  it("syncs the largest graph that fits the D1 op budget", async () => {
-    // Arrange — 1 customer + 1 address batch + 897 container batches + 1 reconcile = 900 ops.
-    behavior.responses = [() => json(containerGraph(44_850))];
-
-    // Act
-    const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
-
-    // Assert
+  it("pins the D1 op model arithmetic used by the pre-write guard", () => {
+    // These pure-function pins — including the reviewer's probed shapes (65 ops
+    // for 5,001 addresses, 403 for one address carrying 20,000 containers) —
+    // kill model-level drift; the through-the-real-upserts pin lives in
+    // test/detailFullOpModel.test.ts.
     expect(DETAIL_FULL_MAX_D1_OPS).toBe(900);
-    expect(result.containerIds).toHaveLength(44_850);
+    expect(detailFullD1Ops(5_001, 0)).toBe(65);
+    expect(detailFullD1Ops(1, 20_000)).toBe(403);
+    expect(detailFullD1Ops(1, 44_850)).toBe(900);
+    expect(detailFullD1Ops(1, 44_851)).toBe(901);
+  });
+
+  it("pins the cache-invalidation model arithmetic used by the pre-write guard", () => {
+    // One delete per graph id (customer + addresses + containers), worst case
+    // over both retry passes.
+    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(900);
+    expect(detailFullCacheInvalidations(0, 0)).toBe(2);
+    expect(detailFullCacheInvalidations(449, 0)).toBe(900);
+    expect(detailFullCacheInvalidations(450, 0)).toBe(902);
+    expect(detailFullCacheInvalidations(5_001, 0)).toBe(10_004);
+    expect(detailFullCacheInvalidations(1, 40_001)).toBe(80_006);
   });
 
   it("refuses an oversized response body before parsing it", async () => {

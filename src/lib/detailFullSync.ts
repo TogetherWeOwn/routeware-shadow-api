@@ -1,4 +1,5 @@
 import { establishSession } from "./establishSession";
+import { INVALIDATE_GRAPH_MAX_ATTEMPTS } from "./entityDataCache";
 import type { AddressSnapshotRow } from "./csvAddressSnapshot";
 import type { ContainerSnapshotRow } from "./csvContainerSnapshot";
 import type { CustomerSnapshotRow } from "./csvCustomerSnapshot";
@@ -25,24 +26,50 @@ export type GetCustomerDetailFullJson = {
  *
  * Upstream `GetCustomerDetailFull` takes no paging parameters, so one customer
  * always arrives as one response. The byte cap bounds the isolate before
- * parsing. The D1 op budget bounds write fan-out and is checked before the
- * first write, from the same batch sizes the upserts use, so a graph past the
- * budget degrades to "D1 refresh skipped" with D1 untouched.
+ * parsing. The D1 op budget bounds write fan-out and the cache-invalidation
+ * budget bounds the per-id `caches.default.delete` fan-out every caller runs
+ * after the sync — both are checked before the first write, so a graph past
+ * either budget degrades to "D1 refresh skipped" with D1 untouched.
  */
 export const DETAIL_FULL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 /** Workers Paid allows ~1000 D1 ops per invocation; keep headroom for the request's own cache I/O. */
 export const DETAIL_FULL_MAX_D1_OPS = 900;
+/**
+ * TOG-8374: Cloudflare Workers Paid allows 1,000 Cache API calls per request,
+ * sharing the 10,000-subrequest quota
+ * (https://developers.cloudflare.com/workers/platform/limits/). Every caller
+ * of `syncCustomerDetailFullToD1` invalidates one cache entry per graph id
+ * (customer + addresses + containers) with up to
+ * `INVALIDATE_GRAPH_MAX_ATTEMPTS` passes, so the pre-write guard budgets the
+ * worst case and keeps 10% headroom for the request's own non-graph cache I/O.
+ * Stale ids discovered by reconciliation only enlarge the invalidation set, so
+ * they are covered by that headroom, not the model.
+ */
+export const DETAIL_FULL_MAX_CACHE_INVALIDATIONS = 900;
 const DETAIL_FULL_BATCH = { customer: 80, address: 80, container: 50 } as const;
 
-function detailFullD1Ops(addressCount: number, containerCount: number): number {
+export function detailFullD1Ops(addressCount: number, containerCount: number): number {
   const batches = (rows: number, size: number) => Math.ceil(rows / size);
-  // customer, address and container upsert batches, then the reconcile batch
+  // customer, address and container upsert batches, then the reconcile batch.
+  // Each `db.batch()` call counts once (one subrequest per call) — keep this
+  // in lockstep with the real upsert fan-out; `test/detailFullOpModel.test.ts`
+  // pins the model against real upserts on a counting fake D1.
   return (
     1 +
     batches(addressCount, DETAIL_FULL_BATCH.address) +
     batches(containerCount, DETAIL_FULL_BATCH.container) +
     1
   );
+}
+
+export function detailFullCacheInvalidations(
+  addressCount: number,
+  containerCount: number
+): number {
+  // One delete per graph id (customer + addresses + containers), worst case
+  // over every retry pass — cache deletes are idempotent, so a mid-graph
+  // failure re-attempts the whole graph.
+  return (1 + addressCount + containerCount) * INVALIDATE_GRAPH_MAX_ATTEMPTS;
 }
 
 function n(v: unknown): number | null {
@@ -320,6 +347,13 @@ export async function syncCustomerDetailFullToD1(
     throw new Error(
       `GetCustomerDetailFull customer ${customerId} too large ` +
         `(${ops} D1 ops > ${DETAIL_FULL_MAX_D1_OPS} budget); skipping D1 refresh`
+    );
+  }
+  const invalidations = detailFullCacheInvalidations(addresses.length, containers.length);
+  if (invalidations > DETAIL_FULL_MAX_CACHE_INVALIDATIONS) {
+    throw new Error(
+      `GetCustomerDetailFull customer ${customerId} too large ` +
+        `(${invalidations} cache invalidations > ${DETAIL_FULL_MAX_CACHE_INVALIDATIONS} budget); skipping D1 refresh`
     );
   }
   await upsertCustomerSnapshotRows(env.CUSTOMER_DB, [customer], DETAIL_FULL_BATCH.customer, syncedAt);

@@ -49,7 +49,8 @@ function etagHeader(etag: string): string {
  * serving the pre-edit bundle — stale customer PII.
  *
  * Ids only (never request/response bodies); `invalidateDataEntity` propagates
- * failures so a failed invalidation is loud, matching the sync-throw path.
+ * failures, so callers below wrap it in `evictAfterSaveQuietly` — the upstream
+ * write already succeeded, and a loud eviction must not reject the handler.
  */
 async function invalidatePostedIds(
   entries: Array<{ entity: "customer" | "address" | "container"; id: number | null }>
@@ -58,6 +59,30 @@ async function invalidatePostedIds(
     if (id !== null) {
       await invalidateDataEntity(entity, id);
     }
+  }
+}
+
+/**
+ * TOG-8374: the upstream save already succeeded, so a post-save eviction
+ * failure must not reject the handler — the client would see an error for a
+ * write that landed and might retry a non-idempotent create, while the
+ * entries past the failure stay stale either way. Log loudly server-side and
+ * keep the `sync_failed` / `unknown_customer_id` outcome; surviving entries
+ * expire via the shared entity-data TTL.
+ */
+async function evictAfterSaveQuietly(
+  route: string,
+  work: () => Promise<void>
+): Promise<void> {
+  try {
+    await work();
+  } catch (evictErr) {
+    logEvent({
+      level: "error",
+      msg: "Post-save fallback cache eviction failed",
+      route,
+      kind: errorKind(evictErr)
+    });
   }
 }
 
@@ -360,7 +385,9 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
+          invalidateDataEntity("customer", customerId)
+        );
       }
     } else {
       localSync = unknownCustomerId();
@@ -369,9 +396,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
       // only returns null when the posted form carried no usable id, so this is
       // usually a no-op; it guards future parse drift, not today's shape.
-      await invalidatePostedIds([
-        { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
+        invalidatePostedIds([
+          { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
+        ])
+      );
     }
   }
   return new Response(
@@ -489,9 +518,13 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+          invalidateDataEntity("customer", customerId)
+        );
         if (pickupAddressId !== null) {
-          await invalidateDataEntity("address", pickupAddressId);
+          await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+            invalidateDataEntity("address", pickupAddressId)
+          );
         }
       }
     } else {
@@ -499,9 +532,11 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       // TOG-6533: the upstream write succeeded but there is no usable
       // CustomerID to sync on — still invalidate the posted address id so the
       // pre-edit cached bundle is not served as current.
-      await invalidatePostedIds([
-        { entity: "address", id: postedId(posted.PickupAddressID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+        invalidatePostedIds([
+          { entity: "address", id: postedId(posted.PickupAddressID) }
+        ])
+      );
     }
   }
   return new Response(
@@ -603,11 +638,14 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       }
     }
     if (customerId !== null) {
+      // Const alias: `customerId` is a `let` (reassigned by the fallback
+      // lookup above), so closures would lose the non-null narrowing.
+      const ownerId = customerId;
       try {
-        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
+        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, ownerId);
         localSync = {
           done: true,
-          customerId,
+          customerId: ownerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
@@ -615,7 +653,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
         await invalidateCustomerGraphWithRetry({
-          customerId,
+          customerId: ownerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds
         });
@@ -627,9 +665,13 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+          invalidateDataEntity("customer", ownerId)
+        );
         if (postedContainerId !== null) {
-          await invalidateDataEntity("container", postedContainerId);
+          await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+            invalidateDataEntity("container", postedContainerId)
+          );
         }
       }
     } else {
@@ -638,10 +680,12 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       // resolved (neither posted nor via the address-snapshot fallback) — still
       // invalidate the posted address/container ids so pre-edit cached bundles
       // are not served as current.
-      await invalidatePostedIds([
-        { entity: "address", id: postedId(posted.PickupAddressID) },
-        { entity: "container", id: postedId(posted.ContainerID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+        invalidatePostedIds([
+          { entity: "address", id: postedId(posted.PickupAddressID) },
+          { entity: "container", id: postedId(posted.ContainerID) }
+        ])
+      );
     }
   }
   return new Response(

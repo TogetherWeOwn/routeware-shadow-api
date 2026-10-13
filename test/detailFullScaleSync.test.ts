@@ -165,19 +165,22 @@ describe("detail-full sync at scale", () => {
 
   it("upserts the whole graph to D1 and returns every id for cache invalidation", async () => {
     // Arrange — `syncCustomerDetailFullToD1` feeds `invalidateCustomerGraph`;
-    // a truncated id list would leave stale rows cached after a write.
-    behavior.responses = [() => json(largeGraph(500, 8))];
+    // a truncated id list would leave stale rows cached after a write. The
+    // shape stays inside the cache-invalidation budget (40 + 320 ids = 722
+    // worst-case deletes); larger graphs refuse before the first write (see
+    // detailFullSizeGuard).
+    behavior.responses = [() => json(largeGraph(40, 8))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
     // Assert
     expect(calls.customers).toHaveLength(1);
-    expect(calls.addresses.flat()).toHaveLength(500);
-    expect(calls.containers.flat()).toHaveLength(4000);
-    expect(result.addressIds).toHaveLength(500);
-    expect(result.containerIds).toHaveLength(4000);
+    expect(calls.addresses.flat()).toHaveLength(40);
+    expect(calls.containers.flat()).toHaveLength(320);
+    expect(result.addressIds).toHaveLength(40);
+    expect(result.containerIds).toHaveLength(320);
     expect(result.addressIds[0]).toBe(1001);
-    expect(result.containerIds[3999]).toBe(4000);
+    expect(result.containerIds[319]).toBe(320);
   });
 });

@@ -32,13 +32,15 @@ const behavior: {
   upstreamBody: string;
   syncError: string | null;
   syncResult: { addressIds: number[]; containerIds: number[] };
+  entityError: string | null;
 } = {
   prepareError: null,
   prepareReturnsNull: false,
   upstreamStatus: 200,
   upstreamBody: "",
   syncError: null,
-  syncResult: { addressIds: [10], containerIds: [100] }
+  syncResult: { addressIds: [10], containerIds: [100] },
+  entityError: null
 };
 
 /**
@@ -120,6 +122,9 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
     },
     invalidateDataEntity: async (kind: string, id: number) => {
       calls.entity.push({ kind, id });
+      if (behavior.entityError) {
+        throw new Error(behavior.entityError);
+      }
     }
   };
 });
@@ -218,6 +223,7 @@ beforeEach(() => {
   behavior.upstreamBody = "";
   behavior.syncError = null;
   behavior.syncResult = { addressIds: [10], containerIds: [100] };
+  behavior.entityError = null;
   loggedErrors.length = 0;
   console.error = (...args: unknown[]) => {
     loggedErrors.push(args[0] as Record<string, unknown>);
@@ -257,6 +263,31 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
     // Assert
     expect(calls.graph).toEqual([]);
     expect(calls.entity).toEqual([{ kind: "customer", id: 5 }]);
+  });
+
+  it("keeps the upstream 200 when the fallback eviction also fails", async () => {
+    // Arrange — TOG-8374: the upstream save already succeeded, so a post-save
+    // cleanup failure (e.g. Cache API quota exhausted mid-graph) must not turn
+    // the handler into a rejection the client might retry as a duplicate
+    // create. The sync throws, then the single-customer fallback throws too.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataCustomer(postCtx(formBody({ CustomerID: "5" })));
+
+    // Assert — still 200 with the fixed code; both failures are logged.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(loggedErrors).toHaveLength(2);
+    expect(loggedErrors[1]).toMatchObject({
+      level: "error",
+      msg: "Post-save fallback cache eviction failed",
+      route: "POST /api/v1/data/customer"
+    });
   });
 
   it("logs the sync failure rather than swallowing it", async () => {
