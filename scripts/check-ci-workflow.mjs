@@ -237,7 +237,6 @@ const workflowsDir = new URL("../.github/workflows/", import.meta.url);
 for (const name of (await readdir(workflowsDir)).filter((file) => /\.ya?ml$/.test(file)).sort()) {
   assertNodeVersionsMatchNvmrc(await readFile(new URL(name, workflowsDir), "utf8"), nvmrc, name);
 }
-const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 assert.equal(
   packageJson.engines?.node,
   `>=${parseNvmrcMajor(nvmrc)}`,
