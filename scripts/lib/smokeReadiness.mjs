@@ -80,9 +80,11 @@ export async function fetchJson(fetchImpl, url, { headers, timeoutMs }) {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetchImpl(url, { headers, signal: controller.signal });
+    // Read the body outside the parse try: a stall here must reject into
+    // classifyFetchError (timeout), not be swallowed as body=null.
+    const text = await res.text();
     let body = null;
     try {
-      const text = await res.text();
       body = text ? JSON.parse(text) : null;
     } catch {
       body = null;

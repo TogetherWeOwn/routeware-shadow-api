@@ -20,18 +20,6 @@
 import { argv, env, exit } from "node:process";
 import { parseSmokeArgs, runSmokeReadiness, usage } from "./lib/smokeReadiness.mjs";
 
-const base = (env.SHADOW_API_BASE ?? "").replace(/\/$/, "");
-const token = env.SHADOW_API_TOKEN ?? env.CUSTOMER_SNAPSHOT_SYNC_SECRET ?? "";
-
-if (!base) {
-  console.error("Missing SHADOW_API_BASE (e.g. https://routeware-shadow-api.<account>.workers.dev)");
-  exit(2);
-}
-if (!token) {
-  console.error("Missing SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET fallback)");
-  exit(2);
-}
-
 let timeoutMs;
 try {
   ({ timeoutMs } = parseSmokeArgs(argv.slice(2)));
@@ -41,6 +29,18 @@ try {
     exit(0);
   }
   console.error(error?.message ?? usage());
+  exit(2);
+}
+
+const base = (env.SHADOW_API_BASE ?? "").replace(/\/$/, "");
+const token = env.SHADOW_API_TOKEN ?? env.CUSTOMER_SNAPSHOT_SYNC_SECRET ?? "";
+
+if (!base) {
+  console.error(`Missing SHADOW_API_BASE (e.g. https://routeware-shadow-api.<account>.workers.dev)\n\n${usage()}`);
+  exit(2);
+}
+if (!token) {
+  console.error(`Missing SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET fallback)\n\n${usage()}`);
   exit(2);
 }
 

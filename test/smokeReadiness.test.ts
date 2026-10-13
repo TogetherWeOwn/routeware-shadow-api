@@ -198,6 +198,38 @@ describe("smoke-readiness verdicts (TOG-22090)", () => {
     expect(text).not.toContain("at ");
     expect(text).not.toContain(TOKEN);
   });
+
+  it("reports a stalled body read as timeout on every probe, not a status code", async () => {
+    const stalledBody = (_url: string, init?: any) => {
+      const error = new Error("The operation was aborted.");
+      error.name = "AbortError";
+      return Promise.resolve({
+        status: 200,
+        text: () =>
+          new Promise((_resolve, reject) => {
+            if (init?.signal?.aborted) {
+              reject(error);
+              return;
+            }
+            init?.signal?.addEventListener("abort", () => reject(error), { once: true });
+          }),
+      });
+    };
+    const result = await runSmokeReadiness({
+      fetchImpl: stalledBody as any,
+      base: "http://127.0.0.1:1",
+      token: TOKEN,
+      timeoutMs: 50,
+    });
+    expect(result.exitCode).toBe(1);
+    const text = allLines(result);
+    expect(text).toContain("FAIL liveness: GET /api/v1/health -> timeout");
+    expect(text).toContain("FAIL auth gate: unauthenticated readiness -> timeout");
+    expect(text).toContain("FAIL readiness: GET /api/v1/readiness -> timeout");
+    expect(text).not.toContain("MISSING from response");
+    expect(text).not.toContain("degraded");
+    expect(text).not.toContain(TOKEN);
+  });
 });
 
 describe("smoke-readiness timeout flag", () => {
