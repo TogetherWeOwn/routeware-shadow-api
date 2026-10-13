@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getCustomerBundleFromD1 } from "../src/lib/dataEntityRead";
+import {
+  getAddressBundleFromD1,
+  getContainerBundleFromD1,
+  getCustomerBundleFromD1
+} from "../src/lib/dataEntityRead";
 
 type Row = Record<string, unknown>;
 
@@ -41,6 +45,73 @@ function fakeDb(customer: Row | null, addresses: Row[], containers: Row[]) {
   };
   return { db: db as unknown as D1Database, stats };
 }
+
+function fakeBundleDb(rows: {
+  address?: Row | null;
+  container?: Row | null;
+  customer?: Row | null;
+}) {
+  const db = {
+    prepare(sql: string) {
+      return {
+        bind() {
+          return {
+            async first<T>() {
+              if (sql.includes("FROM address_snapshot")) {
+                return (rows.address as T) ?? null;
+              }
+              if (sql.includes("FROM container_snapshot")) {
+                return (rows.container as T) ?? null;
+              }
+              if (sql.includes("FROM customer_snapshot")) {
+                return (rows.customer as T) ?? null;
+              }
+              return null;
+            },
+            async all<T>() {
+              return { results: [] as T[] };
+            }
+          };
+        }
+      };
+    }
+  };
+  return db as unknown as D1Database;
+}
+
+describe("getAddressBundleFromD1", () => {
+  it("returns null when the address row is absent", async () => {
+    expect(await getAddressBundleFromD1(fakeBundleDb({}), 10)).toBeNull();
+  });
+
+  it("returns a null customer when the parent row is absent", async () => {
+    const address = { pickup_address_id: 10, customer_id: 5 };
+    const bundle = await getAddressBundleFromD1(fakeBundleDb({ address }), 10);
+
+    expect(bundle).toEqual({ address, customer: null, containers: [] });
+  });
+});
+
+describe("getContainerBundleFromD1", () => {
+  it("returns null when the container row is absent", async () => {
+    expect(await getContainerBundleFromD1(fakeBundleDb({}), 100)).toBeNull();
+  });
+
+  it("returns null address and customer when the parent address is absent", async () => {
+    const container = { container_id: 100, pickup_address_id: 10 };
+    const bundle = await getContainerBundleFromD1(fakeBundleDb({ container }), 100);
+
+    expect(bundle).toEqual({ container, address: null, customer: null });
+  });
+
+  it("returns a null customer when the address customer row is absent", async () => {
+    const container = { container_id: 100, pickup_address_id: 10 };
+    const address = { pickup_address_id: 10, customer_id: 5 };
+    const bundle = await getContainerBundleFromD1(fakeBundleDb({ container, address }), 100);
+
+    expect(bundle).toEqual({ container, address, customer: null });
+  });
+});
 
 describe("getCustomerBundleFromD1", () => {
   it("fetches containers for all addresses in one batched query and groups them", async () => {
