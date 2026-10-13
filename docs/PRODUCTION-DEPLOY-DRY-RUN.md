@@ -25,10 +25,13 @@ credential values, request/response bodies, customer rows, or raw CSVs.
   `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'`,
   the `production` environment, and job-level deployment serialization with
   `cancel-in-progress: false`. Also inspect workflow-level concurrency: the
-  current workflow has `cancel-in-progress: true`, so a newer main push can cancel
-  an older workflow during migrations/deploy despite the job-level setting.
-  Record this interruption risk as **NOT READY** for unattended activation;
-  job serialization is not an uncancelable-deploy guarantee. Do not change a
+  workflow must group by `ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}`
+  with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, so a new push
+  to a PR cancels that PR's superseded runs but a main push never cancels
+  an in-flight workflow during migrations/deploy. A global `cancel-in-progress: true`
+  would let a newer main push cancel an older workflow despite the job-level setting;
+  record that deviation as interruption risk **NOT READY** for unattended activation.
+  Job serialization is not an uncancelable-deploy guarantee. Do not change a
   gate or concurrency setting for rehearsal.
 - [ ] Read an existing push-to-main CI receipt: record head SHA, run URL and the
   deploy job's **skipped** conclusion. A PR's skipped deploy only proves the PR

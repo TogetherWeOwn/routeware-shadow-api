@@ -132,10 +132,16 @@ describe("production deploy rehearsal documentation", () => {
     expect(deploy).toContain("group: deploy-production");
     expect(deploy).toContain("cancel-in-progress: false");
     const workflowConcurrency = workflow.split("\njobs:")[0];
-    expect(workflowConcurrency).toContain("cancel-in-progress: true");
-    expect(checklist).toContain("a newer main push can cancel");
-    expect(checklist).toContain("an older workflow during migrations/deploy despite the job-level setting");
-    expect(checklist).toContain("interruption risk as **NOT READY**");
+    expect(workflowConcurrency).toContain(
+      "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+    );
+    expect(workflowConcurrency).toContain(
+      "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+    );
+    expect(checklist).toContain("cancels that PR's superseded runs");
+    expect(checklist).toContain("a main push never cancels");
+    expect(checklist).toContain("interruption risk");
+    expect(checklist).toContain("**NOT READY**");
     const migrateAt = deploy!.indexOf("run: npm run db:migrate:remote");
     const publishAt = deploy!.indexOf("run: npx wrangler deploy");
     expect(migrateAt).toBeGreaterThan(0);
