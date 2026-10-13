@@ -74,6 +74,8 @@ const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as Execut
 const db = (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
 const bucket = (env as unknown as { SNAPSHOTS: R2Bucket }).SNAPSHOTS;
 const CSV = "CustomerID,CompanyName,Enabled\n101,Synthetic Company,true\n";
+const ADDRESS_CSV = "PickupAddressID,CustomerID\n201,101\n";
+const CONTAINER_CSV = "ContainerID,PickupAddressID\n301,201\n";
 
 function syncEnv(range: ReturnType<typeof dates>): Env {
   return {
@@ -113,6 +115,12 @@ describe("sync rejects invalid report query dates before side effects", () => {
       }
       if (url.pathname === "/WebRW/Reports/QueryExecuteDownload" || url.pathname === "/WebRW/reports/customer-static.csv") {
         return new Response(CSV, { headers: { "content-type": "text/csv" } });
+      }
+      if (url.pathname === "/WebRW/reports/address-static.csv") {
+        return new Response(ADDRESS_CSV, { headers: { "content-type": "text/csv" } });
+      }
+      if (url.pathname === "/WebRW/reports/container-static.csv") {
+        return new Response(CONTAINER_CSV, { headers: { "content-type": "text/csv" } });
       }
       throw new Error("Unexpected fetch in report date test");
     });
@@ -184,6 +192,77 @@ describe("sync rejects invalid report query dates before side effects", () => {
     expect(await db.prepare("SELECT COUNT(*) AS n FROM customer_snapshot").first("n")).toBe(1);
     expect((await bucket.list()).objects).toHaveLength(0);
   });
+
+  it.each(["single-invocation", "chained-HTTP"])(
+    "static-export-only combined sync skips date validation (%s) and still imports",
+    async (mode) => {
+      const bindings = {
+        ...syncEnv(dates("2026-06-10", "2026-06-01")),
+        CUSTOMER_REPORT_QUERY_ID: "",
+        ADDRESS_REPORT_QUERY_ID: "",
+        CONTAINER_REPORT_QUERY_ID: "",
+        CUSTOMER_REPORT_EXPORT_PATH: "/WebRW/reports/customer-static.csv",
+        ADDRESS_REPORT_EXPORT_PATH: "/WebRW/reports/address-static.csv",
+        CONTAINER_REPORT_EXPORT_PATH: "/WebRW/reports/container-static.csv",
+        SNAPSHOTS_R2_ENABLED: "false"
+      } as unknown as Env;
+      if (mode === "single-invocation") {
+        const out = await runDataSnapshotSync(bindings);
+        expect(out.customer).toMatchObject({ upserted: 1, rowCount: 1 });
+        expect(out.address).toMatchObject({ upserted: 1, rowCount: 1 });
+        expect(out.container).toMatchObject({ upserted: 1, rowCount: 1 });
+      } else {
+        vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+          const raw =
+            typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
+          const url = new URL(raw);
+          // Loop chained per-table subrequests back into the app with the same bindings.
+          if (url.origin === "http://test.local") {
+            return app.fetch(
+              new Request(raw, { method: init?.method ?? "GET", headers: init?.headers as HeadersInit }),
+              bindings,
+              ctx
+            );
+          }
+          upstreamCalls.push(url);
+          if (url.pathname === "/WebRW/reports/customer-static.csv") {
+            return new Response(CSV, { headers: { "content-type": "text/csv" } });
+          }
+          if (url.pathname === "/WebRW/reports/address-static.csv") {
+            return new Response(ADDRESS_CSV, { headers: { "content-type": "text/csv" } });
+          }
+          if (url.pathname === "/WebRW/reports/container-static.csv") {
+            return new Response(CONTAINER_CSV, { headers: { "content-type": "text/csv" } });
+          }
+          throw new Error("Unexpected fetch in report date test");
+        });
+        const response = await sync("/api/v1/data-snapshot/sync", bindings);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as Record<
+          string,
+          { upserted: number; rowCount: number } | null
+        >;
+        expect(body.customer).toMatchObject({ upserted: 1, rowCount: 1 });
+        expect(body.address).toMatchObject({ upserted: 1, rowCount: 1 });
+        expect(body.container).toMatchObject({ upserted: 1, rowCount: 1 });
+      }
+      expect(
+        await db
+          .prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = 101")
+          .first("company_name")
+      ).toBe("Synthetic Company");
+      expect(
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM address_snapshot WHERE pickup_address_id = 201")
+          .first("n")
+      ).toBe(1);
+      expect(
+        await db
+          .prepare("SELECT COUNT(*) AS n FROM container_snapshot WHERE container_id = 301")
+          .first("n")
+      ).toBe(1);
+    }
+  );
 
   it("rejects at the CSV fetch helper as well, before session access or polling", async () => {
     const bindings = { ...dates("bogus-private-config", "2042-12-31") } as unknown as Env;
