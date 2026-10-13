@@ -67,9 +67,16 @@ export default defineConfig({
        * statements 94.70%, branches 90.59%, functions 96.46%, lines 95.20%.
        * Ratcheted 2026-10-09 (TOG-9219) after a hermetic full run:
        * statements 96.27%, branches 91.51%, functions 97.58%, lines 96.60%.
+       * Ratcheted 2026-10-11 (TOG-22032) after a hermetic full run:
+       * statements 97.29%, branches 92.54%, functions 98.21%, lines 97.69%.
+       * `test/browserAuthLoginForm.test.ts` moved statements/functions/lines up
+       * (`browserAuth.ts` lines 81.57% -> 100%); branches did not move, so that
+       * floor stays at 91.
        * Ratcheted 2026-10-12 (TOG-18935) after a hermetic full run:
        * statements 97.00% (3431/3537), branches 92.41% (2327/2518),
        * functions 98.01% (493/503), lines 97.42% (3324/3412).
+       * Merged 2026-10-13: kept both entries; branches floor takes the max
+       * (92) since both hermetic runs measured branches above it.
        */
       thresholds: {
         statements: 97,
