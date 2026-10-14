@@ -25,7 +25,7 @@ credential values, request/response bodies, customer rows, or raw CSVs.
   `github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'`,
   the `production` environment, and job-level deployment serialization with
   `cancel-in-progress: false`. Also inspect workflow-level concurrency: the
-  workflow must group by `ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}`
+  workflow must group by `ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}`
   with `cancel-in-progress: ${{ github.event_name == 'pull_request' }}`, so a new push
   to a PR cancels that PR's superseded runs but a main push never cancels
   an in-flight workflow during migrations/deploy. A global `cancel-in-progress: true`

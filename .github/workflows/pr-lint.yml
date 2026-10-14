@@ -19,10 +19,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Per-PR group (TOG-23109): PR number for pull_request events, ref fallback
-  # otherwise (sha would make every push a unique group, so nothing would
-  # ever cancel). Cancel only on pull_request; push-to-main never cancels.
-  group: pr-lint-${{ github.event.pull_request.number || github.ref }}
+  # Per-PR group (TOG-23109): PR number for pull_request events, so a new
+  # push cancels that PR's superseded runs. Non-PR runs (push-to-main) each
+  # get their own group via sha, so a queued lint run is never replaced and
+  # every push's commits are linted. Cancel only on pull_request.
+  group: pr-lint-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

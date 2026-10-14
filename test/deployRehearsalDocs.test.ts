@@ -133,7 +133,7 @@ describe("production deploy rehearsal documentation", () => {
     expect(deploy).toContain("cancel-in-progress: false");
     const workflowConcurrency = workflow.split("\njobs:")[0];
     expect(workflowConcurrency).toContain(
-      "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}",
+      "group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}",
     );
     expect(workflowConcurrency).toContain(
       "cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
