@@ -208,4 +208,42 @@ describe("forwardToUpstream", () => {
       expect(sent?.get("x-forwarded-for")).toBeNull();
     });
   });
+
+  describe("client bearer token containment (TOG-19131)", () => {
+    it("never forwards the client bearer token or client Cookie upstream", async () => {
+      // Arrange
+      const calls = stubUpstream(new Response("ok"));
+      const incoming = new Request("http://test.local/api/v1/routeware/home/index", {
+        headers: {
+          authorization: "Bearer client-token-must-not-leak",
+          cookie: ".WebRW=client-forged-session"
+        }
+      });
+
+      // Act
+      await forwardToUpstream(incoming, UPSTREAM_URL, null, null);
+
+      // Assert
+      expect(calls[0]?.headers.get("Authorization")).toBeNull();
+      expect(calls[0]?.headers.get("Cookie")).toBeNull();
+    });
+
+    it("still sends the stored DO session cookie while dropping the client bearer token", async () => {
+      // Arrange
+      const calls = stubUpstream(new Response("ok"));
+      const incoming = new Request("http://test.local/api/v1/routeware/home/index", {
+        headers: {
+          authorization: "Bearer client-token-must-not-leak",
+          cookie: ".WebRW=client-forged-session"
+        }
+      });
+
+      // Act
+      await forwardToUpstream(incoming, UPSTREAM_URL, session(".WebRW=stored"), null);
+
+      // Assert
+      expect(calls[0]?.headers.get("Authorization")).toBeNull();
+      expect(calls[0]?.headers.get("Cookie")).toBe(".WebRW=stored");
+    });
+  });
 });
