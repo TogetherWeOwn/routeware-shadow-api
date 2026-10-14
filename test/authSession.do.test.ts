@@ -490,6 +490,41 @@ describe("AuthSession Durable Object", () => {
       expect(takeover.status).toBe(409);
       expect((await readState(session)).refreshing).toBe(true);
     });
+
+    it("keeps a takeover lock against a stale holder's late publish and release", async () => {
+      // Arrange — A explicitly fails and releases; B wins the bounded takeover.
+      const session = await makeSession();
+      const staleToken = await acquireToken(session);
+      expect((await call(session, "/unlock", { lockToken: staleToken })).status).toBe(200);
+      const takeover = await call(session, "/takeover");
+      expect(takeover.status).toBe(200);
+      const currentToken = ((await takeover.json()) as { lockToken: string }).lockToken;
+      expect(currentToken).not.toBe(staleToken);
+
+      // Act — A's late publish is accepted by contract but cannot release B's
+      // lock; A's late unlock is rejected and also leaves B's lock intact.
+      const latePublish = await call(session, "/set", {
+        cookieHeader: ".WebRW=stale-holder",
+        expiresAtMs: Date.now() + 60_000,
+        lockToken: staleToken
+      });
+      const lateUnlock = await call(session, "/unlock", { lockToken: staleToken });
+
+      // Assert — only B's token can release the current lock or replace A's
+      // stale publication. The `/get` response never reveals either token.
+      expect(latePublish.status).toBe(200);
+      expect(lateUnlock.status).toBe(403);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=stale-holder");
+      expect((await readState(session)).refreshing).toBe(true);
+      expect((await call(session, "/lock")).status).toBe(423);
+      expect((await call(session, "/set", {
+        cookieHeader: ".WebRW=current-holder",
+        expiresAtMs: Date.now() + 120_000,
+        lockToken: currentToken
+      })).status).toBe(200);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=current-holder");
+      expect((await readState(session)).refreshing).toBe(false);
+    });
   });
 
   describe("/lock stale-lock recovery", () => {
