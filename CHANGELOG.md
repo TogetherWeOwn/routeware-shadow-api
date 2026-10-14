@@ -8,7 +8,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - TOG-21964: Customer snapshot DELETE records a D1 suppression marker atomically
   with the row deletion. The additive suppression migration prevents later
   customer upserts from re-inserting a marked row; FK-blocked deletes roll back
-  the marker too. This is local suppression, not upstream or R2 erasure. A
+  the marker too. Suppressed address writes for a marked customer are skipped
+  and recorded as id-only lineage so their container writes are skipped as
+  well; other customers keep fail-closed foreign keys. This is local
+  suppression, not upstream or R2 erasure. A
   whole-database restore can rewind markers and triggers; recovery must verify
   both and re-apply suppression before serving traffic. Application rollback
   retains the suppression schema and recorded markers. No live migration,

@@ -78,7 +78,9 @@ suppression only — upstream Routeware is untouched; see `method-not-allowed`).
 The D1 `customer_snapshot` row and data-entity cache entry are removed; other
 edge locations and clients may keep serving the erased PII until the 60 s cache
 TTL expires. A D1 tombstone suppresses the customer on later sync, proxy-save
-refresh, and CSV/archive import. Tombstones have no automatic expiry; retain
+refresh, and CSV/archive import. Suppressed address writes for that customer
+are skipped and recorded as id-only lineage so their container writes are
+skipped too; other customers keep fail-closed foreign keys. Tombstones have no automatic expiry; retain
 them while upstream or any archive/backup can return the customer. It does not
 remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV
 readback. D1 Time Travel or a backup restore to a point before the

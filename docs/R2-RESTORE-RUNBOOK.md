@@ -454,7 +454,7 @@ manifest), run the three tables in FK order with `syncCustomerSnapshotFromStream
 `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream` (default
 upsert-without-reconciliation options, restamping `synced_at`), and keep the entry point
 separate from public HTTP import without adding an import-validation opt-out. CSV/R2 imports into a database with the suppression migration skip tombstoned customer
-rows. After a whole-D1 restore, verify the tombstone table and triggers survived; a restore
+rows and their descendant address/container rows (import customer → address → container so descendant lineage is recorded before containers replay). After a whole-D1 restore, verify the tombstone table and triggers survived; a restore
 to before erasure may restore the row and remove the marker/schema. Reconcile markers from
 the authorized retained source and re-apply suppression before normal writers resume (see
 `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).

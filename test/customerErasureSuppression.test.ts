@@ -1,8 +1,16 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import { customerSnapshotRoutes } from "../src/routes/customerSnapshot";
-import { syncCustomerSnapshotFromCsvText } from "../src/lib/snapshot/streamSync";
-import { upsertCustomerSnapshotRows } from "../src/lib/snapshot/upsert";
+import {
+  syncAddressSnapshotFromCsvText,
+  syncContainerSnapshotFromCsvText,
+  syncCustomerSnapshotFromCsvText
+} from "../src/lib/snapshot/streamSync";
+import {
+  upsertAddressSnapshotRows,
+  upsertContainerSnapshotRows,
+  upsertCustomerSnapshotRows
+} from "../src/lib/snapshot/upsert";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 const DELETE_ID = 9811;
@@ -95,5 +103,155 @@ describe("customer erasure suppression", () => {
 
     expect(imported.status).toBe(200);
     expect(await customerExists(IMPORT_ID)).toBe(false);
+  });
+});
+
+const ADDRESS_HEADER =
+  "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments," +
+  "ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date";
+const CONTAINER_HEADER =
+  "ContainerID,PickupAddressID,ContainerTypeID,SerialNumber,RFID,OnCall,EventCode,GPSLocked," +
+  "Latitude,Longitude,Enabled,Address,City,State,Zip,ContainerNote";
+
+async function addressExists(pickupAddressId: number): Promise<boolean> {
+  return (await db().prepare("SELECT pickup_address_id FROM address_snapshot WHERE pickup_address_id = ?").bind(pickupAddressId).first()) !== null;
+}
+
+async function containerExists(containerId: number): Promise<boolean> {
+  return (await db().prepare("SELECT container_id FROM container_snapshot WHERE container_id = ?").bind(containerId).first()) !== null;
+}
+
+describe("erased-customer descendant suppression (scoped_skip)", () => {
+  beforeAll(async () => {
+    await ensureD1TestTables();
+  });
+
+  it("suppresses address and container replay across a full sync cycle", async () => {
+    const customerId = 9821;
+    const addressId = 9821;
+    const containerId = 9821;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(containerId, addressId).run();
+    // FK-order cleanup, then erasure writes the tombstone.
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    expect((await request(`/api/v1/customer-snapshot/${customerId}`, { method: "DELETE" })).status).toBe(200);
+
+    // Upstream still holds the whole graph: replay customer → address → container.
+    await syncCustomerSnapshotFromCsvText(
+      db(),
+      `CustomerID,CompanyName,Enabled\n${customerId},Synced Again,true\n`
+    );
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${customerId},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    await syncContainerSnapshotFromCsvText(
+      db(),
+      `${CONTAINER_HEADER}\n${containerId},${addressId},,SN-${containerId},,false,,false,,,true,${addressId} Main St,Killeen,TX,76541,`
+    );
+
+    expect(await customerExists(customerId)).toBe(false);
+    expect(await addressExists(addressId)).toBe(false);
+    expect(await containerExists(containerId)).toBe(false);
+    // The suppressed address leaves an id-only lineage row (no PII beyond the keys).
+    const lineage = await db().prepare("SELECT pickup_address_id, customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first<{ pickup_address_id: number; customer_id: number }>();
+    expect(lineage).toMatchObject({ pickup_address_id: addressId, customer_id: customerId });
+  });
+
+  it("suppresses descendant writes on the shared proxy-save upsert path", async () => {
+    const customerId = 9822;
+    const addressId = 9822;
+    const containerId = 9822;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    expect((await request(`/api/v1/customer-snapshot/${customerId}`, { method: "DELETE" })).status).toBe(200);
+
+    // Detail-full proxy-save refresh uses these shared upsert paths.
+    await upsertCustomerSnapshotRows(db(), [{
+      customerId,
+      customerTypeId: null,
+      companyName: "Saved Again",
+      firstName: null,
+      middleInitial: null,
+      lastName: null,
+      nameSuffix: null,
+      customerNumber: null,
+      subCustomerNumber: null,
+      phone1: null,
+      phone2: null,
+      comments: null,
+      enabled: true
+    }]);
+    await upsertAddressSnapshotRows(db(), [{
+      pickupAddressId: addressId,
+      customerId,
+      routeId: null,
+      address: "9822 Main St",
+      city: "Killeen",
+      state: "TX",
+      zip: "76541",
+      franchiseId: null,
+      comments: null,
+      extrasAllowed: false,
+      enabled: true,
+      driverNote: null,
+      latitude: null,
+      longitude: null,
+      lastAuditDate: null
+    }]);
+    await upsertContainerSnapshotRows(db(), [{
+      containerId,
+      pickupAddressId: addressId,
+      containerTypeId: null,
+      serialNumber: `SN-${containerId}`,
+      rfid: null,
+      onCall: false,
+      eventCode: null,
+      gpsLocked: false,
+      latitude: null,
+      longitude: null,
+      enabled: true,
+      locationAddress: "9822 Main St",
+      city: "Killeen",
+      state: "TX",
+      zip: "76541",
+      containerNote: null,
+      udCostShareUd: null,
+      udEnclosureDoorsUd: null,
+      udLastCompactorInspectionUd: null,
+      udLastEnclosureInspectionUd: null,
+      udMaterialStreamUd: null,
+      color: null,
+      serviceCodeType: null,
+      serviceCodeInput: null,
+      serviceCode: null,
+      serviceDate: null,
+      routeIds: null,
+      frequencyIds: null
+    }]);
+
+    expect(await customerExists(customerId)).toBe(false);
+    expect(await addressExists(addressId)).toBe(false);
+    expect(await containerExists(containerId)).toBe(false);
+  });
+
+  it("keeps fail-closed foreign keys for descendants of non-erased customers", async () => {
+    const unknownCustomer = 9831;
+    const unknownAddress = 9831;
+    await expect(
+      syncAddressSnapshotFromCsvText(
+        db(),
+        `${ADDRESS_HEADER}\n${unknownAddress},${unknownCustomer},,${unknownAddress} Main St,Killeen,TX,76541,,,false,true,,,,`
+      )
+    ).rejects.toThrow(/foreign key/i);
+    await expect(
+      syncContainerSnapshotFromCsvText(
+        db(),
+        `${CONTAINER_HEADER}\n9832,${unknownAddress},,SN-9832,,false,,false,,,true,${unknownAddress} Main St,Killeen,TX,76541,`
+      )
+    ).rejects.toThrow(/foreign key/i);
+    expect(await addressExists(unknownAddress)).toBe(false);
+    expect(await containerExists(9832)).toBe(false);
   });
 });

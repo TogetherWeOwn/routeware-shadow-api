@@ -103,15 +103,17 @@ results count candidate input rows, including suppressed rows, not the number of
 rows retained in D1. Verify the stored row state rather than treating those
 counts as proof of restoration.
 
-**Current implementation limitation:** only customer writes are suppressed.
-If a later upstream report, detail-full refresh, or archive also contains
-addresses for a suppressed customer, those writes still fail the existing D1
-foreign key. A combined sync or restore stops at that address failure and does
-not reach containers; a proxy-save refresh reports its existing sync-failure
-outcome. Suppression does not bypass FKs or silently delete/skip descendants.
-Do not treat successful customer-only regression tests as proof that a complete
-three-table replay succeeds. Descendant handling requires an explicit scope
-choice before this candidate is ready for release.
+Descendant writes for a suppressed customer are skipped narrowly (TOG-21964
+scoped_skip): address inserts/updates whose `customer_id` is tombstoned are
+ignored, and each skipped address records its integer keys in
+`customer_snapshot_erasure_address` so a later container write for that address
+is ignored too. The lineage table holds only `pickup_address_id`,
+`customer_id`, and `erased_at`; rows cascade away when their erasure marker is
+removed. Writes for non-tombstoned customers keep the existing fail-closed
+foreign keys — a genuinely missing parent still aborts the batch with
+`SnapshotForeignKeyError` instead of being skipped. A container import that runs
+before any address write has recorded its lineage still fails closed on the
+address foreign key; run restores customer → address → container.
 
 This is local cache suppression, not upstream Routeware erasure. Tombstones
 contain only `customer_id` and `erased_at`; they have no automatic expiry and
@@ -126,7 +128,8 @@ archived-CSV readback. Those copies keep serving through the existing date read
 endpoint and restore path until a separately approved retention rule removes
 them. Other edge locations and clients may keep serving the erased PII until the
 60 s cache TTL expires. A CSV/R2 import into a database with the
-suppression schema skips tombstoned customer rows. Restoring a D1 backup from
+suppression schema skips tombstoned customer rows and their descendant address
+and container rows. Restoring a D1 backup from
 before the erasure can restore both the customer row and a schema without the newer
 tombstone table/triggers; after D1 Time Travel or backup restore, verify the
 schema, reconcile the suppression list from a retained source, and re-apply

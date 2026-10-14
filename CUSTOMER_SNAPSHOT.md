@@ -170,7 +170,10 @@ not upstream Routeware erasure. It writes an id-only D1 tombstone and deletes
 the D1 `customer_snapshot` row in one batch, then evicts the data-entity cache
 entry. If address children prevent the delete, the FK refusal rolls back both
 writes; an absent customer still returns 404. A D1 tombstone suppresses the
-customer on later sync, proxy-save refresh, and CSV/archive import. Tombstones
+customer on later sync, proxy-save refresh, and CSV/archive import. Suppressed
+address writes for that customer are skipped and recorded as id-only lineage
+so their container writes are skipped too; other customers keep fail-closed
+foreign keys. Tombstones
 have no automatic expiry and remain until explicitly removed; retain them while
 upstream or any archive/backup can return that customer. It does not remove R2
 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and
