@@ -67,7 +67,7 @@ jobs:
           echo "Changed files:"
           echo "$files"
           # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
