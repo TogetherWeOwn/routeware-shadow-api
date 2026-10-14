@@ -24,10 +24,13 @@ const behavior: {
   syncError: string | null;
   syncResult: { addressIds: number[]; containerIds: number[] };
   graphError: string | null;
+  /** Per-entity eviction failures, keyed by the `invalidateDataEntity` kind. */
+  evictionErrors: Partial<Record<"customer" | "address" | "container", Error>>;
 } = {
   syncError: null,
   syncResult: { addressIds: [10], containerIds: [100] },
-  graphError: null
+  graphError: null,
+  evictionErrors: {}
 };
 
 vi.mock("../src/lib/detailFullSync", () => ({
@@ -50,8 +53,13 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
       }
       calls.graph.push(p);
     },
-    invalidateDataEntity: async (kind: string, id: number) => {
+    invalidateDataEntity: async (kind: "customer" | "address" | "container", id: number) => {
+      // Recorded before the throw so a rejecting eviction still counts as attempted.
       calls.entity.push({ kind, id });
+      const failure = behavior.evictionErrors[kind];
+      if (failure) {
+        throw failure;
+      }
     }
   };
 });
@@ -108,6 +116,7 @@ beforeEach(() => {
   behavior.syncError = null;
   behavior.syncResult = { addressIds: [10], containerIds: [100] };
   behavior.graphError = null;
+  behavior.evictionErrors = {};
   loggedErrors.length = 0;
   console.error = (...args: unknown[]) => {
     loggedErrors.push(args);
@@ -353,5 +362,224 @@ describe("refreshAfterRoutewareSave", () => {
     expect(calls.synced).toEqual([5]);
     expect(calls.graph).toEqual([]);
     expect(calls.entity).toEqual([{ kind: "customer", id: 5 }]);
+  });
+});
+
+/**
+ * The last line of defense: the D1 sync threw, and the single-entity eviction
+ * that is supposed to contain the damage then rejects too. The upstream save
+ * already succeeded, so the helper still has to resolve, log each failed
+ * eviction with the entity and error class only, and keep trying the other one.
+ */
+describe("refreshAfterRoutewareSave when the fallback eviction itself fails", () => {
+  // Distinctive on purpose: a leak into a log record must be findable by substring.
+  const POSTED = {
+    CustomerID: "4242",
+    PickupAddressID: "7654321",
+    ContainerID: "8765432",
+    __RequestVerificationToken: "tok-SECRET-9f3a",
+    Cookie: "ASP.NET_SessionId=SECRET-cookie-77"
+  };
+  const EVICTION_MESSAGES = ["cache delete failed: SECRET-customer", "cache delete failed: SECRET-entity"];
+
+  const SYNC_FAILED = "Post-save snapshot sync failed; evicting affected cache keys";
+  const CUSTOMER_EVICTION_FAILED = "Post-save customer cache invalidation failed";
+  const ENTITY_EVICTION_FAILED = "Post-save entity cache invalidation failed";
+
+  function records(): Array<Record<string, unknown>> {
+    return loggedErrors.map((args) => args[0] as Record<string, unknown>);
+  }
+
+  function recordsMatching(msg: string): Array<Record<string, unknown>> {
+    return records().filter((record) => record.msg === msg);
+  }
+
+  /** The log may name the entity and the error class, never what was posted or thrown. */
+  function expectLogsCarryNoPostedValues(): void {
+    const serialized = JSON.stringify(loggedErrors);
+    for (const secret of [
+      ...Object.values(POSTED),
+      "SECRET",
+      "ASP.NET_SessionId",
+      ...EVICTION_MESSAGES
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+  }
+
+  it.each([
+    { kind: "customer", expectedEvictions: [{ kind: "customer", id: 4242 }] },
+    {
+      kind: "address",
+      expectedEvictions: [
+        { kind: "customer", id: 4242 },
+        { kind: "address", id: 7654321 }
+      ]
+    },
+    {
+      kind: "container",
+      expectedEvictions: [
+        { kind: "customer", id: 4242 },
+        { kind: "container", id: 8765432 }
+      ]
+    }
+  ] as const)(
+    "resolves and logs once when the customer eviction rejects on a $kind save",
+    async ({ kind, expectedEvictions }) => {
+      // Arrange — the sync throws, then the customer eviction rejects as well.
+      behavior.syncError = "D1_ERROR: no such table";
+      behavior.evictionErrors = { customer: new TypeError(EVICTION_MESSAGES[0]) };
+
+      // Act — resolving (not rejecting) is the assertion.
+      await expect(
+        refreshAfterRoutewareSave(
+          envWithDb(),
+          sessionStub,
+          kind,
+          formBody(POSTED),
+          '{"success":true}'
+        )
+      ).resolves.toBeUndefined();
+
+      // Assert — every eviction was still attempted; the failure did not short-circuit the rest.
+      expect(calls.graph).toEqual([]);
+      expect(calls.entity).toEqual(expectedEvictions);
+      expect(recordsMatching(CUSTOMER_EVICTION_FAILED)).toEqual([
+        {
+          level: "error",
+          msg: CUSTOMER_EVICTION_FAILED,
+          route: "routeware.saveRefresh.invalidate",
+          ms: null,
+          entity: "customer",
+          kind: "TypeError"
+        }
+      ]);
+      expect(recordsMatching(ENTITY_EVICTION_FAILED)).toEqual([]);
+      // The sync failure is the only other record: nothing escaped to the outer handler.
+      expect(records().map((record) => record.msg)).toEqual([SYNC_FAILED, CUSTOMER_EVICTION_FAILED]);
+      expectLogsCarryNoPostedValues();
+    }
+  );
+
+  it.each([
+    { kind: "address", entity: "address", id: 7654321 },
+    { kind: "container", entity: "container", id: 8765432 }
+  ] as const)(
+    "resolves and logs once when the $entity eviction rejects but the customer eviction succeeds",
+    async ({ kind, entity, id }) => {
+      // Arrange
+      behavior.syncError = "D1_ERROR: no such table";
+      behavior.evictionErrors = { [entity]: new RangeError(EVICTION_MESSAGES[1]) };
+
+      // Act
+      await expect(
+        refreshAfterRoutewareSave(
+          envWithDb(),
+          sessionStub,
+          kind,
+          formBody(POSTED),
+          '{"success":true}'
+        )
+      ).resolves.toBeUndefined();
+
+      // Assert — the customer key was evicted before the entity key failed.
+      expect(calls.graph).toEqual([]);
+      expect(calls.entity).toEqual([
+        { kind: "customer", id: 4242 },
+        { kind: entity, id }
+      ]);
+      expect(recordsMatching(ENTITY_EVICTION_FAILED)).toEqual([
+        {
+          level: "error",
+          msg: ENTITY_EVICTION_FAILED,
+          route: "routeware.saveRefresh.invalidate",
+          ms: null,
+          entity,
+          kind: "RangeError"
+        }
+      ]);
+      expect(recordsMatching(CUSTOMER_EVICTION_FAILED)).toEqual([]);
+      expect(records().map((record) => record.msg)).toEqual([SYNC_FAILED, ENTITY_EVICTION_FAILED]);
+      expectLogsCarryNoPostedValues();
+    }
+  );
+
+  it.each([
+    { kind: "address", entity: "address", id: 7654321 },
+    { kind: "container", entity: "container", id: 8765432 }
+  ] as const)(
+    "resolves and logs both failures when the customer and $entity evictions both reject",
+    async ({ kind, entity, id }) => {
+      // Arrange — each rejection has its own error class so a swapped or merged log is visible.
+      behavior.syncError = "D1_ERROR: no such table";
+      behavior.evictionErrors = {
+        customer: new TypeError(EVICTION_MESSAGES[0]),
+        [entity]: new RangeError(EVICTION_MESSAGES[1])
+      };
+
+      // Act
+      await expect(
+        refreshAfterRoutewareSave(
+          envWithDb(),
+          sessionStub,
+          kind,
+          formBody(POSTED),
+          '{"success":true}'
+        )
+      ).resolves.toBeUndefined();
+
+      // Assert — both evictions were attempted and each failure got its own record.
+      expect(calls.graph).toEqual([]);
+      expect(calls.entity).toEqual([
+        { kind: "customer", id: 4242 },
+        { kind: entity, id }
+      ]);
+      expect(recordsMatching(CUSTOMER_EVICTION_FAILED)).toEqual([
+        {
+          level: "error",
+          msg: CUSTOMER_EVICTION_FAILED,
+          route: "routeware.saveRefresh.invalidate",
+          ms: null,
+          entity: "customer",
+          kind: "TypeError"
+        }
+      ]);
+      expect(recordsMatching(ENTITY_EVICTION_FAILED)).toEqual([
+        {
+          level: "error",
+          msg: ENTITY_EVICTION_FAILED,
+          route: "routeware.saveRefresh.invalidate",
+          ms: null,
+          entity,
+          kind: "RangeError"
+        }
+      ]);
+      expect(records()).toHaveLength(3);
+      expect(records().map((record) => record.msg)).not.toContain("Post-save refresh failed");
+      expectLogsCarryNoPostedValues();
+    }
+  );
+
+  it("logs the eviction failure after a graph invalidation failure too, and still resolves", async () => {
+    // Arrange — the sync succeeded, the graph delete threw, then the customer eviction rejects.
+    behavior.graphError = "cache delete failed";
+    behavior.evictionErrors = { customer: new TypeError(EVICTION_MESSAGES[0]) };
+
+    // Act
+    await expect(
+      refreshAfterRoutewareSave(
+        envWithDb(),
+        sessionStub,
+        "customer",
+        formBody(POSTED),
+        '{"success":true}'
+      )
+    ).resolves.toBeUndefined();
+
+    // Assert
+    expect(calls.synced).toEqual([4242]);
+    expect(calls.entity).toEqual([{ kind: "customer", id: 4242 }]);
+    expect(records().map((record) => record.msg)).toEqual([SYNC_FAILED, CUSTOMER_EVICTION_FAILED]);
+    expectLogsCarryNoPostedValues();
   });
 });
