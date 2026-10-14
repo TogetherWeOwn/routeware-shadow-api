@@ -34,20 +34,70 @@ const CODE_MSG_RE = /msg:\s*"([^"]+)"/g;
 const DOC_ROW_RE = /^\|\s*`(.+?)`\s*\|/gm;
 
 /**
- * Computed messages, in exact placeholder form as they appear in the
+ * Computed call sites, in exact placeholder form as they appear in the
  * catalogue table's `msg` column. Explicit by design: the literal scan
- * above cannot see these call sites, so each one is pinned here and the
- * comparison treats them as emitted. Add a row here (with this comment
- * updated) when a new computed `msg` lands under `src/`.
+ * above cannot see these call sites, so each one is pinned here. A site's
+ * messages count as emitted only when every `evidence` string is still
+ * present verbatim in its source file — a reworded or deleted computed
+ * call therefore stops crediting its catalogue rows and the stale-row
+ * test fails. Add a site here (with this comment updated) when a new
+ * computed `msg` lands under `src/`; the call-site count test below
+ * fails until you do.
  */
-const COMPUTED_MESSAGES = [
-  // Ternary in getCachedDataEntity (src/lib/entityDataCache.ts:76).
-  "Entity data cache hit",
-  "Entity data cache miss",
-  // Template in readSnapshotExportPageSize (src/lib/snapshot/export.ts:101);
-  // the ${...} names are the placeholder — the live line carries numbers.
-  "SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}",
+const COMPUTED_CALL_SITES: ReadonlyArray<{
+  file: string;
+  messages: readonly string[];
+  evidence: readonly string[];
+}> = [
+  {
+    // Ternary in getCachedDataEntity (src/lib/entityDataCache.ts:76).
+    file: "src/lib/entityDataCache.ts",
+    messages: ["Entity data cache hit", "Entity data cache miss"],
+    evidence: ['"Entity data cache hit"', '"Entity data cache miss"'],
+  },
+  {
+    // Template in readSnapshotExportPageSize (src/lib/snapshot/export.ts:101);
+    // the ${...} names are the placeholder — the live line carries numbers.
+    file: "src/lib/snapshot/export.ts",
+    messages: [
+      "SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}",
+    ],
+    evidence: [
+      "`SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`",
+    ],
+  },
 ];
+
+const COMPUTED_MESSAGES = COMPUTED_CALL_SITES.flatMap((site) => site.messages);
+
+/** `logEvent(` call sites (the definition in src/lib/logger.ts excluded). */
+const LOG_EVENT_CALL_RE = /\blogEvent\s*\(/g;
+
+function verifiedComputedMessages(files: Array<{ path: string; text: string }>): string[] {
+  const verified: string[] = [];
+  for (const site of COMPUTED_CALL_SITES) {
+    const file = files.find((f) => f.path === site.file || f.path.endsWith(`/${site.file}`));
+    if (file && site.evidence.every((snippet) => String(file.text).includes(snippet))) {
+      verified.push(...site.messages);
+    }
+  }
+  return verified;
+}
+
+function countMatches(re: RegExp, files: Array<{ path: string; text: string }>): number {
+  let total = 0;
+  for (const { text } of files) {
+    total += [...String(text).matchAll(re)].length;
+  }
+  return total;
+}
+
+function countLogEventCallSites(files: Array<{ path: string; text: string }>): number {
+  return countMatches(
+    LOG_EVENT_CALL_RE,
+    files.filter((f) => !f.path.endsWith("src/lib/logger.ts")),
+  );
+}
 
 function extractCodeMessages(files: Array<{ path: string; text: string }>): string[] {
   const found = new Set<string>();
@@ -56,7 +106,7 @@ function extractCodeMessages(files: Array<{ path: string; text: string }>): stri
       found.add(m[1]);
     }
   }
-  for (const msg of COMPUTED_MESSAGES) {
+  for (const msg of verifiedComputedMessages(files)) {
     found.add(msg);
   }
   return [...found].sort();
@@ -73,11 +123,15 @@ function extractDocMessages(markdownText: string): string[] {
   return [...new Set([...catalogue.matchAll(DOC_ROW_RE)].map((m) => m[1]))].sort();
 }
 
-function checkTree(markdownText: string) {
-  const files = Object.entries(srcModules).map(([key, text]) => ({
+function realFiles(): Array<{ path: string; text: string }> {
+  return Object.entries(srcModules).map(([key, text]) => ({
     path: (key as string).replace(/^\.\.\//, ""),
     text: text as string,
   }));
+}
+
+function checkTree(markdownText: string) {
+  const files = realFiles();
   // Fail closed if the glob ever matches nothing: empty sets would compare
   // vacuously green.
   expect(files.length).toBeGreaterThan(0);
@@ -103,6 +157,27 @@ describe("logging catalogue coverage: extraction", () => {
     ).toEqual(["Plain event"]);
   });
 
+  it("credits computed messages only when their source evidence is present", () => {
+    const present = extractCodeMessages([
+      {
+        path: "src/lib/entityDataCache.ts",
+        text: 'logEvent({ level: "info", msg: entry ? "Entity data cache hit" : "Entity data cache miss", route: "x" })',
+      },
+    ]);
+    expect(present).toContain("Entity data cache hit");
+    expect(present).toContain("Entity data cache miss");
+
+    const reworded = extractCodeMessages([
+      {
+        path: "src/lib/entityDataCache.ts",
+        text: 'logEvent({ level: "info", msg: entry ? "Entity hit RENAMED" : "Entity miss RENAMED", route: "x" })',
+      },
+    ]);
+    expect(reworded).not.toContain("Entity data cache hit");
+    expect(reworded).not.toContain("Entity data cache miss");
+    expect(COMPUTED_MESSAGES).toContain("Entity data cache hit");
+  });
+
   it("reads catalogue rows only, ignoring headings and prose", () => {
     const md = [
       "## Event catalogue",
@@ -124,5 +199,16 @@ describe("logging catalogue coverage: real tree", () => {
 
   it("the catalogue lists no message src/ no longer emits", () => {
     expect(checkTree(loggingMd).stale).toEqual([]);
+  });
+
+  it("every logEvent call site is a literal msg or a known computed call site", () => {
+    const files = realFiles();
+    expect(files.length).toBeGreaterThan(0);
+    // A msg in any other form (single quotes, backticks, a const, a new
+    // ternary) is invisible to the literal scan, so it must fail here and
+    // be added to COMPUTED_CALL_SITES on purpose instead of slipping by.
+    expect(countLogEventCallSites(files)).toBe(
+      countMatches(CODE_MSG_RE, files) + COMPUTED_CALL_SITES.length,
+    );
   });
 });
