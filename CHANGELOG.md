@@ -10,8 +10,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   customer upserts from re-inserting a marked row; FK-blocked deletes roll back
   the marker too. Suppressed address writes for a marked customer are skipped
   and recorded as id-only lineage so their container writes are skipped as
-  well; other customers keep fail-closed foreign keys. This is local
-  suppression, not upstream or R2 erasure. A
+  well; other customers keep fail-closed foreign keys. Container suppression
+  follows current address ownership, so an address re-homed to a live customer
+  flows again and its stale lineage is cleared. Customers erased before this
+  migration have no marker; backfill them with privileged `wrangler d1 execute`
+  inserts and manage markers only via privileged SQL (see
+  `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+  This is local suppression, not upstream or R2 erasure. A
   whole-database restore can rewind markers and triggers; recovery must verify
   both and re-apply suppression before serving traffic. Application rollback
   retains the suppression schema and recorded markers. No live migration,

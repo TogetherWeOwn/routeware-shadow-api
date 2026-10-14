@@ -7,7 +7,11 @@
 -- a later container write can resolve its erased customer without a parent
 -- address row (suppressed addresses are never inserted). It carries no PII
 -- beyond the keys already in customer_snapshot_erasure, and rows cascade away
--- when their erasure marker is removed.
+-- when their erasure marker is removed. Container suppression depends on
+-- current ownership: an address row present under a live customer is never
+-- suppressed via stale lineage (upstream re-homes an address by changing its
+-- customer_id), and successful live inserts/updates clear their stale lineage
+-- row. Lineage alone suppresses only when the address row is absent.
 
 CREATE TABLE customer_snapshot_erasure_address (
   pickup_address_id INTEGER PRIMARY KEY,
@@ -52,8 +56,16 @@ END;
 CREATE TRIGGER suppress_erased_container_insert
 BEFORE INSERT ON container_snapshot
 WHEN EXISTS (
-  SELECT 1 FROM customer_snapshot_erasure_address
-  WHERE pickup_address_id = NEW.pickup_address_id
+  SELECT 1 FROM address_snapshot AS a
+  JOIN customer_snapshot_erasure AS e ON e.customer_id = a.customer_id
+  WHERE a.pickup_address_id = NEW.pickup_address_id
+) OR (
+  NOT EXISTS (
+    SELECT 1 FROM address_snapshot WHERE pickup_address_id = NEW.pickup_address_id
+  ) AND EXISTS (
+    SELECT 1 FROM customer_snapshot_erasure_address
+    WHERE pickup_address_id = NEW.pickup_address_id
+  )
 )
 BEGIN
   SELECT RAISE(IGNORE);
@@ -62,9 +74,50 @@ END;
 CREATE TRIGGER suppress_erased_container_update
 BEFORE UPDATE ON container_snapshot
 WHEN EXISTS (
-  SELECT 1 FROM customer_snapshot_erasure_address
-  WHERE pickup_address_id = OLD.pickup_address_id OR pickup_address_id = NEW.pickup_address_id
+  SELECT 1 FROM address_snapshot AS a
+  JOIN customer_snapshot_erasure AS e ON e.customer_id = a.customer_id
+  WHERE a.pickup_address_id = NEW.pickup_address_id
+) OR (
+  NOT EXISTS (
+    SELECT 1 FROM address_snapshot WHERE pickup_address_id = NEW.pickup_address_id
+  ) AND EXISTS (
+    SELECT 1 FROM customer_snapshot_erasure_address
+    WHERE pickup_address_id = NEW.pickup_address_id
+  )
+) OR EXISTS (
+  SELECT 1 FROM address_snapshot AS a
+  JOIN customer_snapshot_erasure AS e ON e.customer_id = a.customer_id
+  WHERE a.pickup_address_id = OLD.pickup_address_id
+) OR (
+  NOT EXISTS (
+    SELECT 1 FROM address_snapshot WHERE pickup_address_id = OLD.pickup_address_id
+  ) AND EXISTS (
+    SELECT 1 FROM customer_snapshot_erasure_address
+    WHERE pickup_address_id = OLD.pickup_address_id
+  )
 )
 BEGIN
   SELECT RAISE(IGNORE);
+END;
+
+-- A re-homed address must not keep suppressing its new owner's containers.
+-- The container triggers above already ignore stale lineage when the address
+-- row exists under a live customer, and these cleanup triggers remove the
+-- stale row so the lineage table does not accumulate dead mappings.
+CREATE TRIGGER clear_stale_erasure_lineage_on_address_insert
+AFTER INSERT ON address_snapshot
+WHEN NOT EXISTS (
+  SELECT 1 FROM customer_snapshot_erasure WHERE customer_id = NEW.customer_id
+)
+BEGIN
+  DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = NEW.pickup_address_id;
+END;
+
+CREATE TRIGGER clear_stale_erasure_lineage_on_address_update
+AFTER UPDATE ON address_snapshot
+WHEN NOT EXISTS (
+  SELECT 1 FROM customer_snapshot_erasure WHERE customer_id = NEW.customer_id
+)
+BEGIN
+  DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = NEW.pickup_address_id;
 END;

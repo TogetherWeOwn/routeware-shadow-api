@@ -132,9 +132,37 @@ suppression schema skips tombstoned customer rows and their descendant address
 and container rows. Restoring a D1 backup from
 before the erasure can restore both the customer row and a schema without the newer
 tombstone table/triggers; after D1 Time Travel or backup restore, verify the
-schema, reconcile the suppression list from a retained source, and re-apply
-erasures before serving traffic. Time Travel can restore data for up to 30 days
-(7 days on the Workers Free plan).
+schema, reconcile tombstones from the operator's out-of-band erased-customer
+list (the same list previously used to re-DELETE after restore — e.g., the
+erasure ticket or incident log), and re-apply suppression before serving
+traffic, so verify suppression after database recovery. Time Travel can restore
+data for up to 30 days (7 days on the Workers Free plan).
+
+Customers erased before the suppression migration have no tombstone and are
+unprotected: the next sync re-inserts them. Backfill each such `customerId`
+with privileged `wrangler d1 execute` before normal writers resume (never via
+a public route; the DELETE route returns 404 when the row is absent and cannot
+create the marker):
+
+```sql
+-- backfill one pre-migration erasure (idempotent)
+INSERT INTO customer_snapshot_erasure (customer_id, erased_at)
+VALUES (7101, '2026-10-15T00:00:00.000Z')
+ON CONFLICT(customer_id) DO UPDATE SET erased_at = excluded.erased_at;
+-- verify
+SELECT customer_id, erased_at FROM customer_snapshot_erasure WHERE customer_id = 7101;
+```
+
+Markers have no list or delete route by design. Inspect and remove them only
+with privileged `wrangler d1 execute`:
+
+```sql
+-- list markers (integer keys only, never PII)
+SELECT customer_id, erased_at FROM customer_snapshot_erasure ORDER BY customer_id;
+-- remove one marker once upstream and all retained archives/backups are
+-- verified clear; its lineage rows cascade away and future imports flow again
+DELETE FROM customer_snapshot_erasure WHERE customer_id = 7101;
+```
 
 This route removes only the `customer_snapshot` row: the customer's
 `address_snapshot` and `container_snapshot` rows are not removed by this
@@ -163,9 +191,11 @@ new erasures; do not use it for new erasure requests unless a separate approved
 procedure covers suppression. Do not drop the table or triggers as part of an
 application rollback: doing so discards suppression state and reopens every
 write path. A full D1 restore may also rewind schema and markers; verify both
-before normal writers resume and restore suppression from the authorized
-retained source. A reviewed application revert is the rollback; schema/data
-removal is not an automatic rollback step.
+before normal writers resume and restore suppression from the operator's
+out-of-band erased-customer list (the same list previously used to re-DELETE
+after restore — e.g., the erasure ticket or incident log), so verify
+suppression after database recovery. A reviewed application revert is the
+rollback; schema/data removal is not an automatic rollback step.
 
 ## Official references
 

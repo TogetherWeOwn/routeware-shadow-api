@@ -255,3 +255,183 @@ describe("erased-customer descendant suppression (scoped_skip)", () => {
     expect(await containerExists(9832)).toBe(false);
   });
 });
+
+describe("erasure UPDATE suppression and raced deletes", () => {
+  beforeAll(async () => {
+    await ensureD1TestTables();
+  });
+
+  it("does not update a tombstoned customer via sync or import", async () => {
+    const id = 9845;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Original-9845', 1, '2026-10-01')").bind(id).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(id).run();
+
+    await syncCustomerSnapshotFromCsvText(
+      db(),
+      `CustomerID,CompanyName,Enabled\n${id},Updated-9845,true\n`
+    );
+    const afterSync = await db().prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = ?").bind(id).first<{ company_name: string }>();
+    expect(afterSync?.company_name).toBe("Original-9845");
+
+    const imported = await request("/api/v1/customer-snapshot/import", {
+      method: "POST",
+      headers: { "content-type": "text/csv" },
+      body: `CustomerID,CompanyName,Enabled\n${id},Imported-9845,true\n`
+    });
+    expect(imported.status).toBe(200);
+    const afterImport = await db().prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = ?").bind(id).first<{ company_name: string }>();
+    expect(afterImport?.company_name).toBe("Original-9845");
+
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(id).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(id).run();
+  });
+
+  it("does not update a tombstoned address via upsert", async () => {
+    const customerId = 9846;
+    const addressId = 9846;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Original St', 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+
+    await upsertAddressSnapshotRows(db(), [{
+      pickupAddressId: addressId,
+      customerId,
+      routeId: null,
+      address: "Updated St",
+      city: "Killeen",
+      state: "TX",
+      zip: "76541",
+      franchiseId: null,
+      comments: null,
+      extrasAllowed: false,
+      enabled: true,
+      driverNote: null,
+      latitude: null,
+      longitude: null,
+      lastAuditDate: null
+    }]);
+
+    const row = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ address: string }>();
+    expect(row?.address).toBe("Original St");
+
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+  });
+
+  it("does not update a tombstoned container via upsert", async () => {
+    const customerId = 9847;
+    const addressId = 9847;
+    const containerId = 9847;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9847', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at) VALUES (?, ?, '2026-10-15T00:00:00.000Z')").bind(addressId, customerId).run();
+
+    await upsertContainerSnapshotRows(db(), [{
+      containerId,
+      pickupAddressId: addressId,
+      containerTypeId: null,
+      serialNumber: "SN-9847-NEW",
+      rfid: null,
+      onCall: false,
+      eventCode: null,
+      gpsLocked: false,
+      latitude: null,
+      longitude: null,
+      enabled: true,
+      locationAddress: "9847 Main St",
+      city: "Killeen",
+      state: "TX",
+      zip: "76541",
+      containerNote: null,
+      udCostShareUd: null,
+      udEnclosureDoorsUd: null,
+      udLastCompactorInspectionUd: null,
+      udLastEnclosureInspectionUd: null,
+      udMaterialStreamUd: null,
+      color: null,
+      serviceCodeType: null,
+      serviceCodeInput: null,
+      serviceCode: null,
+      serviceDate: null,
+      routeIds: null,
+      frequencyIds: null
+    }]);
+
+    const row = await db().prepare("SELECT serial_number FROM container_snapshot WHERE container_id = ?").bind(containerId).first<{ serial_number: string }>();
+    expect(row?.serial_number).toBe("SN-9847");
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+  });
+
+  it("returns 404 with no marker when the row vanishes before the batch (raced delete)", async () => {
+    const id = 9848;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(id).run();
+    const realDb = db();
+    const racingDb = {
+      prepare: (sql: string) => (realDb as unknown as { prepare: (s: string) => unknown }).prepare(sql),
+      batch: async (stmts: unknown[]) => {
+        await realDb.prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(id).run();
+        return (realDb as unknown as { batch: (s: unknown[]) => Promise<unknown> }).batch(stmts);
+      }
+    } as unknown as D1Database;
+    const res = await customerSnapshotRoutes.fetch(
+      new Request(`http://test.local/api/v1/customer-snapshot/${id}`, {
+        method: "DELETE",
+        headers: { authorization: `Bearer ${SYNC_SECRET()}` }
+      }),
+      {
+        CUSTOMER_DB: racingDb,
+        CUSTOMER_SNAPSHOT_SYNC_SECRET: SYNC_SECRET()
+      } as unknown as Env,
+      ctx()
+    );
+    const marker = await realDb.prepare("SELECT customer_id FROM customer_snapshot_erasure WHERE customer_id = ?").bind(id).first();
+    expect(res.status).toBe(404);
+    expect(marker).toBeNull();
+    expect(await customerExists(id)).toBe(false);
+    await realDb.prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(id).run();
+  });
+
+  it("lets a re-homed address and its containers flow under the live owner", async () => {
+    const erasedCustomer = 9871;
+    const liveCustomer = 9872;
+    const addressId = 9871;
+    const containerId = 9871;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(erasedCustomer).run();
+    expect((await request(`/api/v1/customer-snapshot/${erasedCustomer}`, { method: "DELETE" })).status).toBe(200);
+
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${erasedCustomer},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    expect(await addressExists(addressId)).toBe(false);
+
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${liveCustomer},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    const addressRow = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(addressRow?.customer_id).toBe(liveCustomer);
+
+    await syncContainerSnapshotFromCsvText(
+      db(),
+      `${CONTAINER_HEADER}\n${containerId},${addressId},,SN-${containerId},,false,,false,,,true,${addressId} Main St,Killeen,TX,76541,`
+    );
+    expect(await containerExists(containerId)).toBe(true);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+  });
+});

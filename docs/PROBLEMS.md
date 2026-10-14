@@ -85,8 +85,12 @@ them while upstream or any archive/backup can return the customer. It does not
 remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV
 readback. D1 Time Travel or a backup restore to a point before the
 erasure may restore a customer row and schema without its tombstone/triggers;
-verify suppression before serving recovered data. Time Travel can restore data
-for up to 30 days (7 days on the Workers Free plan). The same FK chain
+verify suppression before serving recovered data, so verify suppression after
+database recovery. Customers erased before the suppression migration have no
+tombstone; backfill them with privileged `wrangler d1 execute` (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+Time Travel can restore data for up to 30 days (7 days on the Workers Free
+plan). The same FK chain
 refuses a delete while address rows still reference the customer, mapped to
 400 (never an orphan, never a cascade):
 

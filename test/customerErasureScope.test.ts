@@ -56,11 +56,13 @@ const CACHE_TTL_LIMIT =
   "may keep serving the erased PII until the 60 s cache TTL expires";
 
 /**
- * Restores re-insert: an R2 restore or CSV import of a pre-erasure archive
- * brings the row back, and D1 Time Travel keeps it recoverable — so erasures
- * must be re-applied after any restore.
+ * Post-restore verification: a D1 backup or Time Travel restore can rewind the
+ * tombstone table/triggers, so recovery must verify suppression before serving
+ * traffic. Pinned to the exact verification sentence (not the generic "before
+ * the erasure" phrase, which appears in background context and cannot guard
+ * the remediation).
  */
-const RESTORE_REINSERTS = "before the erasure";
+const RESTORE_REINSERTS = "verify suppression after database recovery";
 
 /** D1 Time Travel keeps the deleted row recoverable after the DELETE. */
 const TIME_TRAVEL_LIMIT = "D1 Time Travel";

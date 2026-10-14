@@ -179,9 +179,15 @@ upstream or any archive/backup can return that customer. It does not remove R2
 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and
 it does not touch upstream Routeware. A D1 Time Travel/backup restore from
 before the erasure can restore the row and lose the tombstone/triggers; verify the
-schema, reconcile tombstones from a retained source, and re-apply suppression
-before serving recovered data. Time Travel can restore data for up to 30 days
-(7 days on the Workers Free plan). This route removes only the `customer_snapshot` row:
+schema, reconcile tombstones from the operator's out-of-band erased-customer
+list (the same list previously used to re-DELETE after restore — e.g., the
+erasure ticket or incident log), and re-apply suppression before serving
+recovered data, so verify suppression after database recovery. Customers erased
+before the suppression migration have no tombstone; backfill them with
+privileged `wrangler d1 execute` (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+Time Travel can restore data for up to 30 days (7 days on the Workers Free
+plan). This route removes only the `customer_snapshot` row:
 the customer's `address_snapshot` and `container_snapshot` rows are not
 removed by this route. Deleting a customer that still has address rows
 fails closed with 400 (never an orphan, never a cascade). There is no
