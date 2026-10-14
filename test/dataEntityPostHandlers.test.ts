@@ -105,7 +105,11 @@ vi.mock("../src/lib/detailFullSync", () => ({
       throw new Error(behavior.syncError);
     }
     return behavior.syncResult;
-  }
+  },
+  // TOG-8374: the handlers size the graph-invalidation retry from the Cache
+  // API headroom; the attempt arithmetic itself is pinned in
+  // detailFullSizeGuard, so this double returns the small-graph value.
+  detailFullInvalidateAttempts: () => 2
 }));
 
 vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
@@ -288,6 +292,116 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
       msg: "Post-save fallback cache eviction failed",
       route: "POST /api/v1/data/customer"
     });
+  });
+
+  it("keeps the upstream 200 when the address fallback evictions also fail", async () => {
+    // Arrange — TOG-8374: both wrapped address-handler fallbacks (customer,
+    // then posted address) throw, e.g. Cache API quota exhausted mid-graph.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataAddress(
+      postCtx(formBody({ CustomerID: "5", PickupAddressID: "10" }))
+    );
+
+    // Assert — still 200 with the fixed code; both evictions were attempted
+    // and both failures logged, with no error text reaching the client.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(calls.entity).toEqual([
+      { kind: "customer", id: 5 },
+      { kind: "address", id: 10 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(
+      loggedErrors.filter((e) => e.msg === "Post-save fallback cache eviction failed")
+    ).toHaveLength(2);
+  });
+
+  it("keeps the upstream 200 when the container fallback evictions also fail", async () => {
+    // Arrange — mirrors the address handler: the customer eviction and the
+    // posted-container eviction both throw after a successful upstream save.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ CustomerID: "5", ContainerID: "100" }))
+    );
+
+    // Assert — still 200 with the fixed code; both evictions were attempted.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(calls.entity).toEqual([
+      { kind: "customer", id: 5 },
+      { kind: "container", id: 100 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(
+      loggedErrors.filter((e) => e.msg === "Post-save fallback cache eviction failed")
+    ).toHaveLength(2);
+  });
+
+  it("keeps the upstream 200 when the address unresolvable-id eviction fails", async () => {
+    // Arrange — no usable CustomerID was posted, so no sync is possible; the
+    // posted-address fallback eviction itself throws.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([{ kind: "address", id: 10 }]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+  });
+
+  it("attempts every unresolvable id when the container fallbacks fail", async () => {
+    // Arrange — neither a posted CustomerID nor the address-snapshot fallback
+    // resolves an owner, so both posted ids go through `invalidatePostedIds`.
+    // A throwing address eviction must not skip the container entry.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ PickupAddressID: "10", ContainerID: "100" }))
+    );
+
+    // Assert — 200, and both entries were attempted despite the first throwing.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([
+      { kind: "address", id: 10 },
+      { kind: "container", id: 100 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+  });
+
+  it("keeps the upstream 200 on the customer unresolvable-id branch when eviction fails", async () => {
+    // Arrange — the posted form carries no usable id, so the
+    // `invalidatePostedIds` entry is null (a no-op): the throwing cache
+    // cannot fire here, but the branch must still keep the upstream 200.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataCustomer(postCtx(formBody({ CompanyName: "Acme" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([]);
   });
 
   it("logs the sync failure rather than swallowing it", async () => {

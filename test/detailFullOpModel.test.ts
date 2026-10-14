@@ -111,6 +111,20 @@ describe("detail-full D1 op model matches real batch calls", () => {
       addresses: 1,
       containers: 320,
       make: () => containerGraph(320)
+    },
+    {
+      name: "800 addresses (ten address batches; the reviewer's 5,001-address " +
+        "probe shape is refused by the cache guard before any write — see " +
+        "detailFullSizeGuard — so the pin uses the largest cache-fitting shape)",
+      addresses: 800,
+      containers: 0,
+      make: () => addressOnlyGraph(800)
+    },
+    {
+      name: "one address with 800 containers (sixteen container batches)",
+      addresses: 1,
+      containers: 800,
+      make: () => containerGraph(800)
     }
   ])("$name issues exactly detailFullD1Ops(addresses, containers) batch calls", async ({
     addresses,

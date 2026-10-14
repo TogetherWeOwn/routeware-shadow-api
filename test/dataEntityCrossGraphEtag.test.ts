@@ -111,7 +111,8 @@ vi.mock("../src/lib/forwardWithSessionRetry", () => ({
 }));
 
 vi.mock("../src/lib/detailFullSync", () => ({
-  syncCustomerDetailFullToD1: async () => ({ addressIds: [10], containerIds: [100] })
+  syncCustomerDetailFullToD1: async () => ({ addressIds: [10], containerIds: [100] }),
+  detailFullInvalidateAttempts: () => 2
 }));
 
 const {

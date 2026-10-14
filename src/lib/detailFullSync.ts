@@ -39,13 +39,24 @@ export const DETAIL_FULL_MAX_D1_OPS = 900;
  * sharing the 10,000-subrequest quota
  * (https://developers.cloudflare.com/workers/platform/limits/). Every caller
  * of `syncCustomerDetailFullToD1` invalidates one cache entry per graph id
- * (customer + addresses + containers) with up to
- * `INVALIDATE_GRAPH_MAX_ATTEMPTS` passes, so the pre-write guard budgets the
- * worst case and keeps 10% headroom for the request's own non-graph cache I/O.
- * Stale ids discovered by reconciliation only enlarge the invalidation set, so
- * they are covered by that headroom, not the model.
+ * (customer + addresses + containers), so the pre-write guard budgets a single
+ * full-graph pass and keeps headroom for the request's own non-graph cache
+ * I/O (fallback single-id evictions, anti-forgery token eviction). A retry
+ * pass is never reserved up front — it is best-effort from the headroom (see
+ * `detailFullInvalidateAttempts`) — so a graph that fits one pass is never
+ * refused for a second pass that only runs after the first has thrown.
+ *
+ * Reconciliation can still enlarge the invalidation set past the guard: ids
+ * of rows deleted upstream come back from `reconcileCustomerChildren`
+ * (unbounded `DELETE ... RETURNING`) after the guard ran. If that pushes the
+ * request past the Cache API limit the invalidation throws, the handler logs
+ * it and reports `sync_failed`, and the un-evicted entries expire via the
+ * shared entity-data TTL — stale for seconds, not served indefinitely.
  */
-export const DETAIL_FULL_MAX_CACHE_INVALIDATIONS = 900;
+export const DETAIL_FULL_CACHE_API_LIMIT = 1000;
+const DETAIL_FULL_CACHE_HEADROOM = 50;
+export const DETAIL_FULL_MAX_CACHE_INVALIDATIONS =
+  DETAIL_FULL_CACHE_API_LIMIT - DETAIL_FULL_CACHE_HEADROOM;
 const DETAIL_FULL_BATCH = { customer: 80, address: 80, container: 50 } as const;
 
 export function detailFullD1Ops(addressCount: number, containerCount: number): number {
@@ -66,10 +77,28 @@ export function detailFullCacheInvalidations(
   addressCount: number,
   containerCount: number
 ): number {
-  // One delete per graph id (customer + addresses + containers), worst case
-  // over every retry pass — cache deletes are idempotent, so a mid-graph
-  // failure re-attempts the whole graph.
-  return (1 + addressCount + containerCount) * INVALIDATE_GRAPH_MAX_ATTEMPTS;
+  // One delete per graph id (customer + addresses + containers): a single
+  // full-graph pass. Cache deletes are idempotent, so a mid-graph failure
+  // re-attempts the whole graph — but that retry is best-effort from the
+  // headroom (see `detailFullInvalidateAttempts`), never reserved up front.
+  return 1 + addressCount + containerCount;
+}
+
+/**
+ * Best-effort retry passes for `invalidateCustomerGraphWithRetry`, derived
+ * from the Cache API calls left after one full-graph pass: always at least
+ * one attempt, at most `INVALIDATE_GRAPH_MAX_ATTEMPTS`, and a single attempt
+ * when the graph leaves no room for a full second pass. Small graphs keep the
+ * transient-failure retry; large graphs fail fast to the handler's
+ * log-and-`sync_failed` path instead of spending quota on a doomed re-pass.
+ */
+export function detailFullInvalidateAttempts(
+  addressCount: number,
+  containerCount: number
+): number {
+  const ids = 1 + addressCount + containerCount;
+  const remaining = DETAIL_FULL_CACHE_API_LIMIT - DETAIL_FULL_CACHE_HEADROOM - ids;
+  return Math.max(1, Math.min(INVALIDATE_GRAPH_MAX_ATTEMPTS, Math.floor(remaining / ids)));
 }
 
 function n(v: unknown): number | null {

@@ -62,6 +62,7 @@ const {
   DETAIL_FULL_MAX_RESPONSE_BYTES,
   detailFullCacheInvalidations,
   detailFullD1Ops,
+  detailFullInvalidateAttempts,
   fetchGetCustomerDetailFull,
   syncCustomerDetailFullToD1
 } = await import("../src/lib/detailFullSync");
@@ -94,6 +95,24 @@ function containerGraph(n: number) {
   };
 }
 
+/** `n` addresses each carrying `k` containers. */
+function mixedGraph(n: number, k: number) {
+  const data = [];
+  let containerId = 1;
+  for (let a = 1; a <= n; a += 1) {
+    const containers: Array<Record<string, unknown>> = [];
+    for (let j = 0; j < k; j += 1) {
+      containers.push({ ContainerID: containerId, PickupAddressID: 1000 + a });
+      containerId += 1;
+    }
+    data.push({ PickupAddressID: 1000 + a, CustomerID: 5, Containers: containers });
+  }
+  return {
+    currentCustomer: { CustomerID: 5, CompanyName: "Guard Co", Enabled: true },
+    data
+  };
+}
+
 /** Minimal graph of `n` addresses with no containers. */
 function addressOnlyGraph(n: number) {
   const data = [];
@@ -115,7 +134,8 @@ beforeEach(() => {
 
 describe("detail-full size guards", () => {
   it("syncs a graph inside both budgets in full", async () => {
-    // Arrange — 400 addresses are 7 D1 ops and 802 cache invalidations.
+    // Arrange — 400 addresses are 7 D1 ops and 401 cache invalidations
+    // (one pass over 401 graph ids).
     behavior.responses = [() => json(addressOnlyGraph(400))];
 
     // Act
@@ -127,34 +147,37 @@ describe("detail-full size guards", () => {
     expect(calls.customers).toHaveLength(1);
   });
 
-  it("syncs the largest graph that fits the cache-invalidation budget", async () => {
-    // Arrange — 1 address + 448 containers is 449 ids = 898 invalidations
-    // (2 passes) and 12 D1 ops, inside both budgets.
-    behavior.responses = [() => json(containerGraph(448))];
+  it("syncs a 601-id graph that fits one cache pass (the reviewer's probe shape)", async () => {
+    // Arrange — 100 addresses x 5 containers is 601 ids = 601 invalidations
+    // and 14 D1 ops, inside both budgets. Pricing one pass (not a reserved
+    // retry pass) keeps this graph syncing.
+    behavior.responses = [() => json(mixedGraph(100, 5))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
     // Assert
-    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(900);
-    expect(result.containerIds).toHaveLength(448);
-    expect(calls.containers.flat()).toHaveLength(448);
+    expect(result.addressIds).toHaveLength(100);
+    expect(result.containerIds).toHaveLength(500);
+    expect(calls.addresses.flat()).toHaveLength(100);
+    expect(calls.containers.flat()).toHaveLength(500);
   });
 
   it("syncs a graph at exactly the cache-invalidation budget", async () => {
-    // Arrange — 449 addresses is (1 + 449) * 2 = 900 invalidations: at, not over.
-    behavior.responses = [() => json(addressOnlyGraph(449))];
+    // Arrange — 949 addresses is 1 + 949 = 950 invalidations: at, not over.
+    behavior.responses = [() => json(addressOnlyGraph(949))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
     // Assert
-    expect(result.addressIds).toHaveLength(449);
+    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(950);
+    expect(result.addressIds).toHaveLength(949);
   });
 
   it("refuses a graph one id past the cache-invalidation budget without writing", async () => {
-    // Arrange — 450 addresses is (1 + 450) * 2 = 902 invalidations.
-    behavior.responses = [() => json(addressOnlyGraph(450))];
+    // Arrange — 950 addresses is 1 + 950 = 951 invalidations.
+    behavior.responses = [() => json(addressOnlyGraph(950))];
 
     // Act
     const error = (await syncCustomerDetailFullToD1(env, sessionStub, 5).catch(
@@ -164,15 +187,15 @@ describe("detail-full size guards", () => {
     // Assert
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("too large");
-    expect(error.message).toContain("902 cache invalidations");
+    expect(error.message).toContain("951 cache invalidations");
     expect(calls.customers).toEqual([]);
     expect(calls.addresses).toEqual([]);
     expect(calls.containers).toEqual([]);
   });
 
   it("refuses a 5,001-address graph on cache fan-out even though its D1 ops fit", async () => {
-    // Arrange — 65 D1 ops is inside the D1 budget, but (1 + 5,001) * 2 =
-    // 10,004 cache deletes would exhaust the per-request Cache API quota.
+    // Arrange — 65 D1 ops is inside the D1 budget, but 1 + 5,001 = 5,002
+    // cache deletes would exhaust the per-request Cache API quota.
     behavior.responses = [() => json(addressOnlyGraph(5_001))];
 
     // Act
@@ -183,15 +206,15 @@ describe("detail-full size guards", () => {
     // Assert
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("too large");
-    expect(error.message).toContain("10004 cache invalidations");
+    expect(error.message).toContain("5002 cache invalidations");
     expect(calls.customers).toEqual([]);
     expect(calls.addresses).toEqual([]);
     expect(calls.containers).toEqual([]);
   });
 
   it("refuses a 40,001-container graph on cache fan-out even though its D1 ops fit", async () => {
-    // Arrange — 804 D1 ops is inside the D1 budget, but (1 + 1 + 40,001) * 2 =
-    // 80,006 cache deletes would exhaust the per-request Cache API quota.
+    // Arrange — 804 D1 ops is inside the D1 budget, but 1 + 1 + 40,001 =
+    // 40,003 cache deletes would exhaust the per-request Cache API quota.
     behavior.responses = [() => json(containerGraph(40_001))];
 
     // Act
@@ -202,7 +225,7 @@ describe("detail-full size guards", () => {
     // Assert
     expect(error).toBeInstanceOf(Error);
     expect(error.message).toContain("too large");
-    expect(error.message).toContain("80006 cache invalidations");
+    expect(error.message).toContain("40003 cache invalidations");
     expect(calls.customers).toEqual([]);
     expect(calls.addresses).toEqual([]);
     expect(calls.containers).toEqual([]);
@@ -221,14 +244,25 @@ describe("detail-full size guards", () => {
   });
 
   it("pins the cache-invalidation model arithmetic used by the pre-write guard", () => {
-    // One delete per graph id (customer + addresses + containers), worst case
-    // over both retry passes.
-    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(900);
-    expect(detailFullCacheInvalidations(0, 0)).toBe(2);
-    expect(detailFullCacheInvalidations(449, 0)).toBe(900);
-    expect(detailFullCacheInvalidations(450, 0)).toBe(902);
-    expect(detailFullCacheInvalidations(5_001, 0)).toBe(10_004);
-    expect(detailFullCacheInvalidations(1, 40_001)).toBe(80_006);
+    // One delete per graph id (customer + addresses + containers): a single
+    // full-graph pass against the 1,000-call Cache API limit minus headroom.
+    // The retry is best-effort from that headroom, never reserved up front.
+    expect(DETAIL_FULL_MAX_CACHE_INVALIDATIONS).toBe(950);
+    expect(detailFullCacheInvalidations(0, 0)).toBe(1);
+    expect(detailFullCacheInvalidations(949, 0)).toBe(950);
+    expect(detailFullCacheInvalidations(950, 0)).toBe(951);
+    expect(detailFullCacheInvalidations(5_001, 0)).toBe(5_002);
+    expect(detailFullCacheInvalidations(1, 40_001)).toBe(40_003);
+  });
+
+  it("pins the best-effort retry attempts derived from the Cache API headroom", () => {
+    // Small graphs keep a transient-failure retry; graphs that leave no room
+    // for a full second pass get exactly one attempt and fail fast.
+    expect(detailFullInvalidateAttempts(0, 0)).toBe(2);
+    expect(detailFullInvalidateAttempts(100, 0)).toBe(2);
+    expect(detailFullInvalidateAttempts(100, 500)).toBe(1);
+    expect(detailFullInvalidateAttempts(949, 0)).toBe(1);
+    expect(detailFullInvalidateAttempts(5_001, 0)).toBe(1);
   });
 
   it("refuses an oversized response body before parsing it", async () => {

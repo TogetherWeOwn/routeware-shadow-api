@@ -9,7 +9,7 @@ import {
   getCustomerBundleFromD1,
   bundleJsonString
 } from "./dataEntityRead";
-import { syncCustomerDetailFullToD1 } from "./detailFullSync";
+import { detailFullInvalidateAttempts, syncCustomerDetailFullToD1 } from "./detailFullSync";
 import { errorKind, logEvent } from "./logger";
 import {
   entityDataCacheControlValue,
@@ -55,10 +55,27 @@ function etagHeader(etag: string): string {
 async function invalidatePostedIds(
   entries: Array<{ entity: "customer" | "address" | "container"; id: number | null }>
 ): Promise<void> {
+  // Attempt every entry even when one throws: the container branch carries
+  // both the address and the container id, and a throwing address eviction
+  // must not skip the container entry. Callers wrap this in
+  // `evictAfterSaveQuietly`, so the first error still only logs — but a
+  // direct caller sees the loud contract of `invalidateDataEntity`.
+  let failed = false;
+  let firstError: unknown;
   for (const { entity, id } of entries) {
     if (id !== null) {
-      await invalidateDataEntity(entity, id);
+      try {
+        await invalidateDataEntity(entity, id);
+      } catch (e) {
+        if (!failed) {
+          failed = true;
+          firstError = e;
+        }
+      }
     }
+  }
+  if (failed) {
+    throw firstError;
   }
 }
 
@@ -372,11 +389,16 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
@@ -505,11 +527,16 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
@@ -652,11 +679,16 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId: ownerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId: ownerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
