@@ -133,27 +133,38 @@ describe("smoke-readiness verdicts (TOG-22090)", () => {
     expect(classifyFetchError(new TypeError("fetch failed"))).toBe("network-error");
   });
 
-  it("never prints the bearer token", async () => {
-    const fetchImpl = async (url: string) => {
+  it("sends the bearer token only on the authenticated readiness probe", async () => {
+    // Route like the real Worker (first readiness hit without auth -> 401,
+    // with the bearer token -> 200) AND record exact header placement, so a
+    // mutant that moves the token to the liveness or auth-gate probe, or
+    // drops it from the authenticated probe, turns this green suite red.
+    const calls: Array<{ url: string; authorization: unknown }> = [];
+    const fetchImpl = async (url: string, init?: any) => {
+      const authorization = init?.headers?.authorization;
+      calls.push({ url: String(url), authorization });
       if (String(url).endsWith("/api/v1/health")) return jsonResponse(200, { status: "ok" });
-      if (String(url).endsWith("/api/v1/readiness") && !(globalThis as any).__authed) {
-        (globalThis as any).__authed = true;
+      if (String(url).endsWith("/api/v1/readiness")) {
+        if (authorization === `Bearer ${TOKEN}`) return jsonResponse(200, okReadinessBody());
         return jsonResponse(401, { status: "error" });
       }
-      return jsonResponse(200, okReadinessBody());
+      throw new Error(`unexpected url ${url}`);
     };
-    try {
-      const result = await runSmokeReadiness({
-        fetchImpl: fetchImpl as any,
-        base: "http://127.0.0.1:1",
-        token: TOKEN,
-        timeoutMs: 1000,
-      });
-      expect(result.exitCode).toBe(0);
-      expect(allLines(result)).not.toContain(TOKEN);
-    } finally {
-      delete (globalThis as any).__authed;
-    }
+    const result = await runSmokeReadiness({
+      fetchImpl: fetchImpl as any,
+      base: "http://127.0.0.1:1",
+      token: TOKEN,
+      timeoutMs: 1000,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(allLines(result)).not.toContain(TOKEN);
+    expect(calls.map((c) => c.url)).toEqual([
+      "http://127.0.0.1:1/api/v1/health",
+      "http://127.0.0.1:1/api/v1/readiness",
+      "http://127.0.0.1:1/api/v1/readiness",
+    ]);
+    // Liveness and the auth-gate probe stay public; only the authenticated
+    // readiness probe carries the bearer token.
+    expect(calls.map((c) => c.authorization)).toEqual([undefined, undefined, `Bearer ${TOKEN}`]);
   });
 
   it("bounds a hanging server with a timeout and exits 1 without the token", async () => {
