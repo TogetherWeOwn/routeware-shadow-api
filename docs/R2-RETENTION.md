@@ -91,19 +91,48 @@ The proposed rule JSON and hold procedure are recorded in
 
 ## Customer-row erasure leaves R2 untouched (TOG-18933)
 
-`DELETE /api/v1/customer-snapshot/{customerId}` removes the D1
-`customer_snapshot` row and evicts the data-entity cache entry. It does not
-remove R2 history CSVs, daily aliases, latest pointers, or the
-archived-CSV readback, and it does not touch upstream Routeware. The row
-returns on the next sync — or on the next save for that customer through
-the proxy — while upstream still holds it. Erasing a customer
-therefore never deletes that customer's row from already-archived history
-CSVs, the mutable daily aliases, or the objects behind the latest pointers;
-those copies keep serving through the existing date read endpoint and
-restore path until a retention rule approved separately removes them.
-Any R2 restore or CSV import of an archive taken before the erasure
-re-inserts the row, and D1 Time Travel can restore it for up to 30 days
-(7 days on the Workers Free plan), so re-apply erasures after any restore.
+`DELETE /api/v1/customer-snapshot/{customerId}` writes an id-only D1
+tombstone and deletes the D1 `customer_snapshot` row in the same D1 batch, then
+evicts the data-entity cache entry. If the customer has address children, the
+FK rejects the delete and the batch rolls back, so neither the customer nor a
+new tombstone is left changed. An absent customer still returns 404. A D1
+tombstone suppresses the customer on later sync, proxy-save refresh, and
+CSV/archive import. D1 triggers enforce this at the table write boundary,
+including direct customer upserts. The existing `upserted` and `rowCount`
+results count candidate input rows, including suppressed rows, not the number of
+rows retained in D1. Verify the stored row state rather than treating those
+counts as proof of restoration.
+
+**Current implementation limitation:** only customer writes are suppressed.
+If a later upstream report, detail-full refresh, or archive also contains
+addresses for a suppressed customer, those writes still fail the existing D1
+foreign key. A combined sync or restore stops at that address failure and does
+not reach containers; a proxy-save refresh reports its existing sync-failure
+outcome. Suppression does not bypass FKs or silently delete/skip descendants.
+Do not treat successful customer-only regression tests as proof that a complete
+three-table replay succeeds. Descendant handling requires an explicit scope
+choice before this candidate is ready for release.
+
+This is local cache suppression, not upstream Routeware erasure. Tombstones
+contain only `customer_id` and `erased_at`; they have no automatic expiry and
+remain until explicitly removed. Do not remove one while upstream or any
+retained archive/backup can return the customer; once the data sources and
+recovery windows have been verified clear, removal of the marker permits future
+imports again. No operation here deletes upstream data or decides a legal
+retention period for the marker.
+
+It does not remove R2 history CSVs, daily aliases, latest pointers, or the
+archived-CSV readback. Those copies keep serving through the existing date read
+endpoint and restore path until a separately approved retention rule removes
+them. Other edge locations and clients may keep serving the erased PII until the
+60 s cache TTL expires. A CSV/R2 import into a database with the
+suppression schema skips tombstoned customer rows. Restoring a D1 backup from
+before the erasure can restore both the customer row and a schema without the newer
+tombstone table/triggers; after D1 Time Travel or backup restore, verify the
+schema, reconcile the suppression list from a retained source, and re-apply
+erasures before serving traffic. Time Travel can restore data for up to 30 days
+(7 days on the Workers Free plan).
+
 This route removes only the `customer_snapshot` row: the customer's
 `address_snapshot` and `container_snapshot` rows are not removed by this
 route. There is no address or container DELETE route.
@@ -121,6 +150,19 @@ aliases, while new history objects remain untouched. Latest pointers then stop
 advancing and must be treated as stale. Code rollback does not remove lifecycle
 rules; rule changes require their own authorized rollback and do not restore
 expired data.
+
+## Suppression rollback and recovery
+
+The migration is additive. Rolling application code back does not remove the
+`tombstone` rows or the D1 triggers, so markers already recorded continue to
+suppress writes. The rolled-back DELETE handler will not record tombstones for
+new erasures; do not use it for new erasure requests unless a separate approved
+procedure covers suppression. Do not drop the table or triggers as part of an
+application rollback: doing so discards suppression state and reopens every
+write path. A full D1 restore may also rewind schema and markers; verify both
+before normal writers resume and restore suppression from the authorized
+retained source. A reviewed application revert is the rollback; schema/data
+removal is not an automatic rollback step.
 
 ## Official references
 

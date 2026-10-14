@@ -488,13 +488,14 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
  * `docs/PROBLEMS.md#method-not-allowed`). Erasure removes the D1
  * `customer_snapshot` row and evicts the data-entity cache entry. It does not
  * remove R2 history CSVs, daily aliases, latest pointers, or the
- * archived-CSV readback, and it does not touch upstream Routeware. The row
- * returns on the next sync — or on the next save for that customer through
- * the proxy — while upstream still holds it (no suppression
- * list; see TOG-18933). Any R2 restore or CSV import of an archive taken
- * before the erasure re-inserts the row, and D1 Time Travel can restore it
- * for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
- * after any restore. This route removes only the `customer_snapshot` row:
+ * archived-CSV readback, and it does not touch upstream Routeware. An id-only
+ * D1 tombstone suppresses the customer on later sync, proxy-save refresh, and
+ * CSV/archive import. This is local cache suppression, not upstream erasure;
+ * tombstones persist until explicitly removed. A restore of a D1 backup from
+ * before the erasure may restore both the customer row and an older schema
+ * without the tombstone/triggers. D1 Time Travel can restore data for up to
+ * 30 days (7 days on the Workers Free plan), so verify suppression after
+ * database recovery. This route removes only the `customer_snapshot` row:
  * the customer's `address_snapshot` and `container_snapshot` rows are not
  * removed by this route. There is no address or container DELETE route —
  * address rows leave D1 only through upstream-driven reconciliation or
@@ -512,7 +513,7 @@ const customerSnapshotDeleteRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:
-    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it. Any R2 restore or CSV import of an archive taken before the erasure re-inserts the row, and D1 Time Travel can restore it for up to 30 days (7 days on the Workers Free plan), so re-apply erasures after any restore. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. A D1 tombstone suppresses the customer on later sync, proxy-save refresh, and CSV/archive import while upstream still holds it. This is local cache suppression, not upstream erasure; tombstones persist until explicitly removed. A restore of a D1 backup from before the erasure may restore both the customer row and an older schema without the tombstone/triggers. D1 Time Travel can restore data for up to 30 days (7 days on the Workers Free plan), so verify suppression after database recovery. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
@@ -569,11 +570,21 @@ customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
     return customerNotFound();
   }
   try {
-    const res = await db
-      .prepare("DELETE FROM customer_snapshot WHERE customer_id = ?")
-      .bind(customerId)
-      .run();
-    if ((res.meta.changes ?? 0) === 0) {
+    // Commit the marker and row deletion together: a failed FK delete must not
+    // leave a tombstone that silently suppresses a still-present customer.
+    // Re-check existence in the batch so a concurrent reconcile/delete cannot
+    // create a new marker behind our 404 response.
+    const [, res] = await db.batch([
+      db
+        .prepare(
+          "INSERT INTO customer_snapshot_erasure (customer_id, erased_at) SELECT customer_id, ? FROM customer_snapshot WHERE customer_id = ? ON CONFLICT(customer_id) DO UPDATE SET erased_at = excluded.erased_at"
+        )
+        .bind(new Date().toISOString(), customerId),
+      db
+        .prepare("DELETE FROM customer_snapshot WHERE customer_id = ?")
+        .bind(customerId)
+    ]);
+    if ((res?.meta.changes ?? 0) === 0) {
       // Lost a race with a concurrent delete: the row is gone, so answer absent.
       return customerNotFound();
     }

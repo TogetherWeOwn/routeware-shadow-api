@@ -453,10 +453,11 @@ date and bucket (`restoreSnapshotCsvFromR2` retrieves bytes but does not verify 
 manifest), run the three tables in FK order with `syncCustomerSnapshotFromStream`,
 `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream` (default
 upsert-without-reconciliation options, restamping `synced_at`), and keep the entry point
-separate from public HTTP import without adding an import-validation opt-out. Re-apply
-customer erasures after any restore: an archive taken before a customer erasure re-inserts
-the erased row (the API keeps no suppression list), so track erased `customerId` values
-out of band and re-`DELETE` each one afterwards (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+separate from public HTTP import without adding an import-validation opt-out. CSV/R2 imports into a database with the suppression migration skip tombstoned customer
+rows. After a whole-D1 restore, verify the tombstone table and triggers survived; a restore
+to before erasure may restore the row and remove the marker/schema. Reconcile markers from
+the authorized retained source and re-apply suppression before normal writers resume (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
 
 ## 7. Deployed incident recovery — separately authorized, never a drill
 
@@ -932,10 +933,11 @@ the approved empty-table/union expectations and both orphan counts to zero.
 Privately query sampled primary keys with `d1 execute --remote --command SELECT…`
 and compare their values to the verified CSV; unaffected tables must match their
 pre-recovery state. A 200 or import acknowledgment alone is not incident closure.
-Re-apply customer erasures after any restore: an archive taken before a customer
-erasure re-inserts the erased row, so track erased `customerId` values out of band
-(the API keeps no suppression list) and re-`DELETE` each one after the restore
-(see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+CSV/R2 imports into a database with the suppression migration skip tombstoned
+customer rows. After a whole-D1 restore, verify the tombstone table and triggers
+survived; a restore to before erasure may restore the row and remove the marker/schema.
+Reconcile markers from the authorized retained source and re-apply suppression before
+normal writers resume (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
 Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response
 is retained; the `&&` chain below stops after a failed request without exiting the
 interactive shell, and no chain step is retried after an error.

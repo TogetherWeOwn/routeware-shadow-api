@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-21964: Customer snapshot DELETE records a D1 suppression marker atomically
+  with the row deletion. The additive suppression migration prevents later
+  customer upserts from re-inserting a marked row; FK-blocked deletes roll back
+  the marker too. This is local suppression, not upstream or R2 erasure. A
+  whole-database restore can rewind markers and triggers; recovery must verify
+  both and re-apply suppression before serving traffic. Application rollback
+  retains the suppression schema and recorded markers. No live migration,
+  deployment, archive deletion, or automatic marker expiry is included.
+
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit
   failed release, one queued waiter may take over with a single bounded fresh
