@@ -108,7 +108,7 @@ Update local `.dev.vars` to match after either rotation (gitignored, never commi
 | Mixed old/new 401s right after cutover | A consumer was missed in step-1 distribution | Finish that consumer's migration; rollback (re-put old) only if a privileged consumer cannot migrate promptly |
 | `[chained <table>] POST … → 401` in the next cron line | Chained subrequest presented a stale sync secret (cutover landed mid-sync or env propagation lagged) | Re-run the named table route manually with the current secret; confirm the following cron (§3b step 5) |
 | `503 misconfigured` on a `.../sync` route | Sync secret blanked rather than replaced | Re-put a non-empty value; blank is unconfigured, not empty-token (`test/dualSecretMatrix.test.ts:96-101`) |
-| Auth tests 401 after a rehearsal (`Using secrets defined in .dev.vars` in the output) | The scratch `.dev.vars` overrides `[env.test.vars]` in the workers test pool, so `test-api-token`/`test-sync-secret` no longer match | Move `.dev.vars` aside (or delete it — it is gitignored scratch) before `npx vitest run`; restore it before the next `wrangler dev` |
+| Auth tests 401 (`Using secrets defined in .dev.vars` in the output) | That message is expected and harmless: `vitest.config.ts` builds the test bindings from `wrangler.toml [env.test.vars]`, so a local `.dev.vars` never affects `npx vitest run` — look at the test/`[env.test.vars]` tokens instead, not the scratch file | No `.dev.vars` move needed for tests; keep the gitignored file for the next `wrangler dev` |
 
 ## 5. Rehearsal evidence
 

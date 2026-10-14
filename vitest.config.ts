@@ -1,39 +1,77 @@
+import { readFileSync } from "node:fs";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+
+/**
+ * Parse the `[env.test.vars]` section of wrangler.toml (TOG-21992).
+ *
+ * The test worker's bindings are built from this section so wrangler.toml
+ * stays the single source of truth: adding or editing a key there flows
+ * into the test env automatically, and a local `.dev.vars` can never
+ * override a test binding. Scalar parsing mirrors
+ * `parseWranglerVarsSection` in `scripts/lib/devVarsCheck.mjs` (double-quoted
+ * with escapes, single-quoted literal, bare numbers stay numbers so
+ * `SESSION_TTL_SECONDS` keeps its `1800` numeric type).
+ */
+function parseEnvTestVars(tomlText: string): Record<string, string | number> {
+  const vars: Record<string, string | number> = {};
+  let inSection = false;
+  for (const rawLine of tomlText.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) {
+      continue;
+    }
+    const section = /^\[(.+)\]\s*$/.exec(line);
+    if (section) {
+      inSection = section[1].trim() === "env.test.vars";
+      continue;
+    }
+    if (!inSection) {
+      continue;
+    }
+    const kv = /^([\w.-]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!kv) {
+      continue;
+    }
+    const [, key, raw] = kv;
+    if (raw.startsWith('"')) {
+      const quoted = /^"((?:[^"\\]|\\.)*)"/.exec(raw);
+      if (!quoted) {
+        continue;
+      }
+      vars[key] = quoted[1]
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "\r")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
+    } else if (raw.startsWith("'")) {
+      const quoted = /^'([^']*)'/.exec(raw);
+      if (!quoted) {
+        continue;
+      }
+      vars[key] = quoted[1];
+    } else {
+      const bare = raw.replace(/\s+#.*$/, "").trim();
+      vars[key] = /^-?\d+$/.test(bare) ? Number(bare) : bare;
+    }
+  }
+  return vars;
+}
+
+// Single source: every `[env.test.vars]` key becomes a test binding.
+// Miniflare `bindings` win over Wrangler's local `.dev.vars` secrets, which
+// otherwise override `[env.test.vars]` in the workers test pool.
+const testVars = parseEnvTestVars(
+  readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8")
+);
 
 export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.toml", environment: "test" },
-      // Keep the test worker's bindings independent of Wrangler's local
-      // `.dev.vars` secrets, which otherwise override `[env.test.vars]`.
       miniflare: {
-        bindings: {
-          TARGET_ORIGIN: "https://killeen.routeware.com",
-          TARGET_BASE_PATH: "/WebRW",
-          LOGIN_URL: "https://killeen.routeware.com/WebRW/Account/Login",
-          SESSION_TTL_SECONDS: 1800,
-          OPENAPI_DOCS_ENABLED: "true",
-          CUSTOMER_SAVE_AUTO_TOKEN: "true",
-          CUSTOMER_REPORT_EXPORT_PATH: "",
-          CUSTOMER_REPORT_QUERY_ID: "23",
-          ADDRESS_REPORT_EXPORT_PATH: "",
-          ADDRESS_REPORT_QUERY_ID: "24",
-          CONTAINER_REPORT_EXPORT_PATH: "",
-          CONTAINER_REPORT_QUERY_ID: "25",
-          REPORT_QUERY_START_DATE: "1900-01-01",
-          REPORT_QUERY_END_DATE: "1900-01-01",
-          CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-sync-secret",
-          SHADOW_API_TOKEN: "test-api-token",
-          SHADOW_API_READ_TOKEN: "test-read-token",
-          SHADOW_API_PUBLIC_BASE: "",
-          SNAPSHOTS_R2_ENABLED: "true",
-          AUTH_MODE: "auto",
-          PROBLEM_TYPE_BASE: "",
-          THROTTLE_TRUST_XFF: "true",
-          LOGIN_USERNAME: "test-user",
-          LOGIN_PASSWORD: "test-password-not-real"
-        }
+        bindings: testVars
       }
     })
   ],
