@@ -416,6 +416,22 @@ describe("establishSession refresh-lock serialization", () => {
         warn.mockRestore();
       }
     });
+
+    it("emits no marker for direct browser mode without an HTTP attempt", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("browser"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(httpLoginCalls.count).toBe(0);
+        expect(state.cookieHeader).toBe(".WebRW=browser");
+        expect(fallbackMarkers(warn)).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it("releases the lock when the DO rejects the session write", async () => {
