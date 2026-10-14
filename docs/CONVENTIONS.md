@@ -151,11 +151,11 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run help` | Lists every package.json script grouped by namespace (`scripts/help.mjs`). |
 | `npm run dev` | `wrangler dev` (local Miniflare; runs `check:devvars` first; no `--remote` needed since HTTP login skips Browser Rendering). |
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
-| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run typecheck` | Generates Wrangler declarations, then runs `tsc --noEmit`. |
 | `npm test` / `npm run test:watch` | Vitest. |
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
-| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373; run once after cloning). Run after changing bindings. |
+| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
 | `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs. |
@@ -189,7 +189,7 @@ pushing.
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
 
 When enabled, CI additionally runs `npx wrangler deploy --dry-run`, a hygiene job that fails on
-committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
+committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and a blocking full-history secret scan (gitleaks). **There is no lint or
 format step — none is configured.**
 
 ---

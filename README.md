@@ -121,8 +121,8 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
 | `npm run db:seed` | Load the synthetic customer→address→container fixture into the **local** D1 (idempotent UPSERTs — safe to re-run; never touches remote) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
-| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run once after cloning, and after any `wrangler.toml` binding/key change) |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run after any `wrangler.toml` binding/key change; `npm run typecheck` runs it automatically) |
+| `npm run typecheck` | Generate Wrangler declarations, then run `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
 | `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
@@ -222,6 +222,10 @@ Example mappings from a typical harvest (SPA + ExtJS):
 [MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
 
 ## Layout
+
+For the request, session, snapshot and cron paths, start with
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), including a step-by-step trace of a
+`data/*` POST.
 
 - [`src/worker.ts`](./src/worker.ts) — Worker entry (re-exports `AuthSession` + Hono `app`).
 - [`src/app.ts`](./src/app.ts) — Routes and OpenAPI.
