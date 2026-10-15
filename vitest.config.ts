@@ -70,12 +70,16 @@ export default defineConfig({
        * Ratcheted 2026-10-11 (TOG-22032) after a hermetic full run:
        * statements 97.29%, branches 92.54%, functions 98.21%, lines 97.69%.
        * `test/browserAuthLoginForm.test.ts` moved statements/functions/lines up
-       * (`browserAuth.ts` lines 81.57% -> 100%); branches did not move, so that
-       * floor stays at 91.
+       * (`browserAuth.ts` lines 81.57% -> 100%); branches did not move.
+       * Ratcheted 2026-10-12 (TOG-19016) after a hermetic full run:
+       * statements 97.26%, branches 93.91%, functions 98.01%, lines 97.69%.
+       * Target-file branches: `upsert.ts` 98.27% (was 63.79%),
+       * `csvAddressSnapshot.ts` / `csvContainerSnapshot.ts` /
+       * `csvCustomerSnapshot.ts` 100% (were 58.33% / 58.33% / 71.42%).
        */
       thresholds: {
         statements: 97,
-        branches: 91,
+        branches: 93,
         functions: 98,
         lines: 97
       }
