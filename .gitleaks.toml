@@ -21,4 +21,18 @@ regexes = [
   # `SNAPSHOTS_R2_ENABLED` is a "true"/"false" feature flag in wrangler.toml, not a
   # secret — the generic-api-key rule flags the identifier itself (TOG-5485).
   '''SNAPSHOTS_R2_ENABLED''',
+  # curl-auth-header false positives (TOG-24449 public-first gate): docs show
+  # shell-variable / dummy-literal Bearer examples, never real tokens. The
+  # gitleaks global allowlist matches against the detected secret fragment
+  # (the part after `Bearer `), so both the bare and prefixed forms are listed.
+  # `$SYNC_OLD` / `$API_OLD` shell vars in docs/SECRET-ROTATION-RUNBOOK.md.
+  '''Bearer \$[A-Z_]+''',
+  '''\$SYNC_OLD''',
+  '''\$API_OLD''',
+  # `-H 'Authorization: Bearer local-recovery-sync'` in docs/R2-RESTORE-RUNBOOK.md.
+  '''Bearer local-recovery-sync''',
+  '''local-recovery-sync''',
+  # `Bearer wrong-token` negative-probe example in docs/SECRET-ROTATION-RUNBOOK.md.
+  '''Bearer wrong-token''',
+  '''wrong-token''',
 ]
