@@ -247,6 +247,7 @@ describe("cron success line carries counts only (site 1)", () => {
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert — a new key on the record or on any table breaks the contract loudly.
+    // `runId` is the TOG-19134 per-run correlation id (a bare UUID, PII-free).
     const line = loggedLine();
     expect(Object.keys(line).sort()).toEqual([
       "configSource",
@@ -260,6 +261,7 @@ describe("cron success line carries counts only (site 1)", () => {
       "msg",
       "outcome",
       "route",
+      "runId",
       "scheduledTime",
       "summary",
       "tables"
@@ -317,6 +319,7 @@ describe("cron failure line carries the allowlisted table only (site 1)", () => 
       "msg",
       "outcome",
       "route",
+      "runId",
       "scheduledTime",
       "summary",
       "table",
