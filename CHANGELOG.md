@@ -16,6 +16,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   run's records correlate across invocations. Stable within a run, distinct
   across runs; a bare UUID, PII-free by construction. See
   `docs/CRON-SYNC-ALARM-RUNBOOK.md` §0 for the updated example shape.
+- TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
+  for having more than 5,000 addresses or 40,000 containers. It skips only
+  when the graph needs more than 900 D1 operations or more than 950 cache
+  invalidations (one `caches.default.delete` per graph id: a single full-graph
+  pass) in one request — the Cache API shares the Workers subrequest quota
+  and caps at 1,000 calls per request, so the old caps would have admitted
+  graphs that exhaust the quota mid-request. A retry pass is never reserved up
+  front; the invalidation retry is best-effort from the calls left under the
+  limit. Both budgets are checked before the first write so D1 is left
+  untouched. The 8 MiB response cap still applies, and graphs within both
+  budgets now refresh D1 in full.
+  The three `POST /api/v1/data/*` handlers also harden their post-save cache
+  eviction: an eviction failure after a successful upstream save is logged
+  server-side and keeps the fixed `sync_failed` / `unknown_customer_id`
+  outcome instead of rejecting the handler, and every posted id is attempted
+  even when an earlier eviction throws.
 
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit
