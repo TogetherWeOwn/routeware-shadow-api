@@ -18,7 +18,7 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 5 | `src/lib/establishSession.ts` warn | HTTP-login `err.message` | clean after fix (names only, see 9) |
  * | 6 | `src/lib/sessionRefreshLock.ts` warn | `err.message` | clean — DO transport errors |
  * | 7 | `src/app.ts` `onError` | generic 500 to client; server log carries the error class (`kind`) only | clean — client never sees internals |
- * | 8 | `src/routes/*` + `dataEntityHandlers.ts` 502 `detail` | `err.message` from anti-forgery prep (fixed strings, status codes) | clean — pinned below |
+ * | 8 | `src/routes/*` + `dataEntitySave.ts` 502 `detail` | `err.message` from anti-forgery prep (fixed strings, status codes) | clean — pinned below |
  * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only, reason replaced by fixed `code` (TOG-6535)** |
  * | 10 | `src/lib/routewareQueryReportCsv.ts` throw | **was** `…<status> — <upstream body slice>` → reached cron logs via `[step]` wrap | **FIXED — status only** |
  * | 11 | `src/lib/snapshot/orchestration.ts` chained throw | **was** 1200-char slice of the per-table subrequest body (upstream HTML rode the old APP ERROR + cron `failed` lines) | **FIXED — table/step/status only, zero body bytes (TOG-9205)** |
