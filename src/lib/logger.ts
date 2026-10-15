@@ -66,6 +66,13 @@ export type LogEventInput = {
   dependency?: string;
   fallback?: string;
   kind?: string;
+  customerId?: number;
+  addressCount?: number;
+  containerCount?: number;
+  d1Ops?: number;
+  d1OpsBudget?: number;
+  cacheInvalidations?: number;
+  cacheInvalidationBudget?: number;
 };
 
 const allowedContextFields = new Set([
@@ -94,7 +101,14 @@ const allowedContextFields = new Set([
   "attempts",
   "dependency",
   "fallback",
-  "kind"
+  "kind",
+  "customerId",
+  "addressCount",
+  "containerCount",
+  "d1Ops",
+  "d1OpsBudget",
+  "cacheInvalidations",
+  "cacheInvalidationBudget"
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {

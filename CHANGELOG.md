@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-25212: Every successful per-customer detail-full D1 refresh now emits
+  one `info` log line (`route: sync.detailFull`) with the customer id,
+  address/container counts, computed D1 ops vs the 900-op budget, and cache
+  invalidations vs the 950-invalidation cap, so operators can see budget
+  headroom. Over-budget graphs still skip the D1 refresh fail-closed with no
+  line emitted.
+
 - TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
   for having more than 5,000 addresses or 40,000 containers. It skips only
   when the graph needs more than 900 D1 operations or more than 950 cache

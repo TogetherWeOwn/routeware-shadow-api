@@ -65,7 +65,7 @@ describe("logEvent", () => {
       msg: "Snapshot sync failed",
       route: "scheduled.data-snapshot-sync",
       authorization: "not-for-logs",
-      customerId: 123,
+      customerEmail: "not-for-logs",
       tables: {
         customer: { upserted: 1, rowCount: 1, email: "not-for-logs" },
         address: null,
