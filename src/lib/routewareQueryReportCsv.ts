@@ -20,7 +20,8 @@ export function extractRequestIdFromText(text: string): string | null {
     /requestID=([0-9a-f-]{36})/i.exec(text) ??
     /RequestID=([0-9a-f-]{36})/i.exec(text);
   if (keyPref) {
-    return keyPref[1].toLowerCase();
+    const id = keyPref[1];
+    return id !== undefined ? id.toLowerCase() : null;
   }
   const m = UUID_RE.exec(text);
   return m ? m[0].toLowerCase() : null;
