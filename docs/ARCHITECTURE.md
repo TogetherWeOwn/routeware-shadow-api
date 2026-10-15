@@ -291,7 +291,7 @@ write without opening them.
 | Responsibility | Source |
 |---|---|
 | HTTP entry, auth order, route mounts | [worker.ts](../src/worker.ts), [app.ts](../src/app.ts), [auth.ts](../src/lib/auth.ts), [shared.ts](../src/routes/shared.ts) |
-| Hydrated GET/POST contracts and save outcomes | [dataEntity.ts](../src/routes/dataEntity.ts), [dataEntityHandlers.ts](../src/lib/dataEntityHandlers.ts), [routewarePostResult.ts](../src/lib/routewarePostResult.ts) |
+| Hydrated GET/POST contracts and save outcomes | [dataEntity.ts](../src/routes/dataEntity.ts), [dataEntityHandlers.ts](../src/lib/dataEntityHandlers.ts) (GET), [dataEntitySave.ts](../src/lib/dataEntitySave.ts) (POST), [routewarePostResult.ts](../src/lib/routewarePostResult.ts) |
 | Form token preparation and graph reconciliation | [customerSaveAutoToken.ts](../src/lib/customerSaveAutoToken.ts), [addressContainerSaveForm.ts](../src/lib/addressContainerSaveForm.ts), [detailFullSync.ts](../src/lib/detailFullSync.ts) |
 | Session storage, refresh locking, login and egress | [authSession.do.ts](../src/authSession.do.ts), [sessionRefreshLock.ts](../src/lib/sessionRefreshLock.ts), [establishSession.ts](../src/lib/establishSession.ts), [forwardWithSessionRetry.ts](../src/lib/forwardWithSessionRetry.ts), [upstreamForward.ts](../src/lib/upstreamForward.ts) |
 | Bulk sync, archive and scheduled dispatch | [orchestration.ts](../src/lib/snapshot/orchestration.ts), [streamSync.ts](../src/lib/snapshot/streamSync.ts), [r2SnapshotArchive.ts](../src/lib/r2SnapshotArchive.ts), [scheduled.ts](../src/scheduled.ts) |
