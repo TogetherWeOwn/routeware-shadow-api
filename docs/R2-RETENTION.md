@@ -134,23 +134,40 @@ before the erasure can restore both the customer row and a schema without the ne
 tombstone table/triggers; after D1 Time Travel or backup restore, verify the
 schema, reconcile tombstones from the operator's out-of-band erased-customer
 list (the same list previously used to re-DELETE after restore — e.g., the
-erasure ticket or incident log), and re-apply suppression before serving
+erasure ticket or incident log), then delete any re-restored rows in FK order
+per the backfill SQL below (a re-applied marker over existing rows freezes
+them without removing them), and re-apply suppression before serving
 traffic, so verify suppression after database recovery. Time Travel can restore
 data for up to 30 days (7 days on the Workers Free plan).
 
 Customers erased before the suppression migration have no tombstone and are
-unprotected: the next sync re-inserts them. Backfill each such `customerId`
-with privileged `wrangler d1 execute` before normal writers resume (never via
-a public route; the DELETE route returns 404 when the row is absent and cannot
-create the marker):
+unprotected: the next sync already re-inserted their customer, address and
+container rows. Backfill each such `customerId` with privileged
+`wrangler d1 execute` before normal writers resume (never via a public route;
+the DELETE route returns 404 when the row is absent and cannot create the
+marker, and answers 400 while address rows exist). A marker alone is not
+enough: it freezes the re-inserted rows in place without removing them, leaves
+them in snapshot exports, and breaks the next reconciling report sync (the
+frozen customer is never restamped, so its stale-row delete hits the address
+foreign key). Insert the marker first so concurrent writers stay suppressed,
+then delete the re-inserted rows in FK order:
 
 ```sql
--- backfill one pre-migration erasure (idempotent)
+-- backfill one pre-migration erasure (idempotent): marker first, then rows
 INSERT INTO customer_snapshot_erasure (customer_id, erased_at)
 VALUES (7101, '2026-10-15T00:00:00.000Z')
 ON CONFLICT(customer_id) DO UPDATE SET erased_at = excluded.erased_at;
--- verify
+-- remove re-inserted rows in FK order (containers → addresses → customer)
+DELETE FROM container_snapshot WHERE pickup_address_id IN (
+  SELECT pickup_address_id FROM address_snapshot WHERE customer_id = 7101
+);
+DELETE FROM address_snapshot WHERE customer_id = 7101;
+DELETE FROM customer_snapshot WHERE customer_id = 7101;
+-- verify: the marker remains, every row is gone
 SELECT customer_id, erased_at FROM customer_snapshot_erasure WHERE customer_id = 7101;
+SELECT customer_id FROM customer_snapshot WHERE customer_id = 7101;
+SELECT pickup_address_id FROM address_snapshot WHERE customer_id = 7101;
+SELECT pickup_address_id, customer_id FROM customer_snapshot_erasure_address WHERE customer_id = 7101;
 ```
 
 Markers have no list or delete route by design. Inspect and remove them only

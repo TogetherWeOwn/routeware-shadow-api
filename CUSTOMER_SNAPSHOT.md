@@ -181,7 +181,9 @@ it does not touch upstream Routeware. A D1 Time Travel/backup restore from
 before the erasure can restore the row and lose the tombstone/triggers; verify the
 schema, reconcile tombstones from the operator's out-of-band erased-customer
 list (the same list previously used to re-DELETE after restore — e.g., the
-erasure ticket or incident log), and re-apply suppression before serving
+erasure ticket or incident log), then delete any re-restored rows in FK order
+per the backfill SQL (a re-applied marker over existing rows freezes them
+without removing them), and re-apply suppression before serving
 recovered data, so verify suppression after database recovery. Customers erased
 before the suppression migration have no tombstone; backfill them with
 privileged `wrangler d1 execute` (see

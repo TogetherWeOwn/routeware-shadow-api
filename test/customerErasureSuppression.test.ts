@@ -1,10 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { env } from "cloudflare:workers";
 import { customerSnapshotRoutes } from "../src/routes/customerSnapshot";
+import { stringToUint8Stream } from "../src/lib/csvStream";
 import {
   syncAddressSnapshotFromCsvText,
   syncContainerSnapshotFromCsvText,
-  syncCustomerSnapshotFromCsvText
+  syncCustomerSnapshotFromCsvText,
+  syncCustomerSnapshotFromStream
 } from "../src/lib/snapshot/streamSync";
 import {
   upsertAddressSnapshotRows,
@@ -433,5 +435,249 @@ describe("erasure UPDATE suppression and raced deletes", () => {
     await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
     await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
     await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+  });
+});
+
+describe("erasure direct-SQL UPDATE boundary and lineage cleanup", () => {
+  beforeAll(async () => {
+    await ensureD1TestTables();
+  });
+
+  it("ignores a plain UPDATE that stays under a tombstoned customer", async () => {
+    const id = 9851;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Original-9851', 1, '2026-10-01')").bind(id).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(id).run();
+
+    // No app writer issues a bare UPDATE; this pins the UPDATE trigger for
+    // direct-SQL writers. Dropping suppress_erased_customer_update lets it through.
+    await db().prepare("UPDATE customer_snapshot SET company_name = 'Hacked-9851' WHERE customer_id = ?").bind(id).run();
+    const row = await db().prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = ?").bind(id).first<{ company_name: string }>();
+    expect(row?.company_name).toBe("Original-9851");
+
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(id).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(id).run();
+  });
+
+  it("ignores a plain UPDATE that stays under a tombstoned address owner", async () => {
+    const customerId = 9852;
+    const addressId = 9852;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Original St', 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+
+    // Pins suppress_erased_address_update for direct-SQL writers.
+    await db().prepare("UPDATE address_snapshot SET address = 'Hacked St' WHERE pickup_address_id = ?").bind(addressId).run();
+    const row = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ address: string }>();
+    expect(row?.address).toBe("Original St");
+
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+  });
+
+  it("ignores a plain UPDATE on a lineage-suppressed container", async () => {
+    const customerId = 9853;
+    const addressId = 9853;
+    const containerId = 9853;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9853', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at) VALUES (?, ?, '2026-10-15T00:00:00.000Z')").bind(addressId, customerId).run();
+
+    // Pins the NEW-lineage side of suppress_erased_container_update.
+    await db().prepare("UPDATE container_snapshot SET serial_number = 'SN-HACKED' WHERE container_id = ?").bind(containerId).run();
+    const row = await db().prepare("SELECT serial_number FROM container_snapshot WHERE container_id = ?").bind(containerId).first<{ serial_number: string }>();
+    expect(row?.serial_number).toBe("SN-9853");
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+  });
+
+  it("ignores a plain UPDATE moving a container off a lineage-suppressed address", async () => {
+    const liveCustomer = 9854;
+    const liveAddress = 9854;
+    const otherCustomer = 9855;
+    const otherAddress = 9855;
+    const containerId = 9854;
+    const erasedCustomer = 9864;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(otherCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(liveAddress, liveCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(otherAddress, otherCustomer).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9854', 1, '2026-10-01')").bind(containerId, liveAddress).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(erasedCustomer).run();
+    // Stale mapping left by a suppressed live-to-erased re-home attempt.
+    await db().prepare("INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at) VALUES (?, ?, '2026-10-15T00:00:00.000Z')").bind(liveAddress, erasedCustomer).run();
+
+    // Pins the OLD-lineage side of suppress_erased_container_update: the NEW
+    // address is clean, so only the OLD side can refuse this. Fail-closed
+    // until the next live address write clears the mapping.
+    await db().prepare("UPDATE container_snapshot SET pickup_address_id = ? WHERE container_id = ?").bind(otherAddress, containerId).run();
+    const row = await db().prepare("SELECT pickup_address_id FROM container_snapshot WHERE container_id = ?").bind(containerId).first<{ pickup_address_id: number }>();
+    expect(row?.pickup_address_id).toBe(liveAddress);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(liveAddress).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(otherAddress).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(otherCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(liveAddress).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+  });
+
+  it("clears stale lineage on a live-owner address write and fails closed after the address is gone", async () => {
+    const erasedCustomer = 9861;
+    const liveCustomer = 9862;
+    const addressId = 9861;
+    const containerId = 9861;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(erasedCustomer).run();
+    expect((await request(`/api/v1/customer-snapshot/${erasedCustomer}`, { method: "DELETE" })).status).toBe(200);
+
+    // Suppressed re-home attempt records lineage for this address.
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${erasedCustomer},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    expect(await addressExists(addressId)).toBe(false);
+
+    // The live owner claims the address: it lands and the stale mapping is
+    // deleted. Dropping clear_stale_erasure_lineage_on_address_insert leaves it.
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${liveCustomer},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    const addressRow = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(addressRow?.customer_id).toBe(liveCustomer);
+    const lineage = await db().prepare("SELECT pickup_address_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first();
+    expect(lineage).toBeNull();
+
+    // Containers flow again under the live owner.
+    await syncContainerSnapshotFromCsvText(
+      db(),
+      `${CONTAINER_HEADER}\n${containerId},${addressId},,SN-${containerId},,false,,false,,,true,${addressId} Main St,Killeen,TX,76541,`
+    );
+    expect(await containerExists(containerId)).toBe(true);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+
+    // With the address row gone and no lineage left, a replayed container
+    // fails closed on the address foreign key instead of being silently
+    // suppressed (a lingering mapping would swallow it via RAISE(IGNORE)).
+    await expect(
+      syncContainerSnapshotFromCsvText(
+        db(),
+        `${CONTAINER_HEADER}\n${containerId},${addressId},,SN-${containerId},,false,,false,,,true,${addressId} Main St,Killeen,TX,76541,`
+      )
+    ).rejects.toThrow(/foreign key/i);
+    expect(await containerExists(containerId)).toBe(false);
+  });
+
+  it("clears stale lineage on a live-owner plain address UPDATE", async () => {
+    const liveCustomer = 9863;
+    const addressId = 9863;
+    const erasedCustomer = 9874;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Live St', 1, '2026-10-01')").bind(addressId, liveCustomer).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(erasedCustomer).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at) VALUES (?, ?, '2026-10-15T00:00:00.000Z')").bind(addressId, erasedCustomer).run();
+
+    // Stays under the live owner, so the write lands and the AFTER UPDATE
+    // cleanup deletes the mapping. Dropping
+    // clear_stale_erasure_lineage_on_address_update leaves it.
+    await db().prepare("UPDATE address_snapshot SET address = 'Touched St' WHERE pickup_address_id = ?").bind(addressId).run();
+    const row = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ address: string }>();
+    expect(row?.address).toBe("Touched St");
+    const lineage = await db().prepare("SELECT pickup_address_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first();
+    expect(lineage).toBeNull();
+
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+  });
+
+  it("does not store an erased customer's containers after a live-to-erased re-home", async () => {
+    const liveCustomer = 9901;
+    const erasedCustomer = 9902;
+    const addressId = 9901;
+    const containerId = 9901;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, liveCustomer).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-OLD', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(erasedCustomer).run();
+    expect((await request(`/api/v1/customer-snapshot/${erasedCustomer}`, { method: "DELETE" })).status).toBe(200);
+
+    // Upstream re-homes the live address to the erased customer: the address
+    // write is skipped and records lineage, the row stays under the live owner.
+    await syncAddressSnapshotFromCsvText(
+      db(),
+      `${ADDRESS_HEADER}\n${addressId},${erasedCustomer},,${addressId} Main St,Killeen,TX,76541,,,false,true,,,,`
+    );
+    const addressRow = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(addressRow?.customer_id).toBe(liveCustomer);
+
+    // Lineage alone must suppress the erased owner's containers: an ownership
+    // check sees the live row and stores erased service-location data.
+    await syncContainerSnapshotFromCsvText(
+      db(),
+      `${CONTAINER_HEADER}\n${containerId},${addressId},,SN-ERASED-OWNER,,false,,false,,,true,99 Erased Owner Ave,Killeen,TX,76541,`
+    );
+    const containerRow = await db().prepare("SELECT serial_number FROM container_snapshot WHERE container_id = ?").bind(containerId).first<{ serial_number: string }>();
+    expect(containerRow?.serial_number).toBe("SN-OLD");
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+  });
+
+  it("runs the documented backfill against re-inserted rows and survives a reconciling sync", async () => {
+    const customerId = 9931;
+    const addressId = 9931;
+    const containerId = 9931;
+    // Pre-migration erasure whose rows the next sync already re-inserted.
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9931', 1, '2026-10-01')").bind(containerId, addressId).run();
+
+    // docs/R2-RETENTION.md backfill: marker first, then FK-order deletes.
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+    await db().prepare("DELETE FROM container_snapshot WHERE pickup_address_id IN (SELECT pickup_address_id FROM address_snapshot WHERE customer_id = ?)").bind(customerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+
+    // The documented verify step: marker remains, every row is gone.
+    expect(await db().prepare("SELECT customer_id FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).first()).not.toBeNull();
+    expect(await customerExists(customerId)).toBe(false);
+    expect(await addressExists(addressId)).toBe(false);
+    expect(await containerExists(containerId)).toBe(false);
+
+    // A marker over remaining rows would freeze the customer without
+    // restamping it, so the next reconciling report sync's stale-row delete
+    // hits the address FK. With the rows deleted it passes and deletes nothing
+    // it should keep.
+    const liveId = 9932;
+    await expect(
+      syncCustomerSnapshotFromStream(
+        db(),
+        stringToUint8Stream(`CustomerID,CompanyName,Enabled\n${liveId},Live,true\n`),
+        80,
+        { reconcile: true, syncedAt: "2026-10-20T00:00:00.000Z" }
+      )
+    ).resolves.toMatchObject({ upserted: 1 });
+    expect(await customerExists(customerId)).toBe(false);
+    expect(await containerExists(containerId)).toBe(false);
+
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
   });
 });

@@ -457,7 +457,9 @@ separate from public HTTP import without adding an import-validation opt-out. CS
 rows and their descendant address/container rows (import customer → address → container so descendant lineage is recorded before containers replay). After a whole-D1 restore, verify the tombstone table and triggers survived; a restore
 to before erasure may restore the row and remove the marker/schema. Reconcile markers from
 the operator's out-of-band erased-customer list (the same list previously used to
-re-DELETE after restore — e.g., the erasure ticket or incident log) and re-apply
+re-DELETE after restore — e.g., the erasure ticket or incident log), then delete any
+re-restored rows in FK order per the backfill SQL (a re-applied marker over existing
+rows freezes them without removing them), and re-apply
 suppression before normal writers resume, so verify suppression after database
 recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
 
@@ -939,7 +941,9 @@ CSV/R2 imports into a database with the suppression migration skip tombstoned
 customer rows. After a whole-D1 restore, verify the tombstone table and triggers
 survived; a restore to before erasure may restore the row and remove the marker/schema.
 Reconcile markers from the operator's out-of-band erased-customer list (the same list
-previously used to re-DELETE after restore — e.g., the erasure ticket or incident log)
+previously used to re-DELETE after restore — e.g., the erasure ticket or incident log),
+then delete any re-restored rows in FK order per the backfill SQL (a re-applied marker
+over existing rows freezes them without removing them),
 and re-apply suppression before normal writers resume, so verify suppression after
 database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
 Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response

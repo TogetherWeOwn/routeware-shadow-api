@@ -27,10 +27,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the marker too. Suppressed address writes for a marked customer are skipped
   and recorded as id-only lineage so their container writes are skipped as
   well; other customers keep fail-closed foreign keys. Container suppression
-  follows current address ownership, so an address re-homed to a live customer
-  flows again and its stale lineage is cleared. Customers erased before this
-  migration have no marker; backfill them with privileged `wrangler d1 execute`
-  inserts and manage markers only via privileged SQL (see
+  keys on that lineage alone, so an erased customer's containers cannot replay
+  after a live-to-erased re-home, while an address re-homed to a live customer
+  flows again once its stale lineage is cleared. Customers erased before this
+  migration have no marker; backfill the marker plus FK-order row deletes with
+  privileged `wrangler d1 execute` (a marker over re-inserted rows freezes them
+  without removing them) and manage markers only via privileged SQL (see
   `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
   This is local suppression, not upstream or R2 erasure. A
   whole-database restore can rewind markers and triggers; recovery must verify
