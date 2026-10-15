@@ -5,6 +5,7 @@ import {
   getSnapshotOrphans,
   runDataSnapshotSyncChainedHttp
 } from "../lib/d1SnapshotSync";
+import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 import {
   createRouteModule,
   dataSnapshotSyncResultExample,
@@ -75,8 +76,13 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
   // TOG-9203: forward `?dryRun=true` to every chained per-table subrequest.
+  // TOG-19134: forward a valid inbound `x-run-id` the same way, so a direct
+  // combined call still correlates its sub-invocations. Invalid values are
+  // dropped — correlation must never fail a sync.
+  const runId = parseRunIdHeader(c.req.header("x-run-id"));
   const r = await runDataSnapshotSyncChainedHttp(origin, c.env, {
-    dryRun: isDryRunRequested(c.req.valid("query"))
+    dryRun: isDryRunRequested(c.req.valid("query")),
+    ...(runId ? { runId } : {})
   });
   return c.json(
     {
