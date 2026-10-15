@@ -34,7 +34,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "pretypecheck": "npm run types",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.src.json",
     "lint": "node scripts/check-console-usage.mjs",
     "test": "npm run test:probe && vitest run",
     "test:watch": "vitest",
