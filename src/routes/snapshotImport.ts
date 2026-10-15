@@ -22,7 +22,10 @@ export function rejectUnsupportedSnapshotImportContentType(
   env?: Env
 ): Response | null {
   // Media types are case-insensitive and may carry parameters (RFC 9110 §8.3.1).
-  const mediaType = input.contentType?.split(";", 1)[0].trim().toLowerCase();
+  // noUncheckedIndexedAccess: `split(...)[0]` is `string | undefined`; default
+  // to "" so a missing part falls through to the 415 below, as before.
+  const firstPart = input.contentType?.split(";", 1)[0];
+  const mediaType = firstPart?.trim().toLowerCase() ?? "";
   if (mediaType === "text/csv" || mediaType === "application/octet-stream") {
     return null;
   }
