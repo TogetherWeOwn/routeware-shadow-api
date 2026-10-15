@@ -5,6 +5,7 @@ import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
 } from "../lib/d1SnapshotSync";
+import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
 // mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
 // facade import throws at module scope there. The deep module is never mocked.
@@ -272,8 +273,13 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
   try {
     // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
     // the would-be counts while writing nothing (no D1, no R2).
+    // TOG-19134: forward a valid inbound `x-run-id` so this invocation's
+    // lines share the originating run's correlation id. Invalid values are
+    // dropped — correlation must never fail a sync.
+    const runId = parseRunIdHeader(c.req.header("x-run-id"));
     const r = await runAddressSnapshotSync(c.env, {
-      dryRun: isDryRunRequested(c.req.valid("query"))
+      dryRun: isDryRunRequested(c.req.valid("query")),
+      ...(runId ? { runId } : {})
     });
     if (!r) {
       return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
