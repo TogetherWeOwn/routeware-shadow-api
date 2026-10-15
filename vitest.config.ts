@@ -1,70 +1,34 @@
-import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { unstable_readConfig } from "wrangler";
 
 /**
- * Parse the `[env.test.vars]` section of wrangler.toml (TOG-21992).
- *
- * The test worker's bindings are built from this section so wrangler.toml
- * stays the single source of truth: adding or editing a key there flows
- * into the test env automatically, and a local `.dev.vars` can never
- * override a test binding. Scalar parsing mirrors
- * `parseWranglerVarsSection` in `scripts/lib/devVarsCheck.mjs` (double-quoted
- * with escapes, single-quoted literal, bare numbers stay numbers so
- * `SESSION_TTL_SECONDS` keeps its `1800` numeric type).
+ * Test bindings from wrangler.toml `[env.test.vars]` (TOG-21992), read by
+ * wrangler itself so the toml stays the single source of truth: adding or
+ * editing a key there flows into the test env exactly as wrangler parses it
+ * (trailing header comments, booleans, arrays, escapes, bare numbers such as
+ * `SESSION_TTL_SECONDS` = 1800), and a local `.dev.vars` can never override
+ * a test binding. A hand-rolled TOML subset parser here silently dropped
+ * every pin on valid input it did not understand (e.g. a trailing comment
+ * on the section header), which let `.dev.vars` win again with no error.
  */
-function parseEnvTestVars(tomlText: string): Record<string, string | number> {
-  const vars: Record<string, string | number> = {};
-  let inSection = false;
-  for (const rawLine of tomlText.split("\n")) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-    const section = /^\[(.+)\]\s*$/.exec(line);
-    if (section) {
-      inSection = section[1].trim() === "env.test.vars";
-      continue;
-    }
-    if (!inSection) {
-      continue;
-    }
-    const kv = /^([\w.-]+)\s*=\s*(.*?)\s*$/.exec(line);
-    if (!kv) {
-      continue;
-    }
-    const [, key, raw] = kv;
-    if (raw.startsWith('"')) {
-      const quoted = /^"((?:[^"\\]|\\.)*)"/.exec(raw);
-      if (!quoted) {
-        continue;
-      }
-      vars[key] = quoted[1]
-        .replace(/\\n/g, "\n")
-        .replace(/\\r/g, "\r")
-        .replace(/\\t/g, "\t")
-        .replace(/\\"/g, '"')
-        .replace(/\\\\/g, "\\");
-    } else if (raw.startsWith("'")) {
-      const quoted = /^'([^']*)'/.exec(raw);
-      if (!quoted) {
-        continue;
-      }
-      vars[key] = quoted[1];
-    } else {
-      const bare = raw.replace(/\s+#.*$/, "").trim();
-      vars[key] = /^-?\d+$/.test(bare) ? Number(bare) : bare;
-    }
-  }
-  return vars;
-}
+const testVars =
+  unstable_readConfig({
+    config: fileURLToPath(new URL("./wrangler.toml", import.meta.url)),
+    env: "test"
+  }).vars ?? {};
 
-// Single source: every `[env.test.vars]` key becomes a test binding.
-// Miniflare `bindings` win over Wrangler's local `.dev.vars` secrets, which
-// otherwise override `[env.test.vars]` in the workers test pool.
-const testVars = parseEnvTestVars(
-  readFileSync(new URL("./wrangler.toml", import.meta.url), "utf8")
-);
+// Fail loudly instead of running with no pins: empty bindings would let a
+// local `.dev.vars` override the test env again, invisibly on CI (which has
+// no `.dev.vars`). Miniflare `bindings` win over Wrangler's local
+// `.dev.vars` secrets, which otherwise override `[env.test.vars]` in the
+// workers test pool.
+if (Object.keys(testVars).length === 0) {
+  throw new Error(
+    "vitest.config: wrangler read no [env.test.vars] bindings from wrangler.toml; refusing to run with unpinned test bindings"
+  );
+}
 
 export default defineConfig({
   plugins: [
