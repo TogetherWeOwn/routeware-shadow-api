@@ -265,6 +265,22 @@ describe("detail-full size guards", () => {
     expect(detailFullInvalidateAttempts(5_001, 0)).toBe(1);
   });
 
+  it.each([
+    { ids: 317, addresses: 316, containers: 0, attempts: 2 },
+    { ids: 400, addresses: 399, containers: 0, attempts: 2 },
+    { ids: 475, addresses: 474, containers: 0, attempts: 2 },
+    { ids: 476, addresses: 475, containers: 0, attempts: 1 },
+    { ids: 475, addresses: 100, containers: 374, attempts: 2 },
+    { ids: 476, addresses: 100, containers: 375, attempts: 1 }
+  ])(
+    "allows $attempts total cache passes for $ids ids ($addresses addresses, $containers containers)",
+    ({ addresses, containers, attempts }) => {
+      // maxAttempts includes the first pass: 475 * 2 fits the 950-delete
+      // budget exactly, while 476 * 2 does not. Do not reserve a third pass.
+      expect(detailFullInvalidateAttempts(addresses, containers)).toBe(attempts);
+    }
+  );
+
   it("refuses an oversized response body before parsing it", async () => {
     // Arrange — one byte past the ceiling; invalid JSON on purpose, to prove
     // the guard fires before JSON.parse ever runs.
