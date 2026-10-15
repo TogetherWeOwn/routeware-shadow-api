@@ -5,6 +5,10 @@
  *
  * Pure logic lives in `./lib/consoleUsageCheck.mjs` and is unit-tested
  * (TOG-19019); this wrapper is intentionally thin.
+ *
+ * `CONSOLE_USAGE_ROOT` overrides the repo root under test so the suite can
+ * run the wrapper against a fixture tree (fail-closed paths) instead of the
+ * real `src/`.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -17,7 +21,9 @@ import {
   formatViolationLine,
 } from "./lib/consoleUsageCheck.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = process.env.CONSOLE_USAGE_ROOT
+  ? path.resolve(process.env.CONSOLE_USAGE_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcRoot = path.join(root, "src");
 
 function sourceFiles(directory) {

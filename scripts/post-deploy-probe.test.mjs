@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import "./deploy-rehearsal-docs.test.mjs";
+import "./check-console-usage.test.mjs";
 import { BASE_ENV, DEFAULT_BASE, SCHEDULED_FLAG, SKIP_FLAG, resolveBase } from "./lib/postDeployProbe.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -69,6 +70,15 @@ test("probe-only changes always run the hermetic CLI suite in CI", () => {
   const step = hygiene.split(/^      - /m).find((entry) => entry.includes("run: npm run test:probe"));
   assert.ok(step, "hygiene must run the probe CLI suite even when build is skipped");
   assert.doesNotMatch(step, /^\s+(?:if|continue-on-error):/m);
+});
+
+test("console-usage suite runs in the always-run hygiene job via test:probe", () => {
+  // `node --test` executes statically imported test files in the same run,
+  // so this import is what puts the console-usage suite inside the
+  // always-run `hygiene` job (`npm run test:probe`) on every PR — including
+  // scripts-only PRs whose filtered `build` job is skipped.
+  const source = fs.readFileSync(new URL("./post-deploy-probe.test.mjs", import.meta.url), "utf8");
+  assert.match(source, /import "\.\/check-console-usage\.test\.mjs"/);
 });
 
 test("base resolution keeps positional precedence and the manual local default", () => {

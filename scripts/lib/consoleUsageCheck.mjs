@@ -9,7 +9,9 @@
  *
  * Everything here is pure (paths and text in, verdicts out) so it is
  * unit-testable with no `node:fs`. The suite runs under `node --test`
- * (see `scripts/check-console-usage.test.mjs`): the `typescript` compiler
+ * (see `scripts/check-console-usage.test.mjs`, imported by
+ * `scripts/post-deploy-probe.test.mjs` so CI's always-run hygiene job
+ * executes it): the `typescript` compiler
  * bundle is far too large to load inside the workers-pool vitest project,
  * so a `test/*.test.ts` suite cannot import this module. The impure
  * wrapper lives in `scripts/check-console-usage.mjs`, which walks `src/`

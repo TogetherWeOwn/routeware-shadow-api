@@ -2,19 +2,25 @@
  * Fixture-driven unit tests for the console-usage lint (TOG-19019).
  *
  * `scripts/check-console-usage.mjs` (landed by TOG-8898, enforced in
- * `ci.yml` hygiene as `npm run lint`) was the only check script with zero
+ * `ci.yml` build as `npm run lint`) was the only check script with zero
  * unit tests while every other check lib maps to a test file. The pure
  * logic now lives in `scripts/lib/consoleUsageCheck.mjs`; this suite feeds
  * it synthetic `{ path, text }` fixtures — no real source, values, or
  * PII (CONVENTIONS.md sections 4-5).
  *
  * Runs under `node --test` (wired as `npm run test:console-usage`, part of
- * `npm test`), not vitest: the `typescript` compiler bundle is far too
- * large to load inside the workers-pool vitest project.
+ * `npm test`, and imported by `scripts/post-deploy-probe.test.mjs` so the
+ * always-run `ci.yml` hygiene job executes it on every PR), not vitest:
+ * the `typescript` compiler bundle is far too large to load inside the
+ * workers-pool vitest project.
  */
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   LOGGER_PATH,
@@ -80,6 +86,25 @@ test("still flags other console uses inside the logger", () => {
   );
 });
 
+test("pins the logger exception to console[level](...) calls only", () => {
+  // The index must be the identifier `level`: any other computed access in
+  // the logger is a violation.
+  assert.deepEqual(
+    findConsoleViolations([
+      {
+        path: LOGGER_PATH,
+        text: "export function f(o: { other: string }): void {\n  console[other](o);\n}\n",
+      },
+    ]),
+    [{ file: LOGGER_PATH, line: 2, column: 3 }],
+  );
+  // The access must be the callee of a call: a bare `console[level]`
+  // alias in the logger is a violation.
+  assert.deepEqual(findConsoleViolations([{ path: LOGGER_PATH, text: "const f = console[level];\n" }]), [
+    { file: LOGGER_PATH, line: 1, column: 11 },
+  ]);
+});
+
 test("passes a clean module with no console reference", () => {
   assert.deepEqual(
     findConsoleViolations([
@@ -121,10 +146,38 @@ test("formats the pass log exactly like the enforced script", () => {
   assert.equal(formatPassLog(72), "console lint passed (72 TypeScript files)");
 });
 
+const wrapperPath = fileURLToPath(new URL("./check-console-usage.mjs", import.meta.url));
+
 test("the enforced wrapper still passes on the real tree", () => {
-  const output = execFileSync("node", ["scripts/check-console-usage.mjs"], {
+  const output = execFileSync(process.execPath, [wrapperPath], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
   assert.match(output, /^console lint passed \(\d+ TypeScript files\)\n$/);
+});
+
+test("the enforced wrapper fails closed on violations in a fixture tree", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "console-usage-"));
+  mkdirSync(path.join(dir, "src"), { recursive: true });
+  writeFileSync(path.join(dir, "src", "x.ts"), 'console.log("bad");\n');
+  const result = spawnSync(process.execPath, [wrapperPath], {
+    // Deliberately not the repo root: the wrapper resolves its script by
+    // absolute URL and its tree from CONSOLE_USAGE_ROOT, never from cwd.
+    cwd: dir,
+    env: { ...process.env, CONSOLE_USAGE_ROOT: dir },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, new RegExp(`^src/x\\.ts:1:1: ${VIOLATION_HINT}$`, "m"));
+});
+
+test("the enforced wrapper fails closed when src/ is missing", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "console-usage-"));
+  const result = spawnSync(process.execPath, [wrapperPath], {
+    cwd: dir,
+    env: { ...process.env, CONSOLE_USAGE_ROOT: dir },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /console lint: cannot read src\//);
 });
