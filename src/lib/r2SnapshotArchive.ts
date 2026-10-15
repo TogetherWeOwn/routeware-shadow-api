@@ -115,7 +115,11 @@ export async function sha256HexBytes(data: Uint8Array): Promise<string> {
 export function renderSnapshotManifest(manifest: SnapshotManifest): string {
   const files: Record<string, SnapshotManifestFileEntry> = {};
   for (const name of Object.keys(manifest.files).sort()) {
-    files[name] = manifest.files[name];
+    const entry = manifest.files[name];
+    if (entry === undefined) {
+      continue;
+    }
+    files[name] = entry;
   }
   return `${JSON.stringify({ ...manifest, files }, null, 2)}\n`;
 }
