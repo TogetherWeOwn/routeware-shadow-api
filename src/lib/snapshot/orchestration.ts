@@ -6,6 +6,7 @@ import {
   type SnapshotArchiveTable
 } from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
+import { readReportQueryDates } from "../reportQueryDates";
 import {
   fetchWithUpstreamTimeout,
   isUpstreamTimeout,
@@ -300,6 +301,19 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
+function validatePlannedReportQueryDates(
+  env: Env,
+  plan: ReturnType<typeof getDataSnapshotPlan>
+): void {
+  if (
+    (plan.runCustomer && env.CUSTOMER_REPORT_QUERY_ID?.trim()) ||
+    (plan.runAddress && env.ADDRESS_REPORT_QUERY_ID?.trim()) ||
+    (plan.runContainer && env.CONTAINER_REPORT_QUERY_ID?.trim())
+  ) {
+    readReportQueryDates(env);
+  }
+}
+
 /**
  * Carry the per-table sync counts through, including `deleted` when the
  * subrequest reported it (TOG-7391). The chained runner previously rebuilt
@@ -364,6 +378,9 @@ export async function runDataSnapshotSyncChainedHttp(
     "content-type": "application/json"
   } as const;
   const plan = getDataSnapshotPlan(env);
+  // Fail at the caller before a per-table 503 becomes a generic chained error,
+  // or an earlier static export writes data under an invalid shared range.
+  validatePlannedReportQueryDates(env, plan);
   const out: DataSnapshotResult = {
     customer: null,
     address: null,
@@ -502,6 +519,8 @@ export async function runDataSnapshotSyncChainedHttp(
  */
 export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult> {
   const plan = getDataSnapshotPlan(env);
+  // Cron's single-invocation fallback needs the same no-partial-write preflight.
+  validatePlannedReportQueryDates(env, plan);
   const out: DataSnapshotResult = {
     customer: null,
     address: null,
