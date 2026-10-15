@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHECK_NAME,
   checkDocsLinks,
+  decodeHtmlEntities,
   extractAnchors,
   extractLinks,
   formatReport,
@@ -67,6 +68,36 @@ describe("slugifyHeading (GitHub slug rules, TOG-18936)", () => {
   });
 });
 
+describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
+  it("decodes named and numeric entities in a single pass", () => {
+    expect(
+      decodeHtmlEntities("Don&#39;t &amp; Q &#x51;&amp;&#x41; &quot;hi&quot; &lt;x&gt;"),
+    ).toBe("Don't & Q Q&A \"hi\" <x>");
+    // Single-pass, like an HTML tokenizer: the outer entity decodes once.
+    expect(decodeHtmlEntities("&amp;lt;")).toBe("&lt;");
+    // Unknown entities are left alone, never silently dropped.
+    expect(decodeHtmlEntities("&bogus;")).toBe("&bogus;");
+  });
+
+  it("slugs headings with ' & \" < > like GitHub", () => {
+    expect(extractAnchors("## Don't panic\n")).toEqual(["dont-panic"]);
+    expect(extractAnchors("## Q&A\n")).toEqual(["qa"]);
+    expect(extractAnchors("## Say \"hi\"\n")).toEqual(["say-hi"]);
+    expect(extractAnchors("## 1 < 2\n")).toEqual(["1--2"]);
+  });
+
+  it("resolves cross-file links to entity-bearing headings", () => {
+    const findings = checkDocsLinks(
+      files([
+        ["docs/A.md", "See [p](B.md#dont-panic).\n"],
+        ["docs/B.md", "## Don't panic\n"],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(findings).toEqual([]);
+  });
+});
+
 describe("extractLinks (TOG-18936)", () => {
   it("finds relative links with and without anchors", () => {
     const links = extractLinks(
@@ -88,6 +119,16 @@ describe("extractLinks (TOG-18936)", () => {
   it("ignores links inside inline code spans", () => {
     const links = extractLinks("Use `[x](y.md)` literally, plus [ok](B.md).\n");
     expect(links).toEqual([{ text: "ok", target: "B.md" }]);
+  });
+
+  it("keeps code opaque across mixed-character closers", () => {
+    // Stock marked 18.1.0 ends the block at the ```~~ line and lints [z]
+    // as a real link; the fences override holds the block open until the
+    // matching closer, so only [ok] is extracted.
+    const links = extractLinks(
+      "```md\n[y](y.md)\n```~~\n[z](z.md)\n```\n\n[ok](ok.md)\n",
+    );
+    expect(links).toEqual([{ text: "ok", target: "ok.md" }]);
   });
 });
 
@@ -178,6 +219,26 @@ describe("checkDocsLinks (TOG-18936)", () => {
         trackedPaths: TRACKED,
         ignoreRules: { dirPrefixes: ["tools/api-discovery/out/"], suffixes: [], exact: [] },
       },
+    );
+    expect(findings).toEqual([]);
+  });
+
+  it("reports broken links inside bullets and table cells", () => {
+    // Pins the `.items` walk (bullets) and the table-cell branch: removing
+    // either must turn this red instead of failing the gate open.
+    const findings = checkDocsLinks(
+      files([
+        ["docs/A.md", "- see [gone](nope.md)\n\n| h |\n|---|\n| [gone2](nope2.md) |\n"],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(findings.map((f) => f.target).sort()).toEqual(["nope.md", "nope2.md"]);
+  });
+
+  it("links to headings inside blockquotes", () => {
+    const findings = checkDocsLinks(
+      files([["docs/A.md", "> ## Quoted\n\nSee [q](#quoted).\n"]]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
     );
     expect(findings).toEqual([]);
   });

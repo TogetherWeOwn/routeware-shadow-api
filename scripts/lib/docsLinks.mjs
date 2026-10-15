@@ -80,13 +80,55 @@ function posixDirname(p) {
 }
 
 /**
+ * Decode HTML entities back to plain text. `parseInline` returns escaped
+ * HTML, so without this `'` / `&` / `"` / `<` / `>` leak into slugs as
+ * `39` / `amp` / `quot` / `lt` / `gt` (GitHub slugs the plain text).
+ * Single-pass, like an HTML tokenizer: `&amp;lt;` decodes to `&lt;`.
+ *
+ * @param {string} htmlText inline-rendered HTML (tags may still be present)
+ * @returns {string} plain text with entities decoded (tags untouched)
+ */
+export function decodeHtmlEntities(htmlText) {
+  return String(htmlText).replace(
+    /&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g,
+    (match, entity) => {
+      if (entity[0] === "#") {
+        const code =
+          entity[1] === "x" || entity[1] === "X"
+            ? Number.parseInt(entity.slice(2), 16)
+            : Number.parseInt(entity.slice(1), 10);
+        if (Number.isFinite(code) && code >= 0 && code <= 0x10ffff) {
+          return String.fromCodePoint(code);
+        }
+        return match;
+      }
+      switch (entity) {
+        case "amp":
+          return "&";
+        case "lt":
+          return "<";
+        case "gt":
+          return ">";
+        case "quot":
+          return '"';
+        case "apos":
+          return "'";
+        default:
+          return match;
+      }
+    },
+  );
+}
+
+/**
  * GitHub heading slug: lowercase, strip HTML tags and every character that
  * is not a letter, number, underscore, hyphen or space, then one hyphen per
  * space (so a removed em-dash between spaces leaves a double hyphen).
  * Mirrors github-slugger / marked's serializer; underscores survive.
  *
- * @param {string} renderedText heading text AFTER inline rendering
- * (HTML tags are stripped here, markdown syntax must already be gone)
+ * @param {string} renderedText heading text AFTER inline rendering AND
+ * entity decoding (see {@link decodeHtmlEntities}: HTML tags are stripped
+ * here, markdown syntax and entities must already be gone)
  * @returns {string} the anchor slug
  */
 export function slugifyHeading(renderedText) {
@@ -166,7 +208,7 @@ export function extractAnchors(markdownText) {
   for (const token of markdown.lexer(String(markdownText))) {
     eachToken(token, (t) => {
       if (t.type === "heading") {
-        anchors.push(dedupe(slugifyHeading(parseInline(t.text))));
+        anchors.push(dedupe(slugifyHeading(decodeHtmlEntities(parseInline(t.text)))));
       } else if (t.type === "html") {
         NAMED_ANCHOR_RE.lastIndex = 0;
         for (const m of String(t.text).matchAll(NAMED_ANCHOR_RE)) {
