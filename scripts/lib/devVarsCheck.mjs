@@ -212,7 +212,6 @@ export function checkDevVarsValues(values) {
   // `1900-01-01` placeholder at runtime, but a malformed non-empty value is
   // passed verbatim as startDate/endDate to QueryExecuteDownload and only
   // surfaces as a wrong or failed sync.
-  const dateValues = {};
   for (const key of REPORT_QUERY_DATE_KEYS) {
     if (!(key in src)) {
       continue;
@@ -225,14 +224,20 @@ export function checkDevVarsValues(values) {
       errors.push(
         `${key} must be a real calendar date in yyyy-MM-dd form (it is passed verbatim as startDate/endDate to QueryExecuteDownload; check for quotes, a trailing comment, or a typo in .dev.vars).`
       );
-    } else {
-      dateValues[key] = raw;
     }
   }
+  // Effective-range check mirrors readReportQueryDates in
+  // src/lib/reportQueryDates.ts: a blank or absent date falls back to the
+  // `1900-01-01` placeholder at runtime, so a set START with a blank END is
+  // an invalid range there (503 on every query-id sync) and must fail fast
+  // here too. Only valid effective dates participate — a malformed value
+  // already errors above, and the runtime rejects it as well.
+  const effectiveStartDate = asText(src.REPORT_QUERY_START_DATE) || "1900-01-01";
+  const effectiveEndDate = asText(src.REPORT_QUERY_END_DATE) || "1900-01-01";
   if (
-    dateValues.REPORT_QUERY_START_DATE &&
-    dateValues.REPORT_QUERY_END_DATE &&
-    dateValues.REPORT_QUERY_START_DATE > dateValues.REPORT_QUERY_END_DATE
+    isValidReportQueryDate(effectiveStartDate) &&
+    isValidReportQueryDate(effectiveEndDate) &&
+    effectiveStartDate > effectiveEndDate
   ) {
     errors.push(
       "REPORT_QUERY_START_DATE must not be after REPORT_QUERY_END_DATE (the range is passed verbatim as startDate/endDate to QueryExecuteDownload)."
