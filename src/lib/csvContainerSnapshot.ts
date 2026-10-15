@@ -138,11 +138,15 @@ export function parseContainerSnapshotCsv(csvText: string): {
   if (lines.length < 2) {
     return { header: lines[0] ?? "", rows: [] };
   }
-  const header = lines[0];
+  const header = lines[0] ?? "";
   const cols = mapCsvHeaders(header);
   const rows: ContainerSnapshotRow[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const r = parseContainerSnapshotRow(cols, lines[i]);
+    const line = lines[i];
+    if (line === undefined) {
+      continue;
+    }
+    const r = parseContainerSnapshotRow(cols, line);
     if (r) {
       rows.push(r);
     }
