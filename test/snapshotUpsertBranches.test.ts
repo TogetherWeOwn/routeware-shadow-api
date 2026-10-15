@@ -12,6 +12,7 @@ import {
   upsertCustomerSnapshotRows
 } from "../src/lib/snapshot/upsert";
 import { recordingDb } from "./snapshotDbFake";
+import type { Recorded } from "./snapshotDbFake";
 
 /**
  * TOG-19016: close the `src/lib/snapshot/upsert.ts` branch gaps (63.8% at
@@ -155,39 +156,79 @@ function nullFirstDb() {
   return db as unknown as D1Database;
 }
 
+/**
+ * Every `*Bindings` row trails with its `syncedAt` bind, so the trailing
+ * bind of each bound row across these statements is the default timestamp.
+ * `rowWidth` is read off the single-row batch (one row per statement there)
+ * instead of hardcoding the field count.
+ */
+function defaultSyncedAts(batches: Recorded[][], rowWidth: number): unknown[] {
+  return batches
+    .flat()
+    .flatMap((s) => s.binds.filter((_, i) => (i + 1) % rowWidth === 0));
+}
+
+function expectSingleIsoTimestamp(synced: unknown[], rowCount: number) {
+  expect(synced).toHaveLength(rowCount);
+  expect(new Set(synced).size).toBe(1);
+  for (const stamp of synced) {
+    expect(typeof stamp).toBe("string");
+    expect(stamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(Number.isNaN(Date.parse(stamp as string))).toBe(false);
+  }
+}
+
 describe("upsert default batchSize/syncedAt", () => {
   it("upserts customers without explicit batchSize or syncedAt", async () => {
-    // Arrange
+    // Arrange — 81 rows exceeds the default customer batchSize of 80, so
+    // the chunking default is observable as two batches.
     const { db, batches } = recordingDb();
+    const rows = Array.from({ length: 81 }, (_, i) => customerRow(i + 1));
 
     // Act — defaults are 80 rows per batch with a fresh timestamp.
-    const result = await upsertCustomerSnapshotRows(db, [customerRow(1), customerRow(2)]);
+    const result = await upsertCustomerSnapshotRows(db, rows);
 
     // Assert
-    expect(result).toEqual({ upserted: 2 });
-    expect(batches).toHaveLength(1);
+    expect(result).toEqual({ upserted: 81 });
+    expect(batches).toHaveLength(2);
+    const rowWidth = batches[1][0].binds.length;
+    const firstBatchRows = batches[0].reduce((n, s) => n + s.binds.length / rowWidth, 0);
+    expect(firstBatchRows).toBe(80);
+    expectSingleIsoTimestamp(defaultSyncedAts(batches, rowWidth), 81);
   });
 
   it("upserts addresses without explicit batchSize or syncedAt", async () => {
-    // Arrange
-    const { db } = recordingDb();
+    // Arrange — 81 rows exceeds the default address batchSize of 80.
+    const { db, batches } = recordingDb();
+    const rows = Array.from({ length: 81 }, (_, i) => addressRow(i + 1));
 
     // Act
-    const result = await upsertAddressSnapshotRows(db, [addressRow(1)]);
+    const result = await upsertAddressSnapshotRows(db, rows);
 
     // Assert
-    expect(result).toEqual({ upserted: 1 });
+    expect(result).toEqual({ upserted: 81 });
+    expect(batches).toHaveLength(2);
+    const rowWidth = batches[1][0].binds.length;
+    const firstBatchRows = batches[0].reduce((n, s) => n + s.binds.length / rowWidth, 0);
+    expect(firstBatchRows).toBe(80);
+    expectSingleIsoTimestamp(defaultSyncedAts(batches, rowWidth), 81);
   });
 
   it("upserts containers without explicit batchSize or syncedAt", async () => {
-    // Arrange
-    const { db } = recordingDb();
+    // Arrange — 51 rows exceeds the default container batchSize of 50.
+    const { db, batches } = recordingDb();
+    const rows = Array.from({ length: 51 }, (_, i) => containerRow(i + 1));
 
     // Act
-    const result = await upsertContainerSnapshotRows(db, [containerRow(1)]);
+    const result = await upsertContainerSnapshotRows(db, rows);
 
     // Assert
-    expect(result).toEqual({ upserted: 1 });
+    expect(result).toEqual({ upserted: 51 });
+    expect(batches).toHaveLength(2);
+    const rowWidth = batches[1][0].binds.length;
+    const firstBatchRows = batches[0].reduce((n, s) => n + s.binds.length / rowWidth, 0);
+    expect(firstBatchRows).toBe(50);
+    expectSingleIsoTimestamp(defaultSyncedAts(batches, rowWidth), 51);
   });
 });
 
@@ -230,6 +271,24 @@ describe("upsert non-Error D1 failures", () => {
     expect(error.message).toBe(
       "D1 address_snapshot batch at row offset 0 (1 rows, 1 SQL ops): D1_ERROR: too many SQL variables"
     );
+  });
+
+  it("maps a thrown FK string into the foreign-key error", async () => {
+    // Arrange — a bare string carrying FK text walks the cause scan as a
+    // string message (not an `Error`) and matches the FK detector.
+    const db = throwingBatchDb(FK_MESSAGE, {});
+
+    // Act
+    const error = (await upsertAddressSnapshotRows(
+      db,
+      [{ ...addressRow(1), customerId: 999 }],
+      80,
+      SYNCED_AT
+    ).catch((e: unknown) => e)) as SnapshotForeignKeyError;
+
+    // Assert
+    expect(error).toBeInstanceOf(SnapshotForeignKeyError);
+    expect(error.missingKeys).toEqual([999]);
   });
 
   it("treats a thrown plain object as a generic address batch error", async () => {
