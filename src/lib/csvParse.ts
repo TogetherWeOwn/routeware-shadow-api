@@ -108,7 +108,11 @@ export function mapCsvHeaders(headerLine: string): Record<string, number> {
   const cells = parseCsvLine(headerLine).map((c) => c.trim());
   const map: Record<string, number> = {};
   for (let i = 0; i < cells.length; i++) {
-    map[normHeader(cells[i])] = i;
+    const name = cells[i];
+    if (name === undefined) {
+      continue;
+    }
+    map[normHeader(name)] = i;
   }
   return map;
 }
