@@ -17,6 +17,16 @@ const ROW_COUNT = 60_000;
 const ROW_TEXT_BYTES = 2_048;
 const HEAP_GROWTH_CEILING = 32 * 1024 * 1024;
 
+const textDecoder = new TextDecoder();
+function flatRowText(id: number): string {
+  // Decode fresh bytes so retaining raw rows costs the full text size, not
+  // just the small rope nodes V8 can use for repeat() and concatenation.
+  const bytes = new Uint8Array(ROW_TEXT_BYTES).fill(120);
+  const tag = `${id}:`;
+  for (let i = 0; i < tag.length; i += 1) bytes[i] = tag.charCodeAt(i);
+  return textDecoder.decode(bytes);
+}
+
 function generatedExportDb(onDuringPull: () => void) {
   let reads = 0;
   // Cursor of the last row served in the current pass. Each pass (the ETag
@@ -59,7 +69,7 @@ function generatedExportDb(onDuringPull: () => void) {
                   return {
                     customer_id: id,
                     company_name: `Synthetic ${id}`,
-                    comments: `${id}:${"x".repeat(ROW_TEXT_BYTES)}`,
+                    comments: flatRowText(id),
                     enabled: 1,
                     synced_at: "2026-10-11T00:00:00.000Z"
                   };
@@ -117,6 +127,8 @@ describe("large snapshot export memory ceiling", () => {
         if (byte === 10) newlines += 1;
       }
       sample();
+      // Let an eager producer fill its queue while this slow client waits.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
     expect(direct.readCount()).toBe(Math.ceil(ROW_COUNT / SNAPSHOT_EXPORT_PAGE_SIZE) + 1);
@@ -142,6 +154,8 @@ describe("large snapshot export memory ceiling", () => {
         if (byte === 10) bodyNewlines += 1;
       }
       sample();
+      // Let an eager producer fill its queue while this slow client waits.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(shipped.readCount()).toBe(
       2 * (Math.ceil(ROW_COUNT / SNAPSHOT_EXPORT_PAGE_SIZE) + 1)
