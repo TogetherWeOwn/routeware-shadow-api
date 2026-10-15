@@ -11,7 +11,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   invalidations vs the 950-invalidation cap, so operators can see budget
   headroom. Over-budget graphs still skip the D1 refresh fail-closed with no
   line emitted.
-
+- TOG-19134: Every `data-snapshot-sync` scheduled log line now carries a
+  `runId` per-run correlation id: one `crypto.randomUUID()` minted at
+  `scheduled()` entry, spread via the shared log base onto the
+  success/failed/skipped-overlap/fallback-warning/persistence-failure lines
+  and threaded through `SnapshotSyncRunOptions` into the orchestration skip
+  lines and the R2-archive lines. On the chained path the id rides to each
+  per-table sub-invocation on the `x-run-id` header (UUID-validated at the
+  per-table routes; malformed values are dropped, never fail a sync), so one
+  run's records correlate across invocations. Stable within a run, distinct
+  across runs; a bare UUID, PII-free by construction. See
+  `docs/CRON-SYNC-ALARM-RUNBOOK.md` §0 for the updated example shape.
 - TOG-8374: The per-customer detail-full D1 refresh no longer skips a graph
   for having more than 5,000 addresses or 40,000 containers. It skips only
   when the graph needs more than 900 D1 operations or more than 950 cache

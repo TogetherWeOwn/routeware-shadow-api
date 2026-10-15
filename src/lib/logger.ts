@@ -48,6 +48,7 @@ export type LogEventInput = {
   key?: string;
   manifestKey?: string;
   event?: string;
+  runId?: string;
   outcome?: string;
   mode?: string;
   configSource?: string;
@@ -84,6 +85,7 @@ const allowedContextFields = new Set([
   "key",
   "manifestKey",
   "event",
+  "runId",
   "outcome",
   "mode",
   "configSource",
