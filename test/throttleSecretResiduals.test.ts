@@ -149,23 +149,29 @@ function rateLimitHeaders(seen: SeenResponse): {
   };
 }
 
-function expectBurst429(seen: SeenResponse, atMs: number): void {
+function expectBurst429(seen: SeenResponse, window: { beforeMs: number; afterMs: number }): void {
   expect(seen.status).toBe(429);
   expect(seen.headers.get("content-type")).toContain("problem+json");
   const { limit, remaining, reset, retryAfter } = rateLimitHeaders(seen);
   // #216 headers, re-derived from the current constants rather than
   // literals: the limit is the 401 budget per window
   // (AUTH_THROTTLE_ALLOWED_FAILURES = MAX - 1, src/lib/authThrottle.ts:29),
-  // and the reset/retry pair must describe the same block end.
+  // and the reset/retry pair must describe the same block end. The DO
+  // stamps the block on its own clock somewhere between the client's
+  // before/after timestamps, so the bounds span that whole window (plus
+  // 1s of ceil slack) instead of one pre-request instant.
   expect(limit).toBe(String(AUTH_THROTTLE_ALLOWED_FAILURES));
   expect(AUTH_THROTTLE_ALLOWED_FAILURES).toBe(AUTH_THROTTLE_MAX_FAILURES - 1);
   expect(remaining).toBe("0");
   expect(retryAfter).toBeGreaterThan(0);
   expect(retryAfter).toBeLessThanOrEqual(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
-  expect(reset).toBeGreaterThan(Math.floor(atMs / 1000));
-  expect(reset).toBeLessThanOrEqual(Math.ceil((atMs + AUTH_THROTTLE_BLOCK_MS) / 1000));
-  // Reset and Retry-After name the same instant (1s of ceil slack).
-  expect(Math.abs(reset - Math.floor(atMs / 1000) - retryAfter)).toBeLessThanOrEqual(1);
+  expect(reset).toBeGreaterThan(Math.floor(window.beforeMs / 1000));
+  expect(reset).toBeLessThanOrEqual(
+    Math.ceil((window.afterMs + AUTH_THROTTLE_BLOCK_MS) / 1000)
+  );
+  // Reset minus Retry-After lands within the processing window (±1s ceil).
+  expect(reset - retryAfter).toBeGreaterThanOrEqual(Math.floor(window.beforeMs / 1000) - 1);
+  expect(reset - retryAfter).toBeLessThanOrEqual(Math.ceil(window.afterMs / 1000) + 1);
   const exposed = (seen.headers.get("access-control-expose-headers") ?? "")
     .split(",")
     .map((header) => header.trim().toLowerCase());
@@ -247,22 +253,22 @@ describe("throttle burst re-verification + log residuals (R9-24)", () => {
       }
 
       // The MAX_FAILURES-th failure is the first 429.
-      const throttledAt = Date.now();
+      const throttledBeforeMs = Date.now();
       const throttled = await callAndRecord(HOME_INDEX, {
         token: PROBE_BEARER_429,
         ip: BURST_IP,
         extraHeaders: dirtyHeaders
       });
-      expectBurst429(throttled, throttledAt);
+      expectBurst429(throttled, { beforeMs: throttledBeforeMs, afterMs: Date.now() });
 
       // In-block failures stay 429; throttleRecordFailure re-arms
       // blockedUntil >= the first block end.
-      const inBlockAt = Date.now();
+      const inBlockBeforeMs = Date.now();
       const inBlock = await callAndRecord(HOME_INDEX, {
         token: PROBE_BEARER_INBLOCK,
         ip: BURST_IP
       });
-      expectBurst429(inBlock, inBlockAt);
+      expectBurst429(inBlock, { beforeMs: inBlockBeforeMs, afterMs: Date.now() });
       expect(rateLimitHeaders(inBlock).reset).toBeGreaterThanOrEqual(
         rateLimitHeaders(throttled).reset
       );
