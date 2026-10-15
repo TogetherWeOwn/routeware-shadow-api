@@ -15,6 +15,7 @@
  * the `git ls-files` set in.
  */
 
+import { decodeHTML } from "entities";
 import { Marked, parseInline } from "marked";
 
 // Marked 18.1.0 accepts mixed-character closing fences. Override only that
@@ -80,62 +81,54 @@ function posixDirname(p) {
 }
 
 /**
- * Decode HTML entities back to plain text. `parseInline` returns escaped
- * HTML, so without this `'` / `&` / `"` / `<` / `>` leak into slugs as
- * `39` / `amp` / `quot` / `lt` / `gt` (GitHub slugs the plain text).
- * Single-pass, like an HTML tokenizer: `&amp;lt;` decodes to `&lt;`.
+ * Decode HTML entities back to plain text (full HTML5 set via the
+ * `entities` package). `parseInline` returns escaped HTML, so without this
+ * `'` / `&` / `"` / `<` / `>` leak into slugs as `39` / `amp` / `quot` /
+ * `lt` / `gt`, and longer names (`mdash`, `nbsp`, `copy`, …) leak as their
+ * bare names (GitHub slugs the plain text). Single-pass, like an HTML
+ * tokenizer: `&amp;lt;` decodes to `&lt;`. Unknown entities are left alone.
  *
- * @param {string} htmlText inline-rendered HTML (tags may still be present)
- * @returns {string} plain text with entities decoded (tags untouched)
+ * Must run AFTER {@link stripHtmlTags}: a decoded `&lt;id&gt;` looks like a
+ * tag, so decoding first would let the tag-strip eat it and its text.
+ *
+ * @param {string} htmlText inline-rendered HTML with tags already stripped
+ * @returns {string} plain text with entities decoded
  */
 export function decodeHtmlEntities(htmlText) {
-  return String(htmlText).replace(
-    /&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);/g,
-    (match, entity) => {
-      if (entity[0] === "#") {
-        const code =
-          entity[1] === "x" || entity[1] === "X"
-            ? Number.parseInt(entity.slice(2), 16)
-            : Number.parseInt(entity.slice(1), 10);
-        if (Number.isFinite(code) && code >= 0 && code <= 0x10ffff) {
-          return String.fromCodePoint(code);
-        }
-        return match;
-      }
-      switch (entity) {
-        case "amp":
-          return "&";
-        case "lt":
-          return "<";
-        case "gt":
-          return ">";
-        case "quot":
-          return '"';
-        case "apos":
-          return "'";
-        default:
-          return match;
-      }
-    },
-  );
+  return decodeHTML(String(htmlText));
 }
 
 /**
- * GitHub heading slug: lowercase, strip HTML tags and every character that
- * is not a letter, number, underscore, hyphen or space, then one hyphen per
- * space (so a removed em-dash between spaces leaves a double hyphen).
- * Mirrors github-slugger / marked's serializer; underscores survive.
+ * Strip real HTML tags from `parseInline` output, keeping the inner text.
+ * Runs BEFORE entity decoding: at this point a literal `<id>` is still
+ * escaped as `&lt;id&gt;` (untouched), while real markup (`<code>`, `<a>`,
+ * `<b>`) is bare and removed. Escaped angle brackets decoded later are
+ * punctuation, never tags.
  *
- * @param {string} renderedText heading text AFTER inline rendering AND
- * entity decoding (see {@link decodeHtmlEntities}: HTML tags are stripped
- * here, markdown syntax and entities must already be gone)
+ * @param {string} inlineHtml `parseInline` output
+ * @returns {string} HTML with tags removed, entities untouched
+ */
+function stripHtmlTags(inlineHtml) {
+  return String(inlineHtml).replace(/<[!/a-z].*?>/gi, "");
+}
+
+/**
+ * GitHub heading slug: lowercase, drop every character that is not a
+ * letter, number, underscore, hyphen or space, then one hyphen per space
+ * (so a removed em-dash between spaces leaves a double hyphen).
+ * Mirrors github-slugger / marked's serializer; underscores survive.
+ * Angle brackets are punctuation here, so `<id>` slugs with its text kept
+ * (`/v1/<id>` → `v1id`); tags must already be gone via {@link stripHtmlTags}.
+ *
+ * @param {string} plainText heading plain text AFTER tag stripping AND
+ * entity decoding (see {@link stripHtmlTags} and {@link decodeHtmlEntities}:
+ * markdown syntax, HTML tags and entities must already be gone)
  * @returns {string} the anchor slug
  */
-export function slugifyHeading(renderedText) {
-  return String(renderedText)
+export function slugifyHeading(plainText) {
+  return String(plainText)
     .toLowerCase()
     .trim()
-    .replace(/<[!/a-z].*?>/gi, "")
     .replace(/[^\p{L}\p{N}\p{M}_\- ]/gu, "")
     .replace(/ /g, "-");
 }
@@ -208,7 +201,9 @@ export function extractAnchors(markdownText) {
   for (const token of markdown.lexer(String(markdownText))) {
     eachToken(token, (t) => {
       if (t.type === "heading") {
-        anchors.push(dedupe(slugifyHeading(decodeHtmlEntities(parseInline(t.text)))));
+        anchors.push(
+          dedupe(slugifyHeading(decodeHtmlEntities(stripHtmlTags(parseInline(t.text))))),
+        );
       } else if (t.type === "html") {
         NAMED_ANCHOR_RE.lastIndex = 0;
         for (const m of String(t.text).matchAll(NAMED_ANCHOR_RE)) {

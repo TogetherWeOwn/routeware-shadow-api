@@ -75,6 +75,10 @@ describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
     ).toBe("Don't & Q Q&A \"hi\" <x>");
     // Single-pass, like an HTML tokenizer: the outer entity decodes once.
     expect(decodeHtmlEntities("&amp;lt;")).toBe("&lt;");
+    // Full HTML5 set: longer names decode to punctuation, never leak as text.
+    expect(decodeHtmlEntities("A &mdash; B")).toBe("A — B");
+    expect(decodeHtmlEntities("a&nbsp;b")).toBe("a b");
+    expect(decodeHtmlEntities("&copy; 2024")).toBe("© 2024");
     // Unknown entities are left alone, never silently dropped.
     expect(decodeHtmlEntities("&bogus;")).toBe("&bogus;");
   });
@@ -84,6 +88,45 @@ describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
     expect(extractAnchors("## Q&A\n")).toEqual(["qa"]);
     expect(extractAnchors("## Say \"hi\"\n")).toEqual(["say-hi"]);
     expect(extractAnchors("## 1 < 2\n")).toEqual(["1--2"]);
+  });
+
+  it("keeps tag-shaped brackets as text, like GitHub (review #261 round 2)", () => {
+    // Code span holding a path placeholder: `<id>` is text, not a tag.
+    expect(extractAnchors("## GET `/v1/<id>`\n")).toEqual(["get-v1id"]);
+    expect(extractAnchors("## The `<div>` element\n")).toEqual([
+      "the-div-element",
+    ]);
+    // Typed entities: `&lt;b&gt;` is literal angle brackets around `b`.
+    expect(extractAnchors("## x &lt;b&gt; y\n")).toEqual(["x-b-y"]);
+    // Named entity outside the old five-name table: em-dash is dropped.
+    expect(extractAnchors("## A &mdash; B\n")).toEqual(["a--b"]);
+  });
+
+  it("resolves GitHub-form links to tag-shaped headings, rejects dead slugs", () => {
+    const ok = checkDocsLinks(
+      files([
+        [
+          "docs/A.md",
+          "See [ep](B.md#get-v1id), [el](B.md#the-div-element), " +
+            "[t](B.md#x-b-y) and [d](B.md#a--b).\n",
+        ],
+        [
+          "docs/B.md",
+          "## GET `/v1/<id>`\n\n## The `<div>` element\n\n## x &lt;b&gt; y\n\n## A &mdash; B\n",
+        ],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(ok).toEqual([]);
+    // The old decode-before-strip slug is dead: `#get-v1` must be reported.
+    const bad = checkDocsLinks(
+      files([
+        ["docs/A.md", "See [dead](B.md#get-v1).\n"],
+        ["docs/B.md", "## GET `/v1/<id>`\n"],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(bad.map((f) => f.reason)).toEqual(["missing anchor"]);
   });
 
   it("resolves cross-file links to entity-bearing headings", () => {
