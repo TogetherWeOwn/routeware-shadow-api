@@ -73,12 +73,15 @@ change.** This is a measurement correction, and it is the one time these floors 
 
 ## Per-file invariants
 
-### `dataEntityHandlers.ts` — 93.4% statements / 100% functions
+### `dataEntityHandlers.ts` — 93.4% statements / 100% functions (GET/ETag paths; POST moved to `dataEntitySave.ts` by TOG-19136)
 
-`test/dataEntityHandlers.test.ts` covers the GET/ETag paths; `test/dataEntityPostHandlers.test.ts`
-covers the three POST write paths — including the branch where the upstream save succeeds but the D1
-sync throws, which must keep the 200 and fall back to `invalidateDataEntity` so stale PII is not
-served from cache.
+`test/dataEntityHandlers.test.ts` covers the GET/ETag paths.
+
+### `dataEntitySave.ts` — POST write paths (split from `dataEntityHandlers.ts`, TOG-19136)
+
+`test/dataEntityPostHandlers.test.ts` covers the three POST write paths — including the branch where
+the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to
+`invalidateDataEntity` so stale PII is not served from cache.
 
 Still open, smaller: several handlers here exceed the 50-line guideline.
 
