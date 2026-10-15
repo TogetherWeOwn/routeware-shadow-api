@@ -42,14 +42,14 @@ export function extractRequestVerificationTokenFromHtml(html: string): string | 
       html
     );
   if (nameFirst) {
-    return nameFirst[1];
+    return nameFirst[1] ?? null;
   }
   const valueFirst =
     /<input\b[^>]*\bvalue\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']__RequestVerificationToken["']/i.exec(
       html
     );
   if (valueFirst) {
-    return valueFirst[1];
+    return valueFirst[1] ?? null;
   }
   return null;
 }
