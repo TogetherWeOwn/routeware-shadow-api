@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readReportQueryDates } from "../src/lib/reportQueryDates";
 import { resolveChainedBase } from "../src/scheduled";
 import {
   checkDevVarsValues,
@@ -216,6 +217,58 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
         )
       ).toBe(true);
     });
+
+    it.each([
+      ["2026-06-10", undefined, false],
+      ["2026-06-10", "", false],
+      ["2026-06-10", "   ", false],
+      [undefined, "2026-06-01", true],
+      ["", "  ", true],
+      [undefined, undefined, true],
+      ["2026-06-10", "2026-06-01", false],
+      ["2024-02-29", "2024-03-01", true],
+      ["1900-01-01", "1900-01-01", true]
+    ] as const)(
+      "report query date range mirrors the runtime for start=%s end=%s",
+      (start, end, accepted) => {
+        const runtimeInput: { REPORT_QUERY_START_DATE?: string; REPORT_QUERY_END_DATE?: string } = {};
+        if (start !== undefined) {
+          runtimeInput.REPORT_QUERY_START_DATE = start;
+        }
+        if (end !== undefined) {
+          runtimeInput.REPORT_QUERY_END_DATE = end;
+        }
+        let runtimeOk = true;
+        try {
+          readReportQueryDates(runtimeInput);
+        } catch {
+          runtimeOk = false;
+        }
+        expect(runtimeOk).toBe(accepted);
+
+        const vars = validEffective();
+        if (start === undefined) {
+          delete vars.REPORT_QUERY_START_DATE;
+        } else {
+          vars.REPORT_QUERY_START_DATE = start;
+        }
+        if (end === undefined) {
+          delete vars.REPORT_QUERY_END_DATE;
+        } else {
+          vars.REPORT_QUERY_END_DATE = end;
+        }
+        const result = checkDevVarsValues(vars);
+        expect(result.ok).toBe(accepted);
+        if (!accepted) {
+          expect(
+            result.errors.some(
+              (e) =>
+                e.includes("REPORT_QUERY_START_DATE") && e.includes("REPORT_QUERY_END_DATE")
+            )
+          ).toBe(true);
+        }
+      }
+    );
 
     it("treats absent or empty REPORT_QUERY_* dates as unset (runtime placeholder fallback)", () => {
       const missing = validEffective();
