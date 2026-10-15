@@ -255,6 +255,12 @@ export async function reconcileCustomerChildren(
       WHERE customer_id = ? AND synced_at < ?
       RETURNING pickup_address_id AS id`).bind(customerId, syncedAt)
   ]);
+  // noUncheckedIndexedAccess: destructured batch entries are `T | undefined`.
+  // Two statements were sent, so two results are expected; fail loudly if the
+  // driver ever returns fewer rather than mapping `undefined`.
+  if (containers === undefined || addresses === undefined) {
+    throw new Error("reconcileCustomerChildren: D1 batch returned fewer than 2 results");
+  }
   return {
     addressIds: addresses.results.map((r) => r.id),
     containerIds: containers.results.map((r) => r.id)
