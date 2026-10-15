@@ -13,6 +13,7 @@ import { isLoginPageUnavailableError } from "./lib/loginPageError";
 import { errorKind, logEvent } from "./lib/logger";
 import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import { InvalidReportQueryDatesError } from "./lib/reportQueryDates";
 import {
   concurrentRefreshTimeoutProblem,
   isConcurrentRefreshTimeout
@@ -251,6 +252,25 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
+  // Invalid REPORT_QUERY dates (TOG-9206): fixed 503, never echoes env values.
+  if (err instanceof InvalidReportQueryDatesError) {
+    logEvent({
+      level: "error",
+      msg: "Invalid REPORT_QUERY date configuration",
+      route: "app.onError",
+      ms: null
+    });
+    return withCors(
+      problemJsonResponse({
+        type: problemType("misconfigured", c.env),
+        title: "Service Unavailable",
+        status: 503,
+        detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname
+      }),
+      c.req.raw
+    );
+  }
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
   // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
