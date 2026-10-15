@@ -189,6 +189,7 @@ describe("scheduled cron overlap guard", () => {
       route: "scheduled.data-snapshot-sync",
       ms: expect.any(Number),
       event: "data-snapshot-sync",
+      runId: expect.any(String),
       outcome: "skipped-overlap",
       mode: "chained-http",
       configSource: "SHADOW_API_PUBLIC_BASE",

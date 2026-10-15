@@ -36,6 +36,18 @@ export type CronSyncLog = {
   event: "data-snapshot-sync";
   outcome: CronSyncOutcome;
   mode: CronSyncMode;
+  /**
+   * Per-invocation correlation id (TOG-19134): one `crypto.randomUUID()` minted
+   * at `scheduled()` entry, spread via `base` onto the scheduled-owned lines
+   * (success, failed, skipped-overlap, fallback warning, persistence-failure)
+   * and threaded through `SnapshotSyncRunOptions` into the orchestration skip
+   * lines and the R2-archive lines. On the chained path it rides to each
+   * per-table sub-invocation on the `x-run-id` header (UUID-validated at the
+   * per-table routes), so one run's records correlate across invocations.
+   * Stable within a run, distinct across runs; a bare UUID, PII-free by
+   * construction.
+   */
+  runId: string;
   /** Which configuration decided the mode. */
   configSource: "SHADOW_API_PUBLIC_BASE" | "fallback-single-invocation";
   /**
@@ -230,6 +242,9 @@ export async function scheduled(
       const publicBase = resolveChainedBase(env.SHADOW_API_PUBLIC_BASE);
       const base = {
         event: "data-snapshot-sync" as const,
+        // Per-run correlation id (TOG-19134): minted once per invocation so all
+        // lines from this run share it. A bare random UUID — PII-free.
+        runId: crypto.randomUUID(),
         mode: (publicBase ? "chained-http" : "single-invocation") as CronSyncMode,
         configSource: (publicBase
           ? "SHADOW_API_PUBLIC_BASE"
@@ -267,7 +282,9 @@ export async function scheduled(
       try {
         let r: DataSnapshotResult;
         if (publicBase) {
-          r = await runDataSnapshotSyncChainedHttp(publicBase, env);
+          r = await runDataSnapshotSyncChainedHttp(publicBase, env, {
+            runId: base.runId
+          });
         } else {
           // Loud on purpose: the whole job then shares one invocation's D1
           // operation budget, so a large export can die partway through.
@@ -278,7 +295,7 @@ export async function scheduled(
             ms: null,
             ...base
           });
-          r = await runDataSnapshotSync(env);
+          r = await runDataSnapshotSync(env, { runId: base.runId });
         }
         const tables = {
           customer: tableCounts(r.customer),
