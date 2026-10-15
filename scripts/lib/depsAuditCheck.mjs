@@ -14,7 +14,11 @@
  *
  * Prod-only (`--omit=dev`) is deliberate: devDependencies (vitest, wrangler,
  * playwright) never ship to the Worker, and their advisory surface would
- * drown the signal for what actually runs in production.
+ * drown the signal for what actually runs in production. Exception
+ * (TOG-25334): `tools/api-discovery` is audited WITHOUT `--omit=dev`
+ * because that standalone package has no prod dependencies at all —
+ * playwright/tsx are its tool runtime, so omitting dev would audit an empty
+ * tree. See `combineAuditJson` and docs/DEPENDENCY-AUDIT.md.
  *
  * Allowlist lifecycle (documented in docs/DEPENDENCY-AUDIT.md):
  * - every entry names the GHSA id, the affected package, why it is
@@ -133,6 +137,42 @@ export function extractAdvisories(auditJson) {
     }
   }
   return found;
+}
+
+/**
+ * Merge several parsed `npm audit --json` reports into one, so the gate can
+ * cover multiple lockfiles with a single allowlist verdict (TOG-25334: the
+ * root Worker tree plus the standalone `tools/api-discovery` package, which
+ * is not a workspace member and has its own lockfile).
+ *
+ * Only `vulnerabilities[*].via` feeds the verdict (`extractAdvisories`
+ * ignores npm's package-level rollup), so merging concatenates the `via`
+ * arrays per package key. Reports that are missing or malformed contribute
+ * nothing — the caller decides whether a scope that could not be read is an
+ * infrastructure failure.
+ *
+ * @param {Array<unknown>} reports parsed `npm audit --json` outputs
+ * @returns {{ vulnerabilities: Record<string, unknown> }}
+ */
+export function combineAuditJson(reports) {
+  const merged = {};
+  for (const report of reports ?? []) {
+    const vulnerabilities =
+      report && typeof report === "object" ? (report.vulnerabilities ?? {}) : {};
+    if (!vulnerabilities || typeof vulnerabilities !== "object") continue;
+    for (const [pkg, entry] of Object.entries(vulnerabilities)) {
+      const via =
+        entry && typeof entry === "object" && Array.isArray(entry.via) ? entry.via : [];
+      const existing = merged[pkg];
+      if (!existing) {
+        merged[pkg] = { ...entry, via: [...via] };
+      } else {
+        const existingVia = Array.isArray(existing.via) ? existing.via : [];
+        merged[pkg] = { ...existing, via: [...existingVia, ...via] };
+      }
+    }
+  }
+  return { vulnerabilities: merged };
 }
 
 /**

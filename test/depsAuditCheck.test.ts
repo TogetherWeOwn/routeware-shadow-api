@@ -3,6 +3,7 @@ import {
   AUDIT_ALLOWLIST,
   BLOCKING_SEVERITIES,
   CHECK_NAME,
+  combineAuditJson,
   evaluateAudit,
   extractAdvisories,
   formatFailureLog,
@@ -160,5 +161,77 @@ describe("evaluateAudit (TOG-8904)", () => {
 describe("formatPassLog (TOG-8904)", () => {
   it("names the check and the counts", () => {
     expect(formatPassLog({ scanned: 33, allowlisted: 8, belowThreshold: 25 })).toContain(CHECK_NAME);
+  });
+});
+
+describe("combineAuditJson (TOG-25334)", () => {
+  it("merges disjoint scopes so one verdict covers both lockfiles", () => {
+    const merged = combineAuditJson([
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-aaaa-bbbb-cccc") } },
+      { vulnerabilities: {} },
+    ]);
+    const outcome = evaluateAudit(merged, [{ id: "GHSA-aaaa-bbbb-cccc" }]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.scanned).toBe(1);
+  });
+
+  it("a synthetic high advisory in the discovery scope trips the merged gate", () => {
+    // Fixture proof the discovery scope is live, not a silent pass: the root
+    // report is clean, so only the discovery GHSA can fail this verdict.
+    const merged = combineAuditJson([
+      { vulnerabilities: {} },
+      {
+        vulnerabilities: {
+          playwright: advisory(
+            "https://github.com/advisories/GHSA-synt-heti-cdis",
+            "high",
+            "some-discovery-dep",
+            "Synthetic fixture advisory",
+          ),
+        },
+      },
+    ]);
+    const outcome = evaluateAudit(merged, []);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.blocking.map((b) => b.id)).toEqual(["GHSA-synt-heti-cdis"]);
+  });
+
+  it("concatenates via entries when both scopes report the same package", () => {
+    const merged = combineAuditJson([
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "moderate",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-qqqq-wwww-eeee", severity: "moderate", title: "t" },
+            ],
+          },
+        },
+      },
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "high",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", severity: "high", title: "t" },
+            ],
+          },
+        },
+      },
+    ]);
+    const found = extractAdvisories(merged);
+    expect(found.size).toBe(2);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+
+  it("tolerates missing or malformed reports so one bad scope cannot poison the merge", () => {
+    const merged = combineAuditJson([
+      null,
+      { vulnerabilities: null },
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", "critical") } },
+    ]);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
   });
 });

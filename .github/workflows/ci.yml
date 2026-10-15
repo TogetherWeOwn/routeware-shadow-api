@@ -252,12 +252,14 @@ jobs:
         # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
         # skip the gate.
         run: npm run check:changelog
-      - name: Prod dependency audit (TOG-8904)
-        # Credential-free: `npm audit --omit=dev` against the public registry;
-        # fails on unallowlisted high/critical advisories. The allowlist (with
-        # reasons + remediation paths) lives in scripts/lib/depsAuditCheck.mjs;
-        # stale entries fail the gate so Dependabot fixes clean up after
-        # themselves. Process: docs/DEPENDENCY-AUDIT.md.
+      - name: Prod dependency audit (TOG-8904, TOG-25334)
+        # Credential-free: root `npm audit --omit=dev` plus a full
+        # `tools/api-discovery` audit against the public registry; fails on
+        # unallowlisted high/critical advisories in either lockfile. The
+        # allowlist (with reasons + remediation paths) lives in
+        # scripts/lib/depsAuditCheck.mjs; stale entries fail the gate so
+        # Dependabot fixes clean up after themselves. Process:
+        # docs/DEPENDENCY-AUDIT.md.
         run: npm run check:deps-audit
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is

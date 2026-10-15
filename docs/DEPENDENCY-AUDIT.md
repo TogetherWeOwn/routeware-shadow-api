@@ -3,9 +3,22 @@
 ## What runs in CI
 
 The hygiene job runs `npm run check:deps-audit` on every PR and every push
-to `main`. It executes `npm audit --omit=dev --json` and fails the build on
+to `main`. It audits **two lockfiles** and fails the build on
 any **high or critical** advisory that is not explicitly allowlisted in
-`scripts/lib/depsAuditCheck.mjs` (`AUDIT_ALLOWLIST`).
+`scripts/lib/depsAuditCheck.mjs` (`AUDIT_ALLOWLIST`):
+
+- root `package-lock.json` via `npm audit --omit=dev --json`;
+- `tools/api-discovery/package-lock.json` via full `npm audit --json`
+  (TOG-25334). That package is not a workspace member, so the root audit
+  never sees its tree (playwright, tsx). It has no prod dependencies, so
+  `--omit=dev` would audit an empty tree and pass silently forever — the
+  full-tree audit is what keeps its 0-vuln baseline (2026-10-15) honest.
+
+The two reports are merged (`combineAuditJson`) into a single verdict with
+one shared allowlist and one staleness rule. The PASS log names both
+lockfiles with their advisory counts, and every blocking advisory is
+annotated with the lockfile(s) that reported it, so the CI log proves both
+scopes ran.
 
 - **Prod only (`--omit=dev`).** DevDependencies (vitest, wrangler,
   playwright) never ship to the Worker; auditing them would drown the signal
@@ -82,6 +95,7 @@ whose GHSA no longer appears is stale by definition.
 
 | Command | What it does |
 |---|---|
-| `npm run check:deps-audit` | Full gate: live `npm audit --omit=dev`, allowlist + staleness verdict. |
-| `node scripts/check-deps-audit.mjs --audit-json=<path>` | Gate against a saved audit file (offline debugging; CI always runs npm). |
+| `npm run check:deps-audit` | Full gate: live audits of both lockfiles, allowlist + staleness verdict. |
+| `node scripts/check-deps-audit.mjs --audit-json=<path>` | Gate against a saved root audit file (offline debugging; CI always runs npm). |
+| `node scripts/check-deps-audit.mjs --discovery-audit-json=<path>` | Gate against a saved discovery audit file (offline debugging; pass both flags to stay fully offline). |
 | `npx vitest run test/depsAuditCheck.test.ts` | Unit tests (fixture JSON only — never touches the registry). |
