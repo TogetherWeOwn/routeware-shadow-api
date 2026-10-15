@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The three POST write paths in `src/lib/dataEntityHandlers.ts` had zero coverage.
+ * The three POST write paths in `src/lib/dataEntitySave.ts` (split from `src/lib/dataEntityHandlers.ts`, TOG-19136) had zero coverage.
  *
  * The highest-risk branch is the one exercised first below: the upstream write to
  * Routeware succeeds, but the follow-up `syncCustomerDetailFullToD1` throws. The
