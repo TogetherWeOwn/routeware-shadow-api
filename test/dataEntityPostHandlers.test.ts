@@ -23,7 +23,9 @@ const calls: {
   entity: Array<{ kind: string; id: number }>;
   forwarded: string[];
   synced: number[];
-} = { graph: [], entity: [], forwarded: [], synced: [] };
+  retryBudgetInputs: Array<{ addressCount: number; containerCount: number }>;
+  maxAttempts: Array<number | undefined>;
+} = { graph: [], entity: [], forwarded: [], synced: [], retryBudgetInputs: [], maxAttempts: [] };
 
 const behavior: {
   prepareError: string | null;
@@ -32,6 +34,7 @@ const behavior: {
   upstreamBody: string;
   syncError: string | null;
   syncResult: { addressIds: number[]; containerIds: number[] };
+  invalidateAttempts: 1 | 2;
   entityError: string | null;
 } = {
   prepareError: null,
@@ -40,6 +43,7 @@ const behavior: {
   upstreamBody: "",
   syncError: null,
   syncResult: { addressIds: [10], containerIds: [100] },
+  invalidateAttempts: 2,
   entityError: null
 };
 
@@ -106,10 +110,12 @@ vi.mock("../src/lib/detailFullSync", () => ({
     }
     return behavior.syncResult;
   },
-  // TOG-8374: the handlers size the graph-invalidation retry from the Cache
-  // API headroom; the attempt arithmetic itself is pinned in
-  // detailFullSizeGuard, so this double returns the small-graph value.
-  detailFullInvalidateAttempts: () => 2
+  // Arithmetic is covered separately. Vary this result so the handler tests
+  // catch an omitted budget argument or a hardcoded attempt count.
+  detailFullInvalidateAttempts: (addressCount: number, containerCount: number) => {
+    calls.retryBudgetInputs.push({ addressCount, containerCount });
+    return behavior.invalidateAttempts;
+  }
 }));
 
 vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
@@ -121,8 +127,9 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
     },
     // TOG-6534: handlers now call the retry wrapper; track it on the same
     // `calls.graph` ledger so success-path assertions are unchanged.
-    invalidateCustomerGraphWithRetry: async (p: Graph) => {
+    invalidateCustomerGraphWithRetry: async (p: Graph, maxAttempts?: number) => {
       calls.graph.push(p);
+      calls.maxAttempts.push(maxAttempts);
     },
     invalidateDataEntity: async (kind: string, id: number) => {
       calls.entity.push({ kind, id });
@@ -221,6 +228,9 @@ beforeEach(() => {
   calls.entity = [];
   calls.forwarded = [];
   calls.synced = [];
+  calls.retryBudgetInputs = [];
+  calls.maxAttempts = [];
+  behavior.invalidateAttempts = 2;
   behavior.prepareError = null;
   behavior.prepareReturnsNull = false;
   behavior.upstreamStatus = 200;
@@ -760,6 +770,48 @@ describe("handlePostDataContainer", () => {
       "https://killeen.example.test/WebRW/Container/SaveContainerForm"
     ]);
   });
+});
+
+describe("POST handler graph retry-budget wiring", () => {
+  const handlers = [
+    ["customer", handlePostDataCustomer],
+    ["address", handlePostDataAddress],
+    ["container", handlePostDataContainer]
+  ] as const;
+
+  for (const [name, handler] of handlers) {
+    it.each([
+      { size: "small", addressCount: 2, containerCount: 3, attempts: 2 as const },
+      { size: "large", addressCount: 120, containerCount: 480, attempts: 1 as const }
+    ])(
+      `${name} passes the $size synced graph's $attempts-attempt budget to invalidation`,
+      async ({ addressCount, containerCount, attempts }) => {
+        // Use unequal counts and ids unrelated to the posted ids: the budget
+        // must describe the complete sync result, not the edited entity alone.
+        behavior.syncResult = {
+          addressIds: Array.from({ length: addressCount }, (_, i) => 1000 + i),
+          containerIds: Array.from({ length: containerCount }, (_, i) => 2000 + i)
+        };
+        behavior.invalidateAttempts = attempts;
+
+        const res = await handler(
+          postCtx(formBody({ CustomerID: "5", PickupAddressID: "10", ContainerID: "100" }))
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as PostBody;
+        expect(body.localSync).toEqual({
+          done: true,
+          customerId: 5,
+          ...behavior.syncResult
+        });
+        expect(calls.maxAttempts).toEqual([attempts]);
+        expect(calls.retryBudgetInputs).toEqual([{ addressCount, containerCount }]);
+        expect(calls.graph).toEqual([{ customerId: 5, ...behavior.syncResult }]);
+        expect(calls.entity).toEqual([]);
+      }
+    );
+  }
 });
 
 describe("POST handler request-validation branches", () => {
