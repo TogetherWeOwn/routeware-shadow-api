@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 /**
  * Compare harvest aggregate to route-map: missing shadow routes and stale map entries.
+ *
+ * Exit codes: 0 when the gap report is clean, or when no aggregate exists yet
+ * (nothing to compare — run npm run process after recording). 1 when any gap
+ * is found, with each gap printed to stderr.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -85,3 +89,13 @@ console.log(
   inMapNotHarvested.length,
   "map entries not in harvest."
 );
+
+if (missingInShadow.length || inMapNotHarvested.length) {
+  for (const m of missingInShadow) {
+    console.error(`missing shadow route: ${m.count}x  ${m.method} ${m.upstreamPath}`);
+  }
+  for (const m of inMapNotHarvested) {
+    console.error(`stale map entry: ${m.method} ${m.upstreamPath} → ${m.shadowPath}`);
+  }
+  process.exit(1);
+}
