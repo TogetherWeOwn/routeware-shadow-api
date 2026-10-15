@@ -98,7 +98,10 @@ export function detailFullInvalidateAttempts(
 ): number {
   const ids = 1 + addressCount + containerCount;
   const remaining = DETAIL_FULL_CACHE_API_LIMIT - DETAIL_FULL_CACHE_HEADROOM - ids;
-  return Math.max(1, Math.min(INVALIDATE_GRAPH_MAX_ATTEMPTS, Math.floor(remaining / ids)));
+  return Math.max(
+    1,
+    Math.min(INVALIDATE_GRAPH_MAX_ATTEMPTS, 1 + Math.floor(remaining / ids))
+  );
 }
 
 function n(v: unknown): number | null {
