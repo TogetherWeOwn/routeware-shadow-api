@@ -4,7 +4,7 @@ import {
   prepareSaveCustomerLongFormBody
 } from "./customerSaveAutoToken";
 import type { DataEntityCtx } from "./dataEntityHandlers";
-import { syncCustomerDetailFullToD1 } from "./detailFullSync";
+import { detailFullInvalidateAttempts, syncCustomerDetailFullToD1 } from "./detailFullSync";
 import { errorKind, logEvent } from "./logger";
 import {
   invalidateCustomerGraphWithRetry,
@@ -30,15 +30,57 @@ import { routewareWebRwUrl } from "./upstreamUrl";
  * serving the pre-edit bundle — stale customer PII.
  *
  * Ids only (never request/response bodies); `invalidateDataEntity` propagates
- * failures so a failed invalidation is loud, matching the sync-throw path.
+ * failures, so callers below wrap it in `evictAfterSaveQuietly` — the upstream
+ * write already succeeded, and a loud eviction must not reject the handler.
  */
 async function invalidatePostedIds(
   entries: Array<{ entity: "customer" | "address" | "container"; id: number | null }>
 ): Promise<void> {
+  // Attempt every entry even when one throws: the container branch carries
+  // both the address and the container id, and a throwing address eviction
+  // must not skip the container entry. Callers wrap this in
+  // `evictAfterSaveQuietly`, so the first error still only logs — but a
+  // direct caller sees the loud contract of `invalidateDataEntity`.
+  let failed = false;
+  let firstError: unknown;
   for (const { entity, id } of entries) {
     if (id !== null) {
-      await invalidateDataEntity(entity, id);
+      try {
+        await invalidateDataEntity(entity, id);
+      } catch (e) {
+        if (!failed) {
+          failed = true;
+          firstError = e;
+        }
+      }
     }
+  }
+  if (failed) {
+    throw firstError;
+  }
+}
+
+/**
+ * TOG-8374: the upstream save already succeeded, so a post-save eviction
+ * failure must not reject the handler — the client would see an error for a
+ * write that landed and might retry a non-idempotent create, while the
+ * entries past the failure stay stale either way. Log loudly server-side and
+ * keep the `sync_failed` / `unknown_customer_id` outcome; surviving entries
+ * expire via the shared entity-data TTL.
+ */
+async function evictAfterSaveQuietly(
+  route: string,
+  work: () => Promise<void>
+): Promise<void> {
+  try {
+    await work();
+  } catch (evictErr) {
+    logEvent({
+      level: "error",
+      msg: "Post-save fallback cache eviction failed",
+      route,
+      kind: errorKind(evictErr)
+    });
   }
 }
 
@@ -160,11 +202,16 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
@@ -173,7 +220,9 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
+          invalidateDataEntity("customer", customerId)
+        );
       }
     } else {
       localSync = unknownCustomerId();
@@ -182,9 +231,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
       // only returns null when the posted form carried no usable id, so this is
       // usually a no-op; it guards future parse drift, not today's shape.
-      await invalidatePostedIds([
-        { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
+        invalidatePostedIds([
+          { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
+        ])
+      );
     }
   }
   return new Response(
@@ -289,11 +340,16 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
@@ -302,9 +358,13 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+          invalidateDataEntity("customer", customerId)
+        );
         if (pickupAddressId !== null) {
-          await invalidateDataEntity("address", pickupAddressId);
+          await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+            invalidateDataEntity("address", pickupAddressId)
+          );
         }
       }
     } else {
@@ -312,9 +372,11 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       // TOG-6533: the upstream write succeeded but there is no usable
       // CustomerID to sync on — still invalidate the posted address id so the
       // pre-edit cached bundle is not served as current.
-      await invalidatePostedIds([
-        { entity: "address", id: postedId(posted.PickupAddressID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
+        invalidatePostedIds([
+          { entity: "address", id: postedId(posted.PickupAddressID) }
+        ])
+      );
     }
   }
   return new Response(
@@ -416,22 +478,30 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       }
     }
     if (customerId !== null) {
+      // Const alias: `customerId` is a `let` (reassigned by the fallback
+      // lookup above), so closures would lose the non-null narrowing.
+      const ownerId = customerId;
       try {
-        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
+        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, ownerId);
         localSync = {
           done: true,
-          customerId,
+          customerId: ownerId,
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
         // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        await invalidateCustomerGraphWithRetry({
-          customerId,
-          addressIds: g.addressIds,
-          containerIds: g.containerIds
-        });
+        // TOG-8374: attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId: ownerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
       } catch (syncErr) {
         logEvent({
           level: "error",
@@ -440,9 +510,13 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           kind: errorKind(syncErr)
         });
         localSync = syncFailed();
-        await invalidateDataEntity("customer", customerId);
+        await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+          invalidateDataEntity("customer", ownerId)
+        );
         if (postedContainerId !== null) {
-          await invalidateDataEntity("container", postedContainerId);
+          await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+            invalidateDataEntity("container", postedContainerId)
+          );
         }
       }
     } else {
@@ -451,10 +525,12 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       // resolved (neither posted nor via the address-snapshot fallback) — still
       // invalidate the posted address/container ids so pre-edit cached bundles
       // are not served as current.
-      await invalidatePostedIds([
-        { entity: "address", id: postedId(posted.PickupAddressID) },
-        { entity: "container", id: postedId(posted.ContainerID) }
-      ]);
+      await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
+        invalidatePostedIds([
+          { entity: "address", id: postedId(posted.PickupAddressID) },
+          { entity: "container", id: postedId(posted.ContainerID) }
+        ])
+      );
     }
   }
   return new Response(
