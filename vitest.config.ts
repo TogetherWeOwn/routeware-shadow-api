@@ -76,12 +76,15 @@ export default defineConfig({
        * Target-file branches: `upsert.ts` 98.27% (was 63.79%),
        * `csvAddressSnapshot.ts` / `csvContainerSnapshot.ts` /
        * `csvCustomerSnapshot.ts` 100% (were 58.33% / 58.33% / 71.42%).
+       * Re-measured hermetically 2026-10-15 at `7450d46` (TOG-25214):
+       * statements 97.78% (3483/3562), branches 94.37% (2365/2506),
+       * functions 98.65% (513/520), lines 98.07% (3369/3435).
        */
       thresholds: {
         statements: 97,
-        branches: 93,
+        branches: 94,
         functions: 98,
-        lines: 97
+        lines: 98
       }
     }
   }
