@@ -1,0 +1,13 @@
+# Skew fixture: the SNAPSHOTS binding was renamed, so the R2 preflight (which
+# looks up binding "SNAPSHOTS") and the wrangler deploy plan disagree about
+# which binding carries the snapshot archive leg. The gate must fail closed.
+name = "r2-deploy-config-fixture-renamed-binding"
+main = "worker.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+SNAPSHOTS_R2_ENABLED = "true"
+
+[[r2_buckets]]
+binding = "SNAPSHOTS_ARCHIVE"
+bucket_name = "r2-deploy-config-fixture"

@@ -1,0 +1,9 @@
+# Skew fixture: the flag says the snapshot archive leg is on, but no R2 bucket
+# is bound, so the preflight has nothing to verify while a deploy would ship
+# a Worker whose archive leg silently drops CSVs. The gate must fail closed.
+name = "r2-deploy-config-fixture-enabled-no-bucket"
+main = "worker.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+SNAPSHOTS_R2_ENABLED = "true"

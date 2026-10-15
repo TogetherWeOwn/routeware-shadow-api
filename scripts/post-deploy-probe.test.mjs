@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import "./deploy-rehearsal-docs.test.mjs";
+import "./check-r2-deploy-config.test.mjs";
 import { BASE_ENV, DEFAULT_BASE, SCHEDULED_FLAG, SKIP_FLAG, resolveBase } from "./lib/postDeployProbe.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));

@@ -1,0 +1,8 @@
+# Guard fixture: R2 archiving is off by design and no bucket is bound, so the
+# preflight skips and the deploy plan carries no binding. The gate must pass.
+name = "r2-deploy-config-fixture-disabled-no-bucket"
+main = "worker.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+SNAPSHOTS_R2_ENABLED = "false"
