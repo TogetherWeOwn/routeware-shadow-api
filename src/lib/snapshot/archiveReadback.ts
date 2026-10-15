@@ -128,7 +128,11 @@ function createFnv1a64() {
   return {
     feed(bytes: Uint8Array) {
       for (let i = 0; i < bytes.byteLength; i++) {
-        lo = (lo ^ bytes[i]) >>> 0;
+        // noUncheckedIndexedAccess: `bytes[i]` is `number | undefined`, but the
+        // loop bounds guarantee it is present. `?? 0` matches the old runtime
+        // (`undefined` coerces to 0 under `^`) while making it explicit.
+        const b = bytes[i] ?? 0;
+        lo = (lo ^ b) >>> 0;
         const product = lo * 0x1b3;
         hi = (hi * 0x1b3 + lo * 0x100 + Math.floor(product / 0x100000000)) >>> 0;
         lo = product >>> 0;

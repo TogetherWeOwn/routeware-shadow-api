@@ -78,11 +78,15 @@ export function parseAddressSnapshotCsv(csvText: string): {
   if (lines.length < 2) {
     return { header: lines[0] ?? "", rows: [] };
   }
-  const header = lines[0];
+  const header = lines[0] ?? "";
   const cols = mapCsvHeaders(header);
   const rows: AddressSnapshotRow[] = [];
   for (let i = 1; i < lines.length; i++) {
-    const r = parseAddressSnapshotRow(cols, lines[i]);
+    const line = lines[i];
+    if (line === undefined) {
+      continue;
+    }
+    const r = parseAddressSnapshotRow(cols, line);
     if (r) {
       rows.push(r);
     }

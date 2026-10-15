@@ -49,7 +49,10 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 export function bearerFromRequest(req: HeaderReader): string | null {
   const auth = req.header("authorization") ?? "";
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
-  return m ? m[1] : null;
+  // noUncheckedIndexedAccess: the capture is always present on a match, but
+  // the index type is `string | undefined`, so fall back to null explicitly.
+  const token = m?.[1];
+  return token ?? null;
 }
 
 /** True when the request carries a bearer token matching `expected` (constant-time). */
