@@ -50,7 +50,7 @@ export function curlExampleForEntry(entry, harvestRow, bodyText) {
   const useJson = isJsonContentType(contentType);
   const bodyExt = useJson ? "json" : "body";
   const name = slug(entry.method, entry.upstreamPath);
-  const bodyFile = bodyText
+  const bodyFile = bodyText && entry.method !== "GET"
     ? { fileName: `${name}.${bodyExt}`, text: bodyText }
     : null;
   const lines = [`# ${entry.method} ${entry.upstreamPath} → ${entry.shadowPath}`];
