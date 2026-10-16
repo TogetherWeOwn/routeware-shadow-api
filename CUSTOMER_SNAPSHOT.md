@@ -164,8 +164,8 @@ For example, this customer sync fetches the configured Routeware report but does
 change D1 or R2:
 
 ```sh
-curl -i -X POST \\
-  -H 'Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>' \\
+curl -i -X POST \
+  -H 'Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>' \
   'https://<worker-host>/api/v1/customer-snapshot/sync?dryRun=true'
 ```
 
