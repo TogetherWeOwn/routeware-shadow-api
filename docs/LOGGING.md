@@ -78,6 +78,7 @@ Three messages are computed, never string literals, so the test carries them as 
 | `data-snapshot-sync` | info | `scheduled.data-snapshot-sync` | Cron data-snapshot-sync emitted its run record: `skipped-overlap` when a previous run was still in flight, otherwise the completion record with `outcome` and per-table counts | none, informational — `skipped-overlap` means the previous run was still in flight. |
 | `data-snapshot-sync failed` | error | `scheduled.data-snapshot-sync` | Cron sync threw; emitted with `outcome: failed` | Check the earlier error lines in the same run (`kind`, per-table failures), then re-trigger the cron or run the sync manually. |
 | `data-snapshot-sync persistence failed` | error | `scheduled.data-snapshot-sync` | Cron result could not be recorded to D1; the sync result itself stands and the log line is the record | Check D1 health; backfill the cron-run row if history matters. |
+
 ## Detail-full sync D1 op-budget utilization
 
 Every successful `syncCustomerDetailFullToD1` run (`src/lib/detailFullSync.ts`) emits exactly one `info` line so operators can see D1 op-budget headroom. Over-budget runs throw fail-closed before the first write and emit no line.

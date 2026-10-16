@@ -18,98 +18,242 @@ const srcModules = import.meta.glob("../src/**/*.ts", {
   eager: true,
 });
 
-/**
- * String-literal `msg` values: `msg: "literal"` directly after the colon.
- * Ternary and template forms never match on purpose — they are pinned in
- * COMPUTED_MESSAGES below instead of being silently half-covered:
- * - `src/lib/entityDataCache.ts:76` emits `entry ? "Entity data cache hit"`
- *   `: "Entity data cache miss"` (a ternary, not a `msg: "..."` literal).
- * - `src/lib/snapshot/export.ts:101` emits a template literal with
- *   `${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}` / `${SNAPSHOT_EXPORT_PAGE_SIZE}`
- *   interpolations (backticks, not double quotes).
- */
-const CODE_MSG_RE = /msg:\s*"([^"]+)"/g;
-
 /** Catalogue table rows: `| `msg` | level | …` at line start. */
 const DOC_ROW_RE = /^\|\s*`(.+?)`\s*\|/gm;
 
 /**
- * Computed call sites, in exact placeholder form as they appear in the
- * catalogue table's `msg` column. Explicit by design: the literal scan
- * above cannot see these call sites, so each one is pinned here. A site's
- * messages count as emitted only when every `evidence` string is still
- * present verbatim in its source file — a reworded or deleted computed
- * call therefore stops crediting its catalogue rows and the stale-row
- * test fails. Add a site here (with this comment updated) when a new
- * computed `msg` lands under `src/`; the call-site count test below
- * fails until you do.
+ * Explicit computed `msg` expressions, mapped to their catalogue placeholders.
+ * The TypeScript AST must find the exact expression at the stated call site
+ * before its messages count as emitted; edits or deletion make rows stale.
+ * Add a site here (and update this comment) when a computed `msg` is added.
  */
 const COMPUTED_CALL_SITES: ReadonlyArray<{
   file: string;
+  expression: string;
   messages: readonly string[];
-  evidence: readonly string[];
 }> = [
   {
-    // Ternary in getCachedDataEntity (src/lib/entityDataCache.ts:76).
+    // Ternary in getCachedDataEntity (src/lib/entityDataCache.ts:78).
     file: "src/lib/entityDataCache.ts",
+    expression: 'entry ? "Entity data cache hit" : "Entity data cache miss"',
     messages: ["Entity data cache hit", "Entity data cache miss"],
-    evidence: ['"Entity data cache hit"', '"Entity data cache miss"'],
   },
   {
-    // Template in readSnapshotExportPageSize (src/lib/snapshot/export.ts:101);
-    // the ${...} names are the placeholder — the live line carries numbers.
+    // Template in readSnapshotExportPageSize (src/lib/snapshot/export.ts:101).
     file: "src/lib/snapshot/export.ts",
+    expression:
+      "`SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`",
     messages: [
       "SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}",
-    ],
-    evidence: [
-      "`SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}`",
     ],
   },
 ];
 
-const COMPUTED_MESSAGES = COMPUTED_CALL_SITES.flatMap((site) => site.messages);
+/** `logEvent({ ... })` calls whose msg must match a computed-site entry. */
+type UntrackedMessage = { path: string; line: number; expression: string };
 
-/** `logEvent(` call sites (the definition in src/lib/logger.ts excluded). */
-const LOG_EVENT_CALL_RE = /\blogEvent\s*\(/g;
-
-function verifiedComputedMessages(files: Array<{ path: string; text: string }>): string[] {
-  const verified: string[] = [];
-  for (const site of COMPUTED_CALL_SITES) {
-    const file = files.find((f) => f.path === site.file || f.path.endsWith(`/${site.file}`));
-    if (file && site.evidence.every((snippet) => String(file.text).includes(snippet))) {
-      verified.push(...site.messages);
+function skipQuoted(text: string, start: number): number {
+  const quote = text[start];
+  let at = start + 1;
+  while (at < text.length) {
+    if (text[at] === "\\") {
+      at += 2;
+    } else if (text[at] === quote) {
+      return at + 1;
+    } else {
+      at++;
     }
   }
-  return verified;
+  return text.length;
 }
 
-function countMatches(re: RegExp, files: Array<{ path: string; text: string }>): number {
-  let total = 0;
-  for (const { text } of files) {
-    total += [...String(text).matchAll(re)].length;
+function skipComment(text: string, start: number): number {
+  if (text.startsWith("//", start)) {
+    const newline = text.indexOf("\n", start + 2);
+    return newline < 0 ? text.length : newline + 1;
   }
-  return total;
+  if (text.startsWith("/*", start)) {
+    const end = text.indexOf("*/", start + 2);
+    return end < 0 ? text.length : end + 2;
+  }
+  return start;
 }
 
-function countLogEventCallSites(files: Array<{ path: string; text: string }>): number {
-  return countMatches(
-    LOG_EVENT_CALL_RE,
-    files.filter((f) => !f.path.endsWith("src/lib/logger.ts")),
-  );
+function skipTrivia(text: string, start: number): number {
+  let at = start;
+  while (at < text.length) {
+    if (/\s/.test(text[at])) {
+      at++;
+    } else {
+      const next = skipComment(text, at);
+      if (next === at) break;
+      at = next;
+    }
+  }
+  return at;
+}
+
+function findBalancedEnd(text: string, start: number): number {
+  const openings: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  const stack = [openings[text[start]]];
+  let at = start + 1;
+  while (at < text.length && stack.length > 0) {
+    const char = text[at];
+    if (char === "'" || char === '"' || char === "`") {
+      at = skipQuoted(text, at);
+    } else {
+      const next = skipComment(text, at);
+      if (next !== at) {
+        at = next;
+      } else if (openings[char]) {
+        stack.push(openings[char]);
+        at++;
+      } else if (char === stack[stack.length - 1]) {
+        stack.pop();
+        at++;
+      } else {
+        at++;
+      }
+    }
+  }
+  return stack.length === 0 ? at - 1 : text.length;
+}
+
+function logEventObjectStart(text: string, callStart: number): number | undefined {
+  const openParen = skipTrivia(text, callStart + "logEvent".length);
+  if (text[openParen] !== "(") return undefined;
+  const objectStart = skipTrivia(text, openParen + 1);
+  return text[objectStart] === "{" ? objectStart : undefined;
+}
+
+function logEventObjectEnd(text: string, callStart: number): number | undefined {
+  const objectStart = logEventObjectStart(text, callStart);
+  if (objectStart === undefined) return undefined;
+  const objectEnd = findBalancedEnd(text, objectStart);
+  return objectEnd < text.length ? objectEnd : undefined;
+}
+
+function topLevelProperties(text: string, objectStart: number, objectEnd: number): string[] {
+  const properties: string[] = [];
+  let start = objectStart + 1;
+  let at = start;
+  const stack: string[] = [];
+  const closing: Record<string, string> = { "(": ")", "[": "]", "{": "}" };
+  while (at < objectEnd) {
+    const char = text[at];
+    if (char === "'" || char === '"' || char === "`") {
+      at = skipQuoted(text, at);
+    } else {
+      const next = skipComment(text, at);
+      if (next !== at) {
+        at = next;
+      } else if (closing[char]) {
+        stack.push(closing[char]);
+        at++;
+      } else if (char === stack[stack.length - 1]) {
+        stack.pop();
+        at++;
+      } else if (char === "," && stack.length === 0) {
+        properties.push(text.slice(start, at));
+        start = ++at;
+      } else {
+        at++;
+      }
+    }
+  }
+  properties.push(text.slice(start, objectEnd));
+  return properties;
+}
+
+function parseLiteral(expression: string): string | undefined {
+  const value = expression.trim();
+  if (value.startsWith('"') && value.endsWith('"')) {
+    try {
+      return JSON.parse(value) as string;
+    } catch {
+      return undefined;
+    }
+  }
+  if (value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/\\'/g, "'").replace(/\\\\/g, "\\");
+  }
+  if (value.startsWith("`") && value.endsWith("`") && !value.includes("${")) {
+    return value.slice(1, -1).replace(/\\`/g, "`").replace(/\\\\/g, "\\");
+  }
+  return undefined;
+}
+
+function inspectLogEventMessages(
+  files: Array<{ path: string; text: string }>,
+): { messages: string[]; untracked: UntrackedMessage[] } {
+  const found = new Set<string>();
+  const untracked: UntrackedMessage[] = [];
+  for (const { path, text: sourceText } of files) {
+    const text = String(sourceText);
+    const normalizedPath = path.replace(/^\.\.\//, "");
+    let at = 0;
+    while (at < text.length) {
+      const char = text[at];
+      if (char === "'" || char === '"' || char === "`") {
+        at = skipQuoted(text, at);
+      } else {
+        const next = skipComment(text, at);
+        if (next !== at) {
+          at = next;
+        } else if (
+          text.startsWith("logEvent", at) &&
+          !/[\w$]/.test(text[at - 1] ?? "") &&
+          !/[\w$]/.test(text[at + "logEvent".length] ?? "")
+        ) {
+          const objectStart = logEventObjectStart(text, at);
+          const objectEnd = logEventObjectEnd(text, at);
+          if (objectStart !== undefined && objectEnd !== undefined) {
+            const msgProperty = topLevelProperties(text, objectStart, objectEnd).find((property) =>
+              /^\s*(?:msg|["']msg["'])\s*:/.test(property),
+            );
+            if (msgProperty) {
+              const initializer = msgProperty.replace(/^\s*(?:msg|["']msg["'])\s*:/, "").trim();
+              const literal = parseLiteral(initializer);
+              if (literal !== undefined) {
+                found.add(literal);
+              } else {
+                const site = COMPUTED_CALL_SITES.find(
+                  (entry) =>
+                    (normalizedPath === entry.file || normalizedPath.endsWith(`/${entry.file}`)) &&
+                    initializer === entry.expression,
+                );
+                if (site) {
+                  site.messages.forEach((message) => found.add(message));
+                } else {
+                  untracked.push({
+                    path: normalizedPath,
+                    line: text.slice(0, objectStart).split("\n").length,
+                    expression: initializer,
+                  });
+                }
+              }
+            } else {
+              untracked.push({
+                path: normalizedPath,
+                line: text.slice(0, objectStart).split("\n").length,
+                expression: "<missing msg property>",
+              });
+            }
+            at = objectEnd + 1;
+          } else {
+            at += "logEvent".length;
+          }
+        } else {
+          at++;
+        }
+      }
+    }
+  }
+  return { messages: [...found].sort(), untracked };
 }
 
 function extractCodeMessages(files: Array<{ path: string; text: string }>): string[] {
-  const found = new Set<string>();
-  for (const { text } of files) {
-    for (const m of String(text).matchAll(CODE_MSG_RE)) {
-      found.add(m[1]);
-    }
-  }
-  for (const msg of verifiedComputedMessages(files)) {
-    found.add(msg);
-  }
-  return [...found].sort();
+  return inspectLogEventMessages(files).messages;
 }
 
 function extractDocMessages(markdownText: string): string[] {
@@ -135,7 +279,8 @@ function checkTree(markdownText: string) {
   // Fail closed if the glob ever matches nothing: empty sets would compare
   // vacuously green.
   expect(files.length).toBeGreaterThan(0);
-  const code = extractCodeMessages(files);
+  const inspected = inspectLogEventMessages(files);
+  const code = inspected.messages;
   const doc = extractDocMessages(markdownText);
   expect(code.length).toBeGreaterThan(0);
   const codeSet = new Set(code);
@@ -143,18 +288,30 @@ function checkTree(markdownText: string) {
   return {
     missing: code.filter((m) => !docSet.has(m)),
     stale: doc.filter((m) => !codeSet.has(m)),
+    untracked: inspected.untracked,
   };
 }
 
 describe("logging catalogue coverage: extraction", () => {
-  it("extracts only direct string-literal msg values", () => {
-    expect(
-      extractCodeMessages([
-        { path: "src/a.ts", text: 'logEvent({ level: "info", msg: "Plain event", route: "x" })' },
-        { path: "src/b.ts", text: 'logEvent({ level: "info", msg: entry ? "Hit" : "Miss", route: "x" })' },
-        { path: "src/c.ts", text: "logEvent({ level: \"warn\", msg: `Template ${n}`, route: \"x\" })" },
-      ]).filter((m) => ["Plain event", "Hit", "Miss", "Template"].some((k) => m.includes(k))),
-    ).toEqual(["Plain event"]);
+  it("extracts string literals in any quote style and identifies computed values", () => {
+    const files = [
+      { path: "src/a.ts", text: 'logEvent /* whitespace */ ( { level: "info", msg: "Double quoted", route: "x" })' },
+      { path: "src/b.ts", text: "logEvent({ level: 'info', msg: 'Single quoted', route: 'x' })" },
+      { path: "src/c.ts", text: "logEvent({ level: 'info', msg: `No interpolation`, route: 'x' })" },
+      { path: "src/d.ts", text: "logEvent({ level: 'warn', msg: `Template ${n}`, route: 'x' })" },
+      { path: "src/e.ts", text: 'const message = "Const value"; logEvent({ level: "info", msg: message, route: "x" })' },
+      { path: "src/f.ts", text: 'logEvent({ level: "info", route: "x" })' },
+    ];
+    expect(extractCodeMessages(files)).toEqual([
+      "Double quoted",
+      "No interpolation",
+      "Single quoted",
+    ]);
+    expect(inspectLogEventMessages(files).untracked).toEqual([
+      { path: "src/d.ts", line: 1, expression: "`Template ${n}`" },
+      { path: "src/e.ts", line: 1, expression: "message" },
+      { path: "src/f.ts", line: 1, expression: "<missing msg property>" },
+    ]);
   });
 
   it("credits computed messages only when their source evidence is present", () => {
@@ -175,7 +332,18 @@ describe("logging catalogue coverage: extraction", () => {
     ]);
     expect(reworded).not.toContain("Entity data cache hit");
     expect(reworded).not.toContain("Entity data cache miss");
-    expect(COMPUTED_MESSAGES).toContain("Entity data cache hit");
+    expect(inspectLogEventMessages([
+      {
+        path: "src/lib/entityDataCache.ts",
+        text: 'logEvent({ level: "info", msg: entry ? "Entity hit RENAMED" : "Entity miss RENAMED", route: "x" })',
+      },
+    ]).untracked).toEqual([
+      {
+        path: "src/lib/entityDataCache.ts",
+        line: 1,
+        expression: 'entry ? "Entity hit RENAMED" : "Entity miss RENAMED"',
+      },
+    ]);
   });
 
   it("reads catalogue rows only, ignoring headings and prose", () => {
@@ -201,14 +369,11 @@ describe("logging catalogue coverage: real tree", () => {
     expect(checkTree(loggingMd).stale).toEqual([]);
   });
 
-  it("every logEvent call site is a literal msg or a known computed call site", () => {
+  it("every logEvent msg is a literal or a verified computed expression", () => {
     const files = realFiles();
     expect(files.length).toBeGreaterThan(0);
-    // A msg in any other form (single quotes, backticks, a const, a new
-    // ternary) is invisible to the literal scan, so it must fail here and
-    // be added to COMPUTED_CALL_SITES on purpose instead of slipping by.
-    expect(countLogEventCallSites(files)).toBe(
-      countMatches(CODE_MSG_RE, files) + COMPUTED_CALL_SITES.length,
-    );
+    // This checks each call's actual AST initializer, so unrelated msg text
+    // elsewhere in the tree cannot offset an unrecognized logEvent value.
+    expect(inspectLogEventMessages(files).untracked).toEqual([]);
   });
 });
