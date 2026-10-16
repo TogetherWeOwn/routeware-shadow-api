@@ -1,5 +1,11 @@
 # TOG-6280 — Cron runbook missed-run drill report
 
+> **Superseded — 2026-10-15.** This is a historical drill report; do not use
+> it as current procedure evidence. Superseding re-drill:
+> [TOG-25208](/TOG/issues/TOG-25208) (all keys PASS, 2026-10-15). Current
+> procedure: [Cron sync missed/failed alarm runbook §5 — Local missed-run
+> drill](CRON-SYNC-ALARM-RUNBOOK.md#5-local-missed-run-drill-no-deploy-no-token-no-tenant).
+
 **Date:** 2026-09-27 · **Scope:** `docs/CRON-SYNC-ALARM-RUNBOOK.md` executed
 end-to-end on local dev (`wrangler dev --test-scheduled` + local D1).
 **Method:** no deploy, no Cloudflare token, no Routeware tenant touched.
