@@ -315,3 +315,111 @@ export function assertFirstPartyActionsPinned(workflowText, label = "workflow") 
     );
   }
 }
+
+/**
+ * Read the Node major pinned by `.nvmrc` (`22`, `v22`, `22.11.0` → `"22"`).
+ * Returns null for aliases such as `lts/*`, which cannot anchor a drift
+ * check (TOG-22034).
+ *
+ * @param {unknown} nvmrcText
+ * @returns {string|null}
+ */
+export function parseNvmrcMajor(nvmrcText) {
+  const match = String(nvmrcText).trim().match(/^v?(\d+)(?:\.\d+){0,2}$/);
+  return match ? match[1] : null;
+}
+
+/** A `node-version:` line; group 1 is the unquoted value. */
+const NODE_VERSION_LINE = /^\s*node-version:\s*["']?([^\s"'#]+)["']?\s*(?:#.*)?$/;
+
+/** `node-version-file: .nvmrc` reads the one source directly, so it cannot drift. */
+const NODE_VERSION_FILE_NVMRC = /^\s*node-version-file:\s*["']?(?:\.\/)?\.nvmrc["']?\s*(?:#.*)?$/;
+
+/** A `uses: actions/setup-node@…` line, with or without the list dash. */
+const SETUP_NODE_USES = /^\s*(?:- )?uses:\s*["']?actions\/setup-node@/;
+
+/**
+ * Return the lines of the step that owns the `uses:` line at `usesIndex`:
+ * from its `- ` list item down to the next line at or left of that dash.
+ * A name-first step (`- name: …` then `uses: …`) starts at the nearest dash
+ * left of the `uses:` indent, so list items inside `with:` are skipped.
+ *
+ * @param {string[]} lines
+ * @param {number} usesIndex
+ * @returns {string[]}
+ */
+function stepLines(lines, usesIndex) {
+  const usesIndent = lines[usesIndex].search(/\S/);
+  let start = usesIndex;
+  if (!/^\s*- /.test(lines[start])) {
+    do {
+      start--;
+    } while (start >= 0 && !(/^\s*- /.test(lines[start]) && lines[start].indexOf("-") < usesIndent));
+    if (start < 0) {
+      return [lines[usesIndex]];
+    }
+  }
+  const dashColumn = lines[start].indexOf("-");
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === "" || lines[end].search(/\S/) > dashColumn)) {
+    end++;
+  }
+  return lines.slice(start, end);
+}
+
+/**
+ * Collect every `node-version:` that differs from the `.nvmrc` major, plus
+ * every `actions/setup-node` step that pins neither that major nor
+ * `node-version-file: .nvmrc` (without either it installs nothing and the
+ * job runs on whatever Node the runner ships). `.nvmrc` is the one place the
+ * version lives, so an end-of-life runtime cannot linger in one job after the
+ * others move (TOG-22034). Pure: no I/O, no network, findings name the line
+ * and the version only.
+ *
+ * @param {unknown} workflowText
+ * @param {string} expectedMajor
+ * @returns {string[]}
+ */
+export function findNodeVersionDrift(workflowText, expectedMajor) {
+  const lines = String(workflowText).split("\n");
+  const errors = [];
+  lines.forEach((line, index) => {
+    const pin = line.match(NODE_VERSION_LINE);
+    if (pin && pin[1] !== expectedMajor) {
+      errors.push(
+        `line ${index + 1}: node-version '${pin[1]}' must equal the .nvmrc major '${expectedMajor}' (TOG-22034)`
+      );
+    }
+    if (
+      SETUP_NODE_USES.test(line) &&
+      !stepLines(lines, index).some((stepLine) => NODE_VERSION_LINE.test(stepLine) || NODE_VERSION_FILE_NVMRC.test(stepLine))
+    ) {
+      errors.push(
+        `line ${index + 1}: actions/setup-node step must set node-version (or node-version-file: .nvmrc) (TOG-22034)`
+      );
+    }
+  });
+  return errors;
+}
+
+/**
+ * Throw when the workflow's Node pins drift from `.nvmrc`, or when `.nvmrc`
+ * holds no plain major to compare against.
+ *
+ * @param {unknown} workflowText
+ * @param {unknown} nvmrcText
+ * @param {string} [label]
+ * @returns {void}
+ */
+export function assertNodeVersionsMatchNvmrc(workflowText, nvmrcText, label = "workflow") {
+  const major = parseNvmrcMajor(nvmrcText);
+  if (!major) {
+    throw new Error("CI Node-pin guards failed (TOG-22034): .nvmrc must hold a plain Node major such as 22");
+  }
+  const errors = findNodeVersionDrift(workflowText, major);
+  if (errors.length > 0) {
+    throw new Error(
+      `CI Node-pin guards failed (TOG-22034) in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
+    );
+  }
+}

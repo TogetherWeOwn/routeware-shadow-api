@@ -19,10 +19,10 @@ loop below.
 
 ## Dev setup
 
-Requires Node 20+ (`nvm use` picks it up from [`.nvmrc`](./.nvmrc)).
+Requires Node 22+ (`nvm use` picks it up from [`.nvmrc`](./.nvmrc)).
 
 ```bash
-nvm use                             # Node 20+
+nvm use                             # Node 22+
 npm install                         # add --include=dev if your shell omits devDependencies
 cp .dev.vars.example .dev.vars      # then fill in values (never commit this file)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
