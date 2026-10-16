@@ -1,5 +1,6 @@
 import { establishSession } from "./establishSession";
 import { INVALIDATE_GRAPH_MAX_ATTEMPTS } from "./entityDataCache";
+import { logEvent } from "./logger";
 import type { AddressSnapshotRow } from "./csvAddressSnapshot";
 import type { ContainerSnapshotRow } from "./csvContainerSnapshot";
 import type { CustomerSnapshotRow } from "./csvCustomerSnapshot";
@@ -396,6 +397,22 @@ export async function syncCustomerDetailFullToD1(
     await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, DETAIL_FULL_BATCH.container, syncedAt);
   }
   const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
+  // TOG-25212 (R9-04): one utilization line per successful run so operators
+  // can see D1 op-budget headroom. Emitted after the writes, so it fires
+  // exactly once per run that refreshed D1; the over-budget throws above
+  // stay throw-only (fail-closed, no line).
+  logEvent({
+    level: "info",
+    msg: "Detail-full sync D1 op-budget utilization",
+    route: "sync.detailFull",
+    customerId,
+    addressCount: addresses.length,
+    containerCount: containers.length,
+    d1Ops: ops,
+    d1OpsBudget: DETAIL_FULL_MAX_D1_OPS,
+    cacheInvalidations: invalidations,
+    cacheInvalidationBudget: DETAIL_FULL_MAX_CACHE_INVALIDATIONS
+  });
   return {
     addressIds: [...new Set([...addressIds, ...deleted.addressIds])],
     containerIds: [...new Set([...containers.map((c) => c.containerId), ...deleted.containerIds])]
