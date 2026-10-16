@@ -255,6 +255,12 @@ export async function reconcileCustomerChildren(
       WHERE customer_id = ? AND synced_at < ?
       RETURNING pickup_address_id AS id`).bind(customerId, syncedAt)
   ]);
+  // noUncheckedIndexedAccess: destructured batch entries are `T | undefined`.
+  // Two statements were sent, so two results are expected; fail loudly if the
+  // driver ever returns fewer rather than mapping `undefined`.
+  if (containers === undefined || addresses === undefined) {
+    throw new Error("reconcileCustomerChildren: D1 batch returned fewer than 2 results");
+  }
   return {
     addressIds: addresses.results.map((r) => r.id),
     containerIds: containers.results.map((r) => r.id)
@@ -284,10 +290,13 @@ export type StreamSyncOptions = {
    * Reject an import that yields zero data rows (empty body, header-only CSV,
    * or no parseable rows) with `InvalidSnapshotCsvError` instead of returning
    * silent all-zero counts. Set by the `...-snapshot/import` routes; the
-   * report `sync` path leaves it off so a bad/empty export returns zeros and
-   * skips reconciliation rather than throwing.
+   * report `sync` path leaves it off so an empty or header-only export returns
+   * zeros and skips reconciliation rather than throwing (a wrong header still
+   * throws).
    */
   requireDataRows?: boolean;
+  /** Reject controls before trimming/binding on imports, not upstream reports. */
+  rejectControlCharacters?: boolean;
   /**
    * Cap on request body bytes, enforced by a streaming counter so a huge
    * actual body is rejected with `SnapshotTooLargeError` without buffering.

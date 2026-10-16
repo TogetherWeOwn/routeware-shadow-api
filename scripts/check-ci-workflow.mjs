@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
+import { assertEveryJobHasTimeout, assertFirstPartyActionsPinned, assertNoPrTriggerSkips } from "./lib/ciWorkflowCheck.mjs";
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
@@ -20,6 +20,13 @@ function jobBlock(name) {
 // pull_request trigger alone let a workflow edit add if:/paths-ignore skips
 // while the invariant check stayed green.
 assertNoPrTriggerSkips(workflow);
+
+// TOG-19017: a hung job must fail loudly instead of stalling the PR forever,
+// so every job carries timeout-minutes; and first-party actions must pin to a
+// commit SHA (with a version comment) so a moved tag can never silently
+// change what CI runs.
+assertEveryJobHasTimeout(workflow, "ci.yml");
+assertFirstPartyActionsPinned(workflow, "ci.yml");
 
 // TOG-14898 (CI standard TOG-14877): change detection + job-level gating +
 // one required aggregator + nightly full suite. Native git diff vs merge
@@ -68,6 +75,7 @@ assert.match(ciOkJob, /needs: \[changes, build, shadow-api-v1, hygiene\]/, "ci-o
 // present so a workflow edit can never silently drop title lint.
 const prLint = await readFile(new URL("../.github/workflows/pr-lint.yml", import.meta.url), "utf8");
 assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional Commits titles (TOG-14898)");
+assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a self-hosted runner with other CI jobs
@@ -93,7 +101,7 @@ assert.match(
 );
 // Wrangler is a locked dev dependency, not a preinstalled runner tool. Require
 // setup and installation in order, before the credential-free local check.
-const hygieneNode = hygiene.search(/^      - uses: actions\/setup-node@v\d+$/m);
+const hygieneNode = hygiene.search(/^      - uses: actions\/setup-node@[0-9a-f]{40} # v\d+$/m);
 const hygieneInstall = hygiene.search(/^      - run: npm ci$/m);
 const hygieneDrift = hygiene.search(/^        run: npm run check:d1-drift$/m);
 assert.ok(hygieneNode >= 0, "hygiene must set up Node for the D1 drift check (TOG-6275)");
@@ -134,11 +142,19 @@ const hygieneRegen = hygiene.search(/^      - name: Regenerate Worker types \(TO
 const hygieneGate = hygiene.search(/^      - name: No real secrets baked into worker-configuration\.d\.ts$/m);
 assert.ok(hygieneRegen >= 0, "hygiene must regenerate worker-configuration.d.ts via npm run types (TOG-8373)");
 assert.ok(hygieneGate > hygieneRegen, "hygiene must regenerate types before the baked-secrets gate (TOG-8373)");
+
 assert.match(
   hygiene,
   /if \[ ! -f worker-configuration\.d\.ts \]; then/,
   "the baked-secrets gate must fail closed when worker-configuration.d.ts is absent (TOG-8373)",
 );
+
+// Fresh checkouts do not contain the gitignored Worker declarations. Keep the
+// npm typecheck lifecycle hook responsible for generating them locally while
+// preserving the existing standalone types command.
+const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+assert.equal(packageJson.scripts.pretypecheck, "npm run types", "typecheck must generate Worker declarations first");
+assert.equal(packageJson.scripts.types, "wrangler types", "the standalone types command must remain unchanged");
 
 // The changelog gate diffs the PR against origin/main and fails when a
 // consumer-visible contract path changed without a TOG-1234 bullet under
@@ -188,10 +204,22 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The R2 lifecycle proposal shape guard validates
+// docs/r2-lifecycle-proposal.snapshot-history.json stays a byte-clean S3
+// PutBucketLifecycleConfiguration body, credential-free. Pin it present so
+// proposal drift can never land without the hygiene gate (TOG-25213, R9-05).
+assert.match(
+  hygiene,
+  /npm run check:r2-lifecycle-proposal/,
+  "hygiene must run the R2 lifecycle proposal shape guard (TOG-25213)"
+);
+
 // The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
 // workflow so deploy verification runs on a schedule. Pin it present: the
 // cron, the skip-safe npm script, and the read-only GET-only probe paths.
 const probeWorkflow = await readFile(new URL("../.github/workflows/post-deploy-probe.yml", import.meta.url), "utf8");
+assertEveryJobHasTimeout(probeWorkflow, "post-deploy-probe.yml");
+assertFirstPartyActionsPinned(probeWorkflow, "post-deploy-probe.yml");
 assert.match(probeWorkflow, /- cron: "30 7 \* \* \*"/, "post-deploy-probe workflow must run on its daily schedule (TOG-8365)");
 assert.match(probeWorkflow, /run: npm run probe:post-deploy:scheduled/, "post-deploy-probe workflow must use the skip-safe scheduled script (TOG-8365)");
 assert.doesNotMatch(probeWorkflow, /\b(POST|PUT|PATCH|DELETE)\b/, "post-deploy-probe workflow must stay read-only (TOG-8365)");

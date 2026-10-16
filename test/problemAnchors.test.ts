@@ -87,6 +87,7 @@ describe("problem type URLs pin verbatim into docs/PROBLEMS.md", () => {
     "not-found",
     "method-not-allowed",
     "rate-limited",
+    "payload-too-large",
     "misconfigured",
     "bad-gateway",
     "internal"

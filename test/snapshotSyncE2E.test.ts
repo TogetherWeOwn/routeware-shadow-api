@@ -29,10 +29,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=e2e-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=e2e-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -117,7 +117,7 @@ async function seedStaleRows(): Promise<void> {
 async function expectArchiveBytes(table: Table, result: SyncResult, startedDay: string): Promise<void> {
   expect(result.r2?.status).toBe("stored");
   const key = result.r2?.key;
-  expect(key).toMatch(new RegExp(`^snapshots/\\d{4}-\\d{2}-\\d{2}/${table}\\.csv$`));
+  expect(key).toMatch(new RegExp(`^snapshot-history/\\d{4}-\\d{2}-\\d{2}/[^/]+/${table}\\.csv$`));
   // Preserve the current-UTC-day guard, allowing a sync to straddle midnight.
   expect([startedDay, new Date().toISOString().slice(0, 10)]).toContain(key?.split("/")[1]);
   const bucket = (env as unknown as { SNAPSHOTS: R2Bucket }).SNAPSHOTS;
@@ -214,9 +214,9 @@ describe("hermetic snapshot sync e2e", () => {
     // CSV parsed, rows upserted, and the stale row reconciled away.
     expect(customer.status).toBe(200);
     expect(customer.body).toMatchObject({ upserted: 2, rowCount: 2, deleted: 1 });
-    // TOG-6549: a stored archive is explicit in the route body (date+table key only — no PII).
+    // A stored archive names its immutable history key (timestamp/run/table, no PII).
     expect(customer.body.r2?.status).toBe("stored");
-    expect(customer.body.r2?.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(customer.body.r2?.key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
     expect(httpLoginCalls.count).toBe(1);
     expect(downloadAttempts.get(CUSTOMER_QID)).toBe(2);
     const customers = await db()

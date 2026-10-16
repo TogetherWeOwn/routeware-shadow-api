@@ -132,8 +132,36 @@ describe("throttle window math", () => {
     // Assert
     expect(verdict.blocked).toBe(true);
     expect(verdict.retryAfterSec).toBe(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
+    expect(verdict.resetAtSec).toBe(Math.ceil((now + AUTH_THROTTLE_BLOCK_MS) / 1000));
     expect(next.blockedUntilMs).toBe(now + AUTH_THROTTLE_BLOCK_MS);
-    expect(throttleCheckVerdict(next, now).blocked).toBe(true);
+    expect(throttleCheckVerdict(next, now)).toEqual({
+      blocked: true,
+      retryAfterSec: Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000),
+      resetAtSec: Math.ceil((now + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    });
+  });
+
+  it("preserves and extends an active block when the failure window expires", () => {
+    const now = 1_000_000;
+    let state: AuthThrottleState | null = null;
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES - 1; i++) {
+      state = throttleRecordFailure(state, now).next;
+    }
+
+    const thresholdAt = now + AUTH_THROTTLE_WINDOW_MS - 500;
+    const blocked = throttleRecordFailure(state, thresholdAt);
+    expect(blocked.verdict.blocked).toBe(true);
+    expect(blocked.next.blockedUntilMs).toBe(thresholdAt + AUTH_THROTTLE_BLOCK_MS);
+
+    const afterWindow = now + AUTH_THROTTLE_WINDOW_MS + 100;
+    const stillBlocked = throttleRecordFailure(blocked.next, afterWindow);
+    expect(stillBlocked.verdict.blocked).toBe(true);
+    expect(stillBlocked.verdict.retryAfterSec).toBe(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));
+    expect(stillBlocked.verdict.resetAtSec).toBe(
+      Math.ceil((afterWindow + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    );
+    expect(stillBlocked.next.windowStartMs).toBe(now);
+    expect(stillBlocked.next.blockedUntilMs).toBe(afterWindow + AUTH_THROTTLE_BLOCK_MS);
   });
 
   it("starts a fresh window after the old one expires", () => {
@@ -160,6 +188,10 @@ describe("throttle window math", () => {
     expect(throttleCheckVerdict(state, AUTH_THROTTLE_BLOCK_MS - 1).blocked).toBe(true);
     expect(throttleCheckVerdict(state, AUTH_THROTTLE_BLOCK_MS + 1).blocked).toBe(false);
     expect(throttleCheckVerdict(null, 0)).toEqual({ blocked: false, retryAfterSec: 0 });
+
+    const firstAfterRelease = throttleRecordFailure(state, AUTH_THROTTLE_BLOCK_MS + 1);
+    expect(firstAfterRelease.verdict.blocked).toBe(false);
+    expect(firstAfterRelease.next.failures).toBe(1);
   });
 });
 
@@ -170,10 +202,37 @@ describe("throttle DO endpoints", () => {
       storage: {
         get: async <T>(key: string): Promise<T | undefined> =>
           store.get(key) as T | undefined,
-        put: async (key: string, value: unknown): Promise<void> => {
-          store.set(key, value);
+        put: async (key: string | Record<string, unknown>, value?: unknown): Promise<void> => {
+          if (typeof key === "string") store.set(key, value as unknown);
+          else for (const [k, v] of Object.entries(key)) store.set(k, v);
         },
-        delete: async (key: string): Promise<boolean> => store.delete(key)
+        delete: async (key: string | string[]): Promise<boolean | number> => {
+          if (typeof key === "string") return store.delete(key);
+          return key.reduce((n, k) => n + Number(store.delete(k)), 0);
+        },
+        getAlarm: async (): Promise<number | null> => null,
+        setAlarm: async (): Promise<void> => {},
+        deleteAlarm: async (): Promise<void> => {},
+        transaction: async <T>(cb: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
+          cb(
+            {
+              get: async <T>(k: string) => store.get(k) as T | undefined,
+              put: async (k: string | Record<string, unknown>, v?: unknown) => {
+                if (typeof k === "string") store.set(k, v as unknown);
+                else for (const [kk, vv] of Object.entries(k)) store.set(kk, vv);
+              },
+              delete: async (k: string | string[]) => {
+                if (typeof k === "string") return store.delete(k);
+                return k.reduce((n, kk) => n + Number(store.delete(kk)), 0);
+              },
+              getAlarm: async () => null,
+              setAlarm: async () => {},
+              deleteAlarm: async () => {}
+            } as unknown as DurableObjectTransaction
+          )
+      },
+      blockConcurrencyWhile: async (cb: () => Promise<unknown>) => {
+        await cb();
       }
     } as unknown as DurableObjectState;
   }
@@ -247,19 +306,55 @@ describe("throttle fail-open paths", () => {
   // `@cloudflare/vitest-pool-workers` the console methods are bound accessors,
   // so reading `console.error` back does not return the installed spy (same
   // pattern as test/dataEntityPostHandlers.test.ts).
-  const loggedErrors: unknown[][] = [];
+  // The logger emits one structured object per event (`console.error(record)`),
+  // so capture the first argument rather than the whole argument list.
+  const loggedErrors: Record<string, unknown>[] = [];
   const realConsoleError = console.error;
+
+  // Exact shape `logEvent` (src/lib/logger.ts) emits for a fail-open.
+  const failOpenEvent = (reason: string) => ({
+    level: "error",
+    msg: "AUTH THROTTLE FAIL-OPEN",
+    route: "authThrottle.failOpen",
+    reason,
+    ms: null
+  });
 
   beforeEach(() => {
     resetAuthThrottleFailOpenLogForTests();
     loggedErrors.length = 0;
     console.error = (...args: unknown[]) => {
-      loggedErrors.push(args);
+      loggedErrors.push(args[0] as Record<string, unknown>);
     };
   });
 
   afterEach(() => {
     console.error = realConsoleError;
+  });
+
+  it("derives an absolute reset at response time when an older DO omits resetAtSec", async () => {
+    const now = 1_000_500;
+    const clock = { nowMs: now };
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => clock.nowMs);
+    const env = envWithStub({
+      fetch: async () => {
+        // The DO's Retry-After is relative to its response, not request start.
+        clock.nowMs += 5_000;
+        return Response.json({ blocked: true, retryAfterSec: 55 });
+      }
+    });
+
+    try {
+      const verdict = await recordAuthFailure(env, req, now);
+
+      expect(verdict).toEqual({
+        blocked: true,
+        retryAfterSec: 55,
+        resetAtSec: Math.ceil((now + 60_000) / 1000)
+      });
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("records open when the DO fetch rejects (auth still enforced by the caller)", async () => {
@@ -322,8 +417,9 @@ describe("throttle fail-open paths", () => {
       expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
     }
 
-    // Assert — exactly one line, fixed category, no IP/token/PII.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_error"]]);
+    // Assert — exactly one event, fixed category, no IP/token/PII (the object
+    // has no field that could carry one).
+    expect(loggedErrors).toEqual([failOpenEvent("do_error")]);
   });
 
   it("logs non-OK and malformed fail-opens once per window, then again after the window", async () => {
@@ -338,16 +434,16 @@ describe("throttle fail-open paths", () => {
     await recordAuthFailure(badStatus, req, now);
     await recordAuthFailure(malformed, req, now + 1);
 
-    // Assert — the first line wins; the second is deduped within the window.
-    expect(loggedErrors).toEqual([["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"]]);
+    // Assert — the first event wins; the second is deduped within the window.
+    expect(loggedErrors).toEqual([failOpenEvent("do_non_ok status=500")]);
 
     // Act — past the window edge the alarm fires again.
     await recordAuthFailure(malformed, req, now + AUTH_THROTTLE_WINDOW_MS + 1);
 
     // Assert
     expect(loggedErrors).toEqual([
-      ["AUTH THROTTLE FAIL-OPEN do_non_ok status=500"],
-      ["AUTH THROTTLE FAIL-OPEN do_malformed"]
+      failOpenEvent("do_non_ok status=500"),
+      failOpenEvent("do_malformed")
     ]);
   });
 });
@@ -388,9 +484,25 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(throttled.headers.get("content-type")).toContain("problem+json");
     const retryAfter = throttled.headers.get("retry-after");
     expect(retryAfter).toMatch(/^\d+$/);
-    // Browser clients can only read Retry-After cross-origin when exposed.
-    expect(throttled.headers.get("access-control-expose-headers")).toMatch(
-      /retry-after/i
+    expect(throttled.headers.get("x-ratelimit-limit")).toBe("19");
+    expect(throttled.headers.get("x-ratelimit-remaining")).toBe("0");
+    const resetAtSec = Number(throttled.headers.get("x-ratelimit-reset"));
+    expect(Number.isSafeInteger(resetAtSec)).toBe(true);
+    expect(resetAtSec).toBeGreaterThan(Date.now() / 1000);
+    expect(resetAtSec).toBeLessThanOrEqual(
+      Math.ceil((Date.now() + AUTH_THROTTLE_BLOCK_MS) / 1000)
+    );
+    // Browser clients can only read the retry and rate-limit headers cross-origin.
+    const exposedHeaders = (throttled.headers.get("access-control-expose-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim().toLowerCase());
+    expect(exposedHeaders).toEqual(
+      expect.arrayContaining([
+        "retry-after",
+        "x-ratelimit-limit",
+        "x-ratelimit-remaining",
+        "x-ratelimit-reset"
+      ])
     );
     expect(Number(retryAfter)).toBeGreaterThan(0);
     expect(Number(retryAfter)).toBeLessThanOrEqual(Math.ceil(AUTH_THROTTLE_BLOCK_MS / 1000));

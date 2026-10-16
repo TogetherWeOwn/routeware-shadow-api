@@ -67,9 +67,11 @@ vi.mock("../src/lib/cronSyncState", () => ({
 
 const { scheduled } = await import("../src/scheduled");
 
-const logs: string[] = [];
-const errors: unknown[][] = [];
-const real = { log: console.log, error: console.error };
+// logEvent hands the console one structured object per record, so the spies keep
+// the object itself and assertions read its fields.
+const logs: Record<string, unknown>[] = [];
+const errors: Record<string, unknown>[] = [];
+const real = { info: console.info, error: console.error };
 
 /** Starts one cron invocation; returns a promise for its waitUntil work. */
 function startRun(scheduledTime: string): Promise<void> {
@@ -97,13 +99,16 @@ function startRun(scheduledTime: string): Promise<void> {
   })();
 }
 
-function parseLines(): Record<string, unknown>[] {
-  return logs.map((l) => {
-    expect(l.startsWith("data-snapshot-sync ")).toBe(true);
-    return JSON.parse(l.slice("data-snapshot-sync ".length)) as Record<
-      string,
-      unknown
-    >;
+/** Every info record is the primary envelope; assert it before reading outcomes. */
+function primaryLines(): Record<string, unknown>[] {
+  return logs.map((line) => {
+    expect(line).toMatchObject({
+      level: "info",
+      msg: "data-snapshot-sync",
+      route: "scheduled.data-snapshot-sync"
+    });
+    expect(typeof line.ms).toBe("number");
+    return line;
   });
 }
 
@@ -125,16 +130,16 @@ beforeEach(() => {
   persistCalls.length = 0;
   logs.length = 0;
   errors.length = 0;
-  console.log = (...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
+  console.info = (...a: unknown[]) => {
+    logs.push(a[0] as Record<string, unknown>);
   };
   console.error = (...a: unknown[]) => {
-    errors.push(a);
+    errors.push(a[0] as Record<string, unknown>);
   };
 });
 
 afterEach(() => {
-  console.log = real.log;
+  console.info = real.info;
   console.error = real.error;
   // Never leave a parked first run dangling on failure paths.
   state.releaseGate();
@@ -165,7 +170,7 @@ describe("scheduled cron overlap guard", () => {
 
     // Two log lines: one success (run1), one skip (run2).
     expect(logs).toHaveLength(2);
-    const lines = parseLines();
+    const lines = primaryLines();
     const successLines = lines.filter((l) => l.outcome === "success");
     const skipLines = lines.filter((l) => l.outcome === "skipped-overlap");
     expect(successLines).toHaveLength(1);
@@ -179,7 +184,12 @@ describe("scheduled cron overlap guard", () => {
     // credentials, or error text (no `error` key at all).
     const skip = skipLines[0];
     expect(skip).toEqual({
+      level: "info",
+      msg: "data-snapshot-sync",
+      route: "scheduled.data-snapshot-sync",
+      ms: expect.any(Number),
       event: "data-snapshot-sync",
+      runId: expect.any(String),
       outcome: "skipped-overlap",
       mode: "chained-http",
       configSource: "SHADOW_API_PUBLIC_BASE",
@@ -190,7 +200,7 @@ describe("scheduled cron overlap guard", () => {
       cron: "0 7 * * *",
       scheduledTime: "2026-09-27T07:00:01.000Z"
     });
-    expect(logs.join("\n")).not.toContain("api.example.test");
+    expect(JSON.stringify(logs)).not.toContain("api.example.test");
 
     // The skip persisted nothing: exactly one recordCronRun call, from the
     // run that actually moved rows.
@@ -206,7 +216,7 @@ describe("scheduled cron overlap guard", () => {
 
     expect(state.entered).toHaveLength(2);
     expect(errors).toEqual([]);
-    const lines = parseLines();
+    const lines = primaryLines();
     expect(lines).toHaveLength(2);
     for (const line of lines) {
       expect(line.outcome).toBe("success");
@@ -229,12 +239,16 @@ describe("scheduled cron overlap guard", () => {
     // the flag was released by the finally, not left set by the throw.
     expect(state.entered).toHaveLength(2);
     expect(errors).toHaveLength(1);
-    expect(String(errors[0][0]).startsWith("data-snapshot-sync ")).toBe(true);
-    const failedLine = JSON.parse(
-      String(errors[0][0]).slice("data-snapshot-sync ".length)
-    ) as Record<string, unknown>;
-    expect(failedLine.outcome).toBe("failed");
-    const lines = parseLines();
+    expect(errors[0]).toMatchObject({
+      level: "error",
+      msg: "data-snapshot-sync failed",
+      route: "scheduled.data-snapshot-sync",
+      outcome: "failed",
+      table: "customer"
+    });
+    expect(errors[0]).not.toHaveProperty("error");
+    expect(typeof errors[0].ms).toBe("number");
+    const lines = primaryLines();
     expect(lines.map((l) => l.outcome)).toEqual(["success"]);
   });
 });

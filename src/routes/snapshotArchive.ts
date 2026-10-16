@@ -1,18 +1,25 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import {
+  measureSpreadsheetSafeCsv,
+  spreadsheetSafeCsvStream
+} from "../lib/snapshot/archiveReadback";
+import { matchesSnapshotIfNoneMatch } from "../lib/snapshot/export";
 import { createRouteModule, requireSnapshotAuth } from "./shared";
 
 /**
- * Privileged R2 archive readback (gap F1).
+ * Privileged R2 archive readback (gap F1, TOG-18829 encoding).
  *
  * The sync path archives the raw Routeware CSV to R2 after D1
  * (`src/lib/r2SnapshotArchive.ts`, keys
  * `snapshots/YYYY-MM-DD/{customer|address|container}.csv`) but nothing read
  * it back — recovery needed wrangler CLI tribal knowledge. This route streams
- * the archived bytes back out so an operator can diff them against a fresh
- * export. Gated on `CUSTOMER_SNAPSHOT_SYNC_SECRET` like the other
- * snapshot-secret routes; a missing key is 404 problem+json (an absent
- * archive must stay distinguishable from a failed one).
+ * the archive back so an operator can compare it with a fresh export. The
+ * body is re-encoded with the export's spreadsheet escaping, so opening it in a
+ * spreadsheet cannot evaluate an upstream cell; the stored object is unchanged.
+ * Gated on `CUSTOMER_SNAPSHOT_SYNC_SECRET` like the other snapshot-secret
+ * routes; a missing key is 404 problem+json (an absent archive must stay
+ * distinguishable from a failed one).
  */
 export const snapshotArchiveRoutes = createRouteModule();
 
@@ -22,7 +29,7 @@ const snapshotArchiveRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Download an archived snapshot CSV from R2",
   description:
-    "Streams the raw Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`, same bytes as the D1 sync). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. Operators diff the download against a fresh `...-snapshot/export` to verify an archive before recovery.",
+    "Streams the Routeware CSV archived to R2 by a previous snapshot sync (`snapshots/YYYY-MM-DD/{customer|address|container}.csv`), re-encoded for spreadsheets: records are split as the importer splits them, blank data records are dropped as its row parsers drop them, and each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a `_shadow_csv_encoding` column with value `1` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no archive exists for that table and date. The ETag is a content hash of the served bytes, and `If-None-Match` with the current tag returns 304. Operators compare the download with a fresh `...-snapshot/export` by business values, not bytes.",
   request: {
     params: z.object({
       table: z.enum(["customer", "address", "container"]).openapi({ example: "customer" }),
@@ -35,13 +42,16 @@ const snapshotArchiveRoute = createRoute({
   },
   responses: {
     200: {
-      description: "Archived CSV bytes (synthetic customer-report excerpt)",
+      description: "Archive re-encoded for spreadsheets (synthetic customer-report excerpt)",
       content: {
         "text/csv": {
           schema: z.string(),
-          example: "CustomerID,CompanyName,Enabled\r\n345734,ExampleCo,true\r\n"
+          example: "CustomerID,CompanyName,Enabled,_shadow_csv_encoding\n345734,ExampleCo,true,1\n"
         }
       }
+    },
+    304: {
+      description: "`If-None-Match` matched the current content ETag; empty body"
     },
     400: {
       description:
@@ -49,7 +59,12 @@ const snapshotArchiveRoute = createRoute({
     },
     401: { description: "Unauthorized" },
     404: {
-      description: "No archive for that table and date (application/problem+json)"
+      description:
+        "No archive for that table and date, including one deleted during the download (application/problem+json)"
+    },
+    409: {
+      description:
+        "The archive was replaced between the two reads of one download (application/problem+json). Retry the download."
     },
     503: {
       description:
@@ -57,6 +72,16 @@ const snapshotArchiveRoute = createRoute({
     }
   }
 });
+
+function archiveNotFound(url: string, table: string, date: string) {
+  return problemJsonResponse({
+    type: problemType("not-found"),
+    title: "Not Found",
+    status: 404,
+    detail: `No snapshot archive for table=${table} date=${date}. See docs/PROBLEMS.md#not-found.`,
+    instance: new URL(url).pathname
+  });
+}
 
 snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
@@ -74,29 +99,49 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
     });
   }
   // Interpolated from the validated enum + date shape, never raw path text:
-  // byte-identical to the writer's key in `src/lib/r2SnapshotArchive.ts`.
+  // identical to the writer's key in `src/lib/r2SnapshotArchive.ts`.
   const key = `snapshots/${date}/${table}.csv`;
   const obj = await bucket.get(key);
   if (!obj) {
+    return archiveNotFound(c.req.url, table, date);
+  }
+  // Content-Length and the ETag describe the re-encoded bytes, so the first
+  // pass measures them. The second read is conditional on the stored ETag, so
+  // a replaced archive cannot be streamed against the first pass's length.
+  const { length, etag } = await measureSpreadsheetSafeCsv(obj.body);
+  if (matchesSnapshotIfNoneMatch(c.req.header("if-none-match"), etag)) {
+    return new Response(null, { status: 304, headers: { etag } });
+  }
+  const again = await bucket.get(key, { onlyIf: { etagMatches: obj.etag } });
+  if (again === null) {
+    return archiveNotFound(c.req.url, table, date);
+  }
+  if (!("body" in again)) {
     return problemJsonResponse({
-      type: problemType("not-found"),
-      title: "Not Found",
-      status: 404,
-      detail: `No snapshot archive for table=${table} date=${date}. See docs/PROBLEMS.md#not-found.`,
+      type: problemType("conflict"),
+      title: "Conflict",
+      status: 409,
+      detail: `The snapshot archive for table=${table} date=${date} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
       instance: new URL(c.req.url).pathname
     });
   }
-  // `size`/`httpEtag` are required on R2Object (worker-configuration.d.ts), so
-  // no presence guards: uncovered branches would sit against the coverage
-  // ratchet. `httpEtag` (quoted, HTTP-ready) — not `etag`, R2's unquoted
-  // digest — is the valid value for the response `etag` header.
   const headers = new Headers();
   headers.set(
     "content-type",
     obj.httpMetadata?.contentType ?? "text/csv; charset=utf-8"
   );
   headers.set("content-disposition", `attachment; filename="${table}-${date}.csv"`);
-  headers.set("content-length", String(obj.size));
-  headers.set("etag", obj.httpEtag);
-  return new Response(obj.body, { status: 200, headers });
+  // A plain stream body makes workerd drop a hand-set Content-Length and send
+  // chunked, so the re-encoded bytes go through a FixedLengthStream: the header
+  // below then reaches the wire, and the runtime rejects any byte-count drift
+  // between the measure pass and this stream instead of serving it silently.
+  headers.set("content-length", String(length));
+  headers.set("etag", etag);
+  const { readable, writable } = new FixedLengthStream(length);
+  c.executionCtx.waitUntil(
+    spreadsheetSafeCsvStream(again.body)
+      .pipeTo(writable)
+      .catch(() => undefined)
+  );
+  return new Response(readable, { status: 200, headers });
 });

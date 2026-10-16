@@ -1,36 +1,64 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
+/**
+ * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
+ * and the first test in a file absorbs module init for the whole graph
+ * (the route modules total ~1,500 lines). That combination timed out the first
+ * integration test on CI's slower runner while passing locally. The tests
+ * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+ *
+ * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
+ * projects do not inherit root test options — each project spreads this in.
+ */
+const sharedTestOptions = {
+  testTimeout: 30_000,
+  hookTimeout: 30_000,
+  /**
+   * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
+   * spawns a worker per core per CI job, and several CI jobs share each
+   * self-hosted runner; under istanbul instrumentation the workers-pool
+   * tests then stall past the 30s timeout (red main 3657b4f, run
+   * 36357586974: 7 files, every failure a timeout; PR #85 the same).
+   * Capping at 2 workers cleared it with no test, assertion or timeout
+   * change (PR #89: the unrestricted run timed out 2 throttle tests, the
+   * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
+   * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
+   * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+   */
+  maxWorkers: process.env.CI ? 2 : undefined,
+};
+
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.toml", environment: "test" }
-    })
-  ],
   test: {
-    include: ["test/**/*.test.ts"],
     /**
-     * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
-     * and the first test in a file absorbs module init for the whole graph
-     * (the route modules total ~1,500 lines). That combination timed out the first
-     * integration test on CI's slower runner while passing locally. The tests
-     * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+     * Two projects (TOG-25213): the whole suite runs in workerd, except the
+     * R2 lifecycle proposal guard test, which reads the committed JSON file
+     * from disk (`node:fs`) — stubbed out in the workers pool — so that one
+     * file runs in the node forks pool instead. Each project spreads
+     * `sharedTestOptions` above; coverage below still applies to the merged
+     * run.
      */
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
-    /**
-     * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
-     * spawns a worker per core per CI job, and several CI jobs share each
-     * self-hosted runner; under istanbul instrumentation the workers-pool
-     * tests then stall past the 30s timeout (red main 3657b4f, run
-     * 36357586974: 7 files, every failure a timeout; PR #85 the same).
-     * Capping at 2 workers cleared it with no test, assertion or timeout
-     * change (PR #89: the unrestricted run timed out 2 throttle tests, the
-     * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
-     * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
-     * always sets CI=true. Pinned by `npm run check:ci-workflow`.
-     */
-    maxWorkers: process.env.CI ? 2 : undefined,
+    projects: [
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./wrangler.toml", environment: "test" }
+          })
+        ],
+        test: {
+          ...sharedTestOptions,
+          include: ["test/**/*.test.ts"],
+          exclude: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+      {
+        test: {
+          ...sharedTestOptions,
+          include: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+    ],
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
@@ -65,12 +93,28 @@ export default defineConfig({
        * functions 93.67% (311/332), lines 91.51% (2103/2298).
        * Ratcheted 2026-10-08 (TOG-7577) after a hermetic full run:
        * statements 94.70%, branches 90.59%, functions 96.46%, lines 95.20%.
+       * Ratcheted 2026-10-09 (TOG-9219) after a hermetic full run:
+       * statements 96.27%, branches 91.51%, functions 97.58%, lines 96.60%.
+       * Ratcheted 2026-10-11 (TOG-22032) after a hermetic full run:
+       * statements 97.29%, branches 92.54%, functions 98.21%, lines 97.69%.
+       * (`browserAuth.ts` lines 81.57% -> 100%); branches did not move, so that
+       * floor stays at 91.
+       * Ratcheted 2026-10-12 (TOG-18935) after a hermetic full run:
+       * statements 97.00% (3431/3537), branches 92.41% (2327/2518),
+       * functions 98.01% (493/503), lines 97.42% (3324/3412).
+       * Merged 2026-10-13: kept both entries; branches floor takes the max
+       * (92) since both hermetic runs measured branches above it.
+       * Ratcheted 2026-10-12 (TOG-19016) after a hermetic full run:
+       * statements 97.26%, branches 93.91%, functions 98.01%, lines 97.69%.
+       * Target-file branches: `upsert.ts` 98.27% (was 63.79%),
+       * `csvAddressSnapshot.ts` / `csvContainerSnapshot.ts` /
+       * `csvCustomerSnapshot.ts` 100% (were 58.33% / 58.33% / 71.42%).
        */
       thresholds: {
-        statements: 94,
-        branches: 90,
-        functions: 96,
-        lines: 95
+        statements: 97,
+        branches: 93,
+        functions: 98,
+        lines: 97
       }
     }
   }

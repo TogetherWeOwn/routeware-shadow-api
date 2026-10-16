@@ -1,6 +1,7 @@
 import { forwardToUpstream } from "./upstreamForward";
 import { establishSession } from "./establishSession";
 import { isLoginPageResponse, isLoginRedirect } from "./loginRedirect";
+import { readReportQueryDates } from "./reportQueryDates";
 import { readSessionState } from "./sessionState";
 import { readUpstreamText } from "./upstreamBody";
 import { readReportTimeoutMs, readUpstreamTimeoutMs } from "./upstreamTimeout";
@@ -19,7 +20,8 @@ export function extractRequestIdFromText(text: string): string | null {
     /requestID=([0-9a-f-]{36})/i.exec(text) ??
     /RequestID=([0-9a-f-]{36})/i.exec(text);
   if (keyPref) {
-    return keyPref[1].toLowerCase();
+    const id = keyPref[1];
+    return id !== undefined ? id.toLowerCase() : null;
   }
   const m = UUID_RE.exec(text);
   return m ? m[0].toLowerCase() : null;
@@ -182,8 +184,7 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
   if (!qid) {
     throw new Error("queryId is empty");
   }
-  const startDate = env.REPORT_QUERY_START_DATE?.trim() || "1900-01-01";
-  const endDate = env.REPORT_QUERY_END_DATE?.trim() || "1900-01-01";
+  const { startDate, endDate } = readReportQueryDates(env);
   const requestId = crypto.randomUUID();
   await pollQueryRequestIsComplete(env, requestId);
 

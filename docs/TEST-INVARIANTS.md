@@ -73,12 +73,15 @@ change.** This is a measurement correction, and it is the one time these floors 
 
 ## Per-file invariants
 
-### `dataEntityHandlers.ts` — 93.4% statements / 100% functions
+### `dataEntityHandlers.ts` — 93.4% statements / 100% functions (GET/ETag paths; POST moved to `dataEntitySave.ts` by TOG-19136)
 
-`test/dataEntityHandlers.test.ts` covers the GET/ETag paths; `test/dataEntityPostHandlers.test.ts`
-covers the three POST write paths — including the branch where the upstream save succeeds but the D1
-sync throws, which must keep the 200 and fall back to `invalidateDataEntity` so stale PII is not
-served from cache.
+`test/dataEntityHandlers.test.ts` covers the GET/ETag paths.
+
+### `dataEntitySave.ts` — POST write paths (split from `dataEntityHandlers.ts`, TOG-19136)
+
+`test/dataEntityPostHandlers.test.ts` covers the three POST write paths — including the branch where
+the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to
+`invalidateDataEntity` so stale PII is not served from cache.
 
 Still open, smaller: several handlers here exceed the 50-line guideline.
 
@@ -116,6 +119,21 @@ Mutation-verified six ways, including both casing swaps.
   audit table at the top of that file for the full `console.*` / problem+json sweep.
 
 Both mutation-verified.
+
+### Concurrent identical saves (TOG-8891)
+
+- `test/concurrentDuplicateSave.test.ts` fires 8 identical saves at once at each of the six save
+  routes (`/api/v1/routeware/{customer,address,container}/save-*` and
+  `POST /api/v1/data/{customer,address,container}`), through `app.fetch` with real D1 and the Cache
+  API. Every request answers 200, each is forwarded upstream exactly once, and D1 ends with one row
+  per id and the whole customer graph.
+- The newest-first case makes the sync with the newest `synced_at` write first. The older syncs that
+  land after it must neither overwrite it (the `synced_at <= excluded.synced_at` upsert guard) nor
+  delete it in `reconcileCustomerChildren`.
+- Identical creates are not deduplicated: Routeware takes no idempotency key, so 8 creates make 8
+  customers upstream. D1 mirrors exactly those 8, no more.
+
+Mutation-verified: dropping the upsert guard fails the newest-first case on all six routes.
 
 ### `upstreamTimeout.ts` / bounded upstream budgets (TOG-5835)
 
@@ -289,7 +307,7 @@ a route is dropped).
 Each of these is unreachable defence in depth, kept on purpose. Removing them is behaviour-neutral
 but is **not** a test-only change.
 
-- **`streamSync.ts:49`, `:111`, `:173`** — the `if (!cols) continue;` guards. Line 0 either sets
+- **`streamSync.ts:171`, `:266`, `:361`** — the `if (!cols) continue;` guards. Line 0 either sets
   `cols` via `mapCsvHeaders` or throws, so no later line can see a null `cols`.
 - **`addressSnapshot.ts:107`, `customerSnapshot.ts:123`, `containerSnapshot.ts:106`** — the
   `!Number.isFinite(id)` 400 guard in all three by-id handlers. `z.coerce.number().int()` on the path

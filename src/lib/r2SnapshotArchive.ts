@@ -1,7 +1,10 @@
 /**
  * Optional R2 archive of the raw Routeware CSV (same bytes as D1 sync), per table.
- * Keys: `snapshots/YYYY-MM-DD/{customer|address|container}.csv` (UTC date).
+ * History: `snapshot-history/YYYY-MM-DD/<timestamp>-<uuid>/<table>.csv`.
+ * Date aliases remain at `snapshots/YYYY-MM-DD/<table>.csv` for compatibility.
  */
+
+import { errorKind, logEvent } from "./logger";
 
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
@@ -10,7 +13,7 @@ export type SnapshotArchiveTable = "customer" | "address" | "container";
  *
  * The cron's structured line keys on this — a failed or disabled archive must
  * never again hide behind a D1 `outcome:success`. Only the status, the object
- * key (`snapshots/<date>/<table>.csv`, no row data) and the failure message
+ * key (`snapshot-history/<date>/<run>/<table>.csv`, no row data) and the failure message
  * travel here — never row data (CONVENTIONS.md fact 2).
  */
 export type R2ArchiveStatus = "stored" | "disabled" | "failed";
@@ -19,7 +22,7 @@ export type R2ArchiveDetail = {
   status: R2ArchiveStatus;
   /** Disabled reason or failure message (message-only, never row data). */
   reason?: string;
-  /** Object key attempted/stored. Date + table only — no PII. */
+  /** History key attempted/stored. UTC timestamp + random run id + table — no PII. */
   key?: string;
 };
 
@@ -41,6 +44,22 @@ export function isR2ArchiveDetail(v: unknown): v is R2ArchiveDetail {
 /** S3 / R2 minimum part size for multipart uploads; last part may be smaller. */
 export const R2_MULTIPART_PART_SIZE = 5 * 1024 * 1024;
 
+/** Per-table run identity: UUID prevents collisions even within one millisecond. */
+export function snapshotR2HistoryObjectKey(
+  table: SnapshotArchiveTable,
+  date = new Date()
+): string {
+  const timestamp = date.toISOString();
+  const run = `${timestamp.replace(/[:.]/g, "-")}-${crypto.randomUUID()}`;
+  return `snapshot-history/${timestamp.slice(0, 10)}/${run}/${table}.csv`;
+}
+
+/** Stable JSON manifest pointing to the last fully published table archive. */
+export function snapshotR2LatestObjectKey(table: SnapshotArchiveTable): string {
+  return `snapshot-latest/${table}.json`;
+}
+
+/** Compatibility alias: the last successfully copied CSV for this UTC date. */
 export function snapshotR2ObjectKey(
   table: SnapshotArchiveTable,
   date = new Date()
@@ -96,7 +115,11 @@ export async function sha256HexBytes(data: Uint8Array): Promise<string> {
 export function renderSnapshotManifest(manifest: SnapshotManifest): string {
   const files: Record<string, SnapshotManifestFileEntry> = {};
   for (const name of Object.keys(manifest.files).sort()) {
-    files[name] = manifest.files[name];
+    const entry = manifest.files[name];
+    if (entry === undefined) {
+      continue;
+    }
+    files[name] = entry;
   }
   return `${JSON.stringify({ ...manifest, files }, null, 2)}\n`;
 }
@@ -141,7 +164,10 @@ export async function putReadableStreamToR2(
   bucket: R2Bucket,
   key: string,
   stream: ReadableStream<Uint8Array>,
-  options: { httpMetadata: R2HTTPMetadata }
+  options: { httpMetadata: R2HTTPMetadata },
+  // Per-run correlation id (TOG-19134): carried onto the abort-failure warn
+  // when present; absent for direct callers without a run (unchanged records).
+  runId?: string
 ): Promise<void> {
   const reader = stream.getReader();
   const buf = new Uint8Array(R2_MULTIPART_PART_SIZE);
@@ -200,14 +226,17 @@ export async function putReadableStreamToR2(
     if (mpu !== null) {
       try {
         await mpu.abort();
-      } catch (abortErr) {
+      } catch {
         // Don't mask the primary failure, but don't hide this either: an
         // abandoned multipart upload is retained (and billed) until lifecycle
         // cleanup, so it needs to be visible in logs.
-        console.warn(
-          `R2 multipart abort failed for ${key}; upload may be left dangling:`,
-          abortErr instanceof Error ? abortErr.message : String(abortErr)
-        );
+        logEvent({
+          level: "warn",
+          msg: "R2 multipart abort failed; upload may be left dangling",
+          route: "snapshot.r2.multipart",
+          key,
+          ...(runId ? { runId } : {})
+        });
       }
     }
     // Tear the source down promptly rather than leaving it half-read.
@@ -232,30 +261,41 @@ export async function putReadableStreamToR2(
  * throws (it is a pure report).
  *
  * Buffering note: the CSV is collected in memory (one buffer per chunk) so D1
- * and R2 see identical bytes. Snapshot exports are small enough for this today
- * (the largest is well under the 128 MiB isolate cap, and `tee()`'s internal
- * buffer would have held the same lag had one leg outrun the other); if exports
- * ever approach isolate memory, switch to a byte-counted spill to a temp store.
+ * and R2 see identical bytes; D1, each CSV put and the hash take their own
+ * copy of those chunks, one after another. Snapshot exports are small enough
+ * for this today (the largest is well under the 128 MiB isolate cap, and
+ * `tee()`'s internal buffer would have held the same lag had one leg outrun
+ * the other); if exports ever approach isolate memory, switch to a
+ * byte-counted spill to a temp store.
  */
 export async function archiveReportCsvToR2AfterD1<T>(
   env: Env,
   table: SnapshotArchiveTable,
   body: ReadableStream<Uint8Array>,
   sync: (stream: ReadableStream<Uint8Array>) => Promise<T>,
-  onArchive?: (detail: R2ArchiveDetail) => void
+  onArchive?: (detail: R2ArchiveDetail) => void,
+  // Per-run correlation id (TOG-19134): when present, every log line on the
+  // archive leg carries it, so the R2 leg attributes to its originating run.
+  runId?: string
 ): Promise<T> {
   const disabledReason = r2DisabledReason(env);
   if (disabledReason !== null) {
-    console.log(
-      `R2 snapshot archive disabled for ${table}: ${disabledReason}`
-    );
+    logEvent({
+      level: "info",
+      msg: "R2 snapshot archive disabled",
+      route: "snapshot.r2.archive",
+      table,
+      reason: disabledReason,
+      ...(runId ? { runId } : {})
+    });
     onArchive?.({ status: "disabled", reason: disabledReason });
     return sync(body);
   }
   // One clock read: the CSV and its manifest entry must land on the same UTC
   // date even if the sync straddles midnight.
   const now = new Date();
-  const key = snapshotR2ObjectKey(table, now);
+  const key = snapshotR2HistoryObjectKey(table, now);
+  const dailyKey = snapshotR2ObjectKey(table, now);
   const manifestKey = snapshotR2ManifestObjectKey(now);
 
   // Drain the source once; both legs consume identical in-memory copies.
@@ -276,11 +316,21 @@ export async function archiveReportCsvToR2AfterD1<T>(
   }
 
   const result = await sync(streamFromChunks(chunks));
+  // The two CSV copies decide `failed`: the history object and the daily alias
+  // the date read/restore routes serve. Either failing is a failed archive, as
+  // a failed CSV put was before history keys existed. Sidecars and pointers
+  // below only qualify a `stored` outcome.
+  let csvKey = key;
   try {
     await putReadableStreamToR2(env.SNAPSHOTS, key, streamFromChunks(chunks), {
       httpMetadata: { contentType: "text/csv; charset=utf-8" }
-    });
-    console.log(`R2 snapshot stored: ${key}`);
+    }, runId);
+    csvKey = dailyKey;
+    await putReadableStreamToR2(env.SNAPSHOTS, dailyKey, streamFromChunks(chunks), {
+      httpMetadata: { contentType: "text/csv; charset=utf-8" }
+    }, runId);
+    // Logged only once both CSV copies landed, so "stored" never precedes a failure.
+    logEvent({ level: "info", msg: "R2 snapshot stored", route: "snapshot.r2.archive", key, ...(runId ? { runId } : {}) });
   } catch (e) {
     // No CSV, no manifest entry: recording a hash for bytes that never
     // landed would make the manifest a lie. D1 already succeeded, so this
@@ -288,28 +338,63 @@ export async function archiveReportCsvToR2AfterD1<T>(
     // Message-only: an R2 driver error carries no row data (same class as the
     // D1 driver text already logged elsewhere — never upstream text).
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot put failed for ${key}`, e);
-    onArchive?.({ status: "failed", reason: message, key });
+    logEvent({ level: "error", msg: "R2 snapshot put failed", route: "snapshot.r2.archive", key: csvKey, ...(runId ? { runId } : {}) });
+    onArchive?.({
+      status: "failed",
+      reason: csvKey === key ? message : `daily alias: ${message}`,
+      key
+    });
     return result;
   }
+  let stage = "history manifest";
+  let stageKey = `${key}.manifest.json`;
+  let outcome: R2ArchiveDetail = { status: "stored", key };
   try {
-    await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
-      [csvBasename(table)]: {
-        key,
-        sha256: await sha256HexBytes(concatChunks(chunks)),
-        bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
-      }
+    const entry: SnapshotManifestFileEntry = {
+      key,
+      sha256: await sha256HexBytes(concatChunks(chunks)),
+      bytes: chunks.reduce((n, c) => n + c.byteLength, 0)
+    };
+    const historyManifest = renderSnapshotManifest({
+      version: SNAPSHOT_MANIFEST_VERSION,
+      date: now.toISOString().slice(0, 10),
+      files: { [csvBasename(table)]: entry }
     });
-    console.log(`R2 snapshot manifest updated: ${manifestKey}`);
-    onArchive?.({ status: "stored", key });
+    // Each run keeps its own integrity record, even after latest is replaced.
+    // R2 put metadata: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/#r2putoptions
+    const jsonOptions = { httpMetadata: { contentType: "application/json; charset=utf-8" } };
+    await env.SNAPSHOTS.put(stageKey, historyManifest, jsonOptions);
+    stage = "daily manifest";
+    stageKey = manifestKey;
+    await updateSnapshotManifest(env.SNAPSHOTS, manifestKey, {
+      [csvBasename(table)]: { ...entry, key: dailyKey }
+    }, runId);
+    // Publish latest last: readers never discover a CSV or manifest that has not landed.
+    stage = "latest pointer";
+    stageKey = snapshotR2LatestObjectKey(table);
+    await env.SNAPSHOTS.put(stageKey, historyManifest, jsonOptions);
+    logEvent({
+      level: "info",
+      msg: "R2 snapshot manifest updated",
+      route: "snapshot.r2.manifest",
+      manifestKey,
+      ...(runId ? { runId } : {})
+    });
   } catch (e) {
-    // The CSV landed but the sidecar did not: still `stored` (the archive
-    // exists and verifies by key), with the manifest failure carried in the
-    // reason so the cron line's JSON shows it instead of a clean archive.
+    // Both CSVs landed: still `stored` (the archive exists), with the failed
+    // stage carried in the reason so the cron line's JSON shows an incomplete
+    // publication instead of a clean archive.
     const message = e instanceof Error ? e.message : String(e);
-    console.error(`R2 snapshot manifest put failed for ${manifestKey}`, e);
-    onArchive?.({ status: "stored", key, reason: `manifest: ${message}` });
+    logEvent({
+      level: "error",
+      msg: "R2 snapshot manifest update failed",
+      route: "snapshot.r2.manifest",
+      key: stageKey,
+      ...(runId ? { runId } : {})
+    });
+    outcome = { status: "stored", key, reason: `manifest: ${stage}: ${message}` };
   }
+  onArchive?.(outcome);
   return result;
 }
 
@@ -343,7 +428,10 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
 export async function updateSnapshotManifest(
   bucket: R2Bucket,
   manifestKey: string,
-  entries: Record<string, SnapshotManifestFileEntry>
+  entries: Record<string, SnapshotManifestFileEntry>,
+  // Per-run correlation id (TOG-19134): carried onto the replace-path warns
+  // when present; absent for direct callers without a run (unchanged records).
+  runId?: string
 ): Promise<void> {
   const dateMatch = /snapshots\/(\d{4}-\d{2}-\d{2})\.manifest\.json$/.exec(manifestKey);
   const date = dateMatch?.[1] ?? new Date().toISOString().slice(0, 10);
@@ -355,14 +443,23 @@ export async function updateSnapshotManifest(
       if (isSnapshotManifest(parsed)) {
         manifest = parsed;
       } else {
-        console.warn(
-          `R2 snapshot manifest at ${manifestKey} failed validation; replacing`
-        );
+        logEvent({
+          level: "warn",
+          msg: "R2 snapshot manifest failed validation; replacing",
+          route: "snapshot.r2.manifest",
+          manifestKey,
+          ...(runId ? { runId } : {})
+        });
       }
-    } catch {
-      console.warn(
-        `R2 snapshot manifest at ${manifestKey} is not JSON; replacing`
-      );
+    } catch (parseErr) {
+      logEvent({
+        level: "warn",
+        msg: "R2 snapshot manifest is not JSON; replacing",
+        route: "snapshot.r2.manifest",
+        manifestKey,
+        kind: errorKind(parseErr),
+        ...(runId ? { runId } : {})
+      });
     }
   }
   manifest = {

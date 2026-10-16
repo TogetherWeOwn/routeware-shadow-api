@@ -1,12 +1,19 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
-import { clearAuthFailures, recordAuthFailure } from "./lib/authThrottle";
+import {
+  AUTH_THROTTLE_ALLOWED_FAILURES,
+  clearAuthFailures,
+  recordAuthFailure
+} from "./lib/authThrottle";
 import { corsPreflightResponse, withCors, withSecurityHeaders } from "./lib/cors";
+import { scalarDocsConfiguration, withDocsBranding } from "./lib/docsPresentation";
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
+import { errorKind, logEvent } from "./lib/logger";
 import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import { InvalidReportQueryDatesError } from "./lib/reportQueryDates";
 import {
   concurrentRefreshTimeoutProblem,
   isConcurrentRefreshTimeout
@@ -124,6 +131,15 @@ app.use("/api/v1/*", async (c, next) => {
         instance: new URL(c.req.raw.url).pathname
       });
       throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
+      throttled.headers.set("X-RateLimit-Limit", String(AUTH_THROTTLE_ALLOWED_FAILURES));
+      throttled.headers.set("X-RateLimit-Remaining", "0");
+      throttled.headers.set(
+        "X-RateLimit-Reset",
+        String(
+          verdict.resetAtSec ??
+            Math.ceil((Date.now() + verdict.retryAfterSec * 1000) / 1000)
+        )
+      );
       return withCors(throttled, c.req.raw);
     }
     return withCors(
@@ -219,25 +235,14 @@ app.use("/docs", async (c, next) => {
   await next();
   // Scalar renders the docs HTML downstream: stamp hardening headers on it
   // (TOG-8368 audit — /docs previously carried none).
-  c.res = withSecurityHeaders(c.res);
+  c.res = withSecurityHeaders(await withDocsBranding(c.res));
   return;
 });
 
-// Scalar UI config (TOG-8360): preselect the `bearerAuth` scheme so the
-// Authorize dialog opens on the right scheme, keep the token across reloads,
-// and default code samples to curl. No token value is embedded here — the
-// reviewer pastes `CUSTOMER_SNAPSHOT_SYNC_SECRET` once; `persistAuth` keeps
-// it for every try-it call (import/sync) in that browser.
-app.use(
-  "/docs",
-  Scalar({
-    pageTitle: "Routeware Shadow API",
-    url: "/openapi.json",
-    authentication: { preferredSecurityScheme: "bearerAuth" },
-    persistAuth: true,
-    defaultHttpClient: { targetKey: "shell", clientKey: "curl" }
-  })
-);
+// Project-themed Scalar config (TOG-8907): title, logo slot, deep-linkable
+// operation anchors and try-it defaults live in `src/lib/docsPresentation`.
+// No token value is embedded: users authorize in Scalar for each token role.
+app.use("/docs", Scalar(scalarDocsConfiguration));
 
 // `notFound` and `onError` run outside the `/api/v1/*` middleware chain, so
 // they stamp CORS headers directly — otherwise a browser sees a CORS error
@@ -247,6 +252,25 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
+  // Invalid REPORT_QUERY dates (TOG-9206): fixed 503, never echoes env values.
+  if (err instanceof InvalidReportQueryDatesError) {
+    logEvent({
+      level: "error",
+      msg: "Invalid REPORT_QUERY date configuration",
+      route: "app.onError",
+      ms: null
+    });
+    return withCors(
+      problemJsonResponse({
+        type: problemType("misconfigured", c.env),
+        title: "Service Unavailable",
+        status: 503,
+        detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname
+      }),
+      c.req.raw
+    );
+  }
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
   // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
@@ -254,7 +278,13 @@ app.onError((err, c) => {
   // for direct forwarders (login-page, modals, detail-full sync internals).
   // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
   if (isUpstreamTimeout(err)) {
-    console.error("UPSTREAM TIMEOUT", err.message);
+    logEvent({
+      level: "error",
+      msg: "Upstream request timed out",
+      route: "app.onError",
+      ms: null,
+      timeoutMs: err.timeoutMs
+    });
     return withCors(
       upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
       c.req.raw
@@ -266,7 +296,13 @@ app.onError((err, c) => {
   // reaches here; this is the backstop for direct `establishSession` callers
   // (snapshot sync routes, detail-full sync internals).
   if (isConcurrentRefreshTimeout(err)) {
-    console.error("CONCURRENT REFRESH TIMEOUT", err.message);
+    logEvent({
+      level: "error",
+      msg: "Concurrent session refresh timed out",
+      route: "app.onError",
+      ms: null,
+      timeoutMs: err.timeoutMs
+    });
     return withCors(
       concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
       c.req.raw
@@ -277,7 +313,12 @@ app.onError((err, c) => {
   // (operator config, never a credential or customer data) plus the closed
   // set, so the fix is obvious from the response alone.
   if (isInvalidAuthModeError(err)) {
-    console.error("INVALID AUTH_MODE", err.message);
+    logEvent({
+      level: "error",
+      msg: "Invalid AUTH_MODE configuration",
+      route: "app.onError",
+      ms: null
+    });
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),
@@ -297,7 +338,12 @@ app.onError((err, c) => {
   // single retry; this is the backstop. CORS-wrapped so browsers surface the
   // real 503 instead of a CORS error.
   if (isMissingSetCookieCapabilityError(err)) {
-    console.error("MISSING SET-COOKIE CAPABILITY", err.message);
+    logEvent({
+      level: "error",
+      msg: "Runtime is missing the set-cookie capability",
+      route: "app.onError",
+      ms: null
+    });
     return withCors(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),
@@ -316,7 +362,13 @@ app.onError((err, c) => {
   // expired sessions, not blocked upstreams); this is the backstop.
   // CORS-wrapped so browsers surface the real 502 instead of a CORS error.
   if (isLoginPageUnavailableError(err)) {
-    console.error("LOGIN PAGE UNAVAILABLE", err.message);
+    logEvent({
+      level: "error",
+      msg: "Routeware login page unavailable",
+      route: "app.onError",
+      ms: null,
+      status: err.status
+    });
     return withCors(
       problemJsonResponse({
         type: problemType("bad-gateway", c.env),
@@ -331,9 +383,15 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // Log the full error for observability, but do not echo internal details
-  // (messages, stack, upstream text) back to the client.
-  console.error("APP ERROR", err);
+  // Keep log fields stable and PII-safe; do not serialize the error message or stack.
+  logEvent({
+    level: "error",
+    msg: "Unhandled request error",
+    route: "app.onError",
+    ms: null,
+    method: c.req.method,
+    kind: errorKind(err)
+  });
   return withCors(
     problemJsonResponse({
       type: problemType("internal", c.env),

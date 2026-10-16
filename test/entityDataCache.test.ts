@@ -73,11 +73,13 @@ const {
   sha256Etag
 } = await import("../src/lib/entityDataCache");
 
-const loggedWarnings: unknown[][] = [];
-const loggedLines: unknown[][] = [];
+type CapturedLog = Record<string, unknown>;
+
+const loggedWarnings: CapturedLog[] = [];
+const loggedLines: CapturedLog[] = [];
 const realConsoleWarn = console.warn;
-const realConsoleLog = console.log;
-const loggedErrors: unknown[][] = [];
+const realConsoleInfo = console.info;
+const loggedErrors: CapturedLog[] = [];
 const realConsoleError = console.error;
 
 beforeEach(() => {
@@ -92,20 +94,20 @@ beforeEach(() => {
   loggedWarnings.length = 0;
   loggedLines.length = 0;
   console.warn = (...args: unknown[]) => {
-    loggedWarnings.push(args);
+    loggedWarnings.push(args[0] as CapturedLog);
   };
-  console.log = (...args: unknown[]) => {
-    loggedLines.push(args);
+  console.info = (...args: unknown[]) => {
+    loggedLines.push(args[0] as CapturedLog);
   };
   loggedErrors.length = 0;
   console.error = (...args: unknown[]) => {
-    loggedErrors.push(args);
+    loggedErrors.push(args[0] as CapturedLog);
   };
 });
 
 afterEach(() => {
   console.warn = realConsoleWarn;
-  console.log = realConsoleLog;
+  console.info = realConsoleInfo;
   console.error = realConsoleError;
 });
 
@@ -202,8 +204,14 @@ describe("putCachedDataEntity", () => {
 
     // Assert
     expect(loggedWarnings).toHaveLength(1);
-    expect(String(loggedWarnings[0][0])).toContain("Cache put failed for address/10");
-    expect(loggedWarnings[0][1]).toBe("body too large");
+    expect(loggedWarnings[0]).toMatchObject({
+      level: "warn",
+      msg: "Cache put failed; serving the response uncached",
+      route: "cache.entityData",
+      entity: "address",
+      ms: null
+    });
+    expect(JSON.stringify(loggedWarnings[0])).not.toContain("body too large");
   });
 });
 
@@ -307,17 +315,25 @@ describe("TTL centralization (TOG-6294)", () => {
 });
 
 describe("hit/miss observability (TOG-6294)", () => {
-  it("logs a count-only miss line and counts it per entity kind", async () => {
+  it("logs a count-only miss event and counts it per entity kind", async () => {
     // Arrange / Act
     await getCachedDataEntity("customer", 5);
 
     // Assert
     expect(loggedLines).toHaveLength(1);
-    expect(loggedLines[0][0]).toBe("entityDataCache customer miss hits=0 misses=1");
+    expect(loggedLines[0]).toMatchObject({
+      level: "info",
+      msg: "Entity data cache miss",
+      route: "cache.entityData",
+      entity: "customer",
+      hits: 0,
+      misses: 1,
+      ms: null
+    });
     expect(getEntityDataCacheStats().customer).toEqual({ hits: 0, misses: 1 });
   });
 
-  it("logs a count-only hit line and accumulates running totals", async () => {
+  it("logs a count-only hit event and accumulates running totals", async () => {
     // Arrange
     behavior.entry = new Response('{"cached":true}');
 
@@ -327,8 +343,24 @@ describe("hit/miss observability (TOG-6294)", () => {
 
     // Assert
     expect(loggedLines).toHaveLength(2);
-    expect(loggedLines[0][0]).toBe("entityDataCache address hit hits=1 misses=0");
-    expect(loggedLines[1][0]).toBe("entityDataCache address hit hits=2 misses=0");
+    expect(loggedLines[0]).toMatchObject({
+      level: "info",
+      msg: "Entity data cache hit",
+      route: "cache.entityData",
+      entity: "address",
+      hits: 1,
+      misses: 0,
+      ms: null
+    });
+    expect(loggedLines[1]).toMatchObject({
+      level: "info",
+      msg: "Entity data cache hit",
+      route: "cache.entityData",
+      entity: "address",
+      hits: 2,
+      misses: 0,
+      ms: null
+    });
     expect(getEntityDataCacheStats().address).toEqual({ hits: 2, misses: 0 });
   });
 
@@ -346,7 +378,7 @@ describe("hit/miss observability (TOG-6294)", () => {
     expect(getEntityDataCacheStats().address).toEqual({ hits: 0, misses: 0 });
   });
 
-  it("never logs ids or bodies in the hit/miss line", async () => {
+  it("never logs ids or bodies in the hit/miss event", async () => {
     // Arrange
     behavior.entry = new Response('{"company_name":"Acme"}');
 
@@ -354,7 +386,7 @@ describe("hit/miss observability (TOG-6294)", () => {
     await getCachedDataEntity("customer", 12345);
 
     // Assert — the id 12345 and the PII body appear nowhere in the log.
-    const line = String(loggedLines[0][0]);
+    const line = JSON.stringify(loggedLines[0]);
     expect(line).not.toContain("12345");
     expect(line).not.toContain("Acme");
   });
@@ -383,7 +415,14 @@ describe("invalidateCustomerGraphWithRetry (TOG-6534)", () => {
       ])
     );
     expect(loggedErrors).toHaveLength(1);
-    expect(String(loggedErrors[0][0])).toContain("invalidateCustomerGraph attempt 1/2 failed");
+    expect(loggedErrors[0]).toMatchObject({
+      level: "error",
+      msg: "Customer cache graph invalidation failed",
+      route: "cache.customerGraph.invalidate",
+      attempt: 1,
+      attempts: 2,
+      ms: null
+    });
   });
 
   it("succeeds without retry noise when the first attempt lands clean", async () => {

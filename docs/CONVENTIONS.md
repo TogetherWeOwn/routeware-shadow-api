@@ -53,7 +53,7 @@ Binding, not "see also".
 
 | Read | When |
 |---|---|
-| [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntityHandlers.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. |
+| [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `dataEntitySave.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntitySave.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. |
 | [`HANDOVER.md`](HANDOVER.md) | Before anything touching deploys, Cloudflare resources, the Routeware tenant, or the repo's location/ownership. The inventory of what lives **outside** this repo (accounts, ids, secrets by name, the report query ids) and the transfer runbook. |
 | [`SECURITY-REMEDIATION.md`](SECURITY-REMEDIATION.md) | Before any repo-visibility change (blocked on it), and before rotating credentials. |
 | [`PROBLEMS.md`](PROBLEMS.md) | When adding or changing an error response — every problem+json `type` is a URL anchoring into it. |
@@ -147,13 +147,15 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 
 | Command | What it does |
 |---|---|
+| `npm run first-run` | Fresh-clone path: `check:devvars`, `db:migrate:local`, `db:seed`, then `smoke:readiness` against a loopback `wrangler dev` that it starts and stops. Stops at the first failing step (`scripts/first-run.mjs`). |
+| `npm run help` | Lists every package.json script grouped by namespace (`scripts/help.mjs`). |
 | `npm run dev` | `wrangler dev` (local Miniflare; runs `check:devvars` first; no `--remote` needed since HTTP login skips Browser Rendering). |
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
-| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run typecheck` | Generates Wrangler declarations, then runs `tsc --noEmit`. |
 | `npm test` / `npm run test:watch` | Vitest. |
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
-| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373; run once after cloning). Run after changing bindings. |
+| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
 | `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs. |
@@ -162,27 +164,34 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 ### Deploys are not yours to run
 
 `.github/workflows/ci.yml` can deploy to production on a push to `main`, but only when the
-repository variable `PRODUCTION_DEPLOY_ENABLED` is exactly `true`. That job targets production only.
-Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
+job-level `vars.PRODUCTION_DEPLOY_ENABLED == 'true'` condition matches (case-insensitively). The
+`vars` context may include organization-, repository-, or environment-level configuration; do not
+infer that the gate is off from a repository-only variable listing. See [`HANDOVER.md`](HANDOVER.md)
+§&nbsp;0 for the scope checks. That job targets production only. Do not run `npm run deploy`, `wrangler deploy`, `wrangler secret …`, or
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-CI uses self-hosted runners labeled `two-selfhosted`. The build and hygiene jobs are credential-free;
-`shadow-api-v1` evaluates an optional `CF_TOKEN` gate and skips contract execution without it.
-Deploy remains skipped while `PRODUCTION_DEPLOY_ENABLED` is absent. Read
-[`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased enable procedure and rollback. If Actions is
-disabled or runners are unavailable, local verification is not a substitute for exact-head CI.
+CI uses self-hosted runners labeled `two-selfhosted`. On pull requests targeting `main`, changed-area
+detection selects the credential-free `build` and optional `shadow-api-v1` jobs when relevant paths
+change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs. Without `CF_TOKEN`,
+the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
+matches `true`; an unset repository variable alone does not prove that no applicable organization
+variable can enable it. Read [`HANDOVER.md`](HANDOVER.md) §&nbsp;0 for the phased scope verification,
+enable and stop procedures. If Actions is disabled or runners are unavailable, local verification is not a substitute
+for exact-head CI.
 
 ### Verification loop
 
 `npm run check:ci-workflow` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
-pushing.
+pushing. `npm run typecheck` runs two configs: the base `tsconfig.json` and
+`tsconfig.src.json` (`noUncheckedIndexedAccess: true` over `src/**/*.ts` plus
+`worker-configuration.d.ts`; `test/` stays on the base config).
 
 `npm ci` alone may install no devDependencies (npm's `omit=dev` is set in some environments, which
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
 
 When enabled, CI additionally runs `npx wrangler deploy --dry-run`, a hygiene job that fails on
-committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
+committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and a blocking full-history secret scan (gitleaks). **There is no lint or
 format step — none is configured.**
 
 ---

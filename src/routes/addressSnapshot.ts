@@ -5,6 +5,7 @@ import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
 } from "../lib/d1SnapshotSync";
+import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
 // mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
 // facade import throws at module scope there. The deep module is never mocked.
@@ -15,6 +16,7 @@ import {
 } from "../lib/snapshot/streamSync";
 import {
   ADDRESS_SNAPSHOT_EXPORT,
+  readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
@@ -31,7 +33,8 @@ import {
 } from "./shared";
 import {
   mapSnapshotImportError,
-  rejectOversizedSnapshotImport
+  rejectOversizedSnapshotImport,
+  rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
 
 /** D1 address snapshot: reads plus the CSV sync/import writers. */
@@ -157,7 +160,8 @@ addressSnapshotRoutes.openapi(addressSnapshotExportRoute, async (c) => {
   return snapshotCsvResponse(
     c.env.CUSTOMER_DB,
     ADDRESS_SNAPSHOT_EXPORT,
-    c.req.header("if-none-match")
+    c.req.header("if-none-match"),
+    readSnapshotExportPageSize(c.env)
   );
 });
 
@@ -269,8 +273,13 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
   try {
     // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
     // the would-be counts while writing nothing (no D1, no R2).
+    // TOG-19134: forward a valid inbound `x-run-id` so this invocation's
+    // lines share the originating run's correlation id. Invalid values are
+    // dropped — correlation must never fail a sync.
+    const runId = parseRunIdHeader(c.req.header("x-run-id"));
     const r = await runAddressSnapshotSync(c.env, {
-      dryRun: isDryRunRequested(c.req.valid("query"))
+      dryRun: isDryRunRequested(c.req.valid("query")),
+      ...(runId ? { runId } : {})
     });
     if (!r) {
       return c.json({ upserted: 0, rowCount: 0, skipped: true }, 200);
@@ -288,7 +297,7 @@ const addressSnapshotImportRoute = createRoute({
   path: "/api/v1/address-snapshot/import",
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
-  description: "Raw CSV (Routeware Address Details custom report). Bear same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
+  description: "Raw CSV (Routeware Address Details custom report); `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
   request: {
     query: dryRunQuery,
     body: {
@@ -300,7 +309,8 @@ const addressSnapshotImportRoute = createRoute({
           schema: { type: "string" },
           example:
             "PickupAddressID,CustomerID,RouteID,Address,City,State,Zip,FranchiseID,Comments,ExtrasAllowed,Enabled,DriverNote,Latitude,Longitude,Last_Audit_Date\n10,5,,1 Main St,Killeen,TX,76541,,,false,true,,,,"
-        }
+        },
+        "application/octet-stream": { schema: { type: "string" } }
       }
     }
   },
@@ -315,6 +325,7 @@ const addressSnapshotImportRoute = createRoute({
       }
     },
     401: { description: "Unauthorized" },
+    415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
         "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
@@ -342,12 +353,18 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
+  const unsupportedMediaType = rejectUnsupportedSnapshotImportContentType(
+    { url: c.req.url, contentType: c.req.raw.headers.get("content-type") },
+    c.env
+  );
+  if (unsupportedMediaType) return unsupportedMediaType;
   try {
     // No positional batch size: the per-table default in `streamSync` is the
     // right value, and the facade mock in `test/snapshotRoutes.test.ts` does
     // not forward extra args anyway.
     const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
+      rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // TOG-9203: `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

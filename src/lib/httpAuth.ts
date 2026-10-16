@@ -102,12 +102,14 @@ export function mergeSetCookies(jar: Jar, res: Response, nowMs: number = Date.no
  */
 function isExpiredSetCookie(attrs: string, nowMs: number): boolean {
   const maxAge = /(?:^|;)\s*max-age\s*=\s*"?(-?\d+)"?/i.exec(attrs);
-  if (maxAge && Number(maxAge[1]) <= 0) {
+  const rawMaxAge = maxAge?.[1];
+  if (maxAge && rawMaxAge !== undefined && Number(rawMaxAge) <= 0) {
     return true;
   }
   const expires = /(?:^|;)\s*expires\s*=\s*([^;]+)/i.exec(attrs);
-  if (expires) {
-    const t = Date.parse(expires[1].trim());
+  const rawExpires = expires?.[1];
+  if (expires && rawExpires !== undefined) {
+    const t = Date.parse(rawExpires.trim());
     if (Number.isFinite(t) && t <= nowMs) {
       return true;
     }
@@ -127,13 +129,13 @@ export function extractAntiForgeryFromExtNet(text: string): string | null {
     /name:\s*"__RequestVerificationToken"\s*,\s*value:\s*"([^"]+)"/i.exec(text) ??
     /hiddenfield[^}]{0,160}?value:\s*"([^"]+)"/i.exec(text);
   if (jsHit) {
-    return jsHit[1];
+    return jsHit[1] ?? null;
   }
   const htmlHit =
     /<input\b[^>]*\bname\s*=\s*["']__RequestVerificationToken["'][^>]*\bvalue\s*=\s*["']([^"']+)["']/i.exec(
       text
     );
-  return htmlHit ? htmlHit[1] : null;
+  return htmlHit?.[1] ?? null;
 }
 
 export type HttpLoginResult = {
@@ -231,10 +233,15 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   return { ok, loginStatus: loginRes.status, cookieNames: Object.keys(jar), jar };
 }
 
-/** Establish a session over HTTP and store it in the AuthSession Durable Object. */
+/**
+ * Establish a session over HTTP and store it in the AuthSession Durable
+ * Object. `lockToken` proves this caller holds the refresh lock so the DO
+ * releases it as part of the write (TOG-18959).
+ */
 export async function establishSessionViaHttp(
   env: Env,
-  stub: DurableObjectStub
+  stub: DurableObjectStub,
+  lockToken?: string | null
 ): Promise<void> {
   const result = await httpLogin(env);
   if (!result.ok) {
@@ -244,5 +251,5 @@ export async function establishSessionViaHttp(
   }
   const cookieHeader = cookieHeaderFrom(result.jar);
   const expiresAtMs = sessionExpiryMs(env);
-  await storeSession(stub, cookieHeader, expiresAtMs);
+  await storeSession(stub, cookieHeader, expiresAtMs, lockToken);
 }

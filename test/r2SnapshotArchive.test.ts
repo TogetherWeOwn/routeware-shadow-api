@@ -129,24 +129,24 @@ describe("putReadableStreamToR2", () => {
 });
 
 describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
-  const logged: string[] = [];
-  const errored: string[] = [];
-  const realLog = console.log;
+  const logged: Array<Record<string, unknown>> = [];
+  const errored: Array<Record<string, unknown>> = [];
+  const realInfo = console.info;
   const realError = console.error;
 
   beforeEach(() => {
     logged.length = 0;
     errored.length = 0;
-    console.log = (...args: unknown[]) => {
-      logged.push(args.map(String).join(" "));
+    console.info = (...args: unknown[]) => {
+      logged.push(args[0] as Record<string, unknown>);
     };
     console.error = (...args: unknown[]) => {
-      errored.push(args.map(String).join(" "));
+      errored.push(args[0] as Record<string, unknown>);
     };
   });
 
   afterEach(() => {
-    console.log = realLog;
+    console.info = realInfo;
     console.error = realError;
   });
 
@@ -196,14 +196,23 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
       }
     );
 
-    // Assert — D1 saw the full CSV, R2 got the CSV put plus the manifest
-    // sidecar put (TOG-8881), success was logged.
+    // Assert — both CSVs, then history sidecar and daily manifest, then latest.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe("CustomerID\n1,,Acme");
-    expect(putCalls).toHaveLength(2);
-    expect(putCalls[0].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
-    expect(logged.some((l) => l.startsWith("R2 snapshot stored:"))).toBe(true);
+    expect(putCalls).toHaveLength(5);
+    expect(putCalls[0].key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(putCalls[1].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(putCalls[2].key).toBe(`${putCalls[0].key}.manifest.json`);
+    expect(putCalls[3].key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(putCalls[4].key).toBe("snapshot-latest/customer.json");
+    expect(logged).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot stored",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/)
+      })
+    );
   });
 
   it("writes nothing to R2 when D1 fails — no phantom archive", async () => {
@@ -242,7 +251,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
     expect(result).toBe("ok");
     expect(d1Ran).toBe(true);
     expect(logged).toEqual([
-      expect.stringContaining("R2 snapshot archive disabled for customer: SNAPSHOTS binding unbound")
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "customer",
+        reason: "SNAPSHOTS binding unbound"
+      })
     ]);
   });
 
@@ -260,7 +275,13 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
     // Assert
     expect(putCalls).toEqual([]);
     expect(logged).toEqual([
-      expect.stringContaining("R2 snapshot archive disabled for address: SNAPSHOTS_R2_ENABLED=false")
+      expect.objectContaining({
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "address",
+        reason: "SNAPSHOTS_R2_ENABLED=false"
+      })
     ]);
   });
 
@@ -285,7 +306,105 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
 
     // Assert — caller sees the D1 result; the R2 failure is a logged error.
     expect(result).toEqual({ upserted: 2 });
-    expect(errored.some((l) => l.includes("R2 snapshot put failed"))).toBe(true);
+    expect(errored).toContainEqual(
+      expect.objectContaining({
+        level: "error",
+        msg: "R2 snapshot put failed",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/)
+      })
+    );
+  });
+});
+
+describe("putReadableStreamToR2 abort failure (TOG-22168)", () => {
+  const warned: Array<Record<string, unknown>> = [];
+  const realWarn = console.warn;
+
+  beforeEach(() => {
+    warned.length = 0;
+    console.warn = (...args: unknown[]) => {
+      warned.push(args[0] as Record<string, unknown>);
+    };
+  });
+
+  afterEach(() => {
+    console.warn = realWarn;
+  });
+
+  it("rethows the original upload error when abort also fails, with one dangling-upload warning", async () => {
+    // Arrange — a full 5 MiB part forces the multipart path; the part write
+    // fails and the cleanup abort fails too. Synthetic bytes only, no PII.
+    const uploadError = new Error("SYNTHETIC_UPLOAD_FAILURE_7f3a");
+    const abortError = new Error("SYNTHETIC_ABORT_FAILURE_9c2e");
+    const key = "snap/abort-failure.csv";
+    let cancelCalled = false;
+    let cancelReason: unknown;
+    const body = new Uint8Array(R2_MULTIPART_PART_SIZE);
+    body.fill(0x41);
+    // Note: no close() here — the stream stays open when the part write
+    // fails, so reader.cancel() reaches this cancel hook (a closed stream
+    // would make cancel a no-op and hide the teardown assertion).
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(body);
+      },
+      cancel(reason) {
+        cancelCalled = true;
+        cancelReason = reason;
+      }
+    });
+    const mpu = {
+      async uploadPart() {
+        throw uploadError;
+      },
+      async complete() {
+        throw new Error("complete must not run after a part failure");
+      },
+      async abort() {
+        throw abortError;
+      }
+    };
+    const bucket = {
+      async createMultipartUpload() {
+        return mpu as unknown as R2MultipartUpload;
+      }
+    } as unknown as R2Bucket;
+
+    // Act
+    const caught = await putReadableStreamToR2(bucket, key, stream, {
+      httpMetadata: { contentType: "text/csv" }
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    // Assert — the original upload error is rethrown unchanged, not the abort error.
+    expect(caught).toBe(uploadError);
+    // Assert — exactly one fixed-shape warning identifying the dangling upload.
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({
+      level: "warn",
+      msg: "R2 multipart abort failed; upload may be left dangling",
+      route: "snapshot.r2.multipart",
+      key
+    });
+    expect(Object.keys(warned[0]).sort()).toEqual([
+      "key",
+      "level",
+      "ms",
+      "msg",
+      "route"
+    ]);
+    // Assert — no uploaded bytes or PII leak into the warning record.
+    const serialized = JSON.stringify(warned[0]);
+    expect(serialized).not.toContain("SYNTHETIC_UPLOAD_FAILURE_7f3a");
+    expect(serialized).not.toContain("SYNTHETIC_ABORT_FAILURE_9c2e");
+    expect(serialized).not.toContain("AAAA");
+    // Assert — the source stream is torn down and its lock released.
+    expect(cancelCalled).toBe(true);
+    expect(cancelReason).toBe(uploadError);
+    expect(stream.locked).toBe(false);
   });
 });
 

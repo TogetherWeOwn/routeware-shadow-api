@@ -19,10 +19,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * | # | Site | Emits | Contract pinned below |
  * |---|---|---|---|
- * | 1 | `fetchReportCsvForPath` throw | `status` + upstream `statusText` | **LEAK-1: `statusText` is upstream-controlled and PII-capable — the message must be status-only like the query-id door. Failing pin (`it.fails`) until the bug card lands.** |
- * | 2 | `R2 snapshot stored:` log | object key only | key shape + no PII |
- * | 3 | `R2 snapshot archive disabled …` log | table + fixed reason | exact reason strings, no PII |
- * | 4 | `R2 snapshot put failed …` log | key + the R2 client error | key shape; the error object is logged (transport errors only — accepted, documented) |
+ * | 1 | `fetchReportCsvForPath` throw | status only | `statusText` is upstream-controlled and PII-capable — the message is status-only like the query-id door (fixed by TOG-19015; was a failing `it.fails` pin before). |
+ * | 2 | `R2 snapshot stored` info event | object key only | key shape + no PII |
+ * | 3 | `R2 snapshot archive disabled` info event | table + fixed reason | exact reason strings, no PII |
+ * | 4 | `R2 snapshot put failed` error event | object key only | key shape; the R2 client error text is NOT a log field (it reaches only the `onArchive` detail) |
  * | 5 | archive byte legs | full CSV bytes to D1-sync AND R2-put | byte-identical on both legs (a naive "scrub the archive" fix must not silently corrupt the backup) |
  * | 6 | export stream | CSV bytes only | zero console output while PII rows flow |
  * | 7 | export mid-stream D1 failure | stream error | zero console output; the error surfaces to the reader |
@@ -119,16 +119,14 @@ beforeEach(() => {
 });
 
 describe("static-path report-fetch throw carries status only (site 1 / LEAK-1)", () => {
-  // Filed as its own bug card per the G13 acceptance (LEAK-1): the static-path
-  // door interpolates upstream `statusText` into the thrown Error while the
-  // query-id door (`QueryExecuteDownload failed: HTTP <status>`, pinned by
+  // LEAK-1, fixed by TOG-19015: the static-path door used to interpolate
+  // upstream `statusText` into the thrown Error while the query-id door
+  // (`QueryExecuteDownload failed: HTTP <status>`, pinned by
   // `test/piiScrub.test.ts`) is status-only. `statusText` is an
   // upstream-controlled free-text field — Routeware may echo request context
   // there — and this message propagates via the `[step]` wrap into the cron
-  // `error` log field. `it.fails` keeps the suite green while documenting the
-  // leak: the moment the fix lands, this test passes unexpectedly and fails
-  // loudly, forcing its conversion to a plain pin.
-  it.fails("excludes upstream statusText from the throw", async () => {
+  // `error` log field.
+  it("excludes upstream statusText from the throw", async () => {
     // Arrange — both attempts fail with a PII-shaped body AND PII-shaped
     // status text. The body is already excluded (TOG-5821); the status text
     // is the unpinned channel.
@@ -154,23 +152,29 @@ describe("static-path report-fetch throw carries status only (site 1 / LEAK-1)",
 // Sites 2–5: R2 archive emissions.
 // ---------------------------------------------------------------------------
 
-const r2Logs: string[] = [];
-const r2Errors: unknown[][] = [];
-const realConsole = { log: console.log, error: console.error };
+const r2Logs: Array<Record<string, unknown>> = [];
+const r2Warnings: Array<Record<string, unknown>> = [];
+const r2Errors: Array<Record<string, unknown>> = [];
+const realConsole = { info: console.info, warn: console.warn, error: console.error };
 
 function captureR2Console(): void {
   r2Logs.length = 0;
+  r2Warnings.length = 0;
   r2Errors.length = 0;
-  console.log = (...a: unknown[]) => {
-    r2Logs.push(a.map(String).join(" "));
+  console.info = (...a: unknown[]) => {
+    r2Logs.push(a[0] as Record<string, unknown>);
+  };
+  console.warn = (...a: unknown[]) => {
+    r2Warnings.push(a[0] as Record<string, unknown>);
   };
   console.error = (...a: unknown[]) => {
-    r2Errors.push(a);
+    r2Errors.push(a[0] as Record<string, unknown>);
   };
 }
 
 afterEach(() => {
-  console.log = realConsole.log;
+  console.info = realConsole.info;
+  console.warn = realConsole.warn;
   console.error = realConsole.error;
 });
 
@@ -245,7 +249,7 @@ function enabledEnv(bucket: R2Bucket): Env {
 }
 
 describe("R2 archive success log carries the key only (site 2)", () => {
-  it("logs snapshots/<date>/<table>.csv with no row data while both legs see identical PII bytes", async () => {
+  it("logs history keys with no row data while D1 and both R2 copies see identical PII bytes", async () => {
     // Arrange
     captureR2Console();
     const { bucket, puts } = recordingBucket();
@@ -263,27 +267,48 @@ describe("R2 archive success log carries the key only (site 2)", () => {
     );
 
     // Assert — passthrough result, byte-identical legs, and the log lines
-    // name the key shapes with no row data anywhere near them. The second
-    // `put` is the manifest sidecar from `updateSnapshotManifest`
-    // (fresh bucket, so `get` returned null and the manifest was created).
+    // name the key shapes with no row data anywhere near them. Write order:
+    // history CSV, daily alias CSV, immutable history manifest, daily manifest
+    // (fresh bucket, so `get` returned null and it was created), latest pointer.
     expect(result).toEqual({ upserted: 1 });
     expect(d1Saw).toBe(PII_CSV);
-    expect(puts).toHaveLength(2);
+    expect(puts).toHaveLength(5);
     expect(puts[0]!.bytes).toBe(PII_CSV);
-    expect(puts[0]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
-    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
-    const manifest = JSON.parse(puts[1]!.bytes) as {
+    expect(puts[0]!.key).toMatch(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/customer\.csv$/);
+    expect(puts[1]!.bytes).toBe(PII_CSV);
+    expect(puts[1]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\/customer\.csv$/);
+    expect(puts[2]!.key).toBe(`${puts[0]!.key}.manifest.json`);
+    expect(puts[3]!.key).toMatch(/^snapshots\/\d{4}-\d{2}-\d{2}\.manifest\.json$/);
+    expect(puts[4]!.key).toBe("snapshot-latest/customer.json");
+    expect(puts[4]!.bytes).toBe(puts[2]!.bytes);
+    expectNoPii(puts[3]!.bytes);
+    expectNoPii(puts[4]!.bytes);
+    const manifest = JSON.parse(puts[2]!.bytes) as {
       version: number;
       files: Record<string, { key: string }>;
     };
     expect(manifest.version).toBe(1);
     expect(manifest.files["customer.csv"]?.key).toBe(puts[0]!.key);
-    expect(r2Logs).toHaveLength(2);
-    expect(r2Logs[0]).toBe(`R2 snapshot stored: ${puts[0]!.key}`);
-    expect(r2Logs[1]).toBe(`R2 snapshot manifest updated: ${puts[1]!.key}`);
+    expect(r2Logs).toEqual([
+      {
+        level: "info",
+        msg: "R2 snapshot stored",
+        route: "snapshot.r2.archive",
+        key: puts[0]!.key,
+        ms: null
+      },
+      {
+        level: "info",
+        msg: "R2 snapshot manifest updated",
+        route: "snapshot.r2.manifest",
+        manifestKey: puts[3]!.key,
+        ms: null
+      }
+    ]);
+    expect(r2Warnings).toEqual([]);
     expect(r2Errors).toEqual([]);
-    expectNoPii(r2Logs.join("\n"));
-    expectNoPii(puts[1]!.bytes);
+    expectNoPii(JSON.stringify([...r2Logs, ...r2Warnings, ...r2Errors]));
+    expectNoPii(puts[2]!.bytes);
   });
 });
 
@@ -310,9 +335,18 @@ describe("R2 archive disabled log carries table plus fixed reason (site 3)", () 
     expect(d1Ran).toBe(true);
     expect(puts).toEqual([]);
     expect(r2Logs).toEqual([
-      "R2 snapshot archive disabled for address: SNAPSHOTS binding unbound"
+      {
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "address",
+        reason: "SNAPSHOTS binding unbound",
+        ms: null
+      }
     ]);
-    expectNoPii(r2Logs.join("\n"));
+    expect(r2Warnings).toEqual([]);
+    expect(r2Errors).toEqual([]);
+    expectNoPii(JSON.stringify([...r2Logs, ...r2Warnings, ...r2Errors]));
     void bucket;
   });
 
@@ -332,14 +366,23 @@ describe("R2 archive disabled log carries table plus fixed reason (site 3)", () 
     // Assert
     expect(puts).toEqual([]);
     expect(r2Logs).toEqual([
-      "R2 snapshot archive disabled for container: SNAPSHOTS_R2_ENABLED=false"
+      {
+        level: "info",
+        msg: "R2 snapshot archive disabled",
+        route: "snapshot.r2.archive",
+        table: "container",
+        reason: "SNAPSHOTS_R2_ENABLED=false",
+        ms: null
+      }
     ]);
-    expectNoPii(r2Logs.join("\n"));
+    expect(r2Warnings).toEqual([]);
+    expect(r2Errors).toEqual([]);
+    expectNoPii(JSON.stringify([...r2Logs, ...r2Warnings, ...r2Errors]));
   });
 });
 
-describe("R2 put-failure log carries the key plus the transport error (site 4)", () => {
-  it("keeps the D1 result and pins the log shape", async () => {
+describe("R2 put-failure log carries the key only (site 4)", () => {
+  it("keeps the D1 result and logs the key shape without the R2 error text", async () => {
     // Arrange — R2 throws a fixed transport error; the PII CSV already
     // succeeded on the D1 leg.
     captureR2Console();
@@ -361,15 +404,22 @@ describe("R2 put-failure log carries the key plus the transport error (site 4)",
       async () => ({ upserted: 2 })
     );
 
-    // Assert — caller sees the D1 result; the first log arg is the fixed
-    // key template. The second arg is the R2 client error object itself
-    // (transport-level — never row bytes — so it is logged, not scrubbed).
+    // Assert — caller sees the D1 result. The error event carries the fixed
+    // key and no transport text: the R2 client error reaches only the
+    // `onArchive` detail, never a log field.
     expect(result).toEqual({ upserted: 2 });
-    expect(r2Errors).toHaveLength(1);
-    expect(String(r2Errors[0]![0])).toMatch(
-      /^R2 snapshot put failed for snapshots\/\d{4}-\d{2}-\d{2}\/container\.csv$/
-    );
-    expect(r2Errors[0]![1]).toBe(boom);
+    expect(r2Errors).toEqual([
+      {
+        level: "error",
+        msg: "R2 snapshot put failed",
+        route: "snapshot.r2.archive",
+        key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/),
+        ms: null
+      }
+    ]);
+    expect(r2Logs).toEqual([]);
+    expect(r2Warnings).toEqual([]);
+    expect(JSON.stringify(r2Errors)).not.toContain(boom.message);
   });
 });
 
@@ -431,38 +481,31 @@ function piiCustomerRow(id: number): Record<string, unknown> {
   };
 }
 
-const exportLogs: string[] = [];
-const exportErrors: string[] = [];
-const exportWarns: string[] = [];
+/** Every call on any console level during the export window (args as-is). */
+const exportOutput: unknown[][] = [];
 const realExportConsole = {
   log: console.log,
+  info: console.info,
   error: console.error,
   warn: console.warn
 };
 
 function captureExportConsole(): void {
-  exportLogs.length = 0;
-  exportErrors.length = 0;
-  exportWarns.length = 0;
-  console.log = (...a: unknown[]) => {
-    exportLogs.push(a.map(String).join(" "));
+  exportOutput.length = 0;
+  const sink = (...a: unknown[]) => {
+    exportOutput.push(a);
   };
-  console.error = (...a: unknown[]) => {
-    exportErrors.push(a.map(String).join(" "));
-  };
-  console.warn = (...a: unknown[]) => {
-    exportWarns.push(a.map(String).join(" "));
-  };
+  console.log = sink;
+  console.info = sink;
+  console.error = sink;
+  console.warn = sink;
 }
 
 function restoreExportConsole(): void {
   console.log = realExportConsole.log;
+  console.info = realExportConsole.info;
   console.error = realExportConsole.error;
   console.warn = realExportConsole.warn;
-}
-
-function allExportOutput(): string {
-  return [...exportLogs, ...exportErrors, ...exportWarns].join("\n");
 }
 
 describe("export stream emits bytes only, never log lines (sites 6–7)", () => {
@@ -479,7 +522,7 @@ describe("export stream emits bytes only, never log lines (sites 6–7)", () => 
       // nothing was logged at any level.
       expect(text).toContain(PII_COMPANY);
       expect(text).toContain(PII_PHONE);
-      expect(allExportOutput()).toBe("");
+      expect(exportOutput).toEqual([]);
     } finally {
       restoreExportConsole();
     }
@@ -500,14 +543,14 @@ describe("export stream emits bytes only, never log lines (sites 6–7)", () => 
       // pre-validate) with no log line carrying row data.
       expect(error).toBeInstanceOf(Error);
       expect(error.message).toBe("D1_ERROR: database is locked");
-      expect(allExportOutput()).toBe("");
+      expect(exportOutput).toEqual([]);
     } finally {
       restoreExportConsole();
     }
   });
 });
 
-describe("export response carries row bytes verbatim (site 8)", () => {
+describe("export response preserves PII business cells (site 8)", () => {
   it("serves PII rows as an attachment — the bearer gate is the control", async () => {
     // Arrange
     const { db } = fakeExportDb([piiCustomerRow(7)], "customer_id");
@@ -516,8 +559,8 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     const res = await snapshotCsvResponse(db, CUSTOMER_SNAPSHOT_EXPORT);
 
     // Assert — the download contract: attachment disposition, CSV type, and
-    // the row bytes verbatim. Scrubbing here would corrupt the operator's
-    // export (and break the import round-trip); unauthorized callers never
+    // PII business cells unchanged, plus the reversible encoding marker.
+    // PII scrubbing would break the import round-trip; unauthorized callers never
     // reach this constructor (site 9 + `test/snapshotAuth.test.ts`).
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
@@ -526,7 +569,7 @@ describe("export response carries row bytes verbatim (site 8)", () => {
     );
     const text = await res.text();
     expect(text).toContain(
-      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,${SYNCED_AT}`
+      `7,,${PII_COMPANY},Jane,,Example,,,,${PII_PHONE},,,true,1,${SYNCED_AT}`
     );
   });
 });

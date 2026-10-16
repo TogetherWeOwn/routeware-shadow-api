@@ -13,7 +13,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * reconciled left in whatever state it reached.
  *
  * A third property is new with structured logging: every run emits exactly one
- * `data-snapshot-sync {...}` JSON line whose `outcome` is `success`,
+ * primary record through the shared logger (`msg: "data-snapshot-sync"`, or
+ * `"data-snapshot-sync failed"` on a throw) whose `outcome` is `success`,
  * `unconfigured`, or `failed`. A silent failure must never look like "no
  * report paths configured" — that distinction is what the missed-sync alarm in
  * `docs/CRON-SYNC-ALARM-RUNBOOK.md` keys on.
@@ -76,10 +77,12 @@ vi.mock("../src/lib/d1SnapshotSync", () => ({
 
 const { scheduled, resolveChainedBase } = await import("../src/scheduled");
 
-const logs: string[] = [];
-const errors: unknown[][] = [];
-const warns: string[] = [];
-const real = { log: console.log, error: console.error, warn: console.warn };
+// logEvent hands the console one structured object per record, so the spies keep
+// the object itself (not a joined string) and assertions read its fields.
+const logs: Record<string, unknown>[] = [];
+const errors: Record<string, unknown>[] = [];
+const warns: Record<string, unknown>[] = [];
+const real = { info: console.info, error: console.error, warn: console.warn };
 
 /** Captures the promise handed to waitUntil so the test can await it. */
 function fakeCtx(): { ctx: ExecutionContext; settled: () => Promise<void> } {
@@ -121,22 +124,37 @@ async function runScheduled(
   await settled();
 }
 
-/** Parses the single structured line; asserts the greppable prefix. */
+/** The one primary record for a run that did not fail (success/unconfigured/skipped). */
 function loggedLine(): Record<string, unknown> {
   expect(logs).toHaveLength(1);
-  expect(logs[0].startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(logs[0].slice("data-snapshot-sync ".length)) as Record<string, unknown>;
+  expect(logs[0]).toMatchObject({
+    level: "info",
+    msg: "data-snapshot-sync",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof logs[0].ms).toBe("number");
+  return logs[0];
 }
 
+/** The one primary record for a failed run; its msg differs so alarms can key on it. */
 function errorLine(): Record<string, unknown> {
   expect(errors).toHaveLength(1);
-  expect(errors[0]).toHaveLength(1);
-  expect(String(errors[0][0]).startsWith("data-snapshot-sync ")).toBe(true);
-  return JSON.parse(String(errors[0][0]).slice("data-snapshot-sync ".length)) as Record<
-    string,
-    unknown
-  >;
+  expect(errors[0]).toMatchObject({
+    level: "error",
+    msg: "data-snapshot-sync failed",
+    route: "scheduled.data-snapshot-sync"
+  });
+  expect(typeof errors[0].ms).toBe("number");
+  return errors[0];
 }
+
+/** The fallback warning the handler emits when SHADOW_API_PUBLIC_BASE is unusable. */
+const FALLBACK_WARN = {
+  level: "warn",
+  msg: "SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation",
+  route: "scheduled.data-snapshot-sync",
+  ms: null
+};
 
 beforeEach(() => {
   calls.chained = [];
@@ -148,19 +166,19 @@ beforeEach(() => {
   logs.length = 0;
   errors.length = 0;
   warns.length = 0;
-  console.log = (...a: unknown[]) => {
-    logs.push(a.map(String).join(" "));
+  console.info = (...a: unknown[]) => {
+    logs.push(a[0] as Record<string, unknown>);
   };
   console.error = (...a: unknown[]) => {
-    errors.push(a);
+    errors.push(a[0] as Record<string, unknown>);
   };
   console.warn = (...a: unknown[]) => {
-    warns.push(a.map(String).join(" "));
+    warns.push(a[0] as Record<string, unknown>);
   };
 });
 
 afterEach(() => {
-  console.log = real.log;
+  console.info = real.info;
   console.error = real.error;
   console.warn = real.warn;
 });
@@ -196,8 +214,7 @@ describe("scheduled sync path selection", () => {
     // The fallback warning is the operator signal: without the var, D1's
     // per-invocation limit applies to all tables as one pool.
     expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
-    expect(warns[0]).toContain("single invocation");
+    expect(warns[0]).toMatchObject(FALLBACK_WARN);
   });
 
   it("treats a whitespace-only public base url as unset", async () => {
@@ -209,7 +226,7 @@ describe("scheduled sync path selection", () => {
     expect(calls.chained).toEqual([]);
     expect(loggedLine().configSource).toBe("fallback-single-invocation");
     expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain("SHADOW_API_PUBLIC_BASE is not set");
+    expect(warns[0]).toMatchObject(FALLBACK_WARN);
   });
 
   it.each([
@@ -239,7 +256,9 @@ describe("scheduled sync path selection", () => {
     expect(line.configSource).toBe("fallback-single-invocation");
     expect(line.d1LimitRisk).toBe(true);
     expect(line.outcome).toBe("success");
-    expect([...logs, ...warns, ...errors.flat().map(String)].join("\n")).not.toContain(value);
+    // Serialize the records: String() on an object would read "[object Object]"
+    // and make this leak check pass vacuously.
+    expect(JSON.stringify([...logs, ...warns, ...errors])).not.toContain(value);
   });
 
   it("still chains when a valid origin has surrounding whitespace", async () => {
@@ -462,7 +481,7 @@ describe("scheduled failure handling", () => {
     await expect(runScheduled(envWith("https://api.example.test"))).resolves.toBeUndefined();
   });
 
-  it("logs the failure with outcome failed and its step tag intact", async () => {
+  it("logs the failure with outcome failed and the allowlisted table", async () => {
     // Arrange
     behavior.error = "[customer snapshot] D1_ERROR: database is locked";
 
@@ -470,16 +489,19 @@ describe("scheduled failure handling", () => {
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert — failures go to console.error so they stay out of the success
-    // stream, but keep the same greppable prefix and JSON shape.
+    // stream, with the same route and envelope under the failed msg. Only the
+    // allowlisted table name travels — never the exception text, which could
+    // carry row data or upstream body bytes.
     expect(logs).toEqual([]);
     const line = errorLine();
     expect(line.outcome).toBe("failed");
-    expect(line.error).toBe("[customer snapshot] D1_ERROR: database is locked");
+    expect(line.table).toBe("customer");
+    expect(line).not.toHaveProperty("error");
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
     expect(typeof line.durationMs).toBe("number");
   });
 
-  it("stringifies a non-Error rejection instead of dropping it", async () => {
+  it("drops the text of an untagged rejection instead of logging it", async () => {
     // Arrange
     behavior.error = "raw string failure";
     behavior.rawThrow = true;
@@ -487,8 +509,10 @@ describe("scheduled failure handling", () => {
     // Act
     await runScheduled(envWith("https://api.example.test"));
 
-    // Assert
-    expect(errorLine().error).toBe("raw string failure");
+    // Assert — no step tag to allowlist, so no table and no error text.
+    const line = errorLine();
+    expect(line.table).toBeUndefined();
+    expect(line).not.toHaveProperty("error");
   });
 
   it("reports partial per-table progress when a later table fails (TOG-6546)", async () => {
@@ -520,7 +544,8 @@ describe("scheduled failure handling", () => {
     expect(line.summary).toContain("customer: 3 upserted, 4 rows");
     expect(line.summary).toContain("address: 5 upserted, 6 rows");
     expect(line.summary).toContain("failed: container");
-    expect(line.error).toBe("[container snapshot] D1_ERROR: database is locked");
+    expect(line.table).toBe("container");
+    expect(line).not.toHaveProperty("error");
   });
 
   it("keeps the all-null line for rejections with no partial attached", async () => {
@@ -535,6 +560,8 @@ describe("scheduled failure handling", () => {
     const line = errorLine();
     expect(line.tables).toEqual({ customer: null, address: null, container: null });
     expect(line.summary).toBe("sync threw before any table result was recorded");
+    expect(line.table).toBe("customer");
+    expect(line).not.toHaveProperty("error");
   });
 
   it("catches a failure on the single-invocation path too", async () => {
