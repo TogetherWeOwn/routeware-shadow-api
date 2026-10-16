@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import checklist from "../docs/PRODUCTION-DEPLOY-DRY-RUN.md?raw";
 import handover from "../docs/HANDOVER.md?raw";
 import workflow from "../.github/workflows/ci.yml?raw";
+import probeWorkflow from "../.github/workflows/post-deploy-probe.yml?raw";
 
 function shellBlocks(markdown: string): string[] {
   return [...markdown.matchAll(/^```bash\n([\s\S]*?)^```/gm)].map((match) => match[1]);
@@ -146,5 +147,13 @@ describe("production deploy rehearsal documentation", () => {
     const publishAt = deploy!.indexOf("run: npx wrangler deploy");
     expect(migrateAt).toBeGreaterThan(0);
     expect(publishAt).toBeGreaterThan(migrateAt);
+  });
+
+  it("keeps every scheduled or manual probe run in a unique non-cancelling group", () => {
+    const concurrency = probeWorkflow.split("\njobs:")[0];
+    expect(concurrency).toContain(
+      "group: post-deploy-probe-${{ github.run_id }}-${{ github.run_attempt }}",
+    );
+    expect(concurrency).toContain("cancel-in-progress: false");
   });
 });
