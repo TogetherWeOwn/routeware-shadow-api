@@ -84,9 +84,10 @@ jobs:
           else
             echo "probe=false" >> "$GITHUB_OUTPUT"
           fi
-          # infra: the filter itself, workflow config, shared entry, discovery
-          # manifests. Any infra change means EVERYTHING runs (rule 4).
-          if echo "$files" | grep -qE '^(\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          # infra: the filter itself, workflow config, the .nvmrc Node pin,
+          # shared entry, discovery manifests. Any infra change means
+          # EVERYTHING runs (rule 4).
+          if echo "$files" | grep -qE '^(\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "infra=true" >> "$GITHUB_OUTPUT"
           else
             echo "infra=false" >> "$GITHUB_OUTPUT"
@@ -94,7 +95,7 @@ jobs:
           # full: root dep manifests also run EVERYTHING (rule 4), so a
           # package.json/lock bump runs build AND probe (verified TOG-14898).
           # Non-PR already exited above; on PRs full = infra OR root dep change.
-          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
@@ -113,7 +114,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Regenerate Worker types (TOG-8373)
@@ -155,7 +156,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - name: Evaluate operator credential gate
         id: credential-gate
@@ -186,7 +187,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Hermetic post-deploy probe regressions
@@ -328,7 +329,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: R2 bucket preflight (TOG-6290)
