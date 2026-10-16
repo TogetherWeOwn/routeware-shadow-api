@@ -133,7 +133,7 @@ set +x  # before loading secrets or invoking the helper; never use shell tracing
 rotation_get() {
   local token="$1" path="$2"
   builtin printf 'Authorization: Bearer %s\n' "$token" |
-    curl -q -sS --header @- --write-out '\nHTTP %{http_code}\n' "$BASE$path"
+    curl -q -sS --connect-timeout 5 --max-time 30 --header @- --write-out '\nHTTP %{http_code}\n' "$BASE$path"
 }
 # After separately approved target/secret setup, examples of the new-value probes:
 rotation_get "$API_NEW" /api/v1/shadow/health  # expect 200
