@@ -88,7 +88,11 @@ for (const arg of argv.slice(2)) {
 
 function readScope(scope) {
   const fixture = flagValue(scope.key);
-  if (fixture) {
+  if (fixture !== null) {
+    if (!fixture.trim()) {
+      console.error(`${CHECK_NAME}: audit fixture path for --${scope.key} must not be empty`);
+      exit(2);
+    }
     try {
       return readFileSync(path.resolve(fixture), "utf8");
     } catch (error) {
