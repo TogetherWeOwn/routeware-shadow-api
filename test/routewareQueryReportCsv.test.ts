@@ -138,29 +138,41 @@ describe("fetchReportCsvByQueryId completion poll (TOG-6543)", () => {
     expect(calls.forwards).toHaveLength(0);
   });
 
-  it("throws status-only when the poll never completes (no truncated download)", async () => {
-    // Arrange — `REPORT_QUERY_POLL_MAX_ATTEMPTS` bounds the suite to 2 polls.
+  it("bounds never-ready polling with a fixed-shape timeout error", async () => {
+    // Arrange — real timers, 1ms between polls, and only 2 attempts.
     const boundedEnv = {
       ...env,
+      REPORT_QUERY_POLL_INTERVAL_MS: "1",
       REPORT_QUERY_POLL_MAX_ATTEMPTS: "2"
     } as unknown as Env;
     behavior.responses = [() => pollBody(false), () => pollBody(false), csv];
 
     // Act
+    const startedAt = performance.now();
     const error = (await fetchReportCsvByQueryId(boundedEnv, "23").catch(
       (e: unknown) => e
     )) as Error;
+    const elapsedMs = performance.now() - startedAt;
 
     // Assert — timeout after the budget, and the queued CSV is never fetched.
+    expect(elapsedMs).toBeLessThan(1_000);
     expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe("Error");
     expect(error.message).toBe(
       "QueryRequestIsComplete timed out after 2 attempts"
     );
     expect(calls.forwards).toHaveLength(2);
+    const polls = calls.forwards.map((c) => new URL(c.url));
     expect(
-      calls.forwards.every((c) => c.url.includes("QueryRequestIsComplete"))
+      polls.every((url) => url.pathname === "/WebRW/Reports/QueryRequestIsComplete")
     ).toBe(true);
-  });
+    const requestId = polls[0].searchParams.get("requestID");
+    expect(requestId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(polls[1].searchParams.get("requestID")).toBe(requestId);
+    expect(behavior.responses).toHaveLength(1);
+    // A regressed loop must fail in seconds, not inherit the suite's 30s cap.
+    // Per-test timeout: https://v4.vitest.dev/api/#test
+  }, 2_000);
 });
 
 /**
