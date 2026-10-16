@@ -12,9 +12,14 @@
 -- Container suppression keys on lineage alone, never on current address
 -- ownership: an ownership check passes an erased customer's containers through
 -- after a live-to-erased re-home (the skipped address write records lineage,
--- but the address row still sits under the live owner). The AFTER INSERT /
--- AFTER UPDATE cleanup triggers below delete the lineage row whenever an
--- address write lands under a live customer, so a stale mapping can never
+-- but the address row still sits under the live owner). A suppressed re-home
+-- into an erased customer additionally deletes that address's containers at
+-- once: the row stays under its previous owner and is never restamped, so its
+-- children would make the address-stage reconcile fail its FK delete and abort
+-- every later tick. Removing the erased-attributed children now leaves a
+-- childless stale parent the next reconciling sync deletes normally. The AFTER
+-- INSERT / AFTER UPDATE cleanup triggers below delete the lineage row whenever
+-- an address write lands under a live customer, so a stale mapping can never
 -- suppress the new owner's containers after an erased-to-live re-home.
 --
 -- The address UPDATE trigger keys on the NEW owner only, matching the INSERT
@@ -43,6 +48,17 @@ WHEN EXISTS (
   WHERE customer_id = NEW.customer_id
 )
 BEGIN
+  -- Direct-SQL duplicate-key insert of an existing row under another owner is
+  -- a re-home into an erased customer (the app upsert path reaches the UPDATE
+  -- trigger via ON CONFLICT DO UPDATE). Genuinely new addresses match no row
+  -- and this is a no-op for them.
+  DELETE FROM container_snapshot
+    WHERE pickup_address_id = NEW.pickup_address_id
+      AND EXISTS (
+        SELECT 1 FROM address_snapshot
+        WHERE pickup_address_id = NEW.pickup_address_id
+          AND customer_id != NEW.customer_id
+      );
   INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at)
     SELECT NEW.pickup_address_id, NEW.customer_id, erased_at FROM customer_snapshot_erasure
     WHERE customer_id = NEW.customer_id
@@ -57,6 +73,18 @@ WHEN EXISTS (
   WHERE customer_id = NEW.customer_id
 )
 BEGIN
+  -- A suppressed re-home keeps the row under its previous owner without ever
+  -- restamping it. Same-owner plain updates keep their children (the guard
+  -- below is false for them); an owner change removes the erased-attributed
+  -- children so the stale parent reconciles away instead of FK-aborting the
+  -- address stage on every later tick.
+  DELETE FROM container_snapshot
+    WHERE pickup_address_id = NEW.pickup_address_id
+      AND EXISTS (
+        SELECT 1 FROM address_snapshot
+        WHERE pickup_address_id = NEW.pickup_address_id
+          AND customer_id != NEW.customer_id
+      );
   INSERT INTO customer_snapshot_erasure_address (pickup_address_id, customer_id, erased_at)
     SELECT NEW.pickup_address_id, NEW.customer_id, erased_at FROM customer_snapshot_erasure
     WHERE customer_id = NEW.customer_id

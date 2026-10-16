@@ -40,7 +40,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   well; other customers keep fail-closed foreign keys. Container suppression
   keys on that lineage alone, so an erased customer's containers cannot replay
   after a live-to-erased re-home, while an address re-homed to a live customer
-  flows again once its stale lineage is cleared. Customers erased before this
+  flows again once its stale lineage is cleared. A suppressed re-home into an
+  erased customer also removes that address's existing containers at once, so
+  the stale parent reconciles away on the next sync instead of failing the
+  address-stage delete with a foreign-key error on every tick. Customers erased before this
   migration have no marker; backfill the marker plus FK-order row deletes with
   privileged `wrangler d1 execute` (a marker over re-inserted rows freezes them
   without removing them) and manage markers only via privileged SQL (see
