@@ -12,7 +12,20 @@ const fixture = `
     const url = new URL(input);
     console.log('FIXTURE_FETCH ' + url.origin + url.pathname + ' ' + (init.method || 'GET') +
       ' ' + (init.headers?.authorization ? 'authenticated' : 'public'));
+    // Fail fast if the wrapper already blew the per-request timeout: with a
+    // dropped timeoutMs the abort fires in ~1ms, so a healthy instant fixture
+    // would otherwise never observe it.
+    if (init.signal?.aborted) throw new DOMException('fixture: signal already aborted', 'AbortError');
     if (process.env.SMOKE_FIXTURE_MODE === 'network-error') throw new TypeError('fixture network failure');
+    if (process.env.SMOKE_FIXTURE_MODE === 'hang') {
+      // Never answers: only the wrapper's per-request abort ends this, so the
+      // elapsed time pins the exact --timeout-ms value plumbed through.
+      await new Promise((_, reject) => {
+        init.signal?.addEventListener('abort',
+          () => reject(new DOMException('fixture: hung request aborted', 'AbortError')),
+          { once: true });
+      });
+    }
     if (url.pathname === '/api/v1/health') {
       return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
     }
@@ -33,10 +46,10 @@ const fixture = `
   };
 `;
 
-function run(args = [], env = {}) {
+function run(args = [], env = {}, timeoutMs = 1000) {
   const result = spawnSync(process.execPath, [
     `--import=data:text/javascript,${encodeURIComponent(fixture)}`, wrapper,
-    "--timeout-ms=1000", ...args,
+    `--timeout-ms=${timeoutMs}`, ...args,
   ], {
     cwd: root,
     // Do not inherit real tokens or Node preload hooks.
@@ -95,6 +108,31 @@ test("healthy run sends auth only on the authenticated readiness probe", () => {
   assert.match(result.output, /PASS auth gate/);
   assert.match(result.output, /PASS readiness/);
   assert.doesNotMatch(result.output, new RegExp(TOKEN));
+});
+
+test("--timeout-ms bounds a hanging server through the wrapper", () => {
+  // Pins the wrapper's timeoutMs plumbing end to end: the fixture never
+  // answers, so the elapsed time is 3x the plumbed per-request timeout.
+  // A dropped timeoutMs aborts in ~1ms (below the floor); a hardcoded
+  // default takes 3x15s (above the ceiling). Node timers never fire early,
+  // so the floor is not flaky under runner load.
+  const timeoutMs = 200;
+  const started = Date.now();
+  const result = run([], {
+    SHADOW_API_BASE: BASE,
+    SHADOW_API_TOKEN: TOKEN,
+    SMOKE_FIXTURE_MODE: "hang",
+  }, timeoutMs);
+  const elapsed = Date.now() - started;
+  assert.equal(result.status, 1, result.output);
+  assert.match(result.output, /FAIL liveness: GET \/api\/v1\/health -> timeout/);
+  assert.match(result.output, /FAIL auth gate: unauthenticated readiness -> timeout/);
+  assert.match(result.output, /FAIL readiness: GET \/api\/v1\/readiness -> timeout/);
+  assert.doesNotMatch(result.output, /MISSING/);
+  assert.doesNotMatch(result.output, /degraded/);
+  assert.doesNotMatch(result.output, new RegExp(TOKEN));
+  assert.ok(elapsed >= 300, `expected ~3x${timeoutMs}ms of timeout waits, took ${elapsed}ms: ${result.output}`);
+  assert.ok(elapsed < 5_000, `expected --timeout-ms=${timeoutMs} to bound the run, took ${elapsed}ms: ${result.output}`);
 });
 
 test("a network failure exits 1 with a one-line FAIL, no stack, no token", () => {
