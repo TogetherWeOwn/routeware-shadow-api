@@ -289,6 +289,8 @@ change the throttle configuration for this drill.
 )
 # First 19 failed checks: HTTP 401. Final check: HTTP 429.
 # Content-Type: application/problem+json; Retry-After: 60
+# X-RateLimit-Limit: 19; X-RateLimit-Remaining: 0
+# X-RateLimit-Reset: <absolute Unix time in seconds when the block expires>
 ```
 
 ```json
@@ -302,8 +304,23 @@ change the throttle configuration for this drill.
 ```
 
 `Retry-After` is a positive integer number of seconds (up to 60 here), not
-an HTTP date. **Fix:** stop the invalid-auth loop and honor the returned delay
-before another unauthenticated attempt; repeated failures can renew the
+an HTTP date. The same 429 also carries three `X-RateLimit-*` headers:
+
+- `X-RateLimit-Limit: 19` — the failed auth checks allowed per IP in the
+  60-second window; the next (20th) failed check is the first 429.
+- `X-RateLimit-Remaining: 0` — no failed checks remain while blocked. It is
+  always `0` on this 429; the headers appear only on the 429, not on the
+  preceding 401s, so there is no countdown to poll.
+- `X-RateLimit-Reset` — the moment the block expires as an absolute Unix
+  time in **seconds** (not milliseconds and not a relative delay). It is
+  the same expiry `Retry-After` counts down to, in absolute form; prefer
+  `Retry-After` for the wait itself, since it needs no clock agreement
+  with the server.
+
+CORS exposes `Retry-After` and all three `X-RateLimit-*` headers, so
+browser clients can read them cross-origin. **Fix:** stop the invalid-auth
+loop and honor the returned delay before another unauthenticated attempt;
+repeated failures can renew the
 block. If you already have a valid token, it passes the outer gate immediately
 and attempts to clear the bucket; a 200 does not confirm the reset:
 
@@ -325,7 +342,7 @@ npm test -- test/authThrottle.test.ts
 ```
 
 This recipe applies only when `type` ends in `#rate-limited`; a 429 ending in
-`#upstream-error` carries no `Retry-After`
+`#upstream-error` carries no `Retry-After` and no `X-RateLimit-*` headers
 ([see below](#upstream-errors-keep-their-status)). Catalog:
 [`rate-limited`](./PROBLEMS.md#rate-limited).
 
