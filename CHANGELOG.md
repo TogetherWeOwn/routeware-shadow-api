@@ -14,6 +14,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `no-store`. Preflight, `/openapi.json` and `/docs` are unchanged. Pinned in
   `test/cacheControlNoStore.test.ts`; policy recorded in
   `docs/TOG-8368-cors-security-headers-audit.md`.
+- TOG-22034: The supported Node runtime moves from 20 (end of life
+  2026-04-30, no more security fixes) to 22 (Maintenance LTS, security
+  fixes until 2027-04-30): `.nvmrc` is `22`, `engines.node` is `>=22`, and
+  every CI workflow (including the deploy job that runs `wrangler deploy`)
+  sets up Node 22. `npm run check:ci-workflow` now fails when any workflow
+  `node-version` or `engines.node` drifts from the `.nvmrc` major, or an
+  `actions/setup-node` step pins neither; a `.nvmrc`-only change runs the
+  full CI so that check sees it.
 - TOG-25212: Every successful per-customer detail-full D1 refresh now emits
   one `info` log line (`route: sync.detailFull`) with the customer id,
   address/container counts, computed D1 ops vs the 900-op budget, and cache
