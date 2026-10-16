@@ -18,6 +18,7 @@
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:r2-preflight": "node scripts/check-r2-preflight.mjs",
+    "check:r2-lifecycle-proposal": "node scripts/check-r2-lifecycle-proposal.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:docs-links": "node scripts/check-docs-links.mjs",

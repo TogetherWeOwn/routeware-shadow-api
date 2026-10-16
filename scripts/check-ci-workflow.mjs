@@ -213,6 +213,15 @@ assert.match(
   /^        run: npm run check:docs-links$/m,
   "hygiene must run the docs link and anchor check (TOG-18936)"
 );
+// The R2 lifecycle proposal shape guard validates
+// docs/r2-lifecycle-proposal.snapshot-history.json stays a byte-clean S3
+// PutBucketLifecycleConfiguration body, credential-free. Pin it present so
+// proposal drift can never land without the hygiene gate (TOG-25213, R9-05).
+assert.match(
+  hygiene,
+  /npm run check:r2-lifecycle-proposal/,
+  "hygiene must run the R2 lifecycle proposal shape guard (TOG-25213)"
+);
 
 // The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
 // workflow so deploy verification runs on a schedule. Pin it present: the
