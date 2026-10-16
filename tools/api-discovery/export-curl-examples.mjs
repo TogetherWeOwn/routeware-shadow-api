@@ -7,6 +7,7 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { curlExampleForEntry, findHarvestRow } from "./lib/curlExamples.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const harvestPath = join(__dirname, "out", "harvest.ndjson");
@@ -24,49 +25,6 @@ try {
   console.warn("No harvest.ndjson; using example files only.");
 }
 
-function findHarvestRow(method, upstreamPath) {
-  for (let i = harvestLines.length - 1; i >= 0; i--) {
-    try {
-      const row = JSON.parse(harvestLines[i]);
-      if (row.method === method && row.pathname === upstreamPath) {
-        return row;
-      }
-    } catch {
-      /* skip */
-    }
-  }
-  return null;
-}
-
-function slug(method, upstreamPath) {
-  const tail = upstreamPath.replace(/^\/+/, "").replace(/\//g, "_");
-  return `${method}_${tail}`;
-}
-
-function queryToSearch(query) {
-  if (!query || typeof query !== "object") {
-    return "";
-  }
-  const p = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (Array.isArray(v)) {
-      v.forEach((x) => p.append(k, String(x)));
-    } else if (v != null) {
-      p.set(k, String(v));
-    }
-  }
-  const s = p.toString();
-  return s ? `?${s}` : "";
-}
-
-function isJsonContentType(ct) {
-  if (!ct || typeof ct !== "string") {
-    return true;
-  }
-  const lower = ct.toLowerCase();
-  return lower.includes("json") || lower.includes("+json");
-}
-
 await rm(bodiesDir, { recursive: true, force: true }).catch(() => {});
 await mkdir(bodiesDir, { recursive: true });
 
@@ -80,11 +38,7 @@ const sh = [
 ];
 
 for (const entry of map) {
-  const row = findHarvestRow(entry.method, entry.upstreamPath);
-  const name = slug(entry.method, entry.upstreamPath);
-  const contentType =
-    row?.requestContentType ?? entry.exampleContentType ?? "application/json";
-
+  const row = findHarvestRow(harvestLines, entry.method, entry.upstreamPath);
   let bodyText = null;
   if (row?.requestBodyPreview) {
     bodyText = String(row.requestBodyPreview).trim();
@@ -92,38 +46,11 @@ for (const entry of map) {
     bodyText = (await readFile(join(__dirname, entry.exampleFile), "utf8")).trim();
   }
 
-  const useJson = isJsonContentType(contentType);
-  const bodyExt = useJson ? "json" : "body";
-  const bodyPath = join(bodiesDir, `${name}.${bodyExt}`);
-
-  sh.push(`# ${entry.method} ${entry.upstreamPath} → ${entry.shadowPath}`);
-
-  if (entry.method === "GET") {
-    const qs =
-      row && Object.keys(row.query ?? {}).length > 0
-        ? queryToSearch(row.query)
-        : entry.exampleQuery
-          ? `?${entry.exampleQuery}`
-          : "";
-    sh.push(
-      `curl -sS \"$BASE${entry.shadowPath}${qs}\" -H \"Accept: */*\" -H \"X-Requested-With: XMLHttpRequest\"`
-    );
-  } else if (bodyText) {
-    await writeFile(bodyPath, bodyText, "utf8");
-    const acceptHdr = useJson
-      ? "application/json, text/javascript, */*; q=0.01"
-      : "*/*";
-    sh.push(
-      `curl -sS -X POST \"$BASE${entry.shadowPath}\" \\`,
-      `  -H \"Content-Type: ${contentType.replace(/"/g, '\\"')}\" \\`,
-      `  -H \"Accept: ${acceptHdr}\" \\`,
-      `  -H \"X-Requested-With: XMLHttpRequest\" \\`,
-      `  --data-binary \"@$DIR/bodies/${name}.${bodyExt}\"`
-    );
-  } else {
-    sh.push("# (no body: add exampleFile to route-map or re-record with updated recorder)");
+  const rendered = curlExampleForEntry(entry, row, bodyText);
+  if (rendered.bodyFile) {
+    await writeFile(join(bodiesDir, rendered.bodyFile.fileName), rendered.bodyFile.text, "utf8");
   }
-  sh.push("");
+  sh.push(...rendered.lines);
 }
 
 await writeFile(outSh, sh.join("\n"), "utf8");

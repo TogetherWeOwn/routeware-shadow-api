@@ -30,3 +30,26 @@ export function stubBlock(gap) {
     ""
   ];
 }
+
+/** Render the complete suggested-routes.stub.ts checklist. */
+export function renderSuggestedRoutesStub(missing) {
+  const lines = [
+    "/**",
+    " * AUTO-GENERATED — do not import. Copy pieces into src/app.ts + route-map.json.",
+    " * Upstream paths are under TARGET_BASE_PATH (default /WebRW).",
+    " */",
+    "",
+    "/* eslint-disable */",
+    ""
+  ];
+
+  for (const gap of missing.slice(0, 40)) {
+    lines.push(...stubBlock(gap));
+  }
+
+  if (missing.length > 40) {
+    lines.push(`// … and ${missing.length - 40} more (see route-gaps.json)`);
+  }
+
+  return lines.join("\n");
+}
