@@ -1,102 +1,62 @@
 #!/usr/bin/env node
 /**
- * Post-deploy smoke check (TOG-5816).
+ * Post-deploy smoke check (TOG-5816, timeouts and verdicts TOG-22090).
  *
  * Usage:
- *   SHADOW_API_BASE=https://<worker-host> SHADOW_API_TOKEN=<token> node scripts/smoke-readiness.mjs
+ *   SHADOW_API_BASE=https://<worker-host> SHADOW_API_TOKEN=<token> node scripts/smoke-readiness.mjs [--timeout-ms=N]
  *
  * Hits the public liveness probe first (no auth), then the authenticated
  * readiness probe, and prints per-dependency status. Exits 0 only when the
  * Worker is up AND every readiness check passes; exits 1 otherwise (including
  * when a dependency is degraded — that is the signal to investigate the
- * deploy, not to roll forward).
+ * deploy, not to roll forward); exits 2 on missing env or an invalid flag.
+ * Every request is bounded by --timeout-ms (default 15000).
  *
  * Never prints the token. Safe to run against staging/dev; no writes.
+ *
+ * Pure logic lives in `./lib/smokeReadiness.mjs` and is unit-tested; this file
+ * is the thin wrapper around it.
  */
+import { argv, env, exit } from "node:process";
+import { parseSmokeArgs, runSmokeReadiness, usage } from "./lib/smokeReadiness.mjs";
 
-const base = (process.env.SHADOW_API_BASE ?? "").replace(/\/$/, "");
-const token = process.env.SHADOW_API_TOKEN ?? process.env.CUSTOMER_SNAPSHOT_SYNC_SECRET ?? "";
+let timeoutMs;
+try {
+  ({ timeoutMs } = parseSmokeArgs(argv.slice(2)));
+} catch (error) {
+  if (error?.code === "SMOKE_HELP") {
+    console.log(usage());
+    exit(0);
+  }
+  console.error(error?.message ?? usage());
+  exit(2);
+}
+
+const base = (env.SHADOW_API_BASE ?? "").replace(/\/$/, "");
+const token = env.SHADOW_API_TOKEN ?? env.CUSTOMER_SNAPSHOT_SYNC_SECRET ?? "";
 
 if (!base) {
-  console.error("Missing SHADOW_API_BASE (e.g. https://routeware-shadow-api.<account>.workers.dev)");
-  process.exit(2);
+  console.error(`Missing SHADOW_API_BASE (e.g. https://routeware-shadow-api.<account>.workers.dev)\n\n${usage()}`);
+  exit(2);
 }
 if (!token) {
-  console.error("Missing SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET fallback)");
-  process.exit(2);
+  console.error(`Missing SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET fallback)\n\n${usage()}`);
+  exit(2);
 }
 
-async function get(path, headers = {}) {
-  const res = await fetch(`${base}${path}`, { headers });
-  let body = null;
-  try {
-    body = await res.json();
-  } catch {
-    body = null;
-  }
-  return { res, body };
+try {
+  const { stdout, stderr, exitCode } = await runSmokeReadiness({
+    fetchImpl: fetch,
+    base,
+    token,
+    timeoutMs,
+  });
+  for (const line of stdout) console.log(line);
+  for (const line of stderr) console.error(line);
+  exit(exitCode);
+} catch (error) {
+  // Last-resort guard: one FAIL line, never a stack trace, never the token.
+  const safe = String(error?.message ?? error ?? "unknown").split("\n")[0].split(token).join("[redacted]");
+  console.error(`FAIL smoke: ${safe.slice(0, 200) || "unexpected error"}`);
+  exit(1);
 }
-
-let failed = false;
-
-// 1. Liveness — public, must be 200 {"status":"ok"}.
-const health = await get("/api/v1/health");
-if (health.res.status !== 200 || health.body?.status !== "ok") {
-  console.error(`FAIL liveness: GET /api/v1/health -> ${health.res.status}`);
-  failed = true;
-} else {
-  console.log("PASS liveness: GET /api/v1/health -> 200 ok");
-}
-
-// 2. Readiness without a token must 401 (gate is up).
-const unauth = await get("/api/v1/readiness");
-if (unauth.res.status !== 401) {
-  console.error(`FAIL auth gate: unauthenticated readiness -> ${unauth.res.status} (expected 401)`);
-  failed = true;
-} else {
-  console.log("PASS auth gate: unauthenticated readiness -> 401");
-}
-
-// 3. Authenticated readiness — per-dependency status.
-const ready = await get("/api/v1/readiness", { authorization: `Bearer ${token}` });
-const checks = ready.body?.checks;
-console.log(`readiness: HTTP ${ready.res.status} status=${ready.body?.status ?? "unknown"}`);
-for (const name of ["d1", "r2", "config"]) {
-  const c = checks?.[name];
-  if (!c) {
-    console.log(`  ${name}: MISSING from response`);
-    failed = true;
-    continue;
-  }
-  const flag = name === "config"
-    ? `customer=${c.customer} address=${c.address} container=${c.container}`
-    : name === "r2"
-      ? `bound=${c.bound} enabled=${c.enabled}`
-      : "";
-  console.log(`  ${name}: ${c.ok ? "ok" : "NOT OK"} ${flag}${c.detail ? ` — ${c.detail}` : ""}`.trimEnd());
-  if (!c.ok) failed = true;
-}
-
-// 4. Cron staleness — advisory only (TOG-8883). The probe never flips the
-// overall status, so it must never fail this gate: a never-yet-run staging
-// Worker is deployable. Printed for the operator, not gated on.
-const cron = checks?.cron;
-if (!cron) {
-  console.log("  cron: MISSING from response (older deploy?)");
-} else {
-  const perTable = ["customer", "address", "container"]
-    .map((t) => `${t}=${cron.tables?.[t]?.outcome ?? "none"}@${cron.tables?.[t]?.ranAt ?? "?"}`)
-    .join(" ");
-  console.log(
-    `  cron: ${cron.stale ? "STALE (advisory)" : "fresh"} lastRunAt=${cron.lastRunAt ?? "none"} ${perTable}${cron.detail ? ` — ${cron.detail}` : ""}`.trimEnd()
-  );
-}
-
-if (ready.res.status !== 200 || ready.body?.status !== "ok") {
-  console.error("FAIL readiness: Worker up but a dependency is degraded (see above)");
-  failed = true;
-} else {
-  console.log("PASS readiness: all dependencies ok");
-}
-
-process.exit(failed ? 1 : 0);
