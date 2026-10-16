@@ -11,9 +11,10 @@
  * (kept out of the root vitest run on purpose — vitest only includes
  * `test/**.test.ts`, so root `npm test` is untouched).
  *
- * Paired build card [TOG-25335](/TOG/issues/TOG-25335) implements on this branch
- * and must never edit this file. Reviewer check: each fixture mutation below
- * flips exactly one test.
+ * Post-review contract (Paperclip Review on PR #272): the build card
+ * ([TOG-25335](/TOG/issues/TOG-25335)) extends this file only to pin
+ * reviewer-mandated behavior, keeping every other pin intact. Reviewer
+ * check: each fixture mutation below flips exactly one test.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -25,8 +26,9 @@ import { test } from "node:test";
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url));
 
-function sandbox() {
+function sandbox(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "route-gap-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, "out"), { recursive: true });
   // Test the real implementation: copy the script under test into the sandbox
   // so its __dirname-relative reads (route-map.json, out/...) stay isolated.
@@ -34,8 +36,8 @@ function sandbox() {
   return dir;
 }
 
-function run(dir) {
-  const result = spawnSync(process.execPath, [path.join(dir, "route-gap.mjs")], {
+function run(dir, ...args) {
+  const result = spawnSync(process.execPath, [path.join(dir, "route-gap.mjs"), ...args], {
     cwd: dir,
     // Minimal env: the script needs no tokens or .dev.vars; prove it.
     env: { PATH: process.env.PATH },
@@ -73,8 +75,8 @@ function discovered(...ops) {
   };
 }
 
-test("fails when a harvested operation has no shadow route", () => {
-  const dir = sandbox();
+test("fails when a harvested operation has no shadow route", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(path.join(dir, "route-map.json"), JSON.stringify([MAPPED]), "utf8");
   fs.writeFileSync(
     path.join(dir, "out", "discovered-operations.json"),
@@ -97,8 +99,8 @@ test("fails when a harvested operation has no shadow route", () => {
   );
 });
 
-test("fails when a route-map entry was not seen in the harvest", () => {
-  const dir = sandbox();
+test("warns (exit 0) when a route-map entry was not seen in the harvest", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(
     path.join(dir, "route-map.json"),
     JSON.stringify([
@@ -118,7 +120,8 @@ test("fails when a route-map entry was not seen in the harvest", () => {
   );
 
   const result = run(dir);
-  assert.equal(result.status, 1, `expected exit 1 on stale map entry, got ${result.status}: ${result.output}`);
+  assert.equal(result.status, 0, `stale map entry must stay exit 0 by default, got ${result.status}: ${result.output}`);
+  assert.match(result.output, /StaleModal/);
   const stale = report(dir).mappedButNotInLastHarvest.map((m) => `${m.method} ${m.upstreamPath}`);
   assert.ok(
     stale.includes("GET /WebRW/Customer/StaleModal"),
@@ -126,8 +129,73 @@ test("fails when a route-map entry was not seen in the harvest", () => {
   );
 });
 
-test("passes when every harvested op is mapped and every map entry was harvested", () => {
-  const dir = sandbox();
+test("fails with --strict when a route-map entry was not seen in the harvest", (t) => {
+  const dir = sandbox(t);
+  fs.writeFileSync(
+    path.join(dir, "route-map.json"),
+    JSON.stringify([
+      MAPPED,
+      {
+        method: "GET",
+        upstreamPath: "/WebRW/Customer/StaleModal",
+        shadowPath: "/api/v1/routeware/customer/stale-modal",
+      },
+    ]),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(dir, "out", "discovered-operations.json"),
+    JSON.stringify(discovered({ method: "POST", pathname: "/WebRW/Customer/CustomersRead", count: 3 })),
+    "utf8"
+  );
+
+  const result = run(dir, "--strict");
+  assert.equal(result.status, 1, `expected exit 1 on stale map entry with --strict, got ${result.status}: ${result.output}`);
+  assert.match(result.output, /StaleModal/);
+});
+
+test("exits 0 on an aggregate with zero operations (nothing to compare)", (t) => {
+  const dir = sandbox(t);
+  fs.writeFileSync(
+    path.join(dir, "route-map.json"),
+    JSON.stringify([
+      MAPPED,
+      {
+        method: "GET",
+        upstreamPath: "/WebRW/Customer/StaleModal",
+        shadowPath: "/api/v1/routeware/customer/stale-modal",
+      },
+    ]),
+    "utf8"
+  );
+  fs.writeFileSync(
+    path.join(dir, "out", "discovered-operations.json"),
+    JSON.stringify({
+      generatedAt: "2026-10-15T00:00:00.000Z",
+      sourceFile: "out/harvest.ndjson",
+      lineCount: 0,
+      operations: [],
+      note: "No harvest file yet. Run npm run record, then npm run process.",
+    }),
+    "utf8"
+  );
+
+  const result = run(dir);
+  assert.equal(result.status, 0, `empty aggregate must stay exit 0, got ${result.status}: ${result.output}`);
+  assert.match(result.output, /nothing to compare/);
+});
+
+test("fails when the aggregate is truncated (no silent pass)", (t) => {
+  const dir = sandbox(t);
+  fs.writeFileSync(path.join(dir, "route-map.json"), JSON.stringify([MAPPED]), "utf8");
+  fs.writeFileSync(path.join(dir, "out", "discovered-operations.json"), '{"operations": [broken', "utf8");
+
+  const result = run(dir);
+  assert.equal(result.status, 1, `truncated aggregate must exit 1, got ${result.status}: ${result.output}`);
+});
+
+test("passes when every harvested op is mapped and every map entry was harvested", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(path.join(dir, "route-map.json"), JSON.stringify([MAPPED]), "utf8");
   fs.writeFileSync(
     path.join(dir, "out", "discovered-operations.json"),
@@ -142,8 +210,8 @@ test("passes when every harvested op is mapped and every map entry was harvested
   assert.doesNotMatch(result.output, /killeen\.routeware\.com/);
 });
 
-test("exits 0 when no aggregate exists yet", () => {
-  const dir = sandbox();
+test("exits 0 when no aggregate exists yet", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(path.join(dir, "route-map.json"), JSON.stringify([MAPPED]), "utf8");
   // No out/discovered-operations.json on purpose.
 

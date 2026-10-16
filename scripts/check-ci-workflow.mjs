@@ -204,6 +204,17 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The discovery transform pins (node --test suites for route-gap and
+// validate-harvest) live outside the root vitest run, and tools-only PRs skip
+// the filtered `build` job — so hygiene is the only gate that runs them. Pin
+// it present so the route-gap exit-code contract can never regress silently
+// (TOG-25335).
+assert.match(
+  hygiene,
+  /^        run: npm run test:discovery$/m,
+  "hygiene must run the discovery transform pins (TOG-25335)"
+);
+
 // The scheduled post-deploy probe (TOG-8365, gap G18) lives in its own
 // workflow so deploy verification runs on a schedule. Pin it present: the
 // cron, the skip-safe npm script, and the read-only GET-only probe paths.

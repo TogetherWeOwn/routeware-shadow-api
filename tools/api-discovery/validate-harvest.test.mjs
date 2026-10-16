@@ -11,9 +11,10 @@
  * (kept out of the root vitest run on purpose — vitest only includes
  * `test/**.test.ts`, so root `npm test` is untouched).
  *
- * Paired build card [TOG-25335](/TOG/issues/TOG-25335) implements on this branch
- * and must never edit this file. Reviewer check: each fixture mutation below
- * flips exactly one test.
+ * Post-review contract (Paperclip Review on PR #272): the build card
+ * ([TOG-25335](/TOG/issues/TOG-25335)) extends this file only to pin
+ * reviewer-mandated behavior, keeping every other pin intact. Reviewer
+ * check: each fixture mutation below flips exactly one test.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -25,8 +26,9 @@ import { test } from "node:test";
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url));
 
-function sandbox() {
+function sandbox(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "validate-harvest-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, "out"), { recursive: true });
   // Test the real implementation: copy the script under test into the sandbox
   // so its __dirname-relative read (out/harvest.ndjson) stays isolated.
@@ -53,8 +55,8 @@ function goodLine(pathname = "/WebRW/Customer/CustomersRead", method = "POST") {
   return JSON.stringify({ ts: "2026-10-15T00:00:00.000Z", method, pathname });
 }
 
-test("fails on a malformed ndjson line", () => {
-  const dir = sandbox();
+test("fails on a malformed ndjson line", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(
     path.join(dir, "out", "harvest.ndjson"),
     `${goodLine()}\nthis is not json{\n`,
@@ -66,8 +68,8 @@ test("fails on a malformed ndjson line", () => {
   assert.match(result.output, /Line 2: invalid JSON/);
 });
 
-test("fails when a line misses a required field", () => {
-  const dir = sandbox();
+test("fails when a line misses a required field", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(
     path.join(dir, "out", "harvest.ndjson"),
     `${JSON.stringify({ ts: "2026-10-15T00:00:00.000Z", method: "POST" })}\n`,
@@ -79,8 +81,8 @@ test("fails when a line misses a required field", () => {
   assert.match(result.output, /Line 1: missing "pathname"/);
 });
 
-test("passes when the harvest file is missing", () => {
-  const dir = sandbox();
+test("passes when the harvest file is missing", (t) => {
+  const dir = sandbox(t);
   // No out/harvest.ndjson on purpose.
 
   const result = run(dir);
@@ -88,8 +90,8 @@ test("passes when the harvest file is missing", () => {
   assert.match(result.output, /skip/);
 });
 
-test("passes on a clean harvest", () => {
-  const dir = sandbox();
+test("passes on a clean harvest", (t) => {
+  const dir = sandbox(t);
   fs.writeFileSync(
     path.join(dir, "out", "harvest.ndjson"),
     `${goodLine()}\n${goodLine("/WebRW/Customer/AddNewLong", "GET")}\n`,
