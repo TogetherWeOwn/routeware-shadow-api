@@ -45,7 +45,7 @@ test("committed preflight config matches Wrangler dry-run, and skew is rejected"
   try {
     const result = spawnSync(process.execPath, [
       wrangler, "deploy", "--dry-run", "--config", join(root, "wrangler.toml"),
-      "--env", "", "--outdir", join(scratch, "out"),
+      "--outdir", join(scratch, "out"),
     ], { cwd: root, env: cleanEnv(), encoding: "utf8", timeout: 120_000 });
     assert.ifError(result.error);
     assert.equal(result.status, 0, result.stdout + result.stderr);
