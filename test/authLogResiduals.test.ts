@@ -34,7 +34,7 @@ vi.mock("../src/lib/httpAuth", () => ({
 import { establishSessionWithBrowser } from "../src/lib/browserAuth";
 import { establishSession } from "../src/lib/establishSession";
 
-type LogLine = { level: string; record: unknown };
+type LogLine = { level: string; args: unknown[] };
 
 // Direct console assignment, not vi.spyOn: under
 // `@cloudflare/vitest-pool-workers` the console methods are bound accessors
@@ -46,8 +46,13 @@ const realConsole = {
 };
 const logLines: LogLine[] = [];
 
+function expectLogLines(expected: Array<{ level: string; record: unknown }>): void {
+  expect(logLines.map(({ level, args }) => ({ level, record: args[0] }))).toEqual(expected);
+  expect(logLines.map(({ args }) => args)).toEqual(expected.map(({ record }) => [record]));
+}
+
 function expectLogsClean(probes: readonly string[]): void {
-  const blob = JSON.stringify(logLines);
+  const blob = JSON.stringify(logLines.map(({ args }) => args));
   for (const probe of probes) {
     expect(blob, `structured logs must not contain probe ${JSON.stringify(probe)}`).not.toContain(
       probe
@@ -137,7 +142,7 @@ describe("auth login log call-site residuals (R9-24)", () => {
     logLines.length = 0;
     for (const level of ["info", "warn", "error"] as const) {
       console[level] = (...args: unknown[]) => {
-        logLines.push({ level, record: args[0] });
+        logLines.push({ level, args });
       };
     }
   });
@@ -158,7 +163,7 @@ describe("auth login log call-site residuals (R9-24)", () => {
         name: "SessionCookiesMissing"
       });
 
-      expect(logLines).toEqual([
+      expectLogLines([
         {
           level: "warn",
           record: {
@@ -198,7 +203,7 @@ describe("auth login log call-site residuals (R9-24)", () => {
         establishSessionWithBrowser(loginEnv(), sessionStub(), BOOTSTRAP_URL, PROBE_LOCK_TOKEN)
       ).rejects.toBe(launchFailure);
 
-      expect(logLines).toEqual([
+      expectLogLines([
         {
           level: "error",
           record: {
