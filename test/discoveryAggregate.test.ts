@@ -384,6 +384,11 @@ describe("buildSample and sampleSignature units", () => {
     const a = sampleSignature(row({ responseBodyPreview: "one" }));
     const b = sampleSignature(row({ responseBodyPreview: "two" }));
     expect(a).toBe(b);
+
+    const prefix = "x".repeat(240);
+    expect(sampleSignature(row({ requestBodyPreview: `${prefix}A` }))).toBe(
+      sampleSignature(row({ requestBodyPreview: `${prefix}B` }))
+    );
   });
 });
 
