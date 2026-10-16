@@ -7,7 +7,7 @@ Application code writes one structured log event through `logEvent` in `src/lib/
 - `route`: a static route or operation label; do not include request values or identifiers
 - `ms`: elapsed milliseconds when measured, otherwise `null`
 
-Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers, raw exceptions, or customer data. Failure records that need a cause pass `kind: errorKind(err)`: the class name of the innermost error in its `cause` chain whose class is not the generic `Error` (`Error` when none is named), never its message (for example `ChainedHttpError`, `ChainedTimeoutError`, `SnapshotForeignKeyError` or `SessionCookiesMissing`). The one exception-derived string in a record is the R2 archive `reason` at `tables.<table>.r2.reason`, which carries the R2 driver's message.
+Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers (except the numeric internal `customerId` on `sync.detailFull` utilization lines, see below), raw exceptions, or customer data. Failure records that need a cause pass `kind: errorKind(err)`: the class name of the innermost error in its `cause` chain whose class is not the generic `Error` (`Error` when none is named), never its message (for example `ChainedHttpError`, `ChainedTimeoutError`, `SnapshotForeignKeyError` or `SessionCookiesMissing`). The one exception-derived string in a record is the R2 archive `reason` at `tables.<table>.r2.reason`, which carries the R2 driver's message.
 
 Example fail-open event:
 
@@ -36,7 +36,7 @@ Every successful `syncCustomerDetailFullToD1` run (`src/lib/detailFullSync.ts`) 
 - `cacheInvalidationBudget`: `DETAIL_FULL_MAX_CACHE_INVALIDATIONS`
 
 ```json
-{"level":"info","msg":"Detail-full sync D1 op-budget utilization","route":"sync.detailFull","ms":null,"customerId":5,"addressCount":3,"containerCount":2,"d1Ops":3,"d1OpsBudget":900,"cacheInvalidations":6,"cacheInvalidationBudget":950}
+{"level":"info","msg":"Detail-full sync D1 op-budget utilization","route":"sync.detailFull","ms":null,"customerId":5,"addressCount":3,"containerCount":2,"d1Ops":4,"d1OpsBudget":900,"cacheInvalidations":6,"cacheInvalidationBudget":950}
 ```
 
 Pinned by `test/detailFullOpBudgetUtilization.test.ts`.

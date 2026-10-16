@@ -88,6 +88,47 @@ describe("logEvent", () => {
     });
   });
 
+  it("drops non-integer utilization counts so customer identifiers cannot pass as strings", () => {
+    let emitted: unknown;
+    console.info = (...args: unknown[]) => {
+      emitted = args[0];
+    };
+
+    logEvent({
+      level: "info",
+      msg: "Detail-full sync D1 op-budget utilization",
+      route: "sync.detailFull",
+      customerId: "alice@example.com",
+      addressCount: 3,
+      containerCount: 2,
+      d1Ops: "4",
+      d1OpsBudget: 900,
+      cacheInvalidations: -1,
+      cacheInvalidationBudget: 950,
+      tables: {
+        customer: { upserted: 1, rowCount: 1 },
+        address: null,
+        container: null,
+      },
+    } as unknown as Parameters<typeof logEvent>[0]);
+
+    expect(emitted).toEqual({
+      level: "info",
+      msg: "Detail-full sync D1 op-budget utilization",
+      route: "sync.detailFull",
+      ms: null,
+      addressCount: 3,
+      containerCount: 2,
+      d1OpsBudget: 900,
+      cacheInvalidationBudget: 950,
+      tables: {
+        customer: { upserted: 1, rowCount: 1 },
+        address: null,
+        container: null,
+      },
+    });
+  });
+
   it.each([[], "tables-string", 42, null])(
     "omits tables that is not a record: %p",
     (tables) => {
