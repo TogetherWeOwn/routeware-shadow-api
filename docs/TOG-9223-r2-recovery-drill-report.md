@@ -3,7 +3,7 @@
 > **Superseded — 2026-10-15.** This is a historical drill report; do not use
 > it as current procedure evidence. Superseding re-drill:
 > [TOG-25209](/TOG/issues/TOG-25209) (all verdicts PASS, 2026-10-15). Current
-> procedure: [R2 snapshot restore runbook §§2–6](R2-RESTORE-RUNBOOK.md#2-create-private-scratch-state-terminal-b)
+> procedure: [R2 snapshot restore runbook §§2–5](R2-RESTORE-RUNBOOK.md#2-create-private-scratch-state-terminal-b)
 > (the credential-free reviewer drill starts at §2).
 
 **Date:** 2026-09-28 · **Driller:** QA & Release Engineer · **Scope:** `origin/main`
