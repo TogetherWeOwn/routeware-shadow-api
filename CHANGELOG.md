@@ -14,6 +14,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `no-store`. Preflight, `/openapi.json` and `/docs` are unchanged. Pinned in
   `test/cacheControlNoStore.test.ts`; policy recorded in
   `docs/TOG-8368-cors-security-headers-audit.md`.
+- TOG-25212: Every successful per-customer detail-full D1 refresh now emits
+  one `info` log line (`route: sync.detailFull`) with the customer id,
+  address/container counts, computed D1 ops vs the 900-op budget, and cache
+  invalidations vs the 950-invalidation cap, so operators can see budget
+  headroom. Over-budget graphs still skip the D1 refresh fail-closed with no
+  line emitted.
 - TOG-19134: Every `data-snapshot-sync` scheduled log line now carries a
   `runId` per-run correlation id: one `crypto.randomUUID()` minted at
   `scheduled()` entry, spread via the shared log base onto the
