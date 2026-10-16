@@ -30,39 +30,72 @@ if (Object.keys(testVars).length === 0) {
   );
 }
 
+/**
+ * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
+ * and the first test in a file absorbs module init for the whole graph
+ * (the route modules total ~1,500 lines). That combination timed out the first
+ * integration test on CI's slower runner while passing locally. The tests
+ * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+ *
+ * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
+ * projects do not inherit root test options — each project spreads this in.
+ */
+const sharedTestOptions = {
+  testTimeout: 30_000,
+  hookTimeout: 30_000,
+  /**
+   * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
+   * spawns a worker per core per CI job, and several CI jobs share each
+   * self-hosted runner; under istanbul instrumentation the workers-pool
+   * tests then stall past the 30s timeout (red main 3657b4f, run
+   * 36357586974: 7 files, every failure a timeout; PR #85 the same).
+   * Capping at 2 workers cleared it with no test, assertion or timeout
+   * change (PR #89: the unrestricted run timed out 2 throttle tests, the
+   * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
+   * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
+   * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+   */
+  maxWorkers: process.env.CI ? 2 : undefined,
+};
+
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.toml", environment: "test" },
-      miniflare: {
-        bindings: testVars
-      }
-    })
-  ],
   test: {
-    include: ["test/**/*.test.ts"],
     /**
-     * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
-     * and the first test in a file absorbs module init for the whole graph
-     * (the route modules total ~1,500 lines). That combination timed out the first
-     * integration test on CI's slower runner while passing locally. The tests
-     * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+     * Two projects (TOG-25213): the whole suite runs in workerd, except the
+     * R2 lifecycle proposal guard test, which reads the committed JSON file
+     * from disk (`node:fs`) — stubbed out in the workers pool — so that one
+     * file runs in the node forks pool instead. Each project spreads
+     * `sharedTestOptions` above; coverage below still applies to the merged
+     * run.
+     *
+     * The workerd project pins `miniflare.bindings` from `testVars` above
+     * (TOG-21992): bindings win over Wrangler's local `.dev.vars` secrets,
+     * so a local `.dev.vars` can never override a test binding. The node-pool
+     * project needs no bindings (it only reads a committed JSON file).
      */
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
-    /**
-     * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
-     * spawns a worker per core per CI job, and several CI jobs share each
-     * self-hosted runner; under istanbul instrumentation the workers-pool
-     * tests then stall past the 30s timeout (red main 3657b4f, run
-     * 36357586974: 7 files, every failure a timeout; PR #85 the same).
-     * Capping at 2 workers cleared it with no test, assertion or timeout
-     * change (PR #89: the unrestricted run timed out 2 throttle tests, the
-     * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
-     * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
-     * always sets CI=true. Pinned by `npm run check:ci-workflow`.
-     */
-    maxWorkers: process.env.CI ? 2 : undefined,
+    projects: [
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./wrangler.toml", environment: "test" },
+            miniflare: {
+              bindings: testVars
+            }
+          })
+        ],
+        test: {
+          ...sharedTestOptions,
+          include: ["test/**/*.test.ts"],
+          exclude: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+      {
+        test: {
+          ...sharedTestOptions,
+          include: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+    ],
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
