@@ -204,6 +204,17 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The discovery transform pins (node --test suites for route-gap and
+// validate-harvest) live outside the root vitest run, and tools-only PRs skip
+// the filtered `build` job — so hygiene is the only gate that runs them. Pin
+// it present so the route-gap exit-code contract can never regress silently
+// (TOG-25335).
+assert.match(
+  hygiene,
+  /^        run: npm run test:discovery$/m,
+  "hygiene must run the discovery transform pins (TOG-25335)"
+);
+
 // The R2 lifecycle proposal shape guard validates
 // docs/r2-lifecycle-proposal.snapshot-history.json stays a byte-clean S3
 // PutBucketLifecycleConfiguration body, credential-free. Pin it present so
