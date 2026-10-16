@@ -7,7 +7,7 @@ Application code writes one structured log event through `logEvent` in `src/lib/
 - `route`: a static route or operation label; do not include request values or identifiers
 - `ms`: elapsed milliseconds when measured, otherwise `null`
 
-Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers, raw exceptions, or customer data. Failure records that need a cause pass `kind: errorKind(err)`: the class name of the innermost error in its `cause` chain whose class is not the generic `Error` (`Error` when none is named), never its message (for example `ChainedHttpError`, `ChainedTimeoutError`, `SnapshotForeignKeyError` or `SessionCookiesMissing`). The one exception-derived string in a record is the R2 archive `reason` at `tables.<table>.r2.reason`, which carries the R2 driver's message.
+Additional context is limited to the fields declared by `LogEventInput`; unknown keys are dropped at runtime, and nested values are accepted only for the validated per-table aggregate counts. Callers must still pass only fixed or allowlisted values — never request payloads, business/customer identifiers (except the numeric internal `customerId` on `sync.detailFull` utilization lines, see below), raw exceptions, or customer data. Failure records that need a cause pass `kind: errorKind(err)`: the class name of the innermost error in its `cause` chain whose class is not the generic `Error` (`Error` when none is named), never its message (for example `ChainedHttpError`, `ChainedTimeoutError`, `SnapshotForeignKeyError` or `SessionCookiesMissing`). The one exception-derived string in a record is the R2 archive `reason` at `tables.<table>.r2.reason`, which carries the R2 driver's message.
 
 Example fail-open event:
 
@@ -46,6 +46,7 @@ Three messages are computed, never string literals, so the test carries them as 
 | `Customer save token preparation failed` | error | `POST /api/v1/routeware/customer/save-long-form` | Save-long-form POST could not prepare session or body tokens | Fix the request body. If valid requests keep failing, check upstream markup. |
 | `Customer snapshot dry run: validating without writing D1 or R2` | info | `snapshot.customer` | Dry-run sync validated the upstream CSV without writing D1 or R2 | none, informational. |
 | `Customer snapshot sync skipped: source is not configured` | info | `snapshot.customer`, `snapshot.orchestration` | No customer report path or query ID configured | none, informational — set CUSTOMER_REPORT_EXPORT_PATH or CUSTOMER_REPORT_QUERY_ID to enable. |
+| `Detail-full sync D1 op-budget utilization` | info | `sync.detailFull` | Successful detail-full D1 refresh; includes graph shape, modeled D1 ops and cache invalidations against their budgets | none, informational — use the counts to monitor budget headroom. |
 | `Entity data cache hit` | info | `cache.entityData` | Workers Cache lookup found an entry; carries the entity kind and running hit and miss totals, never the id | none, informational. |
 | `Entity data cache miss` | info | `cache.entityData` | Workers Cache lookup found no entry; an upstream fetch follows | none, informational — sustained misses mean low cache effectiveness, not an error. |
 | `Failed to release the auth refresh lock; it will expire via its TTL` | warn | `auth.refreshLock` | Unlock call to the auth Durable Object failed; the lock expires on its own | none required — the TTL heals it. Investigate DO reachability only if every refresh logs this. |
@@ -77,3 +78,21 @@ Three messages are computed, never string literals, so the test carries them as 
 | `data-snapshot-sync` | info | `scheduled.data-snapshot-sync` | Cron data-snapshot-sync emitted its run record: `skipped-overlap` when a previous run was still in flight, otherwise the completion record with `outcome` and per-table counts | none, informational — `skipped-overlap` means the previous run was still in flight. |
 | `data-snapshot-sync failed` | error | `scheduled.data-snapshot-sync` | Cron sync threw; emitted with `outcome: failed` | Check the earlier error lines in the same run (`kind`, per-table failures), then re-trigger the cron or run the sync manually. |
 | `data-snapshot-sync persistence failed` | error | `scheduled.data-snapshot-sync` | Cron result could not be recorded to D1; the sync result itself stands and the log line is the record | Check D1 health; backfill the cron-run row if history matters. |
+## Detail-full sync D1 op-budget utilization
+
+Every successful `syncCustomerDetailFullToD1` run (`src/lib/detailFullSync.ts`) emits exactly one `info` line so operators can see D1 op-budget headroom. Over-budget runs throw fail-closed before the first write and emit no line.
+
+- `msg`: `Detail-full sync D1 op-budget utilization`
+- `route`: `sync.detailFull`
+- `customerId`: the synced customer id (a numeric internal key, never customer payload data)
+- `addressCount` / `containerCount`: the graph shape that was synced
+- `d1Ops`: `detailFullD1Ops(addressCount, containerCount)` for the run
+- `d1OpsBudget`: `DETAIL_FULL_MAX_D1_OPS`
+- `cacheInvalidations`: `detailFullCacheInvalidations(addressCount, containerCount)`
+- `cacheInvalidationBudget`: `DETAIL_FULL_MAX_CACHE_INVALIDATIONS`
+
+```json
+{"level":"info","msg":"Detail-full sync D1 op-budget utilization","route":"sync.detailFull","ms":null,"customerId":5,"addressCount":3,"containerCount":2,"d1Ops":4,"d1OpsBudget":900,"cacheInvalidations":6,"cacheInvalidationBudget":950}
+```
+
+Pinned by `test/detailFullOpBudgetUtilization.test.ts`.

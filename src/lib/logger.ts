@@ -67,6 +67,13 @@ export type LogEventInput = {
   dependency?: string;
   fallback?: string;
   kind?: string;
+  customerId?: number;
+  addressCount?: number;
+  containerCount?: number;
+  d1Ops?: number;
+  d1OpsBudget?: number;
+  cacheInvalidations?: number;
+  cacheInvalidationBudget?: number;
 };
 
 const allowedContextFields = new Set([
@@ -96,7 +103,14 @@ const allowedContextFields = new Set([
   "attempts",
   "dependency",
   "fallback",
-  "kind"
+  "kind",
+  "customerId",
+  "addressCount",
+  "containerCount",
+  "d1Ops",
+  "d1OpsBudget",
+  "cacheInvalidations",
+  "cacheInvalidationBudget"
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,6 +120,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isSafeCount(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
+
+// TOG-25212: utilization fields are numeric internal counts only. They ride
+// the global allowlist (so `sync.detailFull` can emit `customerId`), but a
+// string or negative value must never reach the log — e.g. a `customerId:
+// "alice@example.com"` from another caller would otherwise pass through as
+// PII. `Number.isInteger` pins the model: every value is produced by a count
+// or budget constant, never a float.
+const UTILIZATION_COUNT_FIELDS = new Set([
+  "customerId",
+  "addressCount",
+  "containerCount",
+  "d1Ops",
+  "d1OpsBudget",
+  "cacheInvalidations",
+  "cacheInvalidationBudget"
+]);
 
 const R2_STATUSES = new Set(["stored", "disabled", "failed"]);
 
@@ -165,6 +195,9 @@ export function logEvent(event: LogEventInput): void {
     if (key === "tables") {
       const tables = safeTableCounts(value);
       if (tables !== undefined) record.tables = tables;
+    } else if (UTILIZATION_COUNT_FIELDS.has(key)) {
+      if (!isSafeCount(value) || !Number.isInteger(value)) continue;
+      record[key] = value;
     } else if (isSafeScalar(value)) {
       record[key] = value;
     }
