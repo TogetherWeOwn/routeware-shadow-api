@@ -27,7 +27,7 @@ in this doc, not in the JSON:
 |---|---|---|
 | `ID` | `snapshot-history-30d-expiry` | Unique, human-readable; identifies the rule in `lifecycle list` output |
 | `Filter.Prefix` | `snapshot-history/` (trailing slash) | Matches per-run history CSVs **and** their per-run manifests, nothing else |
-| `Expiration.Days` | `30` | 30 days from object upload, matching the window in `R2-RETENTION.md` |
+| `Expiration.Days` | `30` | 30-day age threshold; upload-age is the intended policy, but Cloudflare's page does not explicitly document the age anchor (see § Existing-object semantics) |
 | `Transitions` | absent | No Infrequent-Access transition is proposed, so no expire-vs-transition precedence question arises |
 
 ### Prefix scoping (verified offline)
@@ -49,15 +49,21 @@ in this doc, not in the JSON:
 
 - The rule applies to **already stored objects**, not just future uploads.
   New uploads reflect `x-amz-expiration` immediately; existing objects are
-  migrated to the new configuration, typically within 24 hours but longer for
-  large buckets. While migration runs, old/stale rule evaluations may still appear.
+  migrated to the new configuration. Cloudflare says most are migrated within
+  24 hours, with longer delays possible depending on bucket size; old applied
+  rules may appear while migration runs.
 - Deletion is **not** at an exact deadline: objects are typically removed within
   24 hours of expiration.
-- Age is counted from **object upload (LastModified), never from the timestamp
-  embedded in the key**. Key dates and upload dates differ for backfills and
-  republished runs; only upload age matters.
-- A deleted object is no longer billable. Disabling/removing the rule stops
-  **future** expiry only — it never recovers deleted objects.
+- The R2 lifecycle page describes age-based rules as objects older than the
+  configured number of days, but does not explicitly identify the age anchor as
+  upload time or `LastModified`. Therefore the proposal's upload-age interpretation
+  is an intended policy, not a vendor-verified semantic. Do not claim that key
+  dates are ignored or enable the rule until the age anchor is confirmed.
+- A deleted object is no longer billable and cannot be restored by removing the
+  rule. Cloudflare documents removing a rule, but does not specify whether removal
+  cancels expirations already evaluated or pending deletion. Rule removal is a
+  configuration rollback only; it is not verified as a guarantee against pending
+  deletes or as data recovery.
 
 ### What this rule does not do (residual PII, stated plainly)
 
@@ -82,24 +88,38 @@ object tags:
    contain customer PII.
 2. **Copy held objects aside.** Before enablement, the authorized operator
    copies each held object to `legal-hold/<matter-id>/<original-key-suffix>`
-   (outside every lifecycle prefix) and verifies SHA-256 + byte length against
-   the per-run manifest. The original stays until step 4 passes — the hold copy
-   is verified first, never assumed.
+   (outside every lifecycle prefix). For each CSV, compare SHA-256 and byte length
+   with the per-run manifest. The per-run manifest describes CSVs, not itself; if
+   copying a manifest, compare its copied bytes with the source manifest instead
+   of treating it as self-hashed. These are application-level integrity checks,
+   not guarantees supplied by R2 lifecycle. The original stays until step 4
+   passes — the hold copy is verified first, never assumed.
 3. **Inventory before touching anything.** The operator lists existing bucket
    rules (`wrangler r2 bucket lifecycle list <BUCKET>`) and the objects the new
    rule would match, confirms the 30-day window and the hold copies, and
-   confirms no unrelated rule is modified. This inventory, the deletion
-   approval, and a synthetic-data restore proof in an isolated staging bucket/D1
-   pair are preconditions, not footnotes (see `R2-RETENTION.md`).
+   confirms no unrelated rule is modified. Wrangler 4.84.1 implements `add` as
+   GET-current-rules, append the new rule, then PUT the complete list; it is not
+   atomic with respect to another lifecycle edit. Serialize lifecycle changes
+   through apply and rollback, and compare the full rule set immediately before
+   and after. This inventory, the deletion approval, and a synthetic-data restore
+   proof in an isolated staging bucket/D1 pair are preconditions, not footnotes
+   (see `R2-RETENTION.md`).
 4. **Enable only via the R5-16 `Operator:` card** (exact command + rollback),
-   after TOG-18890..92 staging evidence lands. The command is additive:
+   after TOG-18890..92 staging evidence lands and the age anchor / removal behavior
+   gaps in § Validation gaps are resolved for the intended policy. The command is
+   additive in Wrangler 4.84.1:
    `wrangler r2 bucket lifecycle add <BUCKET> snapshot-history-30d-expiry snapshot-history/ --expire-days 30`
    ([`r2 bucket lifecycle add`](https://developers.cloudflare.com/workers/wrangler/commands/r2/#r2-bucket-lifecycle-add)).
-   Never `lifecycle set --file`: `set` replaces the whole configuration and would
-   delete the default 7-day multipart-abort rule and any other live rules,
-   violating the `R2-RETENTION.md` "do not replace unrelated bucket rules"
-   precondition. Rollback is deleting the added rule, verified by `lifecycle list`
-   readback showing the prior rule set restored.
+   Never `lifecycle set --file`: Wrangler `set` replaces the complete rule list;
+   the file here is an S3-shaped request body (`Rules`, `ID`, etc.), while
+   Wrangler's `--file` parser expects the Cloudflare API shape (`rules`), so this
+   file is not accepted by `set`. Replacing the list could remove the default
+   7-day multipart-abort rule and any other live rules, violating the
+   `R2-RETENTION.md` "do not replace unrelated bucket rules" precondition.
+   Rollback is `lifecycle remove <BUCKET> --name snapshot-history-30d-expiry`;
+   verify via `lifecycle list` that the exact prior rule set is restored. This
+   restores configuration only and is not proof that already-evaluated expiry
+   work is cancelled or that deleted data can be recovered.
 5. **Release needs its own approval.** A hold copy is deleted only under a new
    recorded approval naming the matter id; expiry of the hold itself is set at
    hold creation and recorded in the register.
@@ -124,6 +144,20 @@ while `snapshots/2026-10-09/customer.csv` and
   pre-apply check is `lifecycle list` readback on the **staging** bucket during
   R5-16 (before, to confirm no conflicting rule; after, to confirm the added
   rule): neither `lifecycle add` nor `lifecycle set` offers a dry-run mode.
+- Cloudflare's object-lifecycle page does not explicitly identify the age anchor
+  used by `Expiration.Days` (for example, upload time or `LastModified`). The
+  policy's upload-age meaning is therefore not vendor-verified and must not be
+  represented as a confirmed guarantee.
+- Cloudflare documents removing a lifecycle rule but does not specify whether
+  removing it cancels expirations already evaluated or pending deletion. Wrangler
+  readback confirms configuration, not cancellation of queued expiry work.
+- Wrangler 4.84.1 CLI syntax and implementation were checked locally from the
+  lockfile-pinned package. `add` reads, appends, and PUTs the full rule list;
+  `remove` reads, removes the named rule, and PUTs the list. The read-modify-write
+  sequence is not atomic against concurrent lifecycle edits, so the operator must
+  serialize changes and compare the full rule set before/after. `set --file`
+  replaces the full rule list and expects Cloudflare API JSON (`rules`), not this
+  S3-shaped `Rules` request file.
 - Tag-condition support in R2 lifecycle filters was not verified from the docs;
   the hold procedure therefore avoids tags entirely.
 - Live bucket rules were not inspected (no credentials used); the pre-enablement

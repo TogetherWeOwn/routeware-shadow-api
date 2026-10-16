@@ -55,10 +55,13 @@ respect customer → address → container foreign-key order.
 
 ## Proposed retention policy — not enabled by this change
 
-- **History:** propose expiration after **30 days from object upload** for the
-  exact `snapshot-history/` prefix, including CSVs and their per-run manifests. R2 object
-  age is not derived from the timestamp in the key. The CSV and its manifest have
-  separate upload times and may expire at slightly different times.
+- **History:** propose a 30-day age threshold for the exact
+  `snapshot-history/` prefix, including CSVs and their per-run manifests. Upload
+  age is the policy intent, but Cloudflare's lifecycle documentation does not
+  explicitly identify the age anchor as upload time or `LastModified`; that
+  interpretation remains unverified. The CSV and its manifest have separate
+  upload times and may expire at slightly different times if upload age is the
+  effective anchor.
 - **Compatibility archives:** `snapshots/` stays outside this rule. One CSV per
   table per UTC date plus its daily manifest continues to be retained. This
   preserves the existing date-based restore contract; it is **not** a complete
@@ -80,10 +83,14 @@ matching objects, confirm the 30-day window and legal-hold treatment, obtain
 required deletion approval, and prove restore using synthetic data in an isolated
 staging bucket/D1 pair. Do not replace unrelated bucket rules.
 
-R2 lifecycle rules can affect **already stored objects**. Objects are typically
-removed within 24 hours of expiration, not at an exact deadline. Enabling a rule
-can therefore permanently delete old matching data; removing/disabling a rule
-only stops future expiry and cannot recover deleted objects. Do not activate
+R2 lifecycle rules can affect **already stored objects**. Cloudflare says most
+existing objects are migrated to a new configuration within 24 hours (longer
+may be needed depending on bucket size), and objects are typically removed within
+24 hours of expiration, not at an exact deadline. Enabling a rule can therefore
+permanently delete old matching data. Removing a rule cannot recover deleted
+objects; Cloudflare's documentation does not specify whether it cancels expiry
+work already evaluated or pending deletion. Do not treat rule removal as data
+recovery or as a proven cancellation of pending deletes. Do not activate
 retention as part of an ordinary deploy or rollback.
 
 The proposed rule JSON and hold procedure are recorded in
