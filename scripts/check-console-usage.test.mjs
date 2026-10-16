@@ -103,6 +103,16 @@ test("pins the logger exception to console[level](...) calls only", () => {
   assert.deepEqual(findConsoleViolations([{ path: LOGGER_PATH, text: "const f = console[level];\n" }]), [
     { file: LOGGER_PATH, line: 1, column: 11 },
   ]);
+  // Each call-position conjunct is pinned alone: `foo(console[level])`
+  // is flagged only by `parent.expression === node`, and
+  // `console[level].call(null, x)` only by `isCallExpression(parent)`.
+  assert.deepEqual(findConsoleViolations([{ path: LOGGER_PATH, text: "foo(console[level]);\n" }]), [
+    { file: LOGGER_PATH, line: 1, column: 5 },
+  ]);
+  assert.deepEqual(
+    findConsoleViolations([{ path: LOGGER_PATH, text: "console[level].call(null, x);\n" }]),
+    [{ file: LOGGER_PATH, line: 1, column: 1 }],
+  );
 });
 
 test("passes a clean module with no console reference", () => {
@@ -158,8 +168,17 @@ test("the enforced wrapper still passes on the real tree", () => {
 
 test("the enforced wrapper fails closed on violations in a fixture tree", () => {
   const dir = mkdtempSync(path.join(os.tmpdir(), "console-usage-"));
-  mkdirSync(path.join(dir, "src"), { recursive: true });
-  writeFileSync(path.join(dir, "src", "x.ts"), 'console.log("bad");\n');
+  mkdirSync(path.join(dir, "src", "routes"), { recursive: true });
+  // Nested file pins the recursive walk; every matched extension pins the
+  // `ts|tsx|mts|cts` filter. `ok.txt` pins the filter the other way: a
+  // console call in a non-TS file must be ignored, not flagged.
+  const bad = 'console.log("bad");\n';
+  writeFileSync(path.join(dir, "src", "x.ts"), bad);
+  writeFileSync(path.join(dir, "src", "routes", "nested.ts"), bad);
+  writeFileSync(path.join(dir, "src", "a.mts"), bad);
+  writeFileSync(path.join(dir, "src", "b.cts"), bad);
+  writeFileSync(path.join(dir, "src", "c.tsx"), bad);
+  writeFileSync(path.join(dir, "src", "ok.txt"), bad);
   const result = spawnSync(process.execPath, [wrapperPath], {
     // Deliberately not the repo root: the wrapper resolves its script by
     // absolute URL and its tree from CONSOLE_USAGE_ROOT, never from cwd.
@@ -168,7 +187,31 @@ test("the enforced wrapper fails closed on violations in a fixture tree", () => 
     encoding: "utf8",
   });
   assert.equal(result.status, 1, result.stderr);
-  assert.match(result.stderr, new RegExp(`^src/x\\.ts:1:1: ${VIOLATION_HINT}$`, "m"));
+  for (const rel of ["src/x.ts", "src/routes/nested.ts", "src/a.mts", "src/b.cts", "src/c.tsx"]) {
+    const escaped = rel.replaceAll(".", "\\.");
+    assert.match(result.stderr, new RegExp(`^${escaped}:1:1: ${VIOLATION_HINT}$`, "m"), rel);
+  }
+  assert.doesNotMatch(result.stderr, /ok\.txt/);
+});
+
+test("the enforced wrapper counts nested and filtered extensions in a clean fixture tree", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "console-usage-"));
+  mkdirSync(path.join(dir, "src", "routes"), { recursive: true });
+  const clean = "export const ok = 1;\n";
+  writeFileSync(path.join(dir, "src", "a.ts"), clean);
+  writeFileSync(path.join(dir, "src", "routes", "nested.ts"), clean);
+  writeFileSync(path.join(dir, "src", "b.mts"), clean);
+  writeFileSync(path.join(dir, "src", "c.cts"), clean);
+  writeFileSync(path.join(dir, "src", "d.tsx"), clean);
+  // Not a matched extension, so neither counted nor flagged.
+  writeFileSync(path.join(dir, "src", "ok.txt"), 'console.log("ignored");\n');
+  const result = spawnSync(process.execPath, [wrapperPath], {
+    cwd: dir,
+    env: { ...process.env, CONSOLE_USAGE_ROOT: dir },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "console lint passed (5 TypeScript files)\n");
 });
 
 test("the enforced wrapper fails closed when src/ is missing", () => {
