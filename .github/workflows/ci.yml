@@ -246,6 +246,13 @@ jobs:
         # Credential-free: counts lines in hand-written src/ files, fails on any
         # file over 800 lines. No network access and no credential use.
         run: npm run check:source-file-size
+      - name: R2 lifecycle proposal shape guard (TOG-25213)
+        # Credential-free: validates docs/r2-lifecycle-proposal.snapshot-history.json
+        # stays a byte-clean S3 PutBucketLifecycleConfiguration body (exact rule
+        # id, Filter.Prefix, and Expiration; Status: Enabled intent; no
+        # Transitions or extra keys). Fails the build on drift so it surfaces
+        # here, not at apply time against a live bucket.
+        run: npm run check:r2-lifecycle-proposal
       - name: Vars parity check (TOG-8367)
         # Credential-free: compares wrangler.toml [vars] keys against
         # .dev.vars.example mentions (active or commented `# KEY=`), failing
