@@ -48,10 +48,12 @@ WHEN EXISTS (
   WHERE customer_id = NEW.customer_id
 )
 BEGIN
-  -- Direct-SQL duplicate-key insert of an existing row under another owner is
-  -- a re-home into an erased customer (the app upsert path reaches the UPDATE
-  -- trigger via ON CONFLICT DO UPDATE). Genuinely new addresses match no row
-  -- and this is a no-op for them.
+  -- An insert (or app upsert) of an existing row under another owner is a
+  -- re-home into an erased customer. BEFORE INSERT triggers fire before SQLite
+  -- resolves the ON CONFLICT clause, so the app upsert path reaches this
+  -- trigger first and this DELETE clears the live address's containers so the
+  -- reconcile survives. Genuinely new addresses match no row and this is a
+  -- no-op for them.
   DELETE FROM container_snapshot
     WHERE pickup_address_id = NEW.pickup_address_id
       AND EXISTS (
