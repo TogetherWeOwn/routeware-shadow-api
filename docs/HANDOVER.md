@@ -387,12 +387,13 @@ immediately after** the transfer — every day both exist is a day the old one i
   Do not use this snapshot as current administrative state. The reconciled workflow separates
   credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
 - **Suite (2026-08-22 snapshot):** 30 files, 549 tests, green. **Coverage (same snapshot):** 85.74%
-  statements / 79.48% branches / 89.09% functions / 86.36% lines. **Current (2026-10-09):** 156
-  `*.test.ts` files; coverage 96.27% statements / 91.51% branches / 97.58% functions / 96.60% lines,
-  as recorded in [`vitest.config.ts`](../vitest.config.ts) (not re-run for this refresh: no
-  `node_modules` in the checkout). (`npm test` runs in a few seconds; `npm run test:coverage` takes
-  ~38s here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
-  5s default.)
+  statements / 79.48% branches / 89.09% functions / 86.36% lines. **Re-measured 2026-10-16** with
+  `npm run test:coverage` on clean `origin/main` commit `e49d4f960097cb2fbbd6e21d02bef17a3c446a8a`:
+  97.86% statements (3524/3601) / 93.95% branches (2424/2580) / 98.65% functions (515/522) /
+  98.15% lines (3408/3472), above the 97/93/98/97 floors in [`vitest.config.ts`](../vitest.config.ts).
+  All 177 Vitest files passed (3,148 passed; 2 expected-fail); the 61 hermetic probe tests also passed.
+  See [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md#the-coverage-ratchet) for the dated suite table.
+  **No test may reach the network.**
 - These coverage floors were **re-baselined downward on 2026-08-22**, once, and the reason is
   recorded in [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) § "The coverage ratchet". Short version: one
   test was reaching the live Routeware host and counting unasserted lines as covered; when upstream
@@ -423,9 +424,9 @@ immediately after** the transfer — every day both exist is a day the old one i
 3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (TOG-5484, 2026-09-27; ratcheted
    2026-10-09, TOG-9219):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
    `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the login → download → parse → upsert path
-   with assertions. Branch coverage is 91.51% against a floor of 91 (`vitest.config.ts:71-76`; the
-   history is at `vitest.config.ts:57-70`). `docs/TEST-INVARIANTS.md` still carries the 2026-08-22
-   numbers; update it before relying on it.
+   with assertions. The 2026-10-16 hermetic run on `e49d4f9` measured 93.95% branch coverage
+   (2424/2580) against the current 93% floor; `docs/TEST-INVARIANTS.md` records that measurement and
+   keeps the 2026-08-22 figures explicitly historical.
 4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done (TOG-8373):** `wrangler types` bakes
    `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
    regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored
@@ -448,8 +449,8 @@ immediately after** the transfer — every day both exist is a day the old one i
   an organization-wide stop is intended. The `production` environment scopes secrets and protections,
   but its variables are unavailable to the job-level `if`; see § 0. Changing only capitalization does
   not stop deploys, and removing/disabling the gate does not roll back an already-deployed Worker.
-- **Coverage is a ratchet.** Floors sit just under current numbers; raise them whenever a change
-  moves the number up. That is the whole mechanism.
+- **Coverage is a ratchet.** Global floors in `vitest.config.ts` fail runs below any threshold but
+  do not catch every regression; raise them whenever a change moves coverage up.
 - **A route module must be an `OpenAPIHono`** built with `createRouteModule()`, never a plain `Hono`.
   Mounting a plain `Hono` still serves traffic while silently dropping every route from
   `/openapi.json`. `test/openapiContract.test.ts` enforces this and is verified to fail when a route
