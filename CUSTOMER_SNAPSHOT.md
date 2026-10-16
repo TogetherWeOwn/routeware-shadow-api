@@ -138,6 +138,49 @@ fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
 the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
 lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
 
+## Dry-run sync and import
+
+Add `?dryRun=true` to a snapshot `POST` route to run the CSV parse/validation path and
+see the counts that would apply without changing the stored snapshot. This option is
+available on the per-table `/api/v1/{customer,address,container}-snapshot/sync` and
+`/import` routes, and on `/api/v1/data-snapshot/sync`. The combined route forwards the
+flag to each configured per-table sync. It still follows the normal configuration and
+customer → address → container dependency guards.
+
+Dry-run is not offline: sync still fetches the configured report from Routeware and
+may use the Worker’s Routeware browser session. It can read D1 to count stale rows,
+but writes no D1 rows, performs no reconciliation deletes, and creates no R2 archive.
+Import validates the supplied CSV and writes no D1 rows. Because a dry
+run does not apply hypothetical parent rows, it skips foreign-key validation; a CSV
+with a dangling address/container reference can pass dry-run validation and still fail
+when imported for real. Dry-run also does not prove that a real write will succeed.
+
+Only the exact values `true` and `false` are accepted. Only `?dryRun=true` enables
+dry-run; omitting the parameter or passing `?dryRun=false` runs normally and can write
+D1 (and, for sync, archive to R2). Other values return 400 rather than silently
+selecting either mode. Treat the negative value as a real-write control, not a preview.
+
+For example, this customer sync fetches the configured Routeware report but does not
+change D1 or R2:
+
+```sh
+curl -i -X POST \
+  -H 'Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>' \
+  'https://<worker-host>/api/v1/customer-snapshot/sync?dryRun=true'
+```
+
+With two valid CSV rows and one stale customer row, a per-table response is:
+
+```json
+{"upserted":2,"rowCount":2,"deleted":1}
+```
+
+The counts describe the would-be effects; the stale row remains in D1, the two rows
+are not written, and no archive key is created. A combined dry-run returns per-table
+`{ "upserted", "rowCount" }` counts (no `deleted` field), or `null` for a skipped
+table; on a table failure the route returns an error and later tables do not run.
+On a successful response, `null` means that table was skipped.
+
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
 All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`**.
