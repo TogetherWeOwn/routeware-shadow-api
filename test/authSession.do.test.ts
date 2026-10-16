@@ -173,6 +173,56 @@ describe("AuthSession Durable Object", () => {
       expect((await call(session, "/lock")).status).toBe(423);
     });
 
+    it("stores a stale holder's late publication after /takeover but preserves the winner's lock", async () => {
+      // Arrange — A releases with no stored session; B wins the takeover.
+      const { session, values } = await makeInspectableSession();
+      const tokenA = await acquireToken(session);
+      expect((await call(session, "/unlock", { lockToken: tokenA })).status).toBe(200);
+      const takeover = await call(session, "/takeover", {});
+      expect(takeover.status).toBe(200);
+      const { lockToken: tokenB } = (await takeover.json()) as { lockToken: string };
+      expect(tokenB).not.toBe(tokenA);
+      const failedReleaseAtMs = values.get("failedReleaseAtMs");
+      const takeoverAtMs = values.get("takeoverAtMs");
+      expect(typeof failedReleaseAtMs).toBe("number");
+      expect(typeof takeoverAtMs).toBe("number");
+
+      // Act — A's late /set is accepted as a session write, but cannot release B.
+      vi.setSystemTime(new Date(Date.now() + 1));
+      const lateSet = await call(session, "/set", {
+        cookieHeader: ".WebRW=late-stale-holder",
+        expiresAtMs: Date.now() + 60_000,
+        lockToken: tokenA
+      });
+      vi.setSystemTime(new Date(Date.now() + 1));
+      const lateUnlock = await call(session, "/unlock", { lockToken: tokenA });
+
+      // Assert — shipped behavior accepts /set independent of ownership; only
+      // the matching token releases the lock. B can still publish and release.
+      expect(lateSet.status).toBe(200);
+      expect(lateUnlock.status).toBe(403);
+      const state = (await (await call(session, "/get")).json()) as SessionSnapshot & {
+        failedReleaseAtMs?: number;
+        takeoverAtMs?: number;
+      };
+      expect(state.cookieHeader).toBe(".WebRW=late-stale-holder");
+      expect(state.refreshing).toBe(true);
+      expect(state.failedReleaseAtMs).toBe(failedReleaseAtMs);
+      expect(state.takeoverAtMs).toBe(takeoverAtMs);
+      expect(values.get("failedReleaseAtMs")).toBe(failedReleaseAtMs);
+      expect(values.get("takeoverAtMs")).toBe(takeoverAtMs);
+      expect((await call(session, "/lock")).status).toBe(423);
+      expect((await call(session, "/set", {
+        cookieHeader: ".WebRW=current-holder",
+        expiresAtMs: Date.now() + 60_000,
+        lockToken: tokenB
+      })).status).toBe(200);
+      expect((await readState(session)).cookieHeader).toBe(".WebRW=current-holder");
+      expect((await readState(session)).refreshing).toBe(false);
+      expect(values.has("failedReleaseAtMs")).toBe(false);
+      expect(values.has("takeoverAtMs")).toBe(false);
+    });
+
     it.each([
       { label: "a missing cookieHeader", body: { expiresAtMs: 1 } },
       { label: "an empty cookieHeader", body: { cookieHeader: "", expiresAtMs: 1 } },
