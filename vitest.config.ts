@@ -3,51 +3,63 @@ import os from "node:os";
 import { defineConfig } from "vitest/config";
 
 /**
- * Local worker cap (TOG-19021). An uncapped `vitest run --coverage` spawns a
- * worker per core, and each workers-pool worker boots its own workerd
- * instance under istanbul instrumentation; on a loaded host the oversubscribed
- * workers stall past the 30s timeout (same family as TOG-7666: uncapped local
- * run failed `test/authThrottle.test.ts` "brute-forcing a bad token" at 30s
- * while the same file passes alone in ~3.6s). Halving the core count leaves
- * headroom for the host's other load while keeping most of the parallelism.
- * CI keeps its own cap of 2 (self-hosted runners share each box between jobs).
- * The vitest CLI `--maxWorkers` flag still overrides this default.
+ * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
+ * and the first test in a file absorbs module init for the whole graph
+ * (the route modules total ~1,500 lines). That combination timed out the first
+ * integration test on CI's slower runner while passing locally. The tests
+ * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+ *
+ * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
+ * projects do not inherit root test options — each project spreads this in.
  */
 const localMaxWorkers = Math.max(1, Math.floor(os.cpus().length / 2));
+const sharedTestOptions = {
+  testTimeout: 30_000,
+  hookTimeout: 30_000,
+  /**
+   * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
+   * `vitest run --coverage` spawns a worker per core per job; several CI jobs
+   * share each self-hosted runner, and local workloads also compete for host
+   * resources. Under istanbul instrumentation, oversubscribed workers stall
+   * past the 30s timeout. Capping CI at 2 cleared prior CI timeouts without
+   * changing tests or timeouts. Local runs cap at half the core count to leave
+   * headroom; the same `authThrottle` test passes alone in ~3.6s but timed out
+   * at 30s under the uncapped suite. GitHub Actions sets CI=true. Pinned by
+   * `npm run check:ci-workflow`.
+   */
+  maxWorkers: process.env.CI ? 2 : localMaxWorkers,
+};
 
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.toml", environment: "test" }
-    })
-  ],
   test: {
-    include: ["test/**/*.test.ts"],
     /**
-     * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
-     * and the first test in a file absorbs module init for the whole graph
-     * (the route modules total ~1,500 lines). That combination timed out the first
-     * integration test on CI's slower runner while passing locally. The tests
-     * themselves do millisecond-scale work; this covers warm-up, not slow logic.
+     * Two projects (TOG-25213): the whole suite runs in workerd, except the
+     * R2 lifecycle proposal guard test, which reads the committed JSON file
+     * from disk (`node:fs`) — stubbed out in the workers pool — so that one
+     * file runs in the node forks pool instead. Each project spreads
+     * `sharedTestOptions` above; coverage below still applies to the merged
+     * run.
      */
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
-    /**
-     * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
-     * `vitest run --coverage` spawns a worker per core per job, and several
-     * CI jobs share each self-hosted runner; under istanbul instrumentation
-     * the workers-pool tests then stall past the 30s timeout (red main
-     * 3657b4f, run 36357586974: 7 files, every failure a timeout; PR #85 the
-     * same). Capping at 2 workers cleared it with no test, assertion or
-     * timeout change (PR #89: the unrestricted run timed out 2 throttle
-     * tests, the `--maxWorkers=2` rerun passed 78 files / 1,128 tests).
-     * Local runs cap at half the core count (`localMaxWorkers` above) for
-     * the same reason: an uncapped local run failed
-     * `test/authThrottle.test.ts` "brute-forcing a bad token" at the 30s
-     * timeout while the file passes alone in ~3.6s. GitHub Actions always
-     * sets CI=true. Pinned by `npm run check:ci-workflow`.
-     */
-    maxWorkers: process.env.CI ? 2 : localMaxWorkers,
+    projects: [
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./wrangler.toml", environment: "test" }
+          })
+        ],
+        test: {
+          ...sharedTestOptions,
+          include: ["test/**/*.test.ts"],
+          exclude: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+      {
+        test: {
+          ...sharedTestOptions,
+          include: ["test/r2LifecycleProposalCheck.test.ts"],
+        },
+      },
+    ],
     coverage: {
       // istanbul, not the v8 default: workerd does not expose the V8 coverage
       // APIs the v8 provider relies on.
