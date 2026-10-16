@@ -308,6 +308,16 @@ describe("checkDocsLinks (TOG-18936)", () => {
     expect(findings).toEqual([]);
   });
 
+  it("skips protocol-relative URLs", () => {
+    // `//host/path` is an external link, not a repo-absolute path: treating
+    // it as one would report a false "missing file" finding.
+    const findings = checkDocsLinks(
+      files([["docs/A.md", "See [p](//example.com/x#y).\n"]]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(findings).toEqual([]);
+  });
+
   it("skips links into gitignored paths", () => {
     const findings = checkDocsLinks(
       files([["CUSTOMER_SNAPSHOT.md", "See [r](tools/api-discovery/out/R.md).\n"]]),

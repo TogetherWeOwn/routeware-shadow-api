@@ -305,7 +305,9 @@ export function checkDocsLinks(files, options = {}) {
   for (const { path, text } of files) {
     const file = normalizeRepoPath(path);
     for (const { text: linkText, target } of extractLinks(String(text))) {
-      if (SCHEME_RE.test(target)) continue;
+      // Protocol-relative URLs (//host/path) are external links, not
+      // repo-absolute paths; SCHEME_RE does not match them.
+      if (SCHEME_RE.test(target) || target.startsWith("//")) continue;
       const hashIdx = target.indexOf("#");
       const rawPath = hashIdx === -1 ? target : target.slice(0, hashIdx);
       const anchor = hashIdx === -1 ? null : target.slice(hashIdx + 1);
