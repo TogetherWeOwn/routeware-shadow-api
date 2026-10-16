@@ -15,7 +15,7 @@
  * the `git ls-files` set in.
  */
 
-import { decodeHTML } from "entities";
+import { decodeHTMLStrict } from "entities";
 import { Marked, parseInline } from "marked";
 
 // Marked 18.1.0 accepts mixed-character closing fences. Override only that
@@ -87,6 +87,9 @@ function posixDirname(p) {
  * `lt` / `gt`, and longer names (`mdash`, `nbsp`, `copy`, …) leak as their
  * bare names (GitHub slugs the plain text). Single-pass, like an HTML
  * tokenizer: `&amp;lt;` decodes to `&lt;`. Unknown entities are left alone.
+ * Strict mode (trailing semicolon required, like GitHub): the legacy
+ * decoder would turn the `&reg` prefix of an unknown `&region;` into `®`,
+ * but GitHub renders the whole `&region;` as literal text.
  *
  * Must run AFTER {@link stripHtmlTags}: a decoded `&lt;id&gt;` looks like a
  * tag, so decoding first would let the tag-strip eat it and its text.
@@ -95,7 +98,7 @@ function posixDirname(p) {
  * @returns {string} plain text with entities decoded
  */
 export function decodeHtmlEntities(htmlText) {
-  return decodeHTML(String(htmlText));
+  return decodeHTMLStrict(String(htmlText));
 }
 
 /**
@@ -114,9 +117,11 @@ function stripHtmlTags(inlineHtml) {
 
 /**
  * GitHub heading slug: lowercase, drop every character that is not a
- * letter, number, underscore, hyphen or space, then one hyphen per space
- * (so a removed em-dash between spaces leaves a double hyphen).
- * Mirrors github-slugger / marked's serializer; underscores survive.
+ * letter, decimal/digit/letter number, mark, connector punctuation, hyphen
+ * or space, then one hyphen per space (so a removed em-dash between spaces
+ * leaves a double hyphen). Mirrors github-slugger: only `\p{Nd}` + `\p{Nl}`
+ * numbers survive (other numbers like ² ½ ₂ are dropped) and `\p{Pc}`
+ * (which includes `_`) is kept.
  * Angle brackets are punctuation here, so `<id>` slugs with its text kept
  * (`/v1/<id>` → `v1id`); tags must already be gone via {@link stripHtmlTags}.
  *
@@ -129,7 +134,7 @@ export function slugifyHeading(plainText) {
   return String(plainText)
     .toLowerCase()
     .trim()
-    .replace(/[^\p{L}\p{N}\p{M}_\- ]/gu, "")
+    .replace(/[^\p{L}\p{Nd}\p{Nl}\p{M}\p{Pc}\- ]/gu, "")
     .replace(/ /g, "-");
 }
 

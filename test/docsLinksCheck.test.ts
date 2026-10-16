@@ -81,6 +81,11 @@ describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
     expect(decodeHtmlEntities("&copy; 2024")).toBe("© 2024");
     // Unknown entities are left alone, never silently dropped.
     expect(decodeHtmlEntities("&bogus;")).toBe("&bogus;");
+    // Strict decoding (trailing semicolon required, like GitHub): a legacy
+    // prefix inside an unknown name must not decode (`&reg` in `&region;`).
+    expect(decodeHtmlEntities("&region;")).toBe("&region;");
+    expect(decodeHtmlEntities("&notit;")).toBe("&notit;");
+    expect(decodeHtmlEntities("&parameters;")).toBe("&parameters;");
   });
 
   it("slugs headings with ' & \" < > like GitHub", () => {
@@ -123,6 +128,54 @@ describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
       files([
         ["docs/A.md", "See [dead](B.md#get-v1).\n"],
         ["docs/B.md", "## GET `/v1/<id>`\n"],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(bad.map((f) => f.reason)).toEqual(["missing anchor"]);
+  });
+
+  it("keeps legacy-prefixed unknown entities as text, like GitHub (review #261 round 3)", () => {
+    // `&region;` is literal text on GitHub, not `®ion;`.
+    expect(extractAnchors("## Query &region; syntax\n")).toEqual([
+      "query-region-syntax",
+    ]);
+    expect(extractAnchors("## Fix &parameters; handling\n")).toEqual([
+      "fix-parameters-handling",
+    ]);
+    expect(extractAnchors("## Rock &notit; roll\n")).toEqual([
+      "rock-notit-roll",
+    ]);
+  });
+
+  it("drops non-decimal numbers and keeps connector punctuation, like GitHub (review #261 round 3)", () => {
+    // Superscripts, subscripts and fractions are U+00No: GitHub drops them.
+    expect(extractAnchors("## Plan B² cost\n")).toEqual(["plan-b-cost"]);
+    expect(extractAnchors("## CO₂ budget\n")).toEqual(["co-budget"]);
+    expect(extractAnchors("## ½ cup\n")).toEqual(["-cup"]);
+    expect(extractAnchors("## x₂ subscript\n")).toEqual(["x-subscript"]);
+  });
+
+  it("resolves GitHub-form links to legacy-entity and superscript headings, rejects dead slugs", () => {
+    const ok = checkDocsLinks(
+      files([
+        [
+          "docs/A.md",
+          "See [r](B.md#query-region-syntax), [p](B.md#plan-b-cost) " +
+            "and [n](B.md#rock-notit-roll).\n",
+        ],
+        [
+          "docs/B.md",
+          "## Query &region; syntax\n\n## Plan B² cost\n\n## Rock &notit; roll\n",
+        ],
+      ]),
+      { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
+    );
+    expect(ok).toEqual([]);
+    // The legacy-decode slug is dead: `#query-ion-syntax` must be reported.
+    const bad = checkDocsLinks(
+      files([
+        ["docs/A.md", "See [dead](B.md#query-ion-syntax).\n"],
+        ["docs/B.md", "## Query &region; syntax\n"],
       ]),
       { trackedPaths: TRACKED, ignoreRules: { dirPrefixes: [], suffixes: [], exact: [] } },
     );

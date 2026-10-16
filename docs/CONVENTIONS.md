@@ -184,7 +184,9 @@ for exact-head CI.
 ### Verification loop
 
 `npm run check:ci-workflow` → `npm run check:docs-links` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
-pushing.
+pushing. `npm run typecheck` runs two configs: the base `tsconfig.json` and
+`tsconfig.src.json` (`noUncheckedIndexedAccess: true` over `src/**/*.ts` plus
+`worker-configuration.d.ts`; `test/` stays on the base config).
 
 `npm ci` alone may install no devDependencies (npm's `omit=dev` is set in some environments, which
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
