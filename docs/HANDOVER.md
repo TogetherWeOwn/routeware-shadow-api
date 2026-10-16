@@ -321,10 +321,14 @@ immediately after** the transfer — every day both exist is a day the old one i
 - **Historical snapshot (2026-08-22):** Actions were disabled with no secrets or environments.
   Do not use this snapshot as current administrative state. The reconciled workflow separates
   credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
-- **Suite:** 30 files, 549 tests, green. **Coverage:** 85.74% statements / 79.48% branches / 89.09%
-  functions / 86.36% lines. (`npm test` runs in a few seconds; `npm run test:coverage` takes ~38s
-  here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
-  5s default.)
+- **At the 2026-08-22 handover:** 30 files, 549 tests, green. Coverage was 85.74% statements /
+  79.48% branches / 89.09% functions / 86.36% lines; these are historical, not current figures.
+  The latest main measurement was re-run 2026-10-08 at `origin/main` commit
+  `7be9be81b416d29965a8cde1942ae7063c3392ca`: 96.22% statements / 91.35% branches /
+  97.55% functions / 96.55% lines. `npm run test:coverage` passed all 145 Vitest files (2,276
+  tests passed; 3 marked expected-fail). See [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md#the-coverage-ratchet)
+  for exact counts and the floors at that commit. The 2026-08-22 run took ~38s; istanbul
+  instrumentation added roughly 65%, which is why `testTimeout` is 30s and not the 5s default.
 - These coverage floors were **re-baselined downward on 2026-08-22**, once, and the reason is
   recorded in [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) § "The coverage ratchet". Short version: one
   test was reaching the live Routeware host and counting unasserted lines as covered; when upstream
@@ -351,12 +355,16 @@ immediately after** the transfer — every day both exist is a day the old one i
 2. **§5 — delete the old repository** (`Rick7C2/routeware-shadow-api`), which is the last surface
    still exposing the credentials and the PII. Then re-take the rotation decision under the new
    access conditions.
-3. **Recover branch coverage above the ECC 80% standard** (79.48% today). The blocking gap is that
-   `vitest.config.ts` never applies the D1 migrations, so `CUSTOMER_DB` has no tables in tests and no
-   route test can drive a snapshot sync to a 200. Fix that first; the end-to-end sync test then
-   becomes straightforward. Details in `TEST-INVARIANTS.md`. **Until it is done, CI goes green on a
-   branch-coverage number that violates the project's own stated 80% standard, and no other gate
-   catches that** — the floor is the only check, and the floor was moved to match reality.
+3. ~~**Recover branch coverage above the ECC 80% standard.**~~ The 79.48% figure was the
+   **historical 2026-08-22 baseline**. The missing-schema gap is closed:
+   `test/d1TestMigrations.ts` applies migrations to the local test `CUSTOMER_DB`, and
+   `test/snapshotSyncE2E.test.ts` asserts the customer → address → container sync path with mocked
+   login and stubbed report fetches. The 2026-10-08 measurement at `origin/main` commit
+   `7be9be81b416d29965a8cde1942ae7063c3392ca` recorded 91.35% branches (1955/2140; 90% floor),
+   plus 96.22% statements, 97.55% functions, and 96.55% lines. See
+   [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md#the-coverage-ratchet) for exact counts and matching
+   floors. **No test may reach the network; live upstream execution must never count as a substitute
+   for assertions.**
 4. **Close the `worker-configuration.d.ts` leak vector.** `wrangler types` bakes `wrangler.toml`
    `[vars]` values into that tracked file as literal string types. Values are synthetic today, so
    nothing is exposed — but a real value plus a regenerate commits it, which is exactly how `4e219dd`

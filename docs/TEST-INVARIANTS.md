@@ -4,29 +4,53 @@ What the test suite pins, per file, and **why** — most of it guards behaviour 
 in production rather than loudly. Read this before changing any file it names, or before deleting a
 test that looks redundant.
 
-Extracted verbatim from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
-every session, but is only needed when touching these specific modules). Coverage percentages are as
-measured at commit `ad7acde`; re-measure rather than trusting them.
+Originally extracted from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
+every session, but is only needed when touching these specific modules). Per-file percentages in the
+invariant descriptions are historical measurements at commit `ad7acde` unless dated otherwise;
+re-measure rather than trusting them. The dated suite-wide measurement below is separate.
+
+**[No test may reach the network](#no-test-may-reach-the-network).** Coverage runs use the local
+Vitest `test` bindings and synthetic fixtures, never the live tenant or remote D1. Keep outbound
+fetches stubbed, and throw on any unexpected upstream URL.
 
 ---
 
 ## The coverage ratchet
 
-`vitest.config.ts` pins coverage thresholds just under current levels, so coverage **cannot
-regress**. Those thresholds are a ratchet, not the goal — **raise them whenever a change moves the
-number up.** That is the whole mechanism.
+`vitest.config.ts` pins global coverage thresholds: a run below any floor fails. The floors allow
+some slack; they do not catch every regression or guarantee per-file coverage. Those thresholds are
+a ratchet, not the goal — **raise them whenever a change moves the number up.**
 
 Read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table: the
 table drops files once they reach 100% and truncates long names.
 
-### Current floors, and why they were lowered once
+### Historical correction (2026-08-22)
 
-| Measured 2026-08-22 (hermetic) | Floor in `vitest.config.ts` |
+These are the **historical** baseline and floors, not the current gate.
+
+| Measured 2026-08-22 (hermetic) | Floor on 2026-08-22 |
 |---|---|
 | Statements 85.74% (1407/1641) | 85 |
 | Branches **79.48%** (833/1048) | 79 |
 | Functions 89.09% (188/211) | 89 |
 | Lines 86.36% (1374/1591) | 86 |
+
+### Current main measurement (2026-10-08)
+
+Re-measured with `npm run test:coverage` at `origin/main` commit
+`7be9be81b416d29965a8cde1942ae7063c3392ca`, which includes
+`test/d1TestMigrations.ts` and `test/snapshotSyncE2E.test.ts`. The probe precheck passed (54 tests),
+and all 145 Vitest files passed (2,276 tests passed; 3 marked expected-fail). The exact suite totals
+from `coverage/coverage-summary.json` were:
+
+| Metric | Measured 2026-10-08 (`origin/main`, `7be9be8`) | Floor in `vitest.config.ts` at that commit |
+|---|---:|---:|
+| Statements | 96.22% (3006/3124) | 94% |
+| Branches | **91.35%** (1955/2140) | 90% |
+| Functions | 97.55% (439/450) | 96% |
+| Lines | 96.55% (2916/3020) | 95% |
+
+The 2026-08-22 figures above remain a historical baseline, not the current main measurement.
 
 The earlier figures — ~90.6% / ~82.0% / ~93.4% / ~91.1%, measured at `ad7acde` — were **not
 reproducible**, and the floors derived from them (90/81/93/91) were not either. One test,
@@ -53,16 +77,15 @@ change.** This is a measurement correction, and it is the one time these floors 
   exactly where a localized regression hides.
 - **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
   re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
-  configured floors — a comment cannot do it. Note also that the floors are uneven in practice:
-  `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
-  under (slack).
+  configured floors — a comment cannot do it. Compare the dated measurement with its matching
+  floors, not the historical re-baseline above.
 
-- **Branches, 79.48% — just under the ECC 80% standard.** The single highest-value fix is to apply
-  the D1 migrations in the test environment (`vitest.config.ts` has no `applyD1Migrations`, so
-  `CUSTOMER_DB` has no tables and no route test can drive a snapshot sync to a 200). With that in
-  place, an end-to-end sync test — mock `../src/lib/httpAuth` the way `test/establishSession.test.ts`
-  does, stub only the `QueryExecuteDownload` CSV — would cover the login → download → parse → upsert
-  path **with assertions**, which is what the removed incidental execution never did.
+- **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` exports
+  `ensureD1TestTables`, which auto-discovers `migrations/d1/*.sql` and applies them to the local
+  test `CUSTOMER_DB` via `applyD1Migrations`. `test/snapshotSyncE2E.test.ts` calls it in `beforeAll`
+  and asserts customer → address → container HTTP 200 sync, FK order, the session retry, upserts
+  and R2 archives. `httpAuth` is mocked; report polls/downloads are stubbed and unexpected upstream
+  calls throw. **Do not recover coverage by letting tests reach the network.**
 
 - The three `csv*Snapshot.ts` parsers — 33–39% statements, 33% functions. The per-row
   `parse*SnapshotRow` half is well covered via `streamSync`; the bulk `parse*SnapshotCsv` half is not.
