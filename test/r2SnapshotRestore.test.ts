@@ -15,7 +15,7 @@ import {
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * R2 restore drill (TOG-7394): the archive leg (`archiveReportCsvToR2AfterD1`)
+ * R2 restore drill: the archive leg (`archiveReportCsvToR2AfterD1`)
  * is write-only by design, and `restoreSnapshotCsvFromR2` is its read-back
  * inverse. This test proves the round trip against the REAL test D1 and the
  * REAL test R2 bucket (same bindings as `test/snapshotSyncE2E.test.ts`):

@@ -8,7 +8,7 @@ import { matchesSnapshotIfNoneMatch } from "../lib/snapshot/export";
 import { createRouteModule, requireSnapshotAuth } from "./shared";
 
 /**
- * Privileged R2 archive readback (gap F1, TOG-18829 encoding).
+ * Privileged R2 archive readback.
  *
  * The sync path archives the raw Routeware CSV to R2 after D1
  * (`src/lib/r2SnapshotArchive.ts`, keys

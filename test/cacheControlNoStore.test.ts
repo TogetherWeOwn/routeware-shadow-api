@@ -4,7 +4,7 @@ import { AUTH_THROTTLE_MAX_FAILURES } from "../src/lib/authThrottle";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * TOG-22087 — authenticated API responses carry `Cache-Control: no-store`.
+ * Authenticated API responses carry `Cache-Control: no-store`.
  *
  * Every `/api/v1/*` response with no handler-set `Cache-Control` must leave
  * with `no-store`; a handler-set value is preserved. Pinned through the real
@@ -31,7 +31,7 @@ function authed(path: string, init: RequestInit = {}): Promise<Response> {
   return call(path, { ...init, headers });
 }
 
-describe("Cache-Control: no-store on /api/v1/* (TOG-22087)", () => {
+describe("Cache-Control: no-store on /api/v1/*", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
     const seed = await call("/api/v1/customer-snapshot/import", {

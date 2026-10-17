@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-5937 / R2-18: upstream `GetCustomerDetailFull` takes no paging
+ * R2-18: upstream `GetCustomerDetailFull` takes no paging
  * parameters, so the sync path guards three things. The response byte cap bounds
  * isolate memory before parsing. The D1 op budget bounds write fan-out and the
  * cache-invalidation budget bounds the per-id `caches.default.delete` fan-out

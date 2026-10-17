@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Per-run correlation id on the R2 archive leg of real per-table syncs (TOG-19134).
+ * Per-run correlation id on the R2 archive leg of real per-table syncs.
  *
  * Each table route's `x-run-id` must reach its snapshot runner and from there
  * every `snapshot.r2*` line, through `syncTableWithR2`. Driven through the real

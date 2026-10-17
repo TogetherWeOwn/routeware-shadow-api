@@ -6,7 +6,7 @@ import { AuthSession } from "../src/authSession.do";
 import { authSessionTestState } from "./authSessionTestState";
 
 /**
- * Fail fast on a non-200 login page (TOG-6536).
+ * Fail fast on a non-200 login page.
  *
  * Amplification bug: `httpLogin` read the login page body without a status
  * check, so a WAF/maintenance 403/500 fell through to "anti-forgery token
@@ -67,7 +67,7 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
 
 /**
  * Refresh-lock stub: /lock grants a token, /unlock and /set verify it,
- * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ * /get is empty — mirroring the owner check in `AuthSession`.
  */
 function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
@@ -107,7 +107,7 @@ function lockStub(state: { refreshing: boolean; lockToken: string | null }): Dur
 
 const originalFetch = globalThis.fetch;
 
-describe("httpLogin fail-fast on non-200 (TOG-6536)", () => {
+describe("httpLogin fail-fast on non-200", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -186,7 +186,7 @@ describe("httpLogin fail-fast on non-200 (TOG-6536)", () => {
   });
 });
 
-describe("establishSession never launches the browser for a blocked login page (TOG-6536)", () => {
+describe("establishSession never launches the browser for a blocked login page", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -217,7 +217,7 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode still falls back to the browser on a genuine 200 markup change", async () => {
     // Arrange — 200 page, no token anywhere: the case the fallback exists for.
-    // Real DO so the lock-token threading (TOG-18959) is exercised end to end:
+    // Real DO so the lock-token threading is exercised end to end:
     // the browser fallback publishes with the holder's token.
     const fake = authSessionTestState();
     const session = new AuthSession(fake.state, {} as Env);
@@ -290,7 +290,7 @@ function blockedAppEnv(fetchImpl: typeof fetch): Env {
   return env;
 }
 
-describe("app 502 on blocked login page (TOG-6536)", () => {
+describe("app 502 on blocked login page", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });

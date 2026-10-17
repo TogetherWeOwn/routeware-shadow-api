@@ -10,7 +10,7 @@ function isValidOffset(value: unknown): value is number {
 }
 
 /**
- * TOG-5936: translate OData-style `skip`/`take` pagination keys onto the
+ * Translate OData-style `skip`/`take` pagination keys onto the
  * Ext.NET `start`/`limit` spelling the harvested SPA traffic uses
  * (`tools/api-discovery/examples/customers-read.post.example.json`).
  *

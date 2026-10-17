@@ -12,14 +12,14 @@ import {
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 import { releaseRefreshLock } from "../src/lib/sessionRefreshLock";
 
-// R9-24 re-verification of the TOG-6278 throttle-burst + secret-residual audit
+// R9-24 re-verification of the throttle-burst + secret-residual audit
 // (2026-09-27, docs/throttle-burst-audit.md) against everything that
 // landed after it: the XFF gate (#155), the 429 `X-RateLimit-*` headers (#216),
 // structured logging via `logEvent` (#226, docs/LOGGING.md), per-IP bucket
 // isolation (R3-20) and the fail-open alarm. Companion auth-login log sites
 // (`auth.login`, `auth.browser`) are pinned in test/authLogResiduals.test.ts.
 //
-// TOG-6278 pattern: every probe below is a distinct, unmistakable string
+// Probe pattern: every probe below is a distinct, unmistakable string
 // submitted through a real input channel (bearer, extra header, DO error,
 // DO response body, lock clientIpFromRequest; assertions then demand ZERO occurrences of
 // every probe in (a) every structured log line emitted, (b) every response

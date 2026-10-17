@@ -38,7 +38,7 @@ const openApiDocumentConfig = {
   openapi: "3.1.0" as const,
   info: {
     title: "Routeware Shadow API",
-    // Single-sourced from package.json via src/lib/version.ts (TOG-5840):
+    // Single-sourced from package.json via src/lib/version.ts:
     // bump package.json#version and the spec version moves with it.
     version: APP_VERSION,
     description:
@@ -106,14 +106,14 @@ app.use("/api/v1/*", async (c, next) => {
     c.res = withCors(c.res, c.req.raw);
     return;
   }
-  // Read-only role (TOG-8878): SHADOW_API_READ_TOKEN passes the outer gate
+  // Read-only role: SHADOW_API_READ_TOKEN passes the outer gate
   // on GET requests only, then flows through the same authorized path as a
   // full token below. Non-GET requests with the read token fall through to
   // the 401; privileged routes reject the read token at their inner
   // sync-secret check (`requireSnapshotAuth`).
   const readOnly = isReadAuthorized(c.env, c.req, method);
   if (!readOnly && !isApiAuthorized(c.env, c.req)) {
-    // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
+    // Brute-force throttle: count failed outer-gate checks per IP
     // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
     // a token-guessing loop slows to a crawl. (Preflight returns above, so
     // OPTIONS never consumes throttle budget; CORS wraps the 429/401 so
@@ -234,12 +234,12 @@ app.use("/docs", async (c, next) => {
   }
   await next();
   // Scalar renders the docs HTML downstream: stamp hardening headers on it
-  // (TOG-8368 audit — /docs previously carried none).
+  // (/docs previously carried none).
   c.res = withSecurityHeaders(await withDocsBranding(c.res));
   return;
 });
 
-// Project-themed Scalar config (TOG-8907): title, logo slot, deep-linkable
+// Project-themed Scalar config: title, logo slot, deep-linkable
 // operation anchors and try-it defaults live in `src/lib/docsPresentation`.
 // No token value is embedded: users authorize in Scalar for each token role.
 app.use("/docs", Scalar(scalarDocsConfiguration));
@@ -252,7 +252,7 @@ app.notFound((c) =>
 );
 
 app.onError((err, c) => {
-  // Invalid REPORT_QUERY dates (TOG-9206): fixed 503, never echoes env values.
+  // Invalid REPORT_QUERY dates: fixed 503, never echoes env values.
   if (err instanceof InvalidReportQueryDatesError) {
     logEvent({
       level: "error",
@@ -272,7 +272,7 @@ app.onError((err, c) => {
     );
   }
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
-  // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
+  // `forwardToUpstream` caller: surface it as 502 problem+json, not
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
   // routes map this themselves before it reaches here; this is the backstop
   // for direct forwarders (login-page, modals, detail-full sync internals).
@@ -290,7 +290,7 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // A waiter that gave up on a hung concurrent refresh (TOG-6526): surface
+  // A waiter that gave up on a hung concurrent refresh: surface
   // it as 502 problem+json, not a 500. The message is a fixed string (no
   // cookie/URL/body/PII). Session-retry routes map this themselves before it
   // reaches here; this is the backstop for direct `establishSession` callers
@@ -308,7 +308,7 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
+  // A typo'd AUTH_MODE fails fast in `establishSession`: surface
   // it as 503 problem+json, not a 500. The detail names the received value
   // (operator config, never a credential or customer data) plus the closed
   // set, so the fix is obvious from the response alone.
@@ -330,7 +330,7 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // A runtime without `Headers.getSetCookie` (TOG-6537): fail fast as 503
+  // A runtime without `Headers.getSetCookie`: fail fast as 503
   // misconfigured, not a 500 and never a browser launch. There are no cookies
   // to fall back from, so a browser retry would burn Browser Rendering budget
   // on a platform gap, not a markup change. The message is a fixed string
@@ -355,7 +355,7 @@ app.onError((err, c) => {
       c.req.raw
     );
   }
-  // A WAF/maintenance block on the login page (TOG-6536): fast 502 naming
+  // A WAF/maintenance block on the login page: fast 502 naming
   // the upstream status, not a 500 and never a browser launch. The message
   // carries only the status number (a fixed PII-free string). Session-retry
   // routes rethrow this past their single retry (the retry budget heals

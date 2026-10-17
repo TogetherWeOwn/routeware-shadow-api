@@ -15,7 +15,7 @@ import { recordingDb } from "./snapshotDbFake";
 import type { Recorded } from "./snapshotDbFake";
 
 /**
- * TOG-19016: close the `src/lib/snapshot/upsert.ts` branch gaps (63.8% at
+ * Close the `src/lib/snapshot/upsert.ts` branch gaps (63.8% at
  * baseline). Every test below targets a branch the suite never took:
  * default `batchSize`/`syncedAt`, non-`Error` D1 failures (`String(e)`),
  * the missing-parent fallback (`missing : distinct`), the

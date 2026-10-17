@@ -112,7 +112,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const total = totalRow?.n ?? 0;
   // A cursor seeks from `customer_id > ?` and never needs OFFSET; keeping the
   // OFFSET-less form off the cursor path is what avoids the scan-past-N-rows
-  // cost this route exists to remove (TOG-5810).
+  // cost this route exists to remove.
   const pageSql =
     p.cursor !== undefined
       ? "ORDER BY customer_id LIMIT ?"
@@ -133,7 +133,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
 });
 
 /**
- * Changes feed: rows touched by the syncs after a client-held cursor (TOG-8877).
+ * Changes feed: rows touched by the syncs after a client-held cursor.
  *
  * A client keeps the largest `(synced_at, customer_id)` pair it has seen and
  * replays `GET /api/v1/customer-snapshot/changes?since=<ts>&since_id=<id>` to
@@ -229,7 +229,7 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
     .bind(...binds)
     .all();
   const rows = results ?? [];
-  // Same convention as the list routes (TOG-5810): full page ⇒ maybe more.
+  // Same convention as the list routes: full page ⇒ maybe more.
   // The cursor is the last row's composite pair, so resuming keeps
   // `(synced_at, customer_id)` keyset order with no boundary skip.
   const last = rows.length === p.limit ? (rows[rows.length - 1] as Record<string, unknown>) : null;
@@ -377,9 +377,9 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+  // `?dryRun=true` runs the full parse/validate path and returns
   // the would-be counts while writing nothing (no D1, no R2).
-  // TOG-19134: forward a valid inbound `x-run-id` so this invocation's
+  // Forward a valid inbound `x-run-id` so this invocation's
   // lines share the originating run's correlation id. Invalid values are
   // dropped — correlation must never fail a sync.
   const runId = parseRunIdHeader(c.req.header("x-run-id"));
@@ -469,7 +469,7 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
       requireDataRows: true,
       rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
-      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      // `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))
     });
     return c.json(r, 200);
@@ -487,7 +487,7 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
 });
 
 /**
- * Customer-row erasure (TOG-8876): hard-deletes one `customer_snapshot` row.
+ * Customer-row erasure: hard-deletes one `customer_snapshot` row.
  *
  * This erases the cached report extract only — it never touches upstream
  * Routeware (which exposes no customer hard delete; see
@@ -637,7 +637,7 @@ customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
   // serving the deleted row's PII until TTL expiry. Refuse-semantics plus the
   // D1 FK above guarantee no address/container bundle can reference this
   // customer (any remaining child 400s the delete), so the single customer key
-  // is the whole stale set. Propagates on failure (TOG-6533): never report
+  // is the whole stale set. Propagates on failure: never report
   // success while erased PII may still serve.
   await invalidateDataEntity("customer", customerId);
   return c.json({ customerId, deleted: 1 }, 200);

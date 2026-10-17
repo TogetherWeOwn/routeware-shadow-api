@@ -1,5 +1,5 @@
 /**
- * Acceptance tests for tools/api-discovery/validate-harvest.mjs (TOG-25329, roadmap R9-16).
+ * Acceptance tests for tools/api-discovery/validate-harvest.mjs (roadmap R9-16).
  *
  * Hermetic by construction: each test copies the REAL validate-harvest.mjs into a
  * fresh temp dir, lays down a synthetic out/harvest.ndjson beside it, and spawns
@@ -12,7 +12,7 @@
  * `test/**.test.ts`, so root `npm test` is untouched).
  *
  * Post-review contract (Paperclip Review on PR #272): the build card
- * ([TOG-25335](/TOG/issues/TOG-25335)) extends this file only to pin
+ * extends this file only to pin
  * reviewer-mandated behavior, keeping every other pin intact. Reviewer
  * check: each fixture mutation below flips exactly one test.
  */

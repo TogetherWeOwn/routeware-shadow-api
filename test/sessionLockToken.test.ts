@@ -9,7 +9,7 @@ import { establishSessionViaHttp } from "../src/lib/httpAuth";
 import { acquireRefreshLock } from "../src/lib/sessionRefreshLock";
 
 /**
- * TOG-18959 — the lock-token ownership proof must reach `/set`.
+ * The lock-token ownership proof must reach `/set`.
  *
  * Gap: every suite mocked `establishSessionViaHttp` /
  * `establishSessionWithBrowser`, so deleting `lockToken` from the
@@ -26,7 +26,7 @@ import { acquireRefreshLock } from "../src/lib/sessionRefreshLock";
  *    holder's lock held (the non-holder semantics `storeSession` documents).
  *
  * Fixture hygiene: cookie values are `FAKE-` literals (house pattern, cf.
- * piiScrub); the lock tokens are synthetic (`TOG-18959` owner check).
+ * piiScrub); the lock tokens are synthetic (owner check).
  */
 
 const ORIGIN = "https://killeen.example.test";
@@ -138,7 +138,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("lock-token ownership reaches /set (TOG-18959)", () => {
+describe("lock-token ownership reaches /set", () => {
   it("establishSessionViaHttp carries the lock token and releases the lock", async () => {
     // Arrange — stubbed upstream login + token-checking DO, lock acquired
     // through the real acquireRefreshLock.

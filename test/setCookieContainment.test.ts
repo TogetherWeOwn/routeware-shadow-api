@@ -12,7 +12,7 @@ const UPSTREAM = new URL("https://killeen.routeware.com/WebRW/Home/Index");
 const LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login";
 
 /**
- * TOG-6284 — upstream `Set-Cookie` must never reach clients.
+ * Upstream `Set-Cookie` must never reach clients.
  *
  * CONVENTIONS.md § 4 contains the session in the `AuthSession` Durable Object:
  * every client-facing forward funnels through `forwardToUpstream` (directly or
@@ -57,7 +57,7 @@ function expectNoSetCookie(res: Response): void {
   expect(list).toEqual([]);
 }
 
-describe("secureUpstreamResponse unit proof (TOG-6284)", () => {
+describe("secureUpstreamResponse unit proof", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -128,7 +128,7 @@ describe("secureUpstreamResponse unit proof (TOG-6284)", () => {
   });
 });
 
-describe("forwardWithSessionRetry strips on both attempts (TOG-6284)", () => {
+describe("forwardWithSessionRetry strips on both attempts", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {
@@ -253,7 +253,7 @@ function sweepRequest(route: SweepRoute): { url: string; init: RequestInit } {
   return { url: base, init: { method: route.method } };
 }
 
-describe("routeware passthrough Set-Cookie sweep (TOG-6284)", () => {
+describe("routeware passthrough Set-Cookie sweep", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -328,7 +328,7 @@ describe("routeware passthrough Set-Cookie sweep (TOG-6284)", () => {
   });
 });
 
-describe("data-entity envelope never carries Set-Cookie (TOG-6284)", () => {
+describe("data-entity envelope never carries Set-Cookie", () => {
   const originalFetch = globalThis.fetch;
 
   const DETAIL_FULL = {

@@ -28,7 +28,7 @@ const behavior: {
   entry: Response | undefined;
   putError: string | null;
   deleteError: string | null;
-  /** TOG-6534: fail the next N deletes, then succeed — simulates a transient mid-graph throw. */
+  /** Fail the next N deletes, then succeed — simulates a transient mid-graph throw. */
   deleteFailTimes: number;
 } = { entry: undefined, putError: null, deleteError: null, deleteFailTimes: 0 };
 
@@ -286,7 +286,7 @@ describe("invalidateCustomerGraph", () => {
   });
 
   it("invalidates a graph larger than one chunk without dropping ids", async () => {
-    // Arrange — TOG-5937: deletes run in bounded sequential chunks; a large
+    // Arrange — deletes run in bounded sequential chunks; a large
     // graph must still invalidate every id exactly once.
     const addressIds = Array.from({ length: 250 }, (_, i) => 1000 + i);
     const containerIds = Array.from({ length: 300 }, (_, i) => 2000 + i);
@@ -303,7 +303,7 @@ describe("invalidateCustomerGraph", () => {
   });
 });
 
-describe("TTL centralization (TOG-6294)", () => {
+describe("TTL centralization", () => {
   it("exposes the shared TTL and renders the Cache-Control value from it", () => {
     // Arrange / Act / Assert — one constant feeds every 200/304 header, so a
     // tuning change cannot miss a call site.
@@ -314,7 +314,7 @@ describe("TTL centralization (TOG-6294)", () => {
   });
 });
 
-describe("hit/miss observability (TOG-6294)", () => {
+describe("hit/miss observability", () => {
   it("logs a count-only miss event and counts it per entity kind", async () => {
     // Arrange / Act
     await getCachedDataEntity("customer", 5);
@@ -392,7 +392,7 @@ describe("hit/miss observability (TOG-6294)", () => {
   });
 });
 
-describe("invalidateCustomerGraphWithRetry (TOG-6534)", () => {
+describe("invalidateCustomerGraphWithRetry", () => {
   it("invalidates the remaining ids on the retry path after a mid-graph throw", async () => {
     // Arrange — the first whole-graph attempt throws mid-graph (the two
     // deletes that landed stay landed; deletes are idempotent), the retry

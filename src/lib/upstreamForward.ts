@@ -14,7 +14,7 @@ export type ForwardOptions = {
    */
   internalMarker?: string;
   /**
-   * Per-attempt time-to-headers budget in ms (TOG-5835). Defaults to
+   * Per-attempt time-to-headers budget in ms. Defaults to
    * `DEFAULT_UPSTREAM_TIMEOUT_MS`; report-CSV callers pass the larger
    * report budget. A hung upstream throws `UpstreamTimeoutError` (never
    * retried — the single retry is reserved for the login redirect).
@@ -53,7 +53,7 @@ export async function forwardToUpstream(
     headers.set("Cookie", session.cookieHeader);
   }
 
-  // Bounded per-attempt budget (TOG-5835): a hung Routeware host throws
+  // Bounded per-attempt budget: a hung Routeware host throws
   // `UpstreamTimeoutError` instead of holding the Worker to the 300s CPU
   // limit. The timer covers time-to-headers only, so a started body stream is
   // not cut off. Timeouts are never retried — the single retry is reserved

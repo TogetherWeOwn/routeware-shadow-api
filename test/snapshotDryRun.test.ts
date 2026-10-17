@@ -20,7 +20,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 import { recordingDb } from "./snapshotDbFake";
 
 /**
- * Dry-run mode on the sync/import routes (TOG-9203, round-4 gap F3).
+ * Dry-run mode on the sync/import routes (round-4 gap F3).
  *
  * `?dryRun=true` must run the full parse/validate path, return the counts
  * that WOULD apply, and write nothing — no D1 upserts, no reconcile deletes,
@@ -376,7 +376,7 @@ describe("snapshot dry-run (e2e, real app + D1 + R2)", () => {
 
     // Assert — a cautious `?dryRun=false` probe is a REAL write (the enum
     // schema exists precisely so this is explicit, never a coerced accident).
-    // A real write also runs the R2 leg, so main's TOG-6549 outcome stamping
+    // A real write also runs the R2 leg, so main's outcome stamping
     // rides the response; the dry-run path skips that leg and carries no `r2`.
     expect(res.status).toBe(200);
     expect(JSON.parse(res.raw)).toMatchObject({

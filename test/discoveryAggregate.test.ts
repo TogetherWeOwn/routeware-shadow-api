@@ -12,7 +12,7 @@
  * ----------------------------------
  * `aggregate.mjs` runs the whole merge at module import against hardcoded
  * `out/` paths and exports nothing, and this suite runs inside the workers
- * pool (no `node:fs`, no child processes). The build card (TOG-25411) makes
+ * pool (no `node:fs`, no child processes). The build card makes
  * the suite pass WITHOUT editing this file, by extracting the pure merge
  * into `tools/api-discovery/lib/` per the contract below — the same
  * extraction `lib/normalizePath.mjs` and `lib/stubNaming.mjs` already

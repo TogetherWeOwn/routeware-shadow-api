@@ -8,7 +8,7 @@ import { streamCsvLines, stringToUint8Stream } from "../src/lib/csvStream";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * TOG-8887 (R3-11) — export → reimport round-trip idempotence.
+ * R3-11 — export → reimport round-trip idempotence.
  *
  * Import-compatible data from each `*-snapshot/export` route (customer,
  * address, container — `data-snapshot` serves no export route) must paste back
@@ -282,14 +282,14 @@ function db(): D1Database {
   return (env as unknown as { CUSTOMER_DB: D1Database }).CUSTOMER_DB;
 }
 
-describe("snapshot export → reimport round-trip (TOG-8887)", () => {
+describe("snapshot export → reimport round-trip", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
   });
 
   it("pins the boolean spelling matrix at the parser level", () => {
     // Arrange / Act / Assert — every spelling the seed files use, plus the
-    // empty-cell divergence: Enabled/ExtrasAllowed default true (TOG-6542),
+    // empty-cell divergence: Enabled/ExtrasAllowed default true,
     // OnCall/GPSLocked default false.
     for (const s of ["true", "TRUE", "True", "1", "yes", "YES", " Yes "]) {
       expect(parseBool(s)).toBe(true);

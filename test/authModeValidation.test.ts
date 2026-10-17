@@ -3,7 +3,7 @@ import app from "../src/app";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Closed `AUTH_MODE` validation (TOG-6531).
+ * Closed `AUTH_MODE` validation.
  *
  * Cost bug: `mode` was lowercased but never validated, so a typo (e.g.
  * `AUTH_MODE=browserr`) fell into the HTTP-then-browser fallback and silently
@@ -63,7 +63,7 @@ function envWith(mode: unknown): Env {
 
 /**
  * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
- * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ * /get is empty — mirroring the owner check in `AuthSession`.
  */
 function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
@@ -93,7 +93,7 @@ function lockStub(state: { refreshing: boolean; lockToken: string | null }): Dur
   } as unknown as DurableObjectStub;
 }
 
-describe("resolveAuthMode (TOG-6531)", () => {
+describe("resolveAuthMode", () => {
   it("accepts the closed set case-insensitively with surrounding whitespace", () => {
     expect(resolveAuthMode(envWith("auto"))).toBe("auto");
     expect(resolveAuthMode(envWith("http"))).toBe("http");
@@ -128,7 +128,7 @@ describe("resolveAuthMode (TOG-6531)", () => {
   });
 });
 
-describe("establishSession with a typo'd AUTH_MODE (TOG-6531)", () => {
+describe("establishSession with a typo'd AUTH_MODE", () => {
   beforeEach(() => {
     httpLoginCalls.count = 0;
     browserLoginCalls.count = 0;
@@ -211,7 +211,7 @@ function typoAppEnv(): Env {
   } as unknown as Env;
 }
 
-describe("app 503 on typo'd AUTH_MODE (TOG-6531)", () => {
+describe("app 503 on typo'd AUTH_MODE", () => {
   beforeEach(() => {
     httpLoginCalls.count = 0;
     browserLoginCalls.count = 0;

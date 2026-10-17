@@ -17,7 +17,7 @@ import { readSessionState } from "./sessionState";
 
 /**
  * How long a waiter polls for the holder's fresh session before failing
- * closed to 502 (TOG-6527).
+ * closed to 502.
  *
  * Derived from the lock TTL so the relationship can never drift: the budget
  * must cover a worst-case browser login (~47s — two 15s selector waits + 15s
@@ -30,7 +30,7 @@ export const WAIT_TIMEOUT_MS = LOCK_TTL_MS - 30_000;
 const WAIT_INTERVAL_MS = 500;
 
 /**
- * Thrown when a waiter gives up on an in-flight refresh (TOG-6526).
+ * Thrown when a waiter gives up on an in-flight refresh.
  *
  * The message carries only the timeout budget (a fixed PII-free string):
  * it reaches API clients inside a 502 `bad-gateway` problem+json and the
@@ -175,7 +175,7 @@ export async function storeSession(
  * alone cannot make expired or malformed session material usable.
  * This validates local expiry, not a new publication or upstream acceptance:
  * an upstream-rejected cookie whose recorded expiry is still future may pass.
- * Throws `ConcurrentRefreshTimeoutError` on deadline (TOG-6526) — the
+ * Throws `ConcurrentRefreshTimeoutError` on deadline — the
  * caller must fail closed to 502 rather than forwarding with the expired cookie.
  * Callers that should take over after an explicit failed release use
  * `waitForPublicationOrTakeover` instead.
@@ -205,7 +205,7 @@ export async function waitForConcurrentRefresh(
 
 /**
  * Attempt a bounded fresh acquisition after an explicit failed release
- * (TOG-18119, CISO option B). Resolves to the ownership token when this caller
+ * (CISO option B). Resolves to the ownership token when this caller
  * won the atomic `/takeover` and now holds the refresh lock — it must run the
  * holder login path next and release with this token. `null` on 423 (a holder
  * is live — keep waiting on it) or 409 (no episode, spent budget, or a live
@@ -230,7 +230,7 @@ export type WaiterSettlement =
 
 /**
  * Wait for the holder's fresh session exactly like
- * `waitForConcurrentRefresh`, but with bounded fresh acquisition (TOG-18119,
+ * `waitForConcurrentRefresh`, but with bounded fresh acquisition (
  * CISO option B): after the holder's explicit failed release (`/unlock` that
  * released a held lock), one waiter takes over with a single fresh login
  * instead of every waiter stalling to 502.

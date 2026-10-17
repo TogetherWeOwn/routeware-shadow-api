@@ -68,7 +68,7 @@ async function readRaw(
 }
 
 /**
- * Acquire the refresh lock and return its ownership token (TOG-18959).
+ * Acquire the refresh lock and return its ownership token.
  * `/unlock` and a holder's `/set` must present this token to release the lock.
  */
 async function acquireToken(session: AuthSession): Promise<string> {
@@ -137,7 +137,7 @@ describe("AuthSession Durable Object", () => {
     });
 
     it("stores the session but keeps a live holder's lock on a tokenless write", async () => {
-      // Arrange — a holder owns the lock; a non-holder publishes (TOG-18959)
+      // Arrange — a holder owns the lock; a non-holder publishes
       const session = await makeSession();
       await acquireToken(session);
 

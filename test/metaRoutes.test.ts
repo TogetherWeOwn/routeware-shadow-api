@@ -65,7 +65,7 @@ describe("GET /api/v1/health route", () => {
     const res = await callMeta("/api/v1/health", {} as unknown as Env);
 
     // Assert — version is single-sourced from package.json via APP_VERSION
-    // (TOG-5840 pattern, TOG-8880): the literal pins the wire shape, the
+    // Wire-shape pattern: the literal pins the wire shape, the
     // package.json comparison pins the single-sourcing.
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");

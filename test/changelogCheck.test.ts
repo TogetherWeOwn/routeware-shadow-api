@@ -10,13 +10,13 @@ import {
 } from "../scripts/lib/changelogCheck.mjs";
 
 /**
- * Regression tests for TOG-8385 (gap G9): `[Unreleased]` sat empty with no
+ * Regression tests (gap G9): `[Unreleased]` sat empty with no
  * enforcement, so consumer-visible contract changes landed without a
  * changelog entry. All fixtures are synthetic path/card-id strings — no
  * values, real or otherwise.
  */
 
-describe("isContractVisiblePath (TOG-8385)", () => {
+describe("isContractVisiblePath", () => {
   it("flags route, app, worker, lib-shape, wrangler and migration paths", () => {
     for (const path of [
       "src/routes/customers.ts",
@@ -48,7 +48,7 @@ describe("isContractVisiblePath (TOG-8385)", () => {
   });
 });
 
-describe("unreleasedSection (TOG-8385)", () => {
+describe("unreleasedSection", () => {
   const changelog = [
     "# Changelog",
     "",
@@ -77,7 +77,7 @@ describe("unreleasedSection (TOG-8385)", () => {
   });
 });
 
-describe("unreleasedCardIds (TOG-8385)", () => {
+describe("unreleasedCardIds", () => {
   it("collects sorted unique TOG ids from bullets", () => {
     expect(unreleasedCardIds("- TOG-9: b.\n- TOG-7: a.\n- TOG-9: dup.\n")).toEqual([
       "TOG-7",
@@ -101,7 +101,7 @@ describe("unreleasedCardIds (TOG-8385)", () => {
   });
 });
 
-describe("evaluateChangelogGate (TOG-8385)", () => {
+describe("evaluateChangelogGate", () => {
   const entry = (card: string) =>
     `# Changelog\n\n## [Unreleased]\n\n- ${card}: a contract change.\n\n## [1.0.0]\n`;
 

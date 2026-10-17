@@ -24,7 +24,7 @@ import {
 import { routewareWebRwUrl } from "./upstreamUrl";
 
 /**
- * TOG-6533: invalidate the posted entity id(s) after a successful upstream
+ * Invalidate the posted entity id(s) after a successful upstream
  * write whose graph id is unresolvable (no sync possible, so the graph ids are
  * unknown). Without this the write succeeds upstream while the edge cache keeps
  * serving the pre-edit bundle — stale customer PII.
@@ -61,7 +61,7 @@ async function invalidatePostedIds(
 }
 
 /**
- * TOG-8374: the upstream save already succeeded, so a post-save eviction
+ * The upstream save already succeeded, so a post-save eviction
  * failure must not reject the handler — the client would see an error for a
  * write that landed and might retry a non-idempotent create, while the
  * entries past the failure stay stale either way. Log loudly server-side and
@@ -85,7 +85,7 @@ async function evictAfterSaveQuietly(
 }
 
 /**
- * TOG-6535: local-sync outcome codes. Fixed strings only — never exception
+ * Local-sync outcome codes. Fixed strings only — never exception
  * text, which previously reached clients verbatim inside `localSync.reason`
  * and could carry upstream PII/HTML.
  */
@@ -183,13 +183,13 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // TOG-6535: `posted` is parsed for ids only and never echoed — the full
+  // `posted` is parsed for ids only and never echoed — the full
   // form map is customer PII and must not leave the handler.
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
   const customerId = parseCustomerIdFromSaveResponse(posted, upText);
   if (!ok && up.status >= 200 && up.status < 300) {
-    // TOG-8149: same silent-failure eviction as the save-long-form route —
+    // Same silent-failure eviction as the save-long-form route —
     // a rejected token must not be replayed on the next token-less save.
     evictAntiForgeryTokenCacheForBody(bodyBuffer);
   }
@@ -199,10 +199,10 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       try {
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
         localSync = { done: true, customerId, addressIds: g.addressIds, containerIds: g.containerIds };
-        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        // TOG-8374: attempts come from the Cache API headroom left after one
+        // Attempts come from the Cache API headroom left after one
         // full-graph pass — best effort, never a reserved second pass.
         await invalidateCustomerGraphWithRetry(
           {
@@ -226,7 +226,7 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       }
     } else {
       localSync = unknownCustomerId();
-      // TOG-6533: no sync is possible without the graph id, but the upstream
+      // No sync is possible without the graph id, but the upstream
       // write succeeded — invalidate the posted customer id (if any) instead
       // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
       // only returns null when the posted form carried no usable id, so this is
@@ -319,7 +319,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // TOG-6535: `posted` is parsed for ids only and never echoed.
+  // `posted` is parsed for ids only and never echoed.
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
   const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
@@ -337,10 +337,10 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        // TOG-8374: attempts come from the Cache API headroom left after one
+        // Attempts come from the Cache API headroom left after one
         // full-graph pass — best effort, never a reserved second pass.
         await invalidateCustomerGraphWithRetry(
           {
@@ -369,7 +369,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       }
     } else {
       localSync = unknownCustomerId();
-      // TOG-6533: the upstream write succeeded but there is no usable
+      // The upstream write succeeded but there is no usable
       // CustomerID to sync on — still invalidate the posted address id so the
       // pre-edit cached bundle is not served as current.
       await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
@@ -458,7 +458,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // TOG-6535: `posted` is parsed for ids only and never echoed.
+  // `posted` is parsed for ids only and never echoed.
   const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
   const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
@@ -489,10 +489,10 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        // TOG-6534: retry the whole graph on a mid-graph throw (cache deletes
+        // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
-        // TOG-8374: attempts come from the Cache API headroom left after one
+        // Attempts come from the Cache API headroom left after one
         // full-graph pass — best effort, never a reserved second pass.
         await invalidateCustomerGraphWithRetry(
           {
@@ -521,7 +521,7 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       }
     } else {
       localSync = unknownCustomerId();
-      // TOG-6533: the upstream write succeeded but no owning customer could be
+      // The upstream write succeeded but no owning customer could be
       // resolved (neither posted nor via the address-snapshot fallback) — still
       // invalidate the posted address/container ids so pre-edit cached bundles
       // are not served as current.

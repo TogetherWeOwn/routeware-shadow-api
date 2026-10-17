@@ -6,7 +6,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 import { recordingDb } from "./snapshotDbFake";
 
 /**
- * R2-07 CSV import dialect sweep (TOG-8363, gap G12).
+ * R2-07 CSV import dialect sweep (gap G12).
  *
  * Every CSV dialect edge an operator export can carry must map to either a
  * documented 400 or a correct import: BOM, CRLF, quoted commas, escaped
@@ -14,7 +14,7 @@ import { recordingDb } from "./snapshotDbFake";
  * and quote-scanner behavior across stream chunk boundaries.
  *
  * A stray unbalanced `"` mid-field is treated as a literal inch mark, so all
- * well-formed rows land (fixed by [TOG-8536](/TOG/issues/TOG-8536); see the
+ * well-formed rows land (fixed by the quote-scanner change; see the
  * stray-quote tests below).
  *
  * Unit tests run against `recordingDb` (no D1); HTTP tests run through the
@@ -44,7 +44,7 @@ async function collectLines(s: ReadableStream<Uint8Array>): Promise<string[]> {
   return out;
 }
 
-describe("CSV dialect sweep, stream level (TOG-8363)", () => {
+describe("CSV dialect sweep, stream level", () => {
   it("imports a BOM-prefixed file, header and row intact", async () => {
     // Arrange
     const { db, batches } = recordingDb();
@@ -230,7 +230,7 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
   });
 
   it("is chunk-invariant at every split point of a mid-field stray-quote file", async () => {
-    // Arrange — the TOG-8536 shape: a stray inch mark mid-field. The defer
+    // Arrange — the shape: a stray inch mark mid-field. The defer
     // guard (trailing `"` inside quotes waits for more data) must not change
     // the outcome at any boundary, and the stray `"` must never open a merge.
     const full = 'h1,h2\n1,5" widget\n2,ok\n';
@@ -246,9 +246,9 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
     expect(one).toEqual(["h1,h2", '1,5" widget', "2,ok"]);
   });
 
-  it("treats a mid-field stray quote as a literal: all rows land (TOG-8536)", async () => {
+  it("treats a mid-field stray quote as a literal: all rows land", async () => {
     // Arrange — row 2 carries a stray inch mark (`5" widget`), rows 3-4 are
-    // well-formed. Fixed by TOG-8536: the scanner only opens a quoted field
+    // well-formed. Fixed: the scanner only opens a quoted field
     // at field start, so the stray `"` is a literal and no rows are lost.
     const { db, batches } = recordingDb();
     const csv = [
@@ -291,7 +291,7 @@ describe("CSV dialect sweep, stream level (TOG-8363)", () => {
   });
 });
 
-describe("CSV dialect sweep, HTTP level (TOG-8363)", () => {
+describe("CSV dialect sweep, HTTP level", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
   });
@@ -414,8 +414,8 @@ describe("CSV dialect sweep, HTTP level (TOG-8363)", () => {
     expect(res.headers.get("content-type")).toContain("problem+json");
   });
 
-  it("imports every row through a mid-file stray quote with 200 (TOG-8536)", async () => {
-    // Arrange — fixed by TOG-8536: the stray `"` in row 74102 is a literal,
+  it("imports every row through a mid-file stray quote with 200", async () => {
+    // Arrange — fixed: the stray `"` in row 74102 is a literal,
     // so all four well-formed rows land with success reported.
     const csv = [
       CUSTOMER_HEADER,

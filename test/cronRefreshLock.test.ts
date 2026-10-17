@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-6548 — the 07:00 thunder-herd regression pin.
+ * The 07:00 thunder-herd regression pin.
  *
  * The three chained cron invocations (customer → address → container) share
  * one AuthSession DO (`idFromName("primary")`) and expire together, so on
@@ -59,7 +59,7 @@ type LockState = {
 /**
  * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
  * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
- * TOG-18959 lock-token owner check — matching `AuthSession` (same shape as
+ * lock-token owner check — matching `AuthSession` (same shape as
  * `test/establishSession.test.ts`).
  */
 function fakeStub(state: LockState): DurableObjectStub {
@@ -134,11 +134,11 @@ function makeEnv(stub: DurableObjectStub): Env {
   } as unknown as Env;
 }
 
-describe("cron login thunder-herd (TOG-6548)", () => {
+describe("cron login thunder-herd", () => {
   const originalFetch = globalThis.fetch;
   const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     const cookie = new Headers(init?.headers).get("cookie") ?? "";
-    // TOG-6543: the query-id leg polls QueryRequestIsComplete before its
+    // The query-id leg polls QueryRequestIsComplete before its
     // download. The poll answers "true" on a fresh session — stale still 302s
     // so the query-id leg joins the herd instead of bypassing it.
     const isPoll = String(url).includes("QueryRequestIsComplete");
@@ -185,7 +185,7 @@ describe("cron login thunder-herd (TOG-6548)", () => {
     // Assert — the refresh lock collapsed the storm into a single upstream
     // login and a single /set; every step retried exactly once (3 stale
     // forwards + 4 fresh forwards — the query-id leg's extra forward is its
-    // TOG-6543 completion poll) and all three landed 200 with CSV.
+    // completion poll) and all three landed 200 with CSV.
     expect(counters.httpLogins).toBe(1);
     expect(counters.sets).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(7);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import app from "../src/app";
 
 /**
- * Fail-closed gate on the public docs surface (TOG-5828).
+ * Fail-closed gate on the public docs surface.
  *
  * `wrangler.toml` defaults `OPENAPI_DOCS_ENABLED` to `"false"` in deployed
  * envs, so `/openapi.json` and `/docs` must return 404 unless the var is
@@ -27,7 +27,7 @@ async function get(path: string, env: Env): Promise<Response> {
   return app.fetch(new Request(`http://test.local${path}`), env, ctx);
 }
 
-describe("OpenAPI docs gate (TOG-5828)", () => {
+describe("OpenAPI docs gate", () => {
   it("GET /openapi.json returns 404 problem+json when docs are disabled", async () => {
     const res = await get("/openapi.json", docsEnv("false"));
     expect(res.status).toBe(404);
@@ -52,7 +52,7 @@ describe("OpenAPI docs gate (TOG-5828)", () => {
     expect(docs.status).toBe(404);
   });
 
-  it("stamps hardening headers on the disabled-branch 404s (TOG-8368)", async () => {
+  it("stamps hardening headers on the disabled-branch 404s", async () => {
     for (const path of ["/openapi.json", "/docs"]) {
       const res = await get(path, docsEnv("false"));
       expect(res.status).toBe(404);
@@ -62,7 +62,7 @@ describe("OpenAPI docs gate (TOG-5828)", () => {
     }
   });
 
-  it("stamps hardening headers on the served spec and UI (TOG-8368)", async () => {
+  it("stamps hardening headers on the served spec and UI", async () => {
     const spec = await get("/openapi.json", docsEnv("true"));
     expect(spec.status).toBe(200);
     expect(spec.headers.get("x-content-type-options")).toBe("nosniff");

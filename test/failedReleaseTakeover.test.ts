@@ -9,7 +9,7 @@ import { readSessionState } from "../src/lib/sessionState";
 import { authSessionTestState } from "./authSessionTestState";
 
 /**
- * Bounded fresh acquisition after an explicit failed release (TOG-18119, CISO
+ * Bounded fresh acquisition after an explicit failed release (CISO
  * option B): when a refresh holder's login fails and its `/unlock` releases a
  * held lock without a `/set`, one queued waiter takes over with a single
  * fresh login instead of every waiter stalling to a 502.
@@ -62,7 +62,7 @@ function harness() {
 
 /**
  * A held lock whose stored cookie already expired: the failed-holder setup.
- * Returns the holder's ownership token (TOG-18119, reviewer finding 2) so the
+ * Returns the holder's ownership token (reviewer finding 2) so the
  * test can release it the way the real failed holder does.
  */
 async function failedHolderSetup(stub: DurableObjectStub): Promise<string> {
@@ -243,7 +243,7 @@ describe("failed-release takeover (CISO option B)", () => {
     // Arrange — a failed release happened, but a live cookie is stored. The
     // publication lands while no lock is held; the later grant owns the lock
     // whose failed release the test records (a tokenless `/set` never releases
-    // a live holder's lock under TOG-18959, so the order matters).
+    // a live holder's lock, so the order matters).
     const { stub, values } = harness();
     await storeSession(stub, FRESH_COOKIE, Date.now() + 60_000);
     const lockResponse = await stub.fetch("https://auth/lock");

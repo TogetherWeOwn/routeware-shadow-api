@@ -15,7 +15,7 @@ import type { D1Migration } from "cloudflare:test";
  * skips them on later runs, so this is safe to call once per test file (or
  * from a `setupFiles` entry that runs before every file).
  *
- * Parity guard (TOG-6551): migration files are **auto-discovered** with
+ * Parity guard: migration files are **auto-discovered** with
  * `import.meta.glob`, never enumerated by hand — adding
  * `migrations/d1/0003_*.sql` picks it up with no code change. Before this,
  * the two files were hard-imported, so 0003 (already on main) shipped
