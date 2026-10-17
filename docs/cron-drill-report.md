@@ -1,8 +1,8 @@
-# TOG-6280 — Cron runbook missed-run drill report
+# Cron runbook missed-run drill report
 
 > **Superseded — 2026-10-15.** This is a historical drill report; do not use
 > it as current procedure evidence. Superseding re-drill:
-> [TOG-25208](/TOG/issues/TOG-25208) (all keys PASS, 2026-10-15). Current
+> the 2026-10-15 re-drill (all keys PASS). Current
 > procedure: [Cron sync missed/failed alarm runbook §5 — Local missed-run
 > drill](CRON-SYNC-ALARM-RUNBOOK.md#5-local-missed-run-drill-no-deploy-no-token-no-tenant).
 
@@ -26,7 +26,7 @@ Fixes landed in the runbook itself (§5 is the new reproducible drill).
    nothing told a reviewer how to reproduce the keys locally. Added §5 with the
    exact two-server recipe, expected lines, and the `npm ci --include=dev`
    prerequisite (this worktree lacked devDependencies).
-2. **`resolveChainedBase` (TOG-6285) undocumented.** A malformed
+2. **`resolveChainedBase` undocumented.** A malformed
    `SHADOW_API_PUBLIC_BASE` (path suffix, userinfo, non-http) falls back to
    single-invocation *silently* — same `configSource` as unset. The `d1LimitRisk`
    paragraph now says to re-check the value character-by-character, not just

@@ -1,4 +1,4 @@
-# TOG-9207 — upstream cookie-jar scoping audit
+# Upstream cookie-jar scoping audit
 
 Auditor: Security Engineer · 2026-09-28 · code at `src/lib/httpAuth.ts`, tests at `test/cookieJarScoping.test.ts`.
 

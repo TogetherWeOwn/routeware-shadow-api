@@ -87,9 +87,9 @@ only stops future expiry and cannot recover deleted objects. Do not activate
 retention as part of an ordinary deploy or rollback.
 
 The proposed rule JSON and hold procedure are recorded in
-`R2-LIFECYCLE-PROPOSAL.md` (TOG-19231); the rule remains not enabled.
+`R2-LIFECYCLE-PROPOSAL.md`; the rule remains not enabled.
 
-## Customer-row erasure leaves R2 untouched (TOG-18933)
+## Customer-row erasure leaves R2 untouched
 
 `DELETE /api/v1/customer-snapshot/{customerId}` writes an id-only D1
 tombstone and deletes the D1 `customer_snapshot` row in the same D1 batch, then
@@ -103,8 +103,7 @@ results count candidate input rows, including suppressed rows, not the number of
 rows retained in D1. Verify the stored row state rather than treating those
 counts as proof of restoration.
 
-Descendant writes for a suppressed customer are skipped narrowly (TOG-21964
-scoped_skip): address inserts/updates whose `customer_id` is tombstoned are
+Descendant writes for a suppressed customer are skipped narrowly (`scoped_skip`): address inserts/updates whose `customer_id` is tombstoned are
 ignored, and each skipped address records its integer keys in
 `customer_snapshot_erasure_address` so a later container write for that address
 is ignored too. The lineage table holds only `pickup_address_id`,

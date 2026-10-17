@@ -1,4 +1,4 @@
-# Dependency audit gate and allowlist process (TOG-8904)
+# Dependency audit gate and allowlist process
 
 ## What runs in CI
 
@@ -8,8 +8,8 @@ any **high or critical** advisory that is not explicitly allowlisted in
 `scripts/lib/depsAuditCheck.mjs` (`AUDIT_ALLOWLIST`):
 
 - root `package-lock.json` via `npm audit --omit=dev --json`;
-- `tools/api-discovery/package-lock.json` via `npm audit --include=dev --json`
-  (TOG-25334). That package is not a workspace member, so the root audit
+- `tools/api-discovery/package-lock.json` via `npm audit --include=dev --json`.
+  That package is not a workspace member, so the root audit
   never sees its tree (playwright, tsx). It has no prod dependencies, so
   `--omit=dev` would audit an empty tree and pass silently forever — the
   full-tree audit is what keeps its 0-vuln baseline (2026-10-15) honest.
@@ -36,8 +36,8 @@ is an infrastructure failure (exit 2) — never a clean verdict.
   carried ~25 moderate/low advisories, mostly Hono middleware adapters this
   Worker never mounts (JSX, Lambda, `toSSG`, AWS adapters). Gating on those
   would hold the gate permanently red and teach everyone to ignore it. They
-  are still counted in the PASS log so drift is visible. As of TOG-18932
-  (`hono` 4.13.13, `npm audit fix` non-breaking) the tree reports 7
+  are still counted in the PASS log so drift is visible. After the
+  `hono` 4.13.13 bump (`npm audit fix` non-breaking) the tree reports 7
   packages / 3 distinct advisories, all high and allowlisted, 0 below
   threshold.
 - **Per-advisory severity, not npm's rollup.** `npm audit` rolls each
@@ -60,8 +60,8 @@ the reporting lockfile by hand (`npm update <pkg>` in the root or in
 `tools/api-discovery`).
 
 Dependabot titles use `chore(deps)` / `ci(deps)` prefixes to satisfy the
-`pr-lint` Conventional Commits check; add `Refs: TOG-xxxx` to the body when
-merging, since the bot cannot know the card.
+`pr-lint` Conventional Commits check; link the tracking GitHub issue in the
+body when merging, since the bot cannot know it.
 
 ## Allowlist process
 
@@ -73,7 +73,7 @@ Every entry names:
   tooling chain, adapter never mounted, explicit-origin CORS config),
 - the remediation path (almost always "Dependabot proposes the upstream
   fix"),
-- the card that added it (`addedIn`).
+- the change that added it (`addedIn`).
 
 ### Adding an entry (gate is red on a new advisory)
 
@@ -84,7 +84,7 @@ Every entry names:
    runtime) touch the vulnerable function? If yes, **fix instead of
    allowlisting** — bump the dependency in the same PR.
 3. If genuinely unreachable, add the entry with reason + remediation +
-   your card id, and note the advisory in the PR body (`Refs:`).
+   provenance, and note the advisory in the PR body.
 4. A second pair of eyes sees it in the normal Code Reviewer pass — entries
    are code, reviewed like code.
 

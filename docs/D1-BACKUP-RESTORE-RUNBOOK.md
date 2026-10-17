@@ -2,7 +2,7 @@
 
 **Status:** runbook only. No code, schema, or config changes. No new services, secrets, or paid tiers.
 **Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Tables `customer_snapshot` → `address_snapshot` → `container_snapshot` in D1 (`CUSTOMER_DB`, `routeware-customer-snapshot`).
-**Why:** snapshot data lives in D1 with no other documented backup/restore path (gap G19, [TOG-8285](/TOG/issues/TOG-8285) `round2-gap-list`). This doc is the operator checklist: export before risky work, restore after, with the drill evidence attached to [TOG-8366](/TOG/issues/TOG-8366).
+**Why:** snapshot data lives in D1 with no other documented backup/restore path (gap G19). This doc is the operator checklist: export before risky work, restore after; §5 summarises the drill evidence.
 
 > **Never `--remote` for a drill.** Every command below targets the **local** D1 (`--local`). Remote export/restore touches production data and needs CEO sign-off first (owner-reserved: irreversible data operations). The drill in §4 ran entirely against local scratch state.
 
@@ -82,4 +82,4 @@ For a snapshot-table-only loss on the order of this repo's data volume (hundreds
 
 ## 5. Drill evidence
 
-2026-09-28, local scratch D1 only (never production): seeded 2 customers / 1 address / 1 container with synthetic `Drill …` rows → data-only export (4 `INSERT`s) → wiped all three tables (0/0/0) → restored via `execute --file` (5 batches, all ok) → verified 2/1/1 with identical values and 0/0 orphans. Full drill log attached to [TOG-8366](/TOG/issues/TOG-8366).
+2026-09-28, local scratch D1 only (never production): seeded 2 customers / 1 address / 1 container with synthetic `Drill …` rows → data-only export (4 `INSERT`s) → wiped all three tables (0/0/0) → restored via `execute --file` (5 batches, all ok) → verified 2/1/1 with identical values and 0/0 orphans. The full drill log was kept with the internal drill record and is not published here; the counts above are the published evidence.
