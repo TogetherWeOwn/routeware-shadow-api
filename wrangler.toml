@@ -68,7 +68,7 @@ AUTH_MODE = "auto"
 SHADOW_API_PUBLIC_BASE = ""
 # "false" to skip writing snapshot CSVs to R2. Requires `[[r2_buckets]]` and `wrangler r2 bucket create <name>`.
 SNAPSHOTS_R2_ENABLED = "true"
-# Base for problem+json `type` URIs (TOG-8357). Empty (the default) keeps the
+# Base for problem+json `type` URIs. Empty (the default) keeps the
 # committed docs URL; set it at transfer time (or per-env / `wrangler secret`)
 # so the URIs point at the new owner's repo. Used verbatim, trailing `#`
 # included — e.g. https://github.com/<new-owner>/routeware-shadow-api/blob/main/docs/PROBLEMS.md#.
@@ -76,7 +76,7 @@ PROBLEM_TYPE_BASE = ""
 # Fail-closed: the bearer-throttle only trusts `X-Forwarded-For` for bucketing
 # when this is exactly "true" (dev/test). Production leaves the default, so an
 # attacker-controlled XFF can neither evade the throttle by rotation nor frame
-# a victim's bucket (TOG-8888). Local override via `.dev.vars` (see
+# a victim's bucket. Local override via `.dev.vars` (see
 # .dev.vars.example); the Vitest `test` env below opts in.
 THROTTLE_TRUST_XFF = "false"
 
@@ -116,9 +116,9 @@ SHADOW_API_READ_TOKEN = "test-read-token"
 SHADOW_API_PUBLIC_BASE = ""
 SNAPSHOTS_R2_ENABLED = "true"
 AUTH_MODE = "auto"
-# Unset in tests so problem `type` URIs pin the committed default (TOG-8357).
+# Unset in tests so problem `type` URIs pin the committed default.
 PROBLEM_TYPE_BASE = ""
-# The Vitest suite exercises the XFF fallback path (TOG-8888); production
+# The Vitest suite exercises the XFF fallback path; production
 # leaves the default "false" above (fail-closed).
 THROTTLE_TRUST_XFF = "true"
 # Dummy credentials for the Vitest `test` environment only (browser auth is never

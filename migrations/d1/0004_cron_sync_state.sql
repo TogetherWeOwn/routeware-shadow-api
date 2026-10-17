@@ -1,4 +1,4 @@
--- TOG-8883: cron last-run outcome per table (see CUSTOMER_SNAPSHOT.md § "Readiness: cron staleness").
+-- Cron last-run outcome per table (see CUSTOMER_SNAPSHOT.md § "Readiness: cron staleness").
 --
 -- The daily cron (`src/scheduled.ts`) upserts one row per table after every
 -- run, so `GET /api/v1/readiness` can report when the sync last ran without
