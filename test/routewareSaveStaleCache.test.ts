@@ -2,11 +2,9 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
 import { env, exports } from "cloudflare:workers";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
-// Matches wrangler.toml [env.test.vars]. The sync secret passes both gates:
-// the outer /api/v1/* gate accepts it as a fallback, and the /data/* reads
-// require it — same pattern as test/snapshotSyncE2E.test.ts. (A gitignored
-// local .dev.vars may override SHADOW_API_TOKEN, so the API token is not a
-// stable test credential here.)
+// The sync secret passes both gates: the outer /api/v1/* gate accepts it as
+// a fallback, and the /data/* reads require it — same pattern as
+// test/snapshotSyncE2E.test.ts.
 const SYNC_SECRET = "test-sync-secret";
 
 /**
