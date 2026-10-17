@@ -174,7 +174,7 @@ export async function reconcileDeleteStale(
 }
 
 /**
- * Read-only stale-row count for dry runs (TOG-9203): the rows
+ * Read-only stale-row count for dry runs: the rows
  * `reconcileDeleteStale` would delete (synced_at predates this run), counted
  * without deleting them. Same literal-union constraint as
  * `reconcileDeleteStale`: `table` interpolates directly into the SQL, so only
@@ -193,7 +193,7 @@ export async function countStaleRows(
 }
 
 /**
- * Exact would-be delete count for a dry run (TOG-9203): stale rows whose
+ * Exact would-be delete count for a dry run: stale rows whose
  * primary key was NOT seen in the parsed CSV — i.e. what `reconcileDeleteStale`
  * would remove after the real upserts refreshed every seen row. Rows present
  * in the CSV are excluded even though their stored `synced_at` is still old
@@ -277,7 +277,7 @@ export type StreamSyncOptions = {
   /** Delete rows not seen in this run (report sync). Off for partial imports. */
   reconcile?: boolean;
   /**
-   * Dry run (TOG-9203): run the full parse/validate path but write nothing
+   * Dry run: run the full parse/validate path but write nothing
    * (no upserts, no reconcile deletes). The caller reports would-be counts.
    * FK validation is also skipped — would-be parent rows are not visible to
    * later tables, so checking dangling references against current D1 would

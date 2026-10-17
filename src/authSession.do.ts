@@ -17,7 +17,7 @@ type SessionState = {
    */
   expired?: boolean;
   /**
-   * Failed-refresh episode anchor (TOG-18119, CISO option B): epoch ms of the
+   * Failed-refresh episode anchor (CISO option B): epoch ms of the
    * first `/unlock` that released a held lock without a `/set`, i.e. an
    * explicit failed release. Lets one queued waiter take over with a bounded
    * fresh login. Absent (never `null`) otherwise — like `expired`, so
@@ -38,7 +38,7 @@ type SessionState = {
  * browser login (~47s: two 15s selector waits + 15s navigation + 2s settle
  * in `browserAuth.ts`).
  *
- * Exported as the single source of truth for the timeout chain (TOG-6527):
+ * Exported as the single source of truth for the timeout chain:
  * `WAIT_TIMEOUT_MS` in `sessionRefreshLock.ts` is derived from it, so the
  * waiter budget can never drift past the lock TTL again.
  */
@@ -46,7 +46,7 @@ export const LOCK_TTL_MS = 120_000;
 
 /**
  * How long a failed-refresh episode admits at most one waiter-takeover login
- * (TOG-18119, CISO option B: ≥60s named-constant cap on the DO-storage failure
+ * (CISO option B: ≥60s named-constant cap on the DO-storage failure
  * window, bounding the episode at two logins however many requests queue).
  *
  * Anchored at the first explicit failed release (an `/unlock` that released a
@@ -183,7 +183,7 @@ export class AuthSession {
         const evictedExpired =
           session === null &&
           ((typeof rawCookie === "string" && rawCookie.length > 0) || expiredMarker === true);
-        // Failed-release episode markers (TOG-18119, CISO option B): surfaced
+        // Failed-release episode markers (CISO option B): surfaced
         // so waiters can elect one takeover login, then fail fast once the
         // budget is spent. Absent when no episode is recorded — like `expired`,
         // never `false`/`null` — so existing exact-shape reads are unaffected.
@@ -220,14 +220,14 @@ export class AuthSession {
         // check (a NaN expiry makes proactive refresh never fire again).
         return new Response("Bad Request", { status: 400 });
       }
-      // Only the lock holder releases the refresh lock (TOG-18959). A live
+      // Only the lock holder releases the refresh lock. A live
       // session write without a matching token is still stored, but a live
       // holder's lock survives it — so a superseded holder or a waiter that
       // never acquired the lock cannot release another holder's live lock.
       const presentedToken = parseLockToken(raw);
 
       // The write lands either way, but a held lock is released only for the
-      // matching token (TOG-18959) — so a superseded holder or a waiter that
+      // matching token — so a superseded holder or a waiter that
       // never acquired the lock cannot release another holder's live lock.
       // The read-check-write runs inside one storage transaction so a
       // concurrent /lock grant cannot interleave between the check and the
@@ -256,7 +256,7 @@ export class AuthSession {
           presentedToken === heldToken
         ) {
           // The holder's own publish: release its lock and end any
-          // failed-release episode (TOG-18119, CISO option B) — the fresh
+          // failed-release episode (CISO option B) — the fresh
           // cookie is live, so no takeover is owed.
           await txn.put("refreshing", false);
           await txn.delete("lockedAt");
@@ -276,7 +276,7 @@ export class AuthSession {
     }
 
     // `/lock` grants a fresh lock and mints an ownership token the holder must
-    // present to `/unlock` and its own `/set` (TOG-18959). The token is never
+    // present to `/unlock` and its own `/set`. The token is never
     // exposed via `/get`. `/takeover` below is a separate route — the
     // failed-release episode election — not a stale-lock alias.
     if (url.pathname === "/lock") {
@@ -304,7 +304,7 @@ export class AuthSession {
     if (url.pathname === "/unlock") {
       // An explicit failed release: the success path clears the lock via
       // `/set`, never `/unlock`, so releasing a HELD lock here means the
-      // holder's login failed (TOG-18119, CISO option B). Record the episode
+      // holder's login failed (CISO option B). Record the episode
       // anchor so one queued waiter may take over with a bounded fresh login.
       // A second unlock inside the window (failed takeover) keeps the anchor
       // and budget instead of admitting another takeover — capping the
@@ -312,13 +312,13 @@ export class AuthSession {
       // Transactional with the release so the anchor can never describe a
       // lock that is still held.
       //
-      // Ownership (TOG-18959): only the matching token releases a held lock.
+      // Ownership: only the matching token releases a held lock.
       // A missing or mismatched token — a superseded holder, a waiter that
       // never acquired the lock, or a legacy caller — fails closed with 403
       // and the live holder keeps its lock; the TTL still bounds a lock whose
       // token was lost.
       //
-      // Takeover budget (TOG-18119, reviewer finding 1): the takeover winner's
+      // Takeover budget (reviewer finding 1): the takeover winner's
       // own failed `/unlock` (its `lockedAt` equals its `takeoverAtMs`) keeps
       // the anchor and the spent budget even past the window, instead of
       // starting a fresh episode that would admit a third login.
@@ -371,7 +371,7 @@ export class AuthSession {
     }
 
     if (url.pathname === "/takeover") {
-      // Bounded fresh acquisition (TOG-18119, CISO option B): one queued waiter
+      // Bounded fresh acquisition (CISO option B): one queued waiter
       // takes over after an explicit failed release. Eligibility, lock
       // acquisition, and budget claim run in a single transaction so exactly
       // one waiter wins; losers see a held lock and wait on the new holder.
@@ -439,7 +439,7 @@ export class AuthSession {
       return new Response("NOT ELIGIBLE", { status: 409 });
     }
 
-    // Per-IP bearer-failure throttle (TOG-5820). Each client IP gets its own
+    // Per-IP bearer-failure throttle. Each client IP gets its own
     // DO instance (`auth-throttle:<ip>`), so this storage key is namespaced by
     // construction. Malformed/absent state is treated as empty, never fatal.
     if (url.pathname === "/throttle/check") {

@@ -23,7 +23,7 @@ export type EstablishSession = (
 ) => Promise<void>;
 
 /**
- * TOG-6462 retry context for the anti-forgery modal GET. When BOTH fields are
+ * retry context for the anti-forgery modal GET. When BOTH fields are
  * present the modal fetch runs through `forwardWithSessionRetry` (single
  * re-establish + retry, `internalMarker` preserved) instead of bare
  * `forwardToUpstream`, so an expired stored session (modal answers 302 →
@@ -52,7 +52,7 @@ const EXPIRY_SKEW_MS = 60_000;
 
 /**
  * True when a session we *have* is at/near its recorded TTL expiry, or when
- * the stored expiry outlives the *current* `SESSION_TTL_SECONDS` (TOG-6528).
+ * the stored expiry outlives the *current* `SESSION_TTL_SECONDS`.
  *
  * A missing session returns false on purpose: it is handled reactively (the
  * first forward gets a login redirect, then re-establishes), which avoids
@@ -73,7 +73,7 @@ const EXPIRY_SKEW_MS = 60_000;
  * slide forward forever and never fire.
  *
  * When `env` is omitted or the TTL is unparseable, only the stored expiry is
- * consulted (the pre-TOG-6528 behavior); the next login still fails loudly via
+ * consulted (the previous behavior); the next login still fails loudly via
  * `sessionExpiryMs`, so a bad value cannot silently wedge traffic.
  */
 export function sessionNeedsRefresh(
@@ -110,9 +110,9 @@ export async function forwardWithSessionRetry(
   // Client-facing wrapper only; local timeout/refresh problems bypass this filter.
   mapUpstreamResponse: (response: Response) => Response = (response) => response
 ): Promise<Response> {
-  // Bounded per-attempt budget (TOG-5835), honoring an optional
+  // Bounded per-attempt budget, honoring an optional
   // `UPSTREAM_TIMEOUT_MS` binding. Worst case is 2x this (one retry max).
-  // TOG-6462: the anti-forgery modal fetch passes `internalMarker` through
+  // The anti-forgery modal fetch passes `internalMarker` through
   // so the retry forward keeps the trusted-server-side header (`upstreamForward`
   // sets it from `options` only — client requests can never spoof it).
   const timeoutMs = readUpstreamTimeoutMs(env);
@@ -163,9 +163,9 @@ export async function forwardWithSessionRetry(
   // Proactive refresh: if the stored session is absent or about to expire
   // (SESSION_TTL_SECONDS), re-establish before spending the request on a
   // predictable login redirect. Passing `env` also clamps the stored expiry
-  // to the current TTL (TOG-6528): a TTL lowered after login forces a refresh
+  // to the current TTL: a TTL lowered after login forces a refresh
   // of the far-future stored session. A waiter that gives up on a hung
-  // refresh fails closed to 502 (TOG-6526) — never forward with the expired
+  // refresh fails closed to 502 — never forward with the expired
   // cookie.
   if (sessionNeedsRefresh(session, Date.now(), env)) {
     try {
@@ -196,7 +196,7 @@ export async function forwardWithSessionRetry(
     }
   }
 
-  // TOG-6515: the common ASP.NET expiry shape is HTTP 200 with a login
+  // The common ASP.NET expiry shape is HTTP 200 with a login
   // form, not a 302. A 200 carrying a login page takes the same single
   // re-login + retry as a login redirect; every other response (including
   // 401/429) is returned as-is and never retried.
@@ -208,7 +208,7 @@ export async function forwardWithSessionRetry(
 
   // Reactive refresh: the session was rejected upstream despite the freshness
   // check (e.g. server-side invalidation). Re-establish and retry once. A
-  // waiter that gives up on a hung refresh fails closed to 502 (TOG-6526) —
+  // waiter that gives up on a hung refresh fails closed to 502 —
   // never retry with the expired cookie (which would surface login HTML).
   try {
     await refreshSelectedSession();

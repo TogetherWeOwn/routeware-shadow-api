@@ -18,7 +18,7 @@ type LineBreak = { end: number; nextStart: number };
  * A `"` opens a quoted field only at field start (line start or just after a
  * delimiter comma, tolerating spaces/tabs); a mid-field `"` is a literal stray
  * (inch mark), not a multiline open — otherwise one bad cell silently swallows
- * every following row (TOG-8536). `""` inside a quoted field is still an
+ * every following row. `""` inside a quoted field is still an
  * escaped literal, and a `"` while already quoted still closes.
  *
  * Returns the break position, or `null` when the buffer is exhausted (or ends on a
