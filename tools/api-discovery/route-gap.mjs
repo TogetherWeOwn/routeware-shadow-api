@@ -1,6 +1,21 @@
 #!/usr/bin/env node
 /**
  * Compare harvest aggregate to route-map: missing shadow routes and stale map entries.
+ *
+ * Always writes out/route-gaps.json + out/route-gaps.txt, then gates:
+ * - exit 0 when the report is clean, when no aggregate exists yet, or when the
+ *   aggregate holds zero operations (nothing to compare — record first, then
+ *   run npm run process);
+ * - exit 1 when harvested operations lack shadow routes (always);
+ * - exit 1 on map entries not seen in the harvest only with --strict (one
+ *   session rarely exercises every mapped route, so stale entries are
+ *   warnings by default — re-run with --strict after an exhaustive session).
+ * A truncated discovered-operations.json is a hard error (exit 1), never a
+ * silent pass.
+ *
+ * --check skips recomputation and gates on the existing out/route-gaps.json.
+ * --report-only writes the report without failing on discovered gaps, so the
+ * process chain can finish generating artifacts before its final --check.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -12,27 +27,148 @@ const mapPath = join(__dirname, "route-map.json");
 const outJson = join(__dirname, "out", "route-gaps.json");
 const outTxt = join(__dirname, "out", "route-gaps.txt");
 
+const args = new Set(process.argv.slice(2));
+const strict = args.has("--strict");
+const reportOnly = args.has("--report-only");
+
+function requireArray(value, key, file) {
+  if (!Array.isArray(value)) {
+    throw new Error(`${file} must contain an array property named ${key}`);
+  }
+  return value;
+}
+
+function requireFields(rows, fields, file) {
+  for (const [index, row] of rows.entries()) {
+    if (!row || typeof row !== "object" || fields.some((field) => typeof row[field] !== "string" || !row[field])) {
+      throw new Error(`${file} entry ${index} must contain non-empty string fields: ${fields.join(", ")}`);
+    }
+  }
+}
+
+function failsGate(report) {
+  return (
+    (report.missingInShadowApi ?? []).length > 0 ||
+    (strict && (report.mappedButNotInLastHarvest ?? []).length > 0)
+  );
+}
+
+function printGaps(report) {
+  for (const m of report.missingInShadowApi ?? []) {
+    console.error(`missing shadow route: ${m.count}x  ${m.method} ${m.upstreamPath}`);
+  }
+  for (const m of report.mappedButNotInLastHarvest ?? []) {
+    console.error(`stale map entry: ${m.method} ${m.upstreamPath} → ${m.shadowPath}`);
+  }
+}
+
+async function writeReport(missingInShadow, inMapNotHarvested) {
+  const report = {
+    generatedAt: new Date().toISOString(),
+    missingInShadowApi: missingInShadow.sort((a, b) => b.count - a.count),
+    mappedButNotInLastHarvest: inMapNotHarvested
+  };
+
+  await writeFile(outJson, JSON.stringify(report, null, 2), "utf8");
+
+  const txt = [
+    "Harvest vs route-map",
+    "====================",
+    "",
+    `Missing shadow routes (${missingInShadow.length}) — add to route-map + src/app.ts:`,
+    ...missingInShadow.map((m) => `  ${m.count}x  ${m.method} ${m.upstreamPath}`),
+    "",
+    `Mapped but not seen in this harvest (${inMapNotHarvested.length}):`,
+    ...inMapNotHarvested.map((m) => `  ${m.method} ${m.upstreamPath} → ${m.shadowPath}`),
+    ""
+  ].join("\n");
+
+  await writeFile(outTxt, txt, "utf8");
+  console.log("Wrote", outJson, "and", outTxt);
+  console.log(
+    "Gaps:",
+    missingInShadow.length,
+    "harvested ops without route-map entry;",
+    inMapNotHarvested.length,
+    "map entries not in harvest."
+  );
+  return report;
+}
+
 // Fresh checkout has no out/ dir yet — create it before any writeFile below.
 await mkdir(join(__dirname, "out"), { recursive: true });
+
+if (args.has("--check")) {
+  let report;
+  try {
+    report = JSON.parse(await readFile(outJson, "utf8"));
+  } catch (e) {
+    console.error(`route-gap --check: cannot read ${outJson} — run npm run process first.`, e?.message ?? e);
+    process.exit(1);
+  }
+  let missing;
+  let stale;
+  try {
+    missing = requireArray(report?.missingInShadowApi, "missingInShadowApi", outJson);
+    stale = requireArray(report?.mappedButNotInLastHarvest, "mappedButNotInLastHarvest", outJson);
+  } catch (e) {
+    console.error(`route-gap --check: invalid report:`, e?.message ?? e);
+    process.exit(1);
+  }
+  console.log(
+    `route-gap --check: ${missing.length} missing shadow routes, ${stale.length} stale map entries${strict ? " (strict)" : ""}`
+  );
+  printGaps(report);
+  process.exit(failsGate(report) ? 1 : 0);
+}
 
 let discovered;
 try {
   discovered = JSON.parse(await readFile(discoveredPath, "utf8"));
-} catch {
-  await writeFile(outTxt, "No discovered-operations.json — run npm run process after recording.\n", "utf8");
-  console.log("route-gap: no aggregate yet");
+} catch (e) {
+  if (e?.code === "ENOENT") {
+    await writeReport([], []);
+    console.log("route-gap: no aggregate yet");
+    process.exit(0);
+  }
+  console.error(`route-gap: cannot parse ${discoveredPath}:`, e?.message ?? e);
+  process.exit(1);
+}
+
+// An aggregate with zero operations means nothing was recorded (fresh
+// checkout, `record --fresh` with an empty session): every map entry would
+// look "stale", so there is nothing to compare — even under --strict.
+let operations;
+try {
+  operations = requireArray(discovered?.operations, "operations", discoveredPath);
+  requireFields(operations, ["method", "pathname"], discoveredPath);
+} catch (e) {
+  console.error(`route-gap: invalid aggregate:`, e?.message ?? e);
+  process.exit(1);
+}
+
+if (operations.length === 0) {
+  await writeReport([], []);
+  console.log("route-gap: empty aggregate (no harvested operations) — nothing to compare");
   process.exit(0);
 }
 
-const routeMap = JSON.parse(await readFile(mapPath, "utf8"));
+let routeMap;
+try {
+  routeMap = requireArray(JSON.parse(await readFile(mapPath, "utf8")), "route-map", mapPath);
+  requireFields(routeMap, ["method", "upstreamPath", "shadowPath"], mapPath);
+} catch (e) {
+  console.error(`route-gap: invalid route map ${mapPath}:`, e?.message ?? e);
+  process.exit(1);
+}
 const mapped = new Set(routeMap.map((e) => `${e.method} ${e.upstreamPath}`));
 
 const harvestKeys = new Set(
-  (discovered.operations ?? []).map((o) => `${o.method} ${o.pathname}`)
+  operations.map((o) => `${o.method} ${o.pathname}`)
 );
 
 const missingInShadow = [];
-for (const op of discovered.operations ?? []) {
+for (const op of operations) {
   const k = `${op.method} ${op.pathname}`;
   if (!mapped.has(k)) {
     missingInShadow.push({
@@ -56,32 +192,12 @@ for (const e of routeMap) {
   }
 }
 
-const report = {
-  generatedAt: new Date().toISOString(),
-  missingInShadowApi: missingInShadow.sort((a, b) => b.count - a.count),
-  mappedButNotInLastHarvest: inMapNotHarvested
-};
+const report = await writeReport(missingInShadow, inMapNotHarvested);
+printGaps(report);
 
-await writeFile(outJson, JSON.stringify(report, null, 2), "utf8");
-
-const txt = [
-  "Harvest vs route-map",
-  "====================",
-  "",
-  `Missing shadow routes (${missingInShadow.length}) — add to route-map + src/app.ts:`,
-  ...missingInShadow.map((m) => `  ${m.count}x  ${m.method} ${m.upstreamPath}`),
-  "",
-  `Mapped but not seen in this harvest (${inMapNotHarvested.length}):`,
-  ...inMapNotHarvested.map((m) => `  ${m.method} ${m.upstreamPath} → ${m.shadowPath}`),
-  ""
-].join("\n");
-
-await writeFile(outTxt, txt, "utf8");
-console.log("Wrote", outJson, "and", outTxt);
-console.log(
-  "Gaps:",
-  missingInShadow.length,
-  "harvested ops without route-map entry;",
-  inMapNotHarvested.length,
-  "map entries not in harvest."
-);
+if (failsGate(report) && !reportOnly) {
+  process.exit(1);
+}
+if (inMapNotHarvested.length > 0) {
+  console.error("stale map entries are warnings by default; re-run with --strict to fail on them");
+}

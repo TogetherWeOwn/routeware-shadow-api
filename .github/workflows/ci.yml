@@ -187,6 +187,11 @@ jobs:
       - name: Hermetic post-deploy probe regressions
         # Always run even for probe-only PRs whose filtered build is skipped.
         run: npm run test:probe
+      - name: Discovery transform pins (TOG-25335)
+        # Hermetic node --test suites for the harvest pipeline. Always run:
+        # tools-only PRs skip the filtered `build` job, so without this the
+        # route-gap exit-code contract could regress silently.
+        run: npm run test:discovery
       - name: Regenerate Worker types (TOG-8373)
         # worker-configuration.d.ts is gitignored — regenerate it here so the
         # baked-secrets gate below inspects current wrangler.toml [vars].

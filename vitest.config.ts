@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import os from "node:os";
 import { defineConfig } from "vitest/config";
 import { unstable_readConfig } from "wrangler";
 
@@ -37,29 +38,31 @@ if (Object.keys(testVars).length === 0) {
  * integration test on CI's slower runner while passing locally. The tests
  * themselves do millisecond-scale work; this covers warm-up, not slow logic.
  *
- * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
- * projects do not inherit root test options — each project spreads this in.
+ * Timeouts live in `sharedTestOptions` because workspace projects do not
+ * inherit root test options. The local worker default stays at the root so
+ * Vitest CLI overrides take precedence for every project.
  */
+const localMaxWorkers = Math.max(1, Math.floor(os.availableParallelism() / 2));
 const sharedTestOptions = {
   testTimeout: 30_000,
   hookTimeout: 30_000,
   /**
-   * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
-   * spawns a worker per core per CI job, and several CI jobs share each
-   * self-hosted runner; under istanbul instrumentation the workers-pool
-   * tests then stall past the 30s timeout (red main 3657b4f, run
-   * 36357586974: 7 files, every failure a timeout; PR #85 the same).
-   * Capping at 2 workers cleared it with no test, assertion or timeout
-   * change (PR #89: the unrestricted run timed out 2 throttle tests, the
-   * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
-   * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
-   * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+   * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
+   * `vitest run --coverage` spawns a worker per core per job; several CI jobs
+   * share each self-hosted runner, and local workloads also compete for host
+   * resources. Under istanbul instrumentation, oversubscribed workers stall
+   * past the 30s timeout. Capping CI at 2 cleared prior CI timeouts without
+   * changing tests or timeouts. Local runs cap at half the core count to leave
+   * headroom; the same `authThrottle` test passes alone in ~3.6s but timed out
+   * at 30s under the uncapped suite. GitHub Actions sets CI=true. Pinned by
+   * `npm run check:ci-workflow`.
    */
   maxWorkers: process.env.CI ? 2 : undefined,
 };
 
 export default defineConfig({
   test: {
+    maxWorkers: process.env.CI ? 2 : localMaxWorkers,
     /**
      * Two projects (TOG-25213): the whole suite runs in workerd, except the
      * R2 lifecycle proposal guard test, which reads the committed JSON file
