@@ -34,8 +34,13 @@ function sandbox(t) {
   for (const f of ["validate-harvest.mjs", "aggregate.mjs", "route-gap.mjs"]) {
     fs.copyFileSync(path.join(toolsDir, f), path.join(dir, f));
   }
-  for (const f of ["harvestLib.mjs", "normalizePath.mjs"]) {
-    fs.copyFileSync(path.join(toolsDir, "lib", f), path.join(dir, "lib", f));
+  // Copy the whole lib/ (per the header), not a file list: a hard-coded list
+  // silently breaks the chain whenever a script gains a new lib module
+  // (aggregate.mjs -> lib/aggregateMerge.mjs).
+  for (const f of fs.readdirSync(path.join(toolsDir, "lib"))) {
+    if (f.endsWith(".mjs")) {
+      fs.copyFileSync(path.join(toolsDir, "lib", f), path.join(dir, "lib", f));
+    }
   }
   // Synthetic map with an entry no empty harvest could ever cover.
   fs.writeFileSync(
