@@ -12,7 +12,16 @@ import { defineConfig } from "vitest/config";
  * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
  * projects do not inherit root test options — each project spreads this in.
  */
-const localMaxWorkers = Math.max(1, Math.floor(os.cpus().length / 2));
+const maxWorkersFlagIndex = process.argv.findIndex((arg) => arg === "--maxWorkers");
+const maxWorkersFlag = maxWorkersFlagIndex >= 0
+  ? process.argv[maxWorkersFlagIndex + 1]
+  : process.argv.find((arg) => arg.startsWith("--maxWorkers="))?.split("=", 2)[1];
+const maxWorkersOverride = maxWorkersFlag === undefined ? undefined : Number(maxWorkersFlag);
+const localMaxWorkers = typeof maxWorkersOverride === "number"
+  && Number.isInteger(maxWorkersOverride)
+  && maxWorkersOverride > 0
+  ? maxWorkersOverride
+  : Math.max(1, Math.floor(os.availableParallelism() / 2));
 const sharedTestOptions = {
   testTimeout: 30_000,
   hookTimeout: 30_000,

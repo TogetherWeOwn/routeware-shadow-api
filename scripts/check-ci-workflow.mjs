@@ -104,8 +104,8 @@ assert.match(
 );
 assert.match(
   vitestConfig,
-  /localMaxWorkers\s*=\s*Math\.max\(1,\s*Math\.floor\(os\.cpus\(\)\.length\s*\/\s*2\)\)/,
-  "vitest.config.ts must default local maxWorkers to half the core count (TOG-19021)",
+  /localMaxWorkers\s*=\s*typeof maxWorkersOverride === "number"\s*&&\s*Number\.isInteger\(maxWorkersOverride\)\s*&&\s*maxWorkersOverride\s*>\s*0\s*\?\s*maxWorkersOverride\s*:\s*Math\.max\(1,\s*Math\.floor\(os\.availableParallelism\(\)\s*\/\s*2\)\)/,
+  "vitest.config.ts must honor a positive integer --maxWorkers override and otherwise default to half available parallelism (TOG-19021)",
 );
 
 const hygiene = jobBlock("hygiene");

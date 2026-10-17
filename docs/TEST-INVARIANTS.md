@@ -96,10 +96,11 @@ an idle box:
   the parallelism.
 
 Do not "restore full speed" by uncapping either side: a timeout failure after
-such a change is the cap doing its job, not a slow test. To override once,
-pass `--maxWorkers` on the vitest CLI (it wins over the config default), and
-if the new value proves stable, change `localMaxWorkers` instead so
-`npm run check:ci-workflow` keeps pinning the invariant.
+such a change is the cap doing its job, not a slow test. To override once on a
+local run, pass a positive integer as `--maxWorkers=N` (or
+`--maxWorkers N`); the project config reads that flag explicitly. CI stays
+fixed at 2. If a new local default proves stable, change `localMaxWorkers`
+instead so `npm run check:ci-workflow` keeps pinning the invariant.
 
 ---
 
