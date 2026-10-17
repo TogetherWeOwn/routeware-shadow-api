@@ -21,8 +21,8 @@ const CONFIG = `
     }
 `;
 
-function summaryJson(pcts) {
-  const total = {};
+function summaryJson(pcts: Record<string, number>): string {
+  const total: Record<string, { total: number; covered: number; skipped: number; pct: number }> = {};
   for (const [metric, pct] of Object.entries(pcts)) {
     total[metric] = { total: 100, covered: pct, skipped: 0, pct };
   }
@@ -49,7 +49,9 @@ describe("coverage ratchet", () => {
   });
 
   it("parses measured percentages from a coverage summary", () => {
-    const measured = parseSummary(JSON.parse(summaryJson({ statements: 88.2, branches: 81, functions: 91, lines: 87 })));
+    const measured = parseSummary(JSON.parse(summaryJson({ statements: 88.2, branches: 81, functions: 91, lines: 87 }))) as {
+      statements: { pct: number };
+    };
     expect(measured.statements.pct).toBe(88.2);
     expect(() => parseSummary({})).toThrow(`${CHECK_NAME}: coverage summary has no total block`);
     expect(() => parseSummary({ total: { statements: { pct: 90 } } })).toThrow(
