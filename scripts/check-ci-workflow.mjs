@@ -228,6 +228,16 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The docs link + anchor check resolves every relative link in tracked *.md
+// files (file must be tracked, #anchor must match a heading slug or <a name>
+// anchor). Pin it present so a broken cross-link can never land without the
+// hygiene gate (TOG-18936).
+assert.match(
+  hygiene,
+  /^        run: npm run check:docs-links$/m,
+  "hygiene must run the docs link and anchor check (TOG-18936)"
+);
+
 // The discovery transform pins (node --test suites for route-gap and
 // validate-harvest) live outside the root vitest run, and tools-only PRs skip
 // the filtered `build` job — so hygiene is the only gate that runs them. Pin
@@ -238,7 +248,6 @@ assert.match(
   /^        run: npm run test:discovery$/m,
   "hygiene must run the discovery transform pins (TOG-25335)"
 );
-
 // The R2 lifecycle proposal shape guard validates
 // docs/r2-lifecycle-proposal.snapshot-history.json stays a byte-clean S3
 // PutBucketLifecycleConfiguration body, credential-free. Pin it present so
