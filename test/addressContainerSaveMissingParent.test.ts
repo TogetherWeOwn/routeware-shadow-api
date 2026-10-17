@@ -11,7 +11,7 @@ const BAD_REQUEST_TYPE =
   "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request";
 
 /**
- * TOG-8148 — a missing parent id on the create path is a client error.
+ * A missing parent id on the create path is a client error.
  *
  * `POST /api/v1/routeware/address/save-address-form` with `PickupAddressID=0`
  * and no `CustomerID` key (and the analogous container case) threw inside
@@ -57,7 +57,7 @@ type ProblemBody = {
 
 const FORM = "application/x-www-form-urlencoded; charset=UTF-8";
 
-describe("address/container save create without parent id (TOG-8148)", () => {
+describe("address/container save create without parent id", () => {
   const originalFetch = globalThis.fetch;
   let upstreamCalls = 0;
 
@@ -117,7 +117,7 @@ describe("address/container save create without parent id (TOG-8148)", () => {
     expect(upstreamCalls).toBe(0);
   });
 
-  it("address empty body → 400 bad-request with zero upstream calls (TOG-8462)", async () => {
+  it("address empty body → 400 bad-request with zero upstream calls", async () => {
     // Act — empty urlencoded body; the guard must fire before the modal path.
     const response = await call("/api/v1/routeware/address/save-address-form", {
       method: "POST",
@@ -137,7 +137,7 @@ describe("address/container save create without parent id (TOG-8148)", () => {
     expect(upstreamCalls).toBe(0);
   });
 
-  it("container empty body → 400 bad-request with zero upstream calls (TOG-8462)", async () => {
+  it("container empty body → 400 bad-request with zero upstream calls", async () => {
     // Act — empty urlencoded body; the guard must fire before the modal path.
     const response = await call("/api/v1/routeware/container/save-container-form", {
       method: "POST",

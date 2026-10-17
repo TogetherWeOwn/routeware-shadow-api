@@ -4,8 +4,7 @@ import app from "../src/app";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * Scalar `/docs` try-it kit for the snapshot import/sync flow (TOG-8360,
- * gap G4).
+ * Scalar `/docs` try-it kit for the snapshot import/sync flow (gap G4).
  *
  * The highest-friction flow — customer CSV import plus the per-table and
  * combined syncs — must be one click in Scalar: the `bearerAuth` scheme is
@@ -52,7 +51,7 @@ function jsonExample(operation: Operation): unknown {
   return operation.responses?.["200"]?.content?.["application/json"]?.example;
 }
 
-describe("Scalar /docs import/sync try-it kit (TOG-8360)", () => {
+describe("Scalar /docs import/sync try-it kit", () => {
   it("embeds the bearer auth prefill in the /docs HTML", async () => {
     // Arrange / Act
     const res = await app.fetch(

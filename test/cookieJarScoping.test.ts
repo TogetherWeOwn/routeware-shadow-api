@@ -7,7 +7,7 @@ import {
 } from "../src/lib/httpAuth";
 
 /**
- * TOG-9207 — upstream cookie-jar scoping audit.
+ * Upstream cookie-jar scoping audit.
  *
  * 1. Stale-cookie eviction: an upstream sign-out/rotation `Set-Cookie` with an
  *    already-fired expiry (`Expires` in the past, `Max-Age<=0`) deletes the
@@ -60,7 +60,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("mergeSetCookies expiry eviction (TOG-9207)", () => {
+describe("mergeSetCookies expiry eviction", () => {
   it("evicts a name deleted via past Expires while keeping siblings", () => {
     // Arrange — a jar holding a pre-login anti-forgery cookie plus a stale name.
     const jar: Record<string, string> = {
@@ -121,7 +121,7 @@ describe("mergeSetCookies expiry eviction (TOG-9207)", () => {
   });
 });
 
-describe("login rotation evicts the stale cookie (TOG-9207 acceptance)", () => {
+describe("login rotation evicts the stale cookie (acceptance)", () => {
   it("a stale cookie name disappears from the jar on login rotation", async () => {
     // Arrange — page GET sets a stale name; the login POST rotates the session
     // and deletes the stale name with a past-Expiry Set-Cookie. Answered by
@@ -156,7 +156,7 @@ describe("login rotation evicts the stale cookie (TOG-9207 acceptance)", () => {
   });
 });
 
-describe("jar values never reach logs or errors (TOG-9207)", () => {
+describe("jar values never reach logs or errors", () => {
   it("a successful login emits no console output", async () => {
     // Arrange
     const log = vi.spyOn(console, "log").mockImplementation(() => {});

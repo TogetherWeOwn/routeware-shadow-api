@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // R9-24 residual pins for the two post-#226 structured-log call sites on the
-// Routeware login path that TOG-6278 (2026-09-27) predates:
+// Routeware login path added after the 2026-09-27 audit:
 //   - `auth.login`  — src/lib/establishSession.ts:157 (HTTP→browser fallback)
 //   - `auth.browser` — src/lib/browserAuth.ts:117 (browser login failure)
 // Everything else on the throttle/auth surface (fail-open alarm, refresh
 // lock, the HTTP burst itself) is pinned in test/throttleSecretResiduals.test.ts.
 //
-// TOG-6278 pattern: distinct probe strings ride every input channel that
+// Probe pattern: distinct probe strings ride every input channel that
 // reaches these call sites (login credentials, session cookie, HTTP error
 // message, lock token); assertions then demand the emitted log records equal
 // the fixed events exactly and contain zero probe occurrences. The one

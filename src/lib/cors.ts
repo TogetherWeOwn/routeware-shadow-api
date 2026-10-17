@@ -1,5 +1,5 @@
 /**
- * CORS preflight + response headers for `/api/v1/*` (TOG-5809).
+ * CORS preflight + response headers for `/api/v1/*`.
  *
  * Browser clients calling the API cross-origin were failing before any
  * handler ran: a preflight (`OPTIONS`) carries no `Authorization` header by
@@ -22,13 +22,13 @@
 
 const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
 const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
-// Allowlist for `Access-Control-Allow-Headers` (TOG-8368 audit): the API only
+// Allowlist for `Access-Control-Allow-Headers`: the API only
 // reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
 // `If-None-Match` (conditional GETs on the data-entity ETag cache). Anything
 // else the browser asks for is dropped instead of reflected.
 const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
 const MAX_AGE_SECONDS = "86400";
-// Default `Cache-Control` for `/api/v1/*` responses (TOG-22087): nothing under
+// Default `Cache-Control` for `/api/v1/*` responses: nothing under
 // the bearer gate is public-cacheable, and the authenticated snapshot routes
 // return customer PII to browser clients, so an unset policy must fail closed
 // to `no-store`. Handlers that set their own value keep it (the data-entity
@@ -114,8 +114,8 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   appendVary(headers, "Origin");
   // The data-entity GETs version with ETag; expose it so browser clients can
   // do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
-  // can honor the auth-throttle 429 backoff (TOG-7380). Content-Disposition is
-  // exposed so a fetch-based CSV download (`GET ...-snapshot/export`, TOG-8361) can read
+  // can honor the auth-throttle 429 backoff. Content-Disposition is
+  // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
   // the attachment filename.
   headers.set(
     "Access-Control-Expose-Headers",
@@ -126,7 +126,7 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
 
 /**
  * Return `res` with CORS + hardening headers applied, preserving status and
- * body — plus the default API cache policy (TOG-22087): `Cache-Control:
+ * body — plus the default API cache policy: `Cache-Control:
  * no-store` when the handler set none. A handler-set value is preserved (the
  * data-entity `private, max-age=60` reads, contained upstream errors).
  * Preflight (`corsPreflightResponse`) is intentionally untouched: it carries

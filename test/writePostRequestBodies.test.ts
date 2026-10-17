@@ -8,7 +8,7 @@ const API_TOKEN = "test-api-token";
 const SYNC_SECRET = "test-sync-secret";
 
 /**
- * TOG-6523 — every write POST that carries a body publishes a
+ * Every write POST that carries a body publishes a
  * machine-readable `requestBody` schema (urlencoded `type: "object"` for the
  * save/read forms, `type: "string"` under `text/csv` for the snapshot
  * imports), so codegen produces typed calls and hand-rolled forms stay on
@@ -18,7 +18,7 @@ const SYNC_SECRET = "test-sync-secret";
  * regression away. Schemas are docs-only raw OpenAPI objects (never zod), so
  * `@hono/zod-openapi` installs no runtime validators — the last describe
  * pins that a foreign body still forwards on the newly covered routes, the
- * same way TOG-6272 pinned it for the customer/address/container routes.
+ * same way the earlier tests pinned it for the customer/address/container routes.
  */
 
 type MediaEntry = {
@@ -147,7 +147,7 @@ const BODYLESS_SYNC_POSTS = [
   "/api/v1/data-snapshot/sync"
 ];
 
-describe("write POST requestBody schemas (TOG-6523)", () => {
+describe("write POST requestBody schemas", () => {
   it.each(BODY_POSTS)(
     "$path publishes a machine-readable $media requestBody schema",
     async ({ path, media, schemaType, keys }) => {
@@ -187,7 +187,7 @@ describe("write POST requestBody schemas (TOG-6523)", () => {
   );
 });
 
-describe("write POST schemas install no runtime validators (TOG-6523)", () => {
+describe("write POST schemas install no runtime validators", () => {
   const originalFetch = globalThis.fetch;
   const forwarded: string[] = [];
 

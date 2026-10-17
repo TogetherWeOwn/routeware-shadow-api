@@ -11,7 +11,7 @@ import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
 
 /**
  * D1 allows at most 100 bound parameters per query (see D1 platform limits).
- * Exported (TOG-6552) so read-path chunking can prove its margin by
+ * Exported so read-path chunking can prove its margin by
  * construction instead of hardcoding a second copy of the cap.
  */
 export const D1_MAX_BINDS = 100;

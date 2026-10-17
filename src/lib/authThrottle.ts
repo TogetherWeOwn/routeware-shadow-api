@@ -1,5 +1,5 @@
 /**
- * Per-IP brute-force throttling for bearer-auth failures (TOG-5820).
+ * Per-IP brute-force throttling for bearer-auth failures.
  *
  * Every `/api/v1/*` route except `GET /api/v1/health` is bearer-gated with a
  * constant-time compare (`src/lib/auth.ts`), but nothing slowed brute force.
@@ -52,7 +52,7 @@ type HeaderReader = { header: (name: string) => string | undefined };
  * opt-in only (`THROTTLE_TRUST_XFF === "true"`, set in `[env.test.vars]` and
  * local `.dev.vars`): production leaves it absent/`"false"`, so an
  * attacker-controlled XFF value can neither evade the throttle by rotation
- * nor burn a victim's budget (TOG-8888; probes in
+ * nor burn a victim's budget (probes in
  * test/authThrottleXffProbe.test.ts).
  */
 function throttleTrustsXff(env: { THROTTLE_TRUST_XFF?: unknown } | undefined): boolean {

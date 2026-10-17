@@ -88,7 +88,7 @@ describe("normalizePath", () => {
   });
 });
 
-describe("redactJsonPreview (TOG-7088)", () => {
+describe("redactJsonPreview", () => {
   it("masks non-string scalar values (number/boolean/null)", () => {
     const out = redactJsonPreview('{"token":12345,"secret":true,"password":null,"keep":7}');
     expect(out).toContain(`"token":"${REDACTED}"`);
@@ -108,7 +108,7 @@ describe("redactJsonPreview (TOG-7088)", () => {
   });
 });
 
-describe("redactBodyPreview fallback content types (TOG-7088)", () => {
+describe("redactBodyPreview fallback content types", () => {
   it("redacts urlencoded-shaped bodies with text/plain", () => {
     expect(
       redactBodyPreview("text/plain", "UserName=API&Password=secret&x=1")

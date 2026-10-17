@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Cron overlap guard (TOG-9216, gap B4).
+ * Cron overlap guard (gap B4).
  *
  * `src/scheduled.ts` serializes syncs per isolate with a module-level
  * in-flight flag: a second firing while the first is still in-flight skips
@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * call `recordCronRun`, so the persisted `cron_sync_state` rows stay the last
  * run that actually moved rows.
  *
- * History: this file used to pin the OLD no-guard behavior (TOG-9210, gaps
+ * History: this file used to pin the OLD no-guard behavior (gaps
  * QA2 + B4) — both overlapping invocations ran to completion. That pin's own
  * header required it to fail and be updated when a guard landed; the guard
  * did exactly that (the old gate timed out because the second run no longer

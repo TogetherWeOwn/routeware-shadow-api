@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Per-run correlation id on the single-invocation fallback path (TOG-19134).
+ * Per-run correlation id on the single-invocation fallback path.
  *
  * `runDataSnapshotSync` hands `opts` to the three per-table runners
  * (`src/lib/snapshot/orchestration.ts` lines ~570/~585/~611). Those call sites
@@ -135,7 +135,7 @@ describe("runDataSnapshotSync configured-source runId threading", () => {
   });
 
   it("emits byte-identical lines without a runId", async () => {
-    // Act — direct callers without a run keep the pre-TOG-19134 shape.
+    // Act — direct callers without a run keep the previous shape.
     await runDataSnapshotSync(configuredEnv(), { dryRun: true });
 
     // Assert

@@ -64,7 +64,7 @@ async function forwardSessionAware(
   body: ArrayBuffer | null,
   bodyTimeoutMs: number | null = null
 ): Promise<Response> {
-  // Report budget (TOG-5835): full-table CSV downloads get 60s per attempt
+  // Report budget: full-table CSV downloads get 60s per attempt
   // (vs 15s interactive) — worst case 2x with the single login-redirect retry.
   // Timeouts throw `UpstreamTimeoutError` and are never retried.
   const timeoutMs = readReportTimeoutMs(env);
@@ -72,8 +72,8 @@ async function forwardSessionAware(
   let session = await readSessionState(stub);
   const run = () => forwardToUpstream(makeReq(), url, session, body, { timeoutMs });
   let resp = await run();
-  // TOG-6540: same 200-with-login-form expiry shape as `fetchReportCsvForPath`
-  // and `forwardWithSessionRetry` (TOG-6515) — one re-login + retry.
+  // Same 200-with-login-form expiry shape as `fetchReportCsvForPath`
+  // and `forwardWithSessionRetry` — one re-login + retry.
   // `isLoginPageResponse` never throws/logs the body (PII) and skips
   // JSON/CSV/octet-stream without reading.
   if (resp.status !== 200 || isLoginRedirect(resp) || (await isLoginPageResponse(resp, bodyTimeoutMs))) {
@@ -85,10 +85,10 @@ async function forwardSessionAware(
 }
 
 /**
- * Poll budget for `QueryRequestIsComplete` (TOG-6543): the WebRW modal polls
+ * Poll budget for `QueryRequestIsComplete`: the WebRW modal polls
  * every 2.5s for its loading indicator, so the Worker polls on the same
  * cadence. 24 attempts ≈ 60s, inside one Worker invocation alongside the
- * 60s-per-attempt download budget (TOG-5835). Both knobs are overridable per
+ * 60s-per-attempt download budget. Both knobs are overridable per
  * deploy/tests via `REPORT_QUERY_POLL_INTERVAL_MS` /
  * `REPORT_QUERY_POLL_MAX_ATTEMPTS` (absent/invalid falls back here).
  */
@@ -125,7 +125,7 @@ function readQueryPollMaxAttempts(env: Env): number {
  *
  * Session/login handling matches the download path (single re-login + retry
  * via `forwardSessionAware`). Errors are status-only — the poll body is
- * upstream-controlled (TOG-5821).
+ * upstream-controlled.
  */
 async function pollQueryRequestIsComplete(env: Env, requestId: string): Promise<void> {
   const intervalMs = readQueryPollIntervalMs(env);
@@ -171,7 +171,7 @@ async function pollQueryRequestIsComplete(env: Env, requestId: string): Promise<
  * in a hidden iframe. There is **no** `QueryExecute` POST; the one-time
  * `requestID` is generated in the browser.
  *
- * The poll is load-bearing (TOG-6543): downloading before the async query
+ * The poll is load-bearing: downloading before the async query
  * completes returns a truncated CSV with `dataRows > 0`, which reconcile
  * treats as the full table and deletes the missing tail as stale.
  *
@@ -207,11 +207,11 @@ export async function fetchReportCsvByQueryId(env: Env, queryId: string): Promis
     });
   const downResp = await forwardSessionAware(env, downReq, downUrl, null);
   // A retry that still sees a login page throws instead of returning HTML as
-  // CSV. Body never embedded (TOG-5821).
+  // CSV. Body never embedded.
   if (downResp.status !== 200 || isLoginRedirect(downResp) || (await isLoginPageResponse(downResp, null))) {
     // The body is upstream-controlled and may carry customer PII — never embed
     // it in the message: this error reaches the cron log wrapped in `[step]`
-    // context (TOG-5821).
+    // context.
     throw new Error(`QueryExecuteDownload failed: HTTP ${downResp.status}`);
   }
   if (!downResp.body) {

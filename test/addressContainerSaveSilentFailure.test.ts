@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-6271 — parity with the TOG-6022 customer guard.
+ * Parity with the customer guard.
  *
  * `POST /api/v1/routeware/address/save-address-form` and
  * `POST /api/v1/routeware/container/save-container-form` auto-inject
@@ -49,7 +49,7 @@ function isModalFetch(init?: RequestInit): boolean {
   );
 }
 
-describe("address/container save silent-failure guard (TOG-6271)", () => {
+describe("address/container save silent-failure guard", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

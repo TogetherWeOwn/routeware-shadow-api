@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-6022 — `POST /api/v1/routeware/customer/save-long-form` used to forward
+ * `POST /api/v1/routeware/customer/save-long-form` used to forward
  * an upstream HTML error page with HTTP 200 verbatim, so the client saw 200 +
  * text/html and no signal the save failed. The route now applies the same
  * `routewarePostLooksSuccessful` heuristic as the /data/* write path and
@@ -18,7 +18,7 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return exports.default.fetch(`http://test.local${path}`, { ...init, headers });
 }
 
-describe("save-long-form silent-failure guard (TOG-6022)", () => {
+describe("save-long-form silent-failure guard", () => {
   const originalFetch = globalThis.fetch;
   let saveBody = '{"success":true}';
   let saveStatus = 200;
@@ -119,7 +119,7 @@ describe("save-long-form silent-failure guard (TOG-6022)", () => {
     expect(response.headers.get("content-type")).toContain("problem+json");
   });
 
-  it("rejects an empty urlencoded body with 400 without calling upstream (TOG-6402)", async () => {
+  it("rejects an empty urlencoded body with 400 without calling upstream", async () => {
     // Act — 0-byte body, parity with handlePostDataCustomer (/data/customer).
     const response = await call("/api/v1/routeware/customer/save-long-form", {
       method: "POST",
@@ -151,7 +151,7 @@ function isAntiForgeryModalFetch(init?: RequestInit): boolean {
   );
 }
 
-describe("stale-token eviction (TOG-8149)", () => {
+describe("stale-token eviction", () => {
   const originalFetch = globalThis.fetch;
   let modalCalls = 0;
   let saveBodies: string[] = [];

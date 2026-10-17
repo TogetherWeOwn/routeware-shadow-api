@@ -11,7 +11,7 @@ import {
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * R3-15 (TOG-8891): concurrent identical saves.
+ * R3-15: concurrent identical saves.
  *
  * Clients retry and double-submit, so the same customer, address or container
  * save can arrive several times at once. Each save is forwarded upstream, then

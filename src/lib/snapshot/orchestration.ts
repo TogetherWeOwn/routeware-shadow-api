@@ -32,7 +32,7 @@ export type SnapshotTableResult = {
    * it, and the chained path carries it once the per-table sync reported it.
    */
   deleted?: number;
-  /** R2 archive outcome for this table's CSV leg (TOG-6549). */
+  /** R2 archive outcome for this table's CSV leg. */
   r2?: R2ArchiveDetail;
 } | null;
 
@@ -44,7 +44,7 @@ export type DataSnapshotResult = {
 
 /**
  * Runs one table's D1→R2 legs and stamps the R2 outcome flat onto the D1
- * counts (TOG-6549), following the house precedent that extra count fields
+ * counts, following the house precedent that extra count fields
  * (e.g. `deleted`) travel by spread. The per-table route serializes the
  * counts as-is, so the chained path and the cron line see the R2 status each
  * table observed. `r2` is always set: the helper fires `onArchive` on every
@@ -68,7 +68,7 @@ function syncTableWithR2(
 }
 
 /**
- * Dry-run switch for the per-table sync runners (TOG-9203): parse and count
+ * Dry-run switch for the per-table sync runners: parse and count
  * the report CSV as usual, but write nothing — no D1 upserts, no reconcile
  * deletes, and no R2 archive. The second positional is optional so existing
  * callers (cron, tests) keep compiling unchanged.
@@ -76,7 +76,7 @@ function syncTableWithR2(
 export type SnapshotSyncRunOptions = {
   dryRun?: boolean;
   /**
-   * Per-run correlation id (TOG-19134): when present, every `logEvent` on the
+   * Per-run correlation id: when present, every `logEvent` on the
    * sync path carries it. Minted once per `scheduled()` firing and threaded
    * from the cron base; chained per-table subrequests forward it on the
    * `x-run-id` header (validated at the per-table routes), so a
@@ -91,7 +91,7 @@ const RUN_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * Validates an inbound `x-run-id` header value (TOG-19134). Returns the id
+ * Validates an inbound `x-run-id` header value. Returns the id
  * only when it is UUID-shaped; anything else (absent, blank, malformed, or a
  * non-UUID string that could carry attacker text) is dropped — correlation
  * must never fail a sync or smuggle free text into the logs.
@@ -288,8 +288,8 @@ class ChainedSubrequestError extends Error {
 }
 
 /**
- * Thrown when a table sync fails after earlier tables may have completed
- * (TOG-6546). Carries the per-table results collected so far so the cron log
+ * Thrown when a table sync fails after earlier tables may have completed.
+ * Carries the per-table results collected so far so the cron log
  * can report partial progress instead of all-null: tables that succeeded keep
  * their counts, the failed table is named by `failedTable`, and tables never
  * attempted stay null.
@@ -361,7 +361,7 @@ function validatePlannedReportQueryDates(
 
 /**
  * Carry the per-table sync counts through, including `deleted` when the
- * subrequest reported it (TOG-7391). The chained runner previously rebuilt
+ * subrequest reported it. The chained runner previously rebuilt
  * `{upserted, rowCount}` here, so the cron line showed `deleted` only on the
  * single-invocation path. The combined `POST /api/v1/data-snapshot/sync`
  * route strips `deleted` back out (its `{upserted, rowCount}` shape is
@@ -391,8 +391,8 @@ function syncJsonToResult(j: unknown): SnapshotTableResult {
     fields.deleted === undefined
       ? { upserted, rowCount }
       : { upserted, rowCount, deleted: fields.deleted as number };
-  // Extra count fields are dropped on the chained path by precedent (TOG-7378
-  // pins the explicit pick: subrequest JSON crosses a trust boundary, so row
+  // Extra count fields are dropped on the chained path by precedent (the
+  // explicit pick is pinned: subrequest JSON crosses a trust boundary, so row
   // data must not ride it into the cron line); the R2 outcome is the
   // exception — without it a failed archive hides behind a D1
   // `outcome:success`. Guarded: only a well-formed detail travels (status
@@ -418,8 +418,8 @@ export async function runDataSnapshotSyncChainedHttp(
     throw new Error("CUSTOMER_SNAPSHOT_SYNC_SECRET is not set");
   }
   const base = publicBaseUrl.replace(/\/$/, "");
-  // The per-run id rides to each chained sub-invocation on `x-run-id`
-  // (TOG-19134): the per-table routes UUID-validate it and thread it into
+  // The per-run id rides to each chained sub-invocation on `x-run-id`:
+  // the per-table routes UUID-validate it and thread it into
   // their own skip and R2-archive lines, so one run's records correlate
   // across invocations. Sent only when the caller supplied one.
   const h: Record<string, string> = {
@@ -436,7 +436,7 @@ export async function runDataSnapshotSyncChainedHttp(
     address: null,
     container: null
   };
-  // Bounded per-table budget (TOG-6547): a hung subrequest threw nothing
+  // Bounded per-table budget: a hung subrequest threw nothing
   // before, holding the cron invocation to the platform timeout and starving
   // the tables behind it. The timer covers time-to-headers (the `fetch`
   // promise) — the per-table route sends no headers until its report
@@ -445,7 +445,7 @@ export async function runDataSnapshotSyncChainedHttp(
   // bounded: the helper races the timer, not just the abort.
   const timeoutMs = readChainedSyncTimeoutMs(env);
 
-  // TOG-9203: a combined dry run must dry-run every table — a real write
+  // A combined dry run must dry-run every table — a real write
   // hiding behind one subrequest would defeat the no-write guarantee.
   const drySuffix = opts.dryRun === true ? "?dryRun=true" : "";
   async function post(
@@ -467,7 +467,7 @@ export async function runDataSnapshotSyncChainedHttp(
     }
     // Consumed then discarded: drains the body so the connection can be
     // reused, but zero upstream bytes ever reach the thrown error below
-    // (TOG-9205 R4-04/B1 — these messages reach logs, so they carry
+    // (these messages reach logs, so they carry
     // table/step/status only).
     const text = await resp.text();
     if (!resp.ok) {

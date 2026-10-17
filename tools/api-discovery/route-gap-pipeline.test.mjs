@@ -1,5 +1,5 @@
 /**
- * Pipeline tests for the harvest chain (TOG-25335, Paperclip Review on PR #272).
+ * Pipeline tests for the harvest chain (Paperclip Review on PR #272).
  *
  * The unit pins in route-gap.test.mjs drive route-gap.mjs standalone. These
  * tests drive the real chain order from `npm run process` — validate-harvest

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { translateSkipTakeToStartLimit } from "../src/lib/customersReadPagination";
 
 /**
- * TOG-5936: unit coverage for the `skip`/`take` → `start`/`limit`
+ * Unit coverage for the `skip`/`take` → `start`/`limit`
  * translation the `customers-read` route applies before forwarding.
  * The through-the-worker paths live in `test/customersReadPagination.test.ts`;
  * these pin the pure mapping rules (precedence, validity, passthrough).

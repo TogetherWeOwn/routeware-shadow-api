@@ -2,7 +2,7 @@
  * HTTP Cache API (Workers) + ETag for GET /api/v1/data/*.
  * Stale on any successful write for affected entity ids.
  *
- * TTL review (TOG-6294): freshness comes from the `Cache-Control` header stored
+ * TTL review: freshness comes from the `Cache-Control` header stored
  * on each cached 200 (`private, max-age=<ENTITY_DATA_CACHE_MAX_AGE_SECONDS>`),
  * not from a `cache.put` option — the Cache API has no per-entry TTL argument.
  * All three entity kinds share one TTL; writes evict via
@@ -127,7 +127,7 @@ export async function sha256Etag(s: string): Promise<string> {
 /**
  * Invalidate a customer, its addresses, and all containers in one graph (after writes).
  *
- * TOG-5937: invalidations run in bounded sequential chunks rather than one
+ * Invalidations run in bounded sequential chunks rather than one
  * `Promise.all` over the whole graph, so a very large customer cannot fan out
  * tens of thousands of concurrent cache deletes in a single invocation.
  * Failure semantics are unchanged: any single failure still rejects, leaving
@@ -152,7 +152,7 @@ export async function invalidateCustomerGraph(params: {
 }
 
 /**
- * TOG-6534: bounded retry around `invalidateCustomerGraph`.
+ * Bounded retry around `invalidateCustomerGraph`.
  *
  * A mid-graph throw leaves the graph partially invalidated — the deletes
  * before the failure landed, the rest did not — and the POST handlers cannot

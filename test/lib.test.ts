@@ -63,7 +63,7 @@ describe("isLoginRedirect", () => {
   });
 });
 
-describe("looksLikeLoginPageHtml (TOG-6515)", () => {
+describe("looksLikeLoginPageHtml", () => {
   it("matches a password field plus the login path", () => {
     expect(
       looksLikeLoginPageHtml(
@@ -98,7 +98,7 @@ describe("looksLikeLoginPageHtml (TOG-6515)", () => {
   });
 });
 
-describe("isLoginPageResponse (TOG-6515)", () => {
+describe("isLoginPageResponse", () => {
   it("returns false without reading JSON/CSV 200 bodies", async () => {
     const json = new Response('{"Password":"UserName"}', {
       status: 200,

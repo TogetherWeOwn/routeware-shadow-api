@@ -31,7 +31,7 @@ export type RecordingDbOptions = {
   changes?: number;
   /**
    * Rows with a numeric `n` for the `countWouldDeleteStale` dry-run counts in
-   * `upsert.ts` (TOG-9203), consumed in call order — one entry per
+   * `upsert.ts`, consumed in call order — one entry per
    * `SELECT COUNT` (total-stale first, then one per 99-key IN chunk).
    * Omit to answer every count with `{ n: 0 }`.
    */
@@ -53,7 +53,7 @@ export function recordingDb(opts: RecordingDbOptions = {}): RecordingDb {
           return {
             rec,
             async first() {
-              // Dry-run `SELECT COUNT` probe in `upsert.ts` (TOG-9203).
+              // Dry-run `SELECT COUNT` probe in `upsert.ts`.
               // Recorded in `selects` alongside the FK `all()` lookups so
               // tests can assert the read-only count shape.
               selects.push(rec);

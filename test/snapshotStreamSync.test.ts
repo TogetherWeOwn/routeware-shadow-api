@@ -238,7 +238,7 @@ describe.each(SPECS)("$name stream sync", (spec) => {
     });
 
     it("accepts a fully quoted header", async () => {
-      // Arrange — TOG-6541: real exports quote headers (`"CustomerID",...`)
+      // Arrange — real exports quote headers (`"CustomerID",...`)
       // and the row parser already strips those quotes, so the guard must
       // read the parsed first cell rather than the raw line.
       const { db } = recordingDb();

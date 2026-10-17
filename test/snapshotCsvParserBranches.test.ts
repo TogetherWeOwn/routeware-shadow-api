@@ -5,7 +5,7 @@ import { parseContainerSnapshotCsv } from "../src/lib/csvContainerSnapshot";
 import { parseCustomerSnapshotCsv } from "../src/lib/csvCustomerSnapshot";
 
 /**
- * TOG-19016: close the `csv*Snapshot.ts` bulk-parser branch gaps (58.3% /
+ * Close the `csv*Snapshot.ts` bulk-parser branch gaps (58.3% /
  * 58.3% / 71.4% at baseline). The row parsers were covered through the
  * import routes, but the bulk entry points never saw an empty body, a
  * header-only file, a whitespace-only line, or an unparseable data row —

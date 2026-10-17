@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Cron last-run persistence (TOG-8883).
+ * Cron last-run persistence.
  *
  * The daily cron (`src/scheduled.ts`) upserts one row per table into
  * `cron_sync_state` after every run, and `GET /api/v1/readiness` reports it

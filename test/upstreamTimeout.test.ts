@@ -14,7 +14,7 @@ import {
 } from "../src/lib/upstreamTimeout";
 
 /**
- * Bounded upstream timeouts (TOG-5835).
+ * Bounded upstream timeouts.
  *
  * A hung Routeware host used to hold the Worker until the 300s CPU limit
  * mid-sync. Every Routeware `fetch` now races a per-attempt timer: 15s

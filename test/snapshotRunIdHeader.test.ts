@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * `x-run-id` forwarding at the snapshot sync routes (TOG-19134, round 2).
+ * `x-run-id` forwarding at the snapshot sync routes (round 2).
  *
  * The chained orchestrator sends the run on the `x-run-id` header; each
  * route must hand a UUID-validated value into its runner (so the
