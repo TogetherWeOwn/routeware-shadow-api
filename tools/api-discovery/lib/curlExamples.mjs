@@ -69,9 +69,14 @@ export function curlExampleForEntry(entry, harvestRow, bodyText) {
     const acceptHdr = useJson
       ? "application/json, text/javascript, */*; q=0.01"
       : "*/*";
+    // The header lands inside a double-quoted shell string, where \, ", $
+    // and backtick all stay live; escape every one in a single pass so a
+    // recorded Content-Type cannot smuggle command substitution into the
+    // generated script.
+    const shellSafeContentType = contentType.replace(/[\\"$`]/g, "\\$&");
     lines.push(
       `curl -sS -X ${entry.method} "$BASE${entry.shadowPath}" \\`,
-      `  -H "Content-Type: ${contentType.replace(/[\\"]/g, "\\$&")}" \\`,
+      `  -H "Content-Type: ${shellSafeContentType}" \\`,
       `  -H "Accept: ${acceptHdr}" \\`,
       `  -H "X-Requested-With: XMLHttpRequest" \\`,
       `  --data-binary "@$DIR/bodies/${bodyFile.fileName}"`

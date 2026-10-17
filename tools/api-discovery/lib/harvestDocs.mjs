@@ -42,6 +42,10 @@ export function renderHarvestApiDoc(discovered, routeMap) {
       lines.push(`#### Sample ${i} (${sample.ts})`);
       lines.push("");
       lines.push(`- **resourceType:** ${sample.resourceType ?? "—"}`);
+      // Escape backslash and pipe in one pass. The value sits in a code
+      // span, so the escapes render literally (a recorded "a\b|c" shows as
+      // "a\\b\|c"); that doubled-backslash output is pinned intentionally
+      // in downstream-escapes.test.mjs rather than left implicit.
       lines.push(`- **pathWithQuery:** \`${(sample.pathWithQuery ?? "").replace(/[\\|]/g, "\\$&")}\``);
       if (sample.frameUrl) {
         lines.push(`- **frameUrl:** \`${sample.frameUrl}\``);
