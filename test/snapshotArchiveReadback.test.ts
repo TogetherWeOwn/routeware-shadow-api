@@ -12,7 +12,7 @@ import {
 import { CUSTOMER_SNAPSHOT_EXPORT, snapshotExportHeaderLine } from "../src/lib/snapshot/export";
 
 /**
- * TOG-18829 — spreadsheet-safe re-encoding of an archived CSV.
+ * Spreadsheet-safe re-encoding of an archived CSV.
  *
  * Pins the readback transform directly: blank records are dropped and cells
  * trimmed as the importer reads them, every formula-leading cell is escaped as
@@ -94,7 +94,7 @@ function fnv1a64Reference(bytes: Uint8Array): string {
   return `"fnv64-${h.toString(16).padStart(16, "0")}"`;
 }
 
-describe("spreadsheet-safe archive readback (TOG-18829)", () => {
+describe("spreadsheet-safe archive readback", () => {
   it("escapes a formula-leading cell and leaves plain numbers and words alone", async () => {
     const input = [
       "CustomerID,CompanyName,Enabled",

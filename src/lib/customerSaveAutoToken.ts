@@ -15,7 +15,7 @@ function escapeRegexKey(key: string): string {
 
 /** Last occurrence wins (duplicate keys in x-www-form-urlencoded). */
 export function lastUrlEncodedValue(raw: string, key: string): string | undefined {
-  // TOG-6520: case-EXACT on purpose. Upstream `Save*` actions read form keys
+  // Case-EXACT on purpose. Upstream `Save*` actions read form keys
   // case-sensitively, so a case-insensitive match here picks the edit modal
   // (e.g. `customerid=5` matching `CustomerID`) while upstream treats the same
   // body as a create — an edit-modal token on a create body, a silent wrong
@@ -139,7 +139,7 @@ export function clearAntiForgeryTokenCache(): void {
 }
 
 /**
- * TOG-8149: drop every cache entry holding a save-rejected token.
+ * Drop every cache entry holding a save-rejected token.
  *
  * Keyed by value, not by session + modal URL, on purpose: after a modal heal
  * `resolveSaveCustomerLongFormToken` stores the entry under the FRESH session
@@ -163,7 +163,7 @@ export function evictAntiForgeryTokenCacheByToken(rejectedToken: string): boolea
 }
 
 /**
- * TOG-8149: `evictAntiForgeryTokenCacheByToken` for a forwarded save body.
+ * `evictAntiForgeryTokenCacheByToken` for a forwarded save body.
  * Parses `__RequestVerificationToken` (last occurrence wins, same as the
  * inject path) and evicts entries holding it. Returns false when the body
  * carries no token — nothing cached could have been replayed. Never throws:
@@ -199,7 +199,7 @@ export type PrepareSaveBodyOptions = ModalRetryContext & {
  * cached entry for this session + modal URL avoids the modal GET entirely;
  * on a miss (or `forceRefresh`) exactly one GET populates the entry.
  *
- * TOG-6462: with retry context the modal GET runs through
+ * With retry context the modal GET runs through
  * `forwardWithSessionRetry`, so an expired stored session (modal answers 302
  * → login, or HTTP-200 login page) re-establishes once and retries instead of
  * surfacing a 502 the next save would hit again. Healing is bounded: exactly
@@ -249,7 +249,7 @@ export async function resolveSaveCustomerLongFormToken(
       )
     : await forwardToUpstream(modalReq, modalUrl, session, null, {
         internalMarker: "anti-forgery-modal",
-        // Direct modal path honors UPSTREAM_TIMEOUT_MS (TOG-8359) — the
+        // Direct modal path honors UPSTREAM_TIMEOUT_MS — the
         // forwarder default alone would ignore the per-deploy override.
         timeoutMs: readUpstreamTimeoutMs(env)
       });
@@ -288,8 +288,8 @@ export async function resolveSaveCustomerLongFormToken(
  * With retry context (`options.sessionStub` + `options.establishSession`) the
  * modal fetch runs through `forwardWithSessionRetry`, so an expired stored
  * session (modal answers 302 → login, or HTTP-200 login page) re-establishes
- * once and retries instead of surfacing a 502 the next save would hit again
- * (TOG-6462). Supplied-token and disabled-auto-token paths return before any
+ * once and retries instead of surfacing a 502 the next save would hit again.
+ * Supplied-token and disabled-auto-token paths return before any
  * session read, unchanged.
  */
 export async function prepareSaveCustomerLongFormBody(

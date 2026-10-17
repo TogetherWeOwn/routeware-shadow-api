@@ -57,7 +57,7 @@ vi.mock("../src/lib/dataEntityHandlers", () => ({
   handleGetDataContainer: async (ctx: unknown, id: number) => record("getContainer", ctx, id)
 }));
 
-// TOG-19136: POST save handlers moved to `../src/lib/dataEntitySave`; the
+// POST save handlers moved to `../src/lib/dataEntitySave`; the
 // route imports them from there, so the delegation doubles live there too.
 vi.mock("../src/lib/dataEntitySave", () => ({
   handlePostDataCustomer: async (ctx: unknown) => record("postCustomer", ctx),

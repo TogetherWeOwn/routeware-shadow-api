@@ -118,7 +118,7 @@ addressRoutes.openapi(addressSaveAddressFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the save-long-form route.
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up, readUpstreamTimeoutMs(c.env)))) {
-    // TOG-6463: refresh D1 + evict the data-entity cache after a successful
+    // Refresh D1 + evict the data-entity cache after a successful
     // save so shadow reads stop serving the pre-save record. Never throws.
     await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "address", bodyBuffer, upText);
     return up;

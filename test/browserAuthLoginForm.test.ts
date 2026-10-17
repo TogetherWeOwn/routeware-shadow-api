@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-22032 — drives the login-form branch of `establishSessionWithBrowser`
+ * This file drives the login-form branch of `establishSessionWithBrowser`
  * (`src/lib/browserAuth.ts`) against a fake page.
  *
  * `test/browserAuth.test.ts` pins the selector contract against saved markup

@@ -78,7 +78,7 @@ type SyncResult = {
   upserted: number;
   rowCount: number;
   deleted?: number;
-  /** R2 archive outcome stamped by the sync route (TOG-6549). Key is date+table only — no PII. */
+  /** R2 archive outcome stamped by the sync route. Key is date+table only — no PII. */
   r2?: { status: string; key?: string; reason?: string };
 };
 
@@ -166,7 +166,7 @@ describe("hermetic snapshot sync e2e", () => {
         chainedRequests.push(url);
         return exports.default.fetch(request);
       }
-      // TOG-6543: every query-id fetch polls QueryRequestIsComplete before
+      // Every query-id fetch polls QueryRequestIsComplete before
       // its download. The poll answers complete immediately so the e2e keeps
       // exercising the download retry leg (first download 302s, then CSV).
       if (url.includes("/Reports/QueryRequestIsComplete")) {

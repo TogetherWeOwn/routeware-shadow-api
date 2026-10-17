@@ -209,7 +209,7 @@ describe("forwardToUpstream", () => {
     });
   });
 
-  describe("client bearer token containment (TOG-19131)", () => {
+  describe("client bearer token containment", () => {
     it("never forwards the client bearer token or client Cookie upstream", async () => {
       // Arrange
       const calls = stubUpstream(new Response("ok"));

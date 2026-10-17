@@ -7,10 +7,10 @@ import { createRouteModule } from "./shared";
 export const metaRoutes = createRouteModule();
 
 /**
- * Health response schema (TOG-8880).
+ * Health response schema.
  *
  * `version` is the release version single-sourced from `package.json#version`
- * via `src/lib/version.ts` (TOG-5840 pattern) — the handler below sends
+ * via `src/lib/version.ts` (same pattern) — the handler below sends
  * `APP_VERSION`, so bumping `package.json` moves the health version with no
  * other edit.
  */

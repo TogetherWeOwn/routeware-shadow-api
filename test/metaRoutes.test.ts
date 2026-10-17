@@ -16,10 +16,7 @@ import { healthResponseSchema, metaRoutes, readinessResponseSchema } from "../sr
  * for both the 200 and 503 cases.
  *
  * Hermeticity: the shape cases call `metaRoutes.fetch` directly with a fake
- * env, and the gate cases go through the full app *without* a token. Neither
- * depends on the configured bearer, so they pass with the committed
- * `wrangler.toml [env.test.vars]` tokens and with a local `.dev.vars`
- * override alike.
+ * env, and the gate cases go through the full app *without* a token.
  */
 
 function fakeDb(ok = true): D1Database {
@@ -68,7 +65,7 @@ describe("GET /api/v1/health route", () => {
     const res = await callMeta("/api/v1/health", {} as unknown as Env);
 
     // Assert — version is single-sourced from package.json via APP_VERSION
-    // (TOG-5840 pattern, TOG-8880): the literal pins the wire shape, the
+    // Wire-shape pattern: the literal pins the wire shape, the
     // package.json comparison pins the single-sourcing.
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");

@@ -121,7 +121,7 @@ function isSafeCount(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
-// TOG-25212: utilization fields are numeric internal counts only. They ride
+// Utilization fields are numeric internal counts only. They ride
 // the global allowlist (so `sync.detailFull` can emit `customerId`), but a
 // string or negative value must never reach the log — e.g. a `customerId:
 // "alice@example.com"` from another caller would otherwise pass through as

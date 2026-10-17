@@ -2,15 +2,13 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vite
 import { env, exports } from "cloudflare:workers";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
-// Matches wrangler.toml [env.test.vars]. The sync secret passes both gates:
-// the outer /api/v1/* gate accepts it as a fallback, and the /data/* reads
-// require it — same pattern as test/snapshotSyncE2E.test.ts. (A gitignored
-// local .dev.vars may override SHADOW_API_TOKEN, so the API token is not a
-// stable test credential here.)
+// The sync secret passes both gates: the outer /api/v1/* gate accepts it as
+// a fallback, and the /data/* reads require it — same pattern as
+// test/snapshotSyncE2E.test.ts.
 const SYNC_SECRET = "test-sync-secret";
 
 /**
- * TOG-6463 — the routeware-tier save routes used to forward upstream and
+ * The routeware-tier save routes used to forward upstream and
  * return, so a successful save (including the documented `Enabled=false`
  * disable flow) stayed invisible to shadow reads until the next cron sync:
  * D1 kept the pre-save row and `GET /api/v1/data/*` kept serving the cached
@@ -54,7 +52,7 @@ const behavior = { saveBody: '{"success":true}' };
 
 type CustomerRead = { customer: { company_name: string; enabled: number } };
 
-describe("routeware-tier saves refresh D1 + cache (TOG-6463)", () => {
+describe("routeware-tier saves refresh D1 + cache", () => {
   const originalFetch = globalThis.fetch;
 
   beforeAll(async () => {

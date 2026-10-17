@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-6272 — the customer, address and container routes publish
+ * The customer, address and container routes publish
  * request/response `example` payloads so Scalar shows realistic bodies.
  *
  * The examples are docs-only: every schema is a raw OpenAPI object (never a
@@ -149,7 +149,7 @@ const ROUTES: Array<{ path: string; group: string; requestMedia: string }> = [
   }
 ];
 
-describe("OpenAPI example payloads (TOG-6272)", () => {
+describe("OpenAPI example payloads", () => {
   it.each(ROUTES)(
     "$path publishes a request example matching its schema",
     async ({ path, requestMedia }) => {
@@ -298,7 +298,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
   );
 });
 
-describe("example bodies install no runtime validators (TOG-6272)", () => {
+describe("example bodies install no runtime validators", () => {
   const originalFetch = globalThis.fetch;
   const forwarded: string[] = [];
 

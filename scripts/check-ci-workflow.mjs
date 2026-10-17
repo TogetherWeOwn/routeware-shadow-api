@@ -52,6 +52,10 @@ assert.match(
 assert.match(changesJob, /probe:/, "changes must output a probe boolean (TOG-14898)");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean (TOG-14898)");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs (TOG-14898)");
+assert.ok(
+  changesJob.includes("vitest(\\.memory)?\\.config\\.ts$"),
+  "code change detection must include the dedicated memory Vitest config",
+);
 // TOG-22034: `.nvmrc` anchors the Node-pin guard that runs in `build`, so a
 // PR touching only `.nvmrc` must still run it, not merge green past it.
 assert.match(
@@ -96,15 +100,26 @@ assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional 
 assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
-// unrestricted coverage run shares a self-hosted runner with other CI jobs
-// (red main 3657b4f). The cap lives in vitest.config.ts, gated on CI so
-// local runs keep full speed. Pin it present so a config edit can never
-// silently uncap CI.
+// unrestricted coverage run shares a CI runner with other CI jobs
+// (red main 3657b4f). The CI cap lives in vitest.config.ts, gated on CI.
+// TOG-19021: local runs cap at half the core count instead of uncapped, for
+// the same oversubscription reason. Pin both present so a config edit can
+// never silently uncap CI or local.
 const vitestConfig = await readFile(new URL("../vitest.config.ts", import.meta.url), "utf8");
 assert.match(
   vitestConfig,
   /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*undefined/,
-  "vitest.config.ts must cap maxWorkers at 2 on CI (TOG-7666)",
+  "vitest.config.ts project options must cap CI at 2 and leave local CLI overrides to Vitest (TOG-7666/TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /localMaxWorkers\s*=\s*Math\.max\(1,\s*Math\.floor\(os\.availableParallelism\(\)\s*\/\s*2\)\)/,
+  "vitest.config.ts must default the root config to half available parallelism locally (TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /test:\s*\{\s*maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
+  "vitest.config.ts root options must cap CI and provide the local default while allowing CLI overrides (TOG-19021)",
 );
 
 const hygiene = jobBlock("hygiene");
@@ -222,6 +237,26 @@ assert.match(
   "hygiene must run the source-file-size guard (TOG-6291)"
 );
 
+// The docs link + anchor check resolves every relative link in tracked *.md
+// files (file must be tracked, #anchor must match a heading slug or <a name>
+// anchor). Pin it present so a broken cross-link can never land without the
+// hygiene gate (TOG-18936).
+assert.match(
+  hygiene,
+  /^        run: npm run check:docs-links$/m,
+  "hygiene must run the docs link and anchor check (TOG-18936)"
+);
+
+// The discovery transform pins (node --test suites for route-gap and
+// validate-harvest) live outside the root vitest run, and tools-only PRs skip
+// the filtered `build` job — so hygiene is the only gate that runs them. Pin
+// it present so the route-gap exit-code contract can never regress silently
+// (TOG-25335).
+assert.match(
+  hygiene,
+  /^        run: npm run test:discovery$/m,
+  "hygiene must run the discovery transform pins (TOG-25335)"
+);
 // The R2 lifecycle proposal shape guard validates
 // docs/r2-lifecycle-proposal.snapshot-history.json stays a byte-clean S3
 // PutBucketLifecycleConfiguration body, credential-free. Pin it present so

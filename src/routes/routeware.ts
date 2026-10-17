@@ -48,7 +48,7 @@ const loginPageRoute = createRoute({
 routewareRoutes.openapi(loginPageRoute, async (c) => {
   const upstreamUrl = new URL(c.env.LOGIN_URL);
   // Sessionless probe honors UPSTREAM_TIMEOUT_MS like every other interactive
-  // forward (TOG-8359) — the forwarder default alone would ignore the override.
+  // forward — the forwarder default alone would ignore the override.
   return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer, {
     timeoutMs: readUpstreamTimeoutMs(c.env)
   });

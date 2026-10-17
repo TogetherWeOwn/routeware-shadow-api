@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-6462 on current main: token-less save-long-form / save-address-form /
+ * On current main, token-less save-long-form / save-address-form /
  * save-container-form got a 502 loop when the stored session expired — the
  * anti-forgery modal fetch ran via bare `forwardToUpstream` and threw on the
  * 302 → login answer, so `establishSession` (reachable only through
@@ -11,8 +11,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * `forwardWithSessionRetry` (only `upstreamForward` is mocked), so these tests
  * prove the documented repro heals: one re-establish + retry, token injected,
  * no 502. They also pin the interactions with current-main behaviour:
- * HTTP-200 login-page detection (TOG-6515), the per-attempt timeout budget
- * (TOG-5835, never retried), the internal anti-forgery marker, and the
+ * HTTP-200 login-page detection, the per-attempt timeout budget
+ * (never retried), the internal anti-forgery marker, and the
  * session + modal-URL token-cache keying surviving a heal.
  */
 
@@ -34,7 +34,7 @@ function tokenHtml(token: string): Response {
 }
 
 function loginPageHtml(): Response {
-  // TOG-6515 shape: HTTP 200 carrying the Routeware login form (password
+  // Login-page shape: HTTP 200 carrying the Routeware login form (password
   // field + login path), not a 302.
   return new Response(
     '<html><body><form action="/WebRW/Account/Login" method="post">' +
@@ -178,7 +178,7 @@ beforeEach(() => {
   clearAntiForgeryTokenCache();
 });
 
-describe("expired-session retry (TOG-6462)", () => {
+describe("expired-session retry", () => {
   it("customer create: re-establishes once and retries the modal on a 302 → login", async () => {
     // Arrange — the exact issue repro: token-less create, modal answers 302.
     behavior.responses = [loginRedirect, () => tokenHtml("TOKEN-1")];
@@ -276,7 +276,7 @@ describe("expired-session retry (TOG-6462)", () => {
     expect(decode(result)).toContain("__RequestVerificationToken=CONT-RETRY");
   });
 
-  it("customer: heals through the HTTP-200 login-page shape (TOG-6515)", async () => {
+  it("customer: heals through the HTTP-200 login-page shape", async () => {
     // Arrange — main's newer expiry shape: 200 + login form, not a 302.
     behavior.responses = [loginPageHtml, () => tokenHtml("TOKEN-200")];
     const buffer = body("CustomerID=0&CompanyName=NewCo&Enabled=true");
@@ -365,7 +365,7 @@ describe("expired-session retry (TOG-6462)", () => {
     expect(calls.modals).toHaveLength(2);
   });
 
-  it("does not spend the retry budget on a hung upstream (TOG-5835)", async () => {
+  it("does not spend the retry budget on a hung upstream", async () => {
     // Arrange — the modal GET throws the same `UpstreamTimeoutError` the real
     // `forwardToUpstream` raises when the per-attempt budget fires. The single
     // retry is reserved for the login redirect; a timeout must fail fast

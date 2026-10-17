@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-25210 (roadmap R9-04, test-author half): `syncCustomerDetailFullToD1`
+ * Roadmap R9-04, test-author half: `syncCustomerDetailFullToD1`
  * must emit one structured JSON utilization line per run carrying the
  * customer id, address/container counts, computed D1 ops vs
  * `DETAIL_FULL_MAX_D1_OPS`, and cache invalidations vs cap — plus keep the

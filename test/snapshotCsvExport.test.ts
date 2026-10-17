@@ -18,7 +18,7 @@ import {
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * TOG-8361 (gap G5) — snapshot CSV export download UX.
+ * Gap G5 — snapshot CSV export download UX.
  *
  * `src/lib/csvStream.ts` parses the inbound direction (Routeware → D1); the
  * outbound direction (D1 → browser download) did not exist at all. These
@@ -773,7 +773,7 @@ describe("export end to end through the real app and D1", () => {
   });
 
   it("answers a replayed ETag with 304 and an empty body (conditional read)", async () => {
-    // Acceptance leg (TOG-8879): fetch twice for a stable tag, replay it as
+    // Acceptance leg: fetch twice for a stable tag, replay it as
     // If-None-Match, get 304 with nothing to download.
     const first = await getExport("/api/v1/customer-snapshot/export");
     expect(first.status).toBe(200);

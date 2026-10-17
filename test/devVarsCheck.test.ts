@@ -11,7 +11,7 @@ import {
 } from "../scripts/lib/devVarsCheck.mjs";
 
 /**
- * Regression tests for TOG-6538: the old checker split each `.dev.vars` line
+ * Regression tests: the old checker split each `.dev.vars` line
  * on the first `=` and validated the raw text, while `wrangler dev` applies
  * dotenv semantics (export prefix, quote stripping, unquoted `#` comments).
  * Values also went unchecked (`SESSION_TTL_SECONDS` arrived quoted → NaN
@@ -36,7 +36,7 @@ function validEffective(overrides: Record<string, string> = {}): Record<string, 
   };
 }
 
-describe("parseDevVarsText (dotenv parity — TOG-6538)", () => {
+describe("parseDevVarsText (dotenv parity)", () => {
   it("strips surrounding single, double and backtick quotes", () => {
     const parsed = parseDevVarsText(
       "A='quoted'\nB=\"double\"\nC=`back`\nD=bare\n"
@@ -77,7 +77,7 @@ describe("parseDevVarsText (dotenv parity — TOG-6538)", () => {
   });
 });
 
-describe("checkDevVarsValues (full required env — TOG-6538)", () => {
+describe("checkDevVarsValues (full required env)", () => {
   it("accepts a complete effective vars set", () => {
     expect(checkDevVarsValues(validEffective()).ok).toBe(true);
   });
@@ -170,7 +170,7 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
     expect(result.errors.some((e) => e.includes("LOGIN_PASSWORD"))).toBe(true);
   });
 
-  describe("operational key families (TOG-9212, gap O2)", () => {
+  describe("operational key families (gap O2)", () => {
     it("fails fast on a bogus REPORT_QUERY_START_DATE (acceptance: before any sync)", () => {
       const result = checkDevVarsValues(validEffective({ REPORT_QUERY_START_DATE: "bogus" }));
       expect(result.ok).toBe(false);
@@ -426,7 +426,7 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
   });
 });
 
-describe("wrangler [vars] overlay (TOG-6538)", () => {
+describe("wrangler [vars] overlay", () => {
   const TOML = [
     "[vars]",
     'TARGET_ORIGIN = "https://placeholder.example"',

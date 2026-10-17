@@ -1,6 +1,6 @@
 /**
  * Streaming D1 → CSV download for the three snapshot tables
- * (`GET ...-snapshot/export`, TOG-8361 / gap G5).
+ * (`GET ...-snapshot/export`).
  *
  * The snapshot list routes return paginated JSON; nothing served the raw CSV
  * back out, so `Content-Disposition` filename and download-streaming behaviour
@@ -25,7 +25,7 @@
 import { logEvent } from "../logger";
 
 /**
- * Conditional reads (TOG-8879): every export also answers `If-None-Match`
+ * Conditional reads: every export also answers `If-None-Match`
  * with `304 Not Modified` and an empty body. The ETag is a content hash over
  * the exact response bytes (header line plus every row line), so it is stable
  * for identical content and changes on any cell edit.
@@ -332,7 +332,7 @@ function createFnv1a64() {
 const snapshotEtagEncoder = new TextEncoder();
 
 /**
- * Content-hash ETag for an export (TOG-8879): FNV-1a 64 over the exact
+ * Content-hash ETag for an export: FNV-1a 64 over the exact
  * response bytes (header line plus one line per row), Tag'd so the form is
  * greppable (`"fnv64-<hex>"`, quoted — same quoting as the data-entity
  * ETags in `src/lib/dataEntityHandlers.ts`).

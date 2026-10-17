@@ -5,7 +5,7 @@ import { problemType } from "../src/lib/problem";
 import { snapshotR2ObjectKey } from "../src/lib/r2SnapshotArchive";
 
 /**
- * TOG-9202 (gap F1) — R2 archive readback route for operators.
+ * Gap F1 — R2 archive readback route for operators.
  *
  * The sync path archives the raw Routeware CSV to R2
  * (`src/lib/r2SnapshotArchive.ts`, keys
@@ -15,7 +15,7 @@ import { snapshotR2ObjectKey } from "../src/lib/r2SnapshotArchive";
  * app against the real test R2 bucket:
  *
  * - a seeded archive streams back re-encoded with the export's spreadsheet
- *   escaping (TOG-18829) while the stored object keeps the raw bytes; the
+ *   escaping while the stored object keeps the raw bytes; the
  *   Content-Length and ETag describe the served body;
  * - `If-None-Match` with the current ETag, or `*`, answers 304 with no body;
  * - an archive replaced between the two reads answers 409 problem+json, and one
@@ -111,7 +111,7 @@ function fnv1a64Etag(bytes: Uint8Array): string {
   return `"fnv64-${h.toString(16).padStart(16, "0")}"`;
 }
 
-describe("R2 archive readback (TOG-9202, TOG-18829)", () => {
+describe("R2 archive readback", () => {
   it("serves the archive re-encoded for spreadsheets and leaves the stored object unchanged", async () => {
     // Arrange — the writer's key helper names the object, exactly as the
     // sync leg does after a successful D1 stream.

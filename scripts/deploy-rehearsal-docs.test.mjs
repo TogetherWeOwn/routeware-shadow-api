@@ -44,7 +44,7 @@ function runRehearsal({ credentialFile, scratch = "external", interactive = fals
       env,
       input: "GLOBIGNORE='.env.*:.dev.vars.*'; export GLOBIGNORE; set -f\n" + localBlock + after,
       encoding: "utf8",
-      timeout: 5_000,
+      timeout: 15_000,
     });
     assert.ifError(result.error);
     return {

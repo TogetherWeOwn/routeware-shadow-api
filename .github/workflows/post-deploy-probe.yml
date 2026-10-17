@@ -15,13 +15,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: post-deploy-probe-${{ github.ref }}
-  cancel-in-progress: true
+  # Schedule/dispatch-only workflow (TOG-23109): keep each execution isolated
+  # so a newer pending probe cannot replace an earlier alert-path run.
+  group: post-deploy-probe-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
 
 jobs:
   probe:
     name: Probe deployed Worker (skip-safe)
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: bound so a hung probe against a down Worker pages via red,
     # not via a forever-running job.
     timeout-minutes: 10

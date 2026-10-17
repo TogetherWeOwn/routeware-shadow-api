@@ -16,7 +16,7 @@ const BAD_REQUEST_TYPE =
   "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request";
 
 /**
- * TOG-6524 — save/snapshot negative-path sweep.
+ * Save/snapshot negative-path sweep.
  *
  * Closes the gaps the issue lists, end to end through `src/app.ts`:
  *
@@ -36,7 +36,7 @@ const BAD_REQUEST_TYPE =
  * Main-wording note: titles/details are pinned to `main`'s exact wording
  * (`Bad Gateway`; `Bad Request`; `... See docs/PROBLEMS.md#bad-request`
  * suffixes) — tightened from the dual-wording form on the round-3 branch
- * during review, per TOG-8259. All three snapshot imports carry `detail`
+ * during review. All three snapshot imports carry `detail`
  * on main, so the CSV-body wording is asserted unconditionally.
  *
  * Fixtures are synthetic (`ExampleCo`, fixed error strings) — no PII, no
@@ -94,7 +94,7 @@ function isModalFetch(init?: RequestInit): boolean {
   );
 }
 
-describe("snapshot by-id rejects a non-numeric id with 400 (TOG-6524)", () => {
+describe("snapshot by-id rejects a non-numeric id with 400", () => {
   beforeEach(() => {
     stubNoUpstream();
   });
@@ -116,7 +116,7 @@ describe("snapshot by-id rejects a non-numeric id with 400 (TOG-6524)", () => {
   });
 });
 
-describe("snapshot import rejects an empty body with 400 problem+json (TOG-6524)", () => {
+describe("snapshot import rejects an empty body with 400 problem+json", () => {
   beforeEach(() => {
     stubNoUpstream();
   });
@@ -149,7 +149,7 @@ describe("snapshot import rejects an empty body with 400 problem+json (TOG-6524)
   });
 });
 
-describe("GET /api/v1/data/customer without an id → 400 (TOG-6524)", () => {
+describe("GET /api/v1/data/customer without an id → 400", () => {
   beforeEach(() => {
     stubNoUpstream();
   });
@@ -169,7 +169,7 @@ describe("GET /api/v1/data/customer without an id → 400 (TOG-6524)", () => {
   });
 });
 
-describe("saves surface an upstream HTML-200 error page as 502 (TOG-6524)", () => {
+describe("saves surface an upstream HTML-200 error page as 502", () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
@@ -221,7 +221,7 @@ describe("saves surface an upstream HTML-200 error page as 502 (TOG-6524)", () =
   });
 });
 
-describe("client-supplied X-Routeware-Shadow-Internal is stripped on saves (TOG-6524)", () => {
+describe("client-supplied X-Routeware-Shadow-Internal is stripped on saves", () => {
   const SAVE_URLS = [
     "/WebRW/Customer/SaveCustomerLongForm",
     "/WebRW/PickupAddress/SaveAddressForm",

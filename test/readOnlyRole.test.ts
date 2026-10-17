@@ -5,7 +5,7 @@ import { isReadAuthorized, readAccessToken } from "../src/lib/auth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Read-only bearer role (TOG-8878).
+ * Read-only bearer role.
  *
  * `SHADOW_API_READ_TOKEN`, when set, grants GET-only access to non-privileged
  * reads: the outer gate (`src/app.ts`) accepts it on GET requests. Everything
@@ -57,7 +57,7 @@ function envWithReadToken(readToken: unknown): Env {
   } as unknown as Env;
 }
 
-describe("read-only role units (TOG-8878)", () => {
+describe("read-only role units", () => {
   it("readAccessToken returns the configured token, trimmed", () => {
     expect(readAccessToken(envWithReadToken("  read-xyz  "))).toBe("read-xyz");
   });
@@ -128,10 +128,10 @@ const GENERAL_POST = "/api/v1/routeware/customer/customers-read";
  *
  * Deliberately main-compatible: every path here exists on `origin/main`.
  * The `DELETE /api/v1/customer-snapshot/{customerId}` erasure route
- * (TOG-8876, sibling work not yet on `main`) is NOT probed here — its
+ * (sibling work not yet on `main`) is NOT probed here — its
  * registration + API-token rejection are pinned by `test/snapshotAuth.test.ts`,
  * and a non-GET read-token rejection follows the same outer-gate path pinned
- * by the POST cases below. TOG-8876 may add a read-token case on its own card.
+ * by the POST cases below. A follow-up may add a read-token case for it.
  */
 const PRIVILEGED_ROUTES: Array<{ method: string; path: string; inner: boolean }> = [
   { method: "POST", path: "/api/v1/customer-snapshot/sync", inner: false },
@@ -144,7 +144,7 @@ const PRIVILEGED_ROUTES: Array<{ method: string; path: string; inner: boolean }>
   { method: "POST", path: "/api/v1/data/customer", inner: false }
 ];
 
-describe("read-only role HTTP (TOG-8878, test env)", () => {
+describe("read-only role HTTP (test env)", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -249,7 +249,7 @@ function envWithoutReadToken(): Env {
 
 let matrixIpSeq = 1;
 
-describe("read-only role fails closed without the secret (TOG-8878)", () => {
+describe("read-only role fails closed without the secret", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

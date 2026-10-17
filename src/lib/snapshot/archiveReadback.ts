@@ -7,7 +7,7 @@ import {
 } from "../csvSpreadsheet";
 
 /**
- * Spreadsheet-safe readback of an archived Routeware CSV (TOG-18829).
+ * Spreadsheet-safe readback of an archived Routeware CSV.
  *
  * The stored object stays the raw upstream CSV. Records are split by the
  * importer's quote-aware splitter, blank data records are dropped as the
