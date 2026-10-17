@@ -28,6 +28,23 @@ const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
 // else the browser asks for is dropped instead of reflected.
 const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
 const MAX_AGE_SECONDS = "86400";
+// Default `Cache-Control` for `/api/v1/*` responses (TOG-22087): nothing under
+// the bearer gate is public-cacheable, and the authenticated snapshot routes
+// return customer PII to browser clients, so an unset policy must fail closed
+// to `no-store`. Handlers that set their own value keep it (the data-entity
+// `private, max-age=60` reads, contained upstream errors).
+export const API_CACHE_CONTROL_NO_STORE = "no-store";
+
+/**
+ * Stamp the default API cache policy: set `Cache-Control: no-store` only when
+ * the handler left none. Case-insensitive via the `Headers` API, so a
+ * handler-set value in any casing is preserved.
+ */
+export function applyApiCachePolicy(headers: Headers): void {
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", API_CACHE_CONTROL_NO_STORE);
+  }
+}
 
 /**
  * Resolve the `Access-Control-Allow-Headers` value for a preflight: the
@@ -107,10 +124,20 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   applySecurityHeaders(headers);
 }
 
-/** Return `res` with CORS + hardening headers applied, preserving status and body. */
+/**
+ * Return `res` with CORS + hardening headers applied, preserving status and
+ * body — plus the default API cache policy (TOG-22087): `Cache-Control:
+ * no-store` when the handler set none. A handler-set value is preserved (the
+ * data-entity `private, max-age=60` reads, contained upstream errors).
+ * Preflight (`corsPreflightResponse`) is intentionally untouched: it carries
+ * no body or data, only the CORS grant with its own `Access-Control-Max-Age`.
+ * `/openapi.json` and `/docs` use `withSecurityHeaders` directly, so they are
+ * untouched as well.
+ */
 export function withCors(res: Response, req: Request): Response {
   const headers = new Headers(res.headers);
   applyCorsHeaders(headers, req.headers.get("origin"));
+  applyApiCachePolicy(headers);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText,
