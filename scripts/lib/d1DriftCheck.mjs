@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /**
- * Pure helpers for the D1 migration drift check (TOG-6275).
+ * Pure helpers for the D1 migration drift check.
  *
  * Compares the migration file set under `migrations/d1/` (names + sha256)
  * against the names recorded in a D1 `d1_migrations` journal. Both inputs

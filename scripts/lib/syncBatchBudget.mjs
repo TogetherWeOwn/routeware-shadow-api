@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the sync batch-sizing benchmark (TOG-6293).
+ * Pure helpers for the sync batch-sizing benchmark.
  *
  * Question: do the `STREAM_BATCH_*` chunk sizes in
  * `src/lib/snapshot/streamSync.ts` fit Cloudflare D1's per-invocation query

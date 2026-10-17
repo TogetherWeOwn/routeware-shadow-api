@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the R2 lifecycle proposal shape guard (TOG-25213, R9-05).
+ * Pure helpers for the R2 lifecycle proposal shape guard (R9-05).
  *
  * Gap: nothing pinned `docs/r2-lifecycle-proposal.snapshot-history.json` to
  * its byte-clean S3 `PutBucketLifecycleConfiguration` shape — silent drift

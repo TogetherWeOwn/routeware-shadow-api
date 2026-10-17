@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * R2 lifecycle proposal shape guard (TOG-25213, R9-05).
+ * R2 lifecycle proposal shape guard (R9-05).
  *
  * Validates `docs/r2-lifecycle-proposal.snapshot-history.json` stays a
  * byte-clean S3 `PutBucketLifecycleConfiguration` body: exact rule id,

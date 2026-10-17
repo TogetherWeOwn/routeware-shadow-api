@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * D1 migration drift check (TOG-6275).
+ * D1 migration drift check.
  *
  * Verifies `migrations/d1/*.sql` applied state matches between local and
  * remote D1 (file list + sha256 checksum compare). Read-only everywhere:

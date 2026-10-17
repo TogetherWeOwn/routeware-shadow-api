@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Post-deploy smoke check (TOG-5816, timeouts and verdicts TOG-22090).
+ * Post-deploy smoke check (timeouts and verdicts).
  *
  * Usage:
  *   SHADOW_API_BASE=https://<worker-host> SHADOW_API_TOKEN=<token> node scripts/smoke-readiness.mjs [--timeout-ms=N]

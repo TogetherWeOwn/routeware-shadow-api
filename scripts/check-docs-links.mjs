@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Docs link + anchor check (TOG-18936). Resolves every relative `](path)`
+ * Docs link + anchor check. Resolves every relative `](path)`
  * and `](path#anchor)` link in tracked `*.md` files: the target must be a
  * tracked file (or a directory containing tracked files), and any `#anchor`
  * must match a heading slug (GitHub rules) or an `<a name>` anchor in the

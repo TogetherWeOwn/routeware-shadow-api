@@ -1,9 +1,9 @@
 /**
- * PR-trigger guards for the PII hygiene gate (TOG-6539).
+ * PR-trigger guards for the PII hygiene gate.
  *
  * Runtime truth this pins: the CSV/`.dev.vars` gate only protects `main`
  * when `hygiene` actually runs on every pull request. `build` is a HEAVY job
- * gated by the CI-standard `changes` outputs (TOG-14877/TOG-14898); its only
+ * gated by the CI-standard `changes` outputs; its only
  * allowed job-level `if:` references `needs.changes.outputs`, which `ci-ok`
  * (if: always()) turns into a pass. `scripts/check-ci-workflow.mjs` asserted
  * `on.pull_request: [main]` but never asserted the gate jobs lack
@@ -19,7 +19,7 @@
 /**
  * Jobs that must run unconditionally on every pull request.
  *
- * TOG-14898 (CI standard): only `hygiene` stays unconditional — it holds the
+ * CI standard: only `hygiene` stays unconditional — it holds the
  * PII gate (CSV/`.dev.vars`) and the blocking secret scan (rule 6: cheap and
  * security always run). `build` is a HEAVY job gated by the `changes` outputs;
  * docs-only PRs skip it while `ci-ok` stays green. See `findPrTriggerSkips`
@@ -126,7 +126,7 @@ export function findPrTriggerSkips(workflowText) {
   for (const key of TRIGGER_NARROW_KEYS) {
     if (new RegExp(`^    ${key}:`, "m").test(pullRequest)) {
       errors.push(
-        `pull_request trigger must not narrow with '${key}:' — the PII gate must run on every pull request (TOG-6539)`
+        `pull_request trigger must not narrow with '${key}:' — the PII gate must run on every pull request`
       );
     }
   }
@@ -140,7 +140,7 @@ export function findPrTriggerSkips(workflowText) {
     for (const key of JOB_LEVEL_SKIP_KEYS) {
       if (new RegExp(`^    ${key}:`, "m").test(block)) {
         errors.push(
-          `${job} job must not define '${key}:' — the PII gate must run on every pull request (TOG-6539)`
+          `${job} job must not define '${key}:' — the PII gate must run on every pull request`
         );
       }
     }
@@ -148,7 +148,7 @@ export function findPrTriggerSkips(workflowText) {
     // here is a real step condition, not shell text.
     if (/^        if:/m.test(block)) {
       errors.push(
-        `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests (TOG-6539)`
+        `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests`
       );
     }
   }
@@ -166,20 +166,20 @@ export function findPrTriggerSkips(workflowText) {
     for (const key of ["paths", "paths-ignore"]) {
       if (new RegExp(`^    ${key}:`, "m").test(block)) {
         errors.push(
-          `${job} job must not define '${key}:' — use job-level 'if: needs.changes.outputs.<area>' so ci-ok still reports (TOG-14877)`
+          `${job} job must not define '${key}:' — use job-level 'if: needs.changes.outputs.<area>' so ci-ok still reports`
         );
       }
     }
     if (/^    if:/m.test(block) && !isStandardChangesGate(block)) {
       errors.push(
-        `${job} job 'if:' must reference 'needs.changes.outputs.<area>' — any other condition drops the gate on pull requests (TOG-6539/TOG-14877)`
+        `${job} job 'if:' must reference 'needs.changes.outputs.<area>' — any other condition drops the gate on pull requests`
       );
     }
     // Step keys sit at 8 spaces; `run: |` bodies indent deeper, so a match
     // here is a real step condition, not shell text.
     if (/^        if:/m.test(block)) {
       errors.push(
-        `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests (TOG-6539)`
+        `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests`
       );
     }
   }
@@ -197,7 +197,7 @@ export function assertNoPrTriggerSkips(workflowText) {
   const errors = findPrTriggerSkips(workflowText);
   if (errors.length > 0) {
     throw new Error(
-      `CI PR-trigger guards failed (TOG-6539):\n${errors.map((e) => `- ${e}`).join("\n")}`
+      `CI PR-trigger guards failed:\n${errors.map((e) => `- ${e}`).join("\n")}`
     );
   }
 }
@@ -206,7 +206,7 @@ export function assertNoPrTriggerSkips(workflowText) {
  * First-party actions that must never float on a moving tag. A retagged
  * `v4` can silently change what CI runs; a SHA plus a `# vN` version comment
  * keeps the build reproducible while still telling Dependabot which track
- * to bump (TOG-19017).
+ * to bump.
  */
 const PINNED_FIRST_PARTY_ACTIONS = ["actions/checkout", "actions/setup-node"];
 
@@ -231,7 +231,7 @@ function listJobNames(workflowText) {
 /**
  * Collect every real job (has its own `runs-on:`) missing a job-level
  * `timeout-minutes:`. Without a bound, a hung runner stalls the PR forever
- * instead of failing loudly (TOG-19017). Pure: no I/O, no network, findings
+ * instead of failing loudly. Pure: no I/O, no network, findings
  * name jobs only.
  *
  * @param {unknown} workflowText
@@ -259,7 +259,7 @@ export function assertEveryJobHasTimeout(workflowText, label = "workflow") {
   const missing = findJobsMissingTimeouts(workflowText);
   if (missing.length > 0) {
     throw new Error(
-      `CI timeout guards failed (TOG-19017): ${label} jobs without 'timeout-minutes:': ${missing.join(", ")}`
+      `CI timeout guards failed: ${label} jobs without 'timeout-minutes:': ${missing.join(", ")}`
     );
   }
 }
@@ -267,7 +267,7 @@ export function assertEveryJobHasTimeout(workflowText, label = "workflow") {
 /**
  * Collect every first-party `uses:` that floats on a tag or pins a SHA
  * without a version comment. Findings name the action and the offending
- * ref shape only — never file contents or credentials (TOG-19017). Pure:
+ * ref shape only — never file contents or credentials. Pure:
  * no I/O, no network.
  *
  * @param {unknown} workflowText
@@ -276,7 +276,7 @@ export function assertEveryJobHasTimeout(workflowText, label = "workflow") {
 export function findUnpinnedFirstPartyActions(workflowText) {
   const errors = [];
   for (const rawLine of String(workflowText).split("\n")) {
-    // TOG-19017 fix: match `uses:` with or without the list dash so a
+    // Match `uses:` with or without the list dash so a
     // name-first step (`- name: …` / `uses: …`) cannot slip past the guard,
     // and tolerate an optional quote around the ref.
     const match = rawLine.match(/^\s*(?:- )?uses:\s*["']?(actions\/[A-Za-z0-9_-]+)@([^\s"']+)["']?\s*(#.*)?$/);
@@ -286,13 +286,13 @@ export function findUnpinnedFirstPartyActions(workflowText) {
     const [, action, ref, comment] = match;
     if (!/^[0-9a-f]{40}$/.test(ref)) {
       errors.push(
-        `${action} must be pinned to a 40-char commit SHA, found '@${ref}' (TOG-19017)`
+        `${action} must be pinned to a 40-char commit SHA, found '@${ref}'`
       );
       continue;
     }
     if (!comment || !/v\d+/.test(comment)) {
       errors.push(
-        `${action} pin must carry a version comment (e.g. '# v4') so the track stays visible to Dependabot (TOG-19017)`
+        `${action} pin must carry a version comment (e.g. '# v4') so the track stays visible to Dependabot`
       );
     }
   }
@@ -311,7 +311,7 @@ export function assertFirstPartyActionsPinned(workflowText, label = "workflow") 
   const errors = findUnpinnedFirstPartyActions(workflowText);
   if (errors.length > 0) {
     throw new Error(
-      `CI action-pin guards failed (TOG-19017) in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
+      `CI action-pin guards failed in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
     );
   }
 }
@@ -319,7 +319,7 @@ export function assertFirstPartyActionsPinned(workflowText, label = "workflow") 
 /**
  * Read the Node major pinned by `.nvmrc` (`22`, `v22`, `22.11.0` → `"22"`).
  * Returns null for aliases such as `lts/*`, which cannot anchor a drift
- * check (TOG-22034).
+ * check.
  *
  * @param {unknown} nvmrcText
  * @returns {string|null}
@@ -373,7 +373,7 @@ function stepLines(lines, usesIndex) {
  * `node-version-file: .nvmrc` (without either it installs nothing and the
  * job runs on whatever Node the runner ships). `.nvmrc` is the one place the
  * version lives, so an end-of-life runtime cannot linger in one job after the
- * others move (TOG-22034). Pure: no I/O, no network, findings name the line
+ * others move. Pure: no I/O, no network, findings name the line
  * and the version only.
  *
  * @param {unknown} workflowText
@@ -387,7 +387,7 @@ export function findNodeVersionDrift(workflowText, expectedMajor) {
     const pin = line.match(NODE_VERSION_LINE);
     if (pin && pin[1] !== expectedMajor) {
       errors.push(
-        `line ${index + 1}: node-version '${pin[1]}' must equal the .nvmrc major '${expectedMajor}' (TOG-22034)`
+        `line ${index + 1}: node-version '${pin[1]}' must equal the .nvmrc major '${expectedMajor}'`
       );
     }
     if (
@@ -395,7 +395,7 @@ export function findNodeVersionDrift(workflowText, expectedMajor) {
       !stepLines(lines, index).some((stepLine) => NODE_VERSION_LINE.test(stepLine) || NODE_VERSION_FILE_NVMRC.test(stepLine))
     ) {
       errors.push(
-        `line ${index + 1}: actions/setup-node step must set node-version (or node-version-file: .nvmrc) (TOG-22034)`
+        `line ${index + 1}: actions/setup-node step must set node-version (or node-version-file: .nvmrc)`
       );
     }
   });
@@ -414,12 +414,12 @@ export function findNodeVersionDrift(workflowText, expectedMajor) {
 export function assertNodeVersionsMatchNvmrc(workflowText, nvmrcText, label = "workflow") {
   const major = parseNvmrcMajor(nvmrcText);
   if (!major) {
-    throw new Error("CI Node-pin guards failed (TOG-22034): .nvmrc must hold a plain Node major such as 22");
+    throw new Error("CI Node-pin guards failed: .nvmrc must hold a plain Node major such as 22");
   }
   const errors = findNodeVersionDrift(workflowText, major);
   if (errors.length > 0) {
     throw new Error(
-      `CI Node-pin guards failed (TOG-22034) in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
+      `CI Node-pin guards failed in ${label}:\n${errors.map((e) => `- ${e}`).join("\n")}`
     );
   }
 }

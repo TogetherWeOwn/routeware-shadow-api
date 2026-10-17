@@ -1,5 +1,5 @@
 /**
- * Skip-safe planning for the post-deploy probe (TOG-8365, gap G18).
+ * Skip-safe planning for the post-deploy probe (gap G18).
  *
  * The scheduled workflow runs without operator credentials: when no bearer
  * token is resolvable, the authed probes must SKIP (explicit log) instead of
@@ -77,7 +77,7 @@ export function planProbes({ hasToken, skipIfNoToken } = {}) {
 }
 
 /**
- * Cron-freshness verdict (TOG-9225, gap O4).
+ * Cron-freshness verdict (gap O4).
  *
  * The server computes staleness (`GET /api/v1/readiness` →
  * `checks.cron.stale`, threshold `CRON_STALE_AFTER_MS` in
@@ -89,7 +89,7 @@ export function planProbes({ hasToken, skipIfNoToken } = {}) {
  *               within the threshold. The probe must fail (that is the alert).
  * - "fresh"   — `cron.stale === false`: the cron is running. Pass.
  * - "unknown" — no `cron` object in the readiness body (older deploy that
- *               predates the TOG-8883 staleness probe). Advisory only: log,
+ *               predates the staleness probe). Advisory only: log,
  *               never fail, so old deploys do not page on a missing field.
  */
 export function evalCronFreshness({ cron } = {}) {

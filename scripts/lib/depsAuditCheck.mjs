@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the prod dependency audit gate (TOG-8904).
+ * Pure helpers for the prod dependency audit gate.
  *
  * Gap: transitive vulnerabilities can land via any `npm install` without a
  * blocking signal — `npm audit` is advisory-only unless something fails the
@@ -8,14 +8,14 @@
  * below. Moderate/low advisories are reported but never block: historically
  * the tree carried ~25 of them (mostly Hono middleware adapters this Worker
  * never mounts — JSX, Lambda, toSSG), and gating on those would hold the
- * gate permanently red and teach everyone to ignore it. As of TOG-18932
- * (hono 4.13.13) the tree carries 0 below-threshold advisories — every
+ * gate permanently red and teach everyone to ignore it. At the last
+ * review (hono 4.13.13) the tree carries 0 below-threshold advisories — every
  * reported GHSA is high and allowlisted.
  *
  * Prod-only (`--omit=dev`) is deliberate: devDependencies (vitest, wrangler,
  * playwright) never ship to the Worker, and their advisory surface would
- * drown the signal for what actually runs in production. Exception
- * (TOG-25334): `tools/api-discovery` is audited WITH an explicit
+ * drown the signal for what actually runs in production. Exception:
+ * `tools/api-discovery` is audited WITH an explicit
  * `--include=dev` because that standalone package has no prod dependencies
  * at all — playwright/tsx are its tool runtime, so omitting dev would audit
  * an empty tree. The include must be explicit: ambient `NODE_ENV=production`
@@ -45,12 +45,12 @@ export const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 
 /**
- * Reviewed high/critical advisories present in the tree as of TOG-18932
+ * Reviewed high/critical advisories present in the tree at last review
  * (2026-10-09, `npm audit --omit=dev`: 7 packages, 3 distinct high GHSA,
  * 0 critical). Each entry must carry a remediation path; entries are
  * removed — never edited into permanence — once the advisory is gone.
  *
- * Retired in TOG-18932 (hono ^4.13.7 bump + `npm audit fix`, non-breaking):
+ * Retired (hono ^4.13.7 bump + `npm audit fix`, non-breaking):
  * GHSA-28wg-ghj8-5hjv, GHSA-xwg4-73v4-xw9w (nanoid → 5.1.16),
  * GHSA-96hv-2xvq-fx4p (ws → 8.22.0), GHSA-mwp4-54f8-5fhr (ip-address →
  * 10.7.3), GHSA-rpmf-866q-6p89 (basic-ftp → 5.3.1), GHSA-88fw-hqm2-52qc
@@ -144,7 +144,7 @@ export function extractAdvisories(auditJson) {
 
 /**
  * Merge several parsed `npm audit --json` reports into one, so the gate can
- * cover multiple lockfiles with a single allowlist verdict (TOG-25334: the
+ * cover multiple lockfiles with a single allowlist verdict (the
  * root Worker tree plus the standalone `tools/api-discovery` package, which
  * is not a workspace member and has its own lockfile).
  *

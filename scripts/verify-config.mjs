@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * One-command config preflight (TOG-9213, gap O3).
+ * One-command config preflight (gap O3).
  *
  * Chains check:devvars + check:vars-parity + check:d1-drift (local-only,
  * credential-free — the read-only remote journal compare stays a

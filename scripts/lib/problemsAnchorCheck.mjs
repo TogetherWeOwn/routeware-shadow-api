@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the PROBLEMS.md anchor coverage check (TOG-6281).
+ * Pure helpers for the PROBLEMS.md anchor coverage check.
  *
  * Every problem+json `type` is `PROBLEM_TYPE_BASE + slug`
  * (`src/lib/problem.ts`), and every slug must resolve to a named anchor and
@@ -53,7 +53,7 @@ export const CHECK_NAME = "problems-anchor-coverage";
 
 /**
  * `problemType("bad-request")` — double- or single-quoted string literal,
- * with an optional second arg (TOG-8357 threads the `PROBLEM_TYPE_BASE`
+ * with an optional second arg (threads the `PROBLEM_TYPE_BASE`
  * override as `problemType("bad-request", env)`). The slug stays the first
  * arg, so the coverage rule is unchanged: literal first arg extracts,
  * anything else (`problemType(slug)`, ``problemType(`tpl`)``) still flags
