@@ -25,7 +25,7 @@ jobs:
     # gate on these with job-level `if:` (never workflow-level `paths:`, which
     # would leave required checks unreported). Full suite on push-to-main,
     # nightly schedule, or when infra/filter/deps change (rule 4).
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: every job carries a bound so a hung runner can never stall
     # the PR forever (previously only pr-lint set timeout-minutes).
     timeout-minutes: 10
@@ -101,7 +101,7 @@ jobs:
     # CI standard gating (TOG-14877): heavy job runs only when its area
     # changed. docs-only PRs skip this; push/main + nightly run it via full.
     if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: bound the full typecheck + coverage suite (heaviest CI job).
     timeout-minutes: 30
     steps:
@@ -141,7 +141,7 @@ jobs:
     # credential fail-closed step gate below; this job-level gate only decides
     # whether the job runs at all. NOT a required check (hybrid, per TOG-14898).
     if: needs.changes.outputs.probe == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: bound so a hung contract run can never stall the PR.
     timeout-minutes: 15
     # Skipped-check allowlist: the staging probe stays visible while operator
@@ -170,7 +170,7 @@ jobs:
     # request, including docs-only ones. No `if:`/`needs:` here — gating this
     # job would let PII or a secret land while `ci-ok` stays green. LIGHT
     # (~1 min credential-free checks), so always running it costs nothing.
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: bound (gitleaks download + drift gates must fail fast, not hang).
     timeout-minutes: 15
     steps:
@@ -272,7 +272,7 @@ jobs:
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
         # so any finding fails the job.
         run: |
-          version=8.18.4
+          version=8.28.0
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks detect --source . --redact --config .gitleaks.toml
@@ -286,7 +286,7 @@ jobs:
     # (own push-only trigger) and is intentionally not in `needs:`.
     if: always()
     needs: [changes, build, shadow-api-v1, hygiene]
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # TOG-19017: bound like every other job (trivial aggregation, small cap).
     timeout-minutes: 5
     steps:
@@ -306,7 +306,7 @@ jobs:
     # hygiene remain credential-free while this repository variable is absent.
     needs: [build, hygiene]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
     # Preflight and deploy read this same config; shell vars are not Worker vars.
