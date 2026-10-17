@@ -197,8 +197,8 @@ describe("aggregateHarvestLines: operation grouping and counts", () => {
 describe("aggregateHarvestLines: resource types", () => {
   it("unions resource types across rows, deduplicated and sorted", () => {
     const { operations } = aggregateHarvestLines([
-      line({ resourceType: "fetch" }),
       line({ resourceType: "xhr" }),
+      line({ resourceType: "fetch" }),
       line({ resourceType: "fetch" })
     ]);
     expect(operations[0].resourceTypes).toEqual(["fetch", "xhr"]);
@@ -352,13 +352,18 @@ describe("buildSample and sampleSignature units", () => {
 
   it("truncates a body preview longer than PREVIEW_IN_AGGREGATE with the marker", () => {
     const long = "y".repeat(PREVIEW_IN_AGGREGATE + 1);
-    const sample = buildSample(row({ responseBodyPreview: long }));
-    const preview = sample.responseBodyPreview ?? "";
-    expect(preview.startsWith("y".repeat(PREVIEW_IN_AGGREGATE))).toBe(true);
-    expect(preview).toContain(
-      "[truncated for aggregate output; see harvest.ndjson for full preview up to cap]"
-    );
-    expect(preview.length).toBeLessThan(long.length + 100);
+    const marker =
+      "[truncated for aggregate output; see harvest.ndjson for full preview up to cap]";
+    const responsePreview =
+      buildSample(row({ responseBodyPreview: long })).responseBodyPreview ?? "";
+    const requestPreview =
+      buildSample(row({ requestBodyPreview: long })).requestBodyPreview ?? "";
+
+    for (const preview of [responsePreview, requestPreview]) {
+      expect(preview.startsWith("y".repeat(PREVIEW_IN_AGGREGATE))).toBe(true);
+      expect(preview).toContain(marker);
+      expect(preview.length).toBeLessThan(long.length + 100);
+    }
   });
 
   it("extracts sorted top-level keys from JSON previews", () => {
@@ -389,6 +394,17 @@ describe("buildSample and sampleSignature units", () => {
     expect(sampleSignature(row({ requestBodyPreview: `${prefix}A` }))).toBe(
       sampleSignature(row({ requestBodyPreview: `${prefix}B` }))
     );
+
+    const lowerBoundaryPrefix = "x".repeat(239);
+    expect(
+      sampleSignature(row({ requestBodyPreview: `${lowerBoundaryPrefix}A` }))
+    ).not.toBe(
+      sampleSignature(row({ requestBodyPreview: `${lowerBoundaryPrefix}B` }))
+    );
+
+    expect(
+      sampleSignature(row({ requestContentType: "application/json" }))
+    ).not.toBe(sampleSignature(row({ requestContentType: "text/plain" })));
   });
 });
 
