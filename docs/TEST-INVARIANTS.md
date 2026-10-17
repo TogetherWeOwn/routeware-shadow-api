@@ -69,6 +69,46 @@ change.** This is a measurement correction, and it is the one time these floors 
 - `r2SnapshotArchive.ts` — 62.3% statements, 28.6% functions.
 - `routewareQueryReportCsv.ts` — 69.8% statements, 51.1% functions.
 
+### Test worker bindings (TOG-21992)
+
+`vitest.config.ts` builds the test worker's `miniflare.bindings` from `wrangler.toml [env.test.vars]`,
+so the toml is the single source: change it to change the test env. A local `.dev.vars` never affects
+`npx vitest run`.
+
+---
+
+## Worker caps — why local runs don't use every core
+
+`vitest.config.ts` sets `maxWorkers` to **2 on CI** (`process.env.CI`, which GitHub
+Actions always sets) and defaults local runs to **half the available parallelism**
+(`Math.max(1, Math.floor(os.availableParallelism() / 2))`). Both caps exist for
+the same reason: **worker oversubscription under istanbul instrumentation**.
+
+Each workers-pool worker boots its own workerd instance, and istanbul
+instrumentation adds ~65% to run time. An uncapped `vitest run --coverage`
+spawns a worker per core, so on a loaded host the workers contend past the 30s
+`testTimeout` and tests fail with timeouts that reproduce neither alone nor on
+an idle box:
+
+- **CI (TOG-7666):** several CI jobs share each self-hosted runner; the
+  unrestricted run stalled 7 files, every failure a timeout (red main
+  `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
+  no test, assertion or timeout change (PR #89: unrestricted timed out 2
+  throttle tests, `--maxWorkers=2` passed 78 files / 1,128 tests).
+- **Local (TOG-19021):** one uncapped local `vitest run --coverage` failed
+  `test/authThrottle.test.ts` ("brute-forcing a bad token") at the 30s
+  timeout while the same file passes alone in ~3.6s. Halving the core count
+  leaves headroom for whatever else the host is doing while keeping most of
+  the parallelism.
+
+Do not "restore full speed" by uncapping either side: a timeout failure after
+such a change is the cap doing its job, not a slow test. To override once on a
+local run, pass a Vitest-supported `--maxWorkers` value; the local cap is set at
+the root config level so Vitest can apply CLI overrides (including percentages
+and kebab-case spelling) to every project. CI stays fixed at 2. If a new local
+default proves stable, change `localMaxWorkers` instead so
+`npm run check:ci-workflow` keeps pinning the invariant.
+
 ---
 
 ## Per-file invariants

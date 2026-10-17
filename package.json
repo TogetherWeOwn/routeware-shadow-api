@@ -49,6 +49,7 @@
     "secret:login-username": "wrangler secret put LOGIN_USERNAME",
     "secret:login-password": "wrangler secret put LOGIN_PASSWORD",
     "test:probe": "node --test scripts/post-deploy-probe.test.mjs scripts/check-r2-deploy-config.test.mjs scripts/smoke-readiness.test.mjs",
+    "test:discovery": "node --test tools/api-discovery/route-gap.test.mjs tools/api-discovery/route-gap-pipeline.test.mjs tools/api-discovery/validate-harvest.test.mjs",
     "test:console-usage": "node --test scripts/check-console-usage.test.mjs"
   },
   "dependencies": {
