@@ -1,5 +1,34 @@
+import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
+import { unstable_readConfig } from "wrangler";
+
+/**
+ * Test bindings from wrangler.toml `[env.test.vars]` (TOG-21992), read by
+ * wrangler itself so the toml stays the single source of truth: adding or
+ * editing a key there flows into the test env exactly as wrangler parses it
+ * (trailing header comments, booleans, arrays, escapes, bare numbers such as
+ * `SESSION_TTL_SECONDS` = 1800), and a local `.dev.vars` can never override
+ * a test binding. A hand-rolled TOML subset parser here silently dropped
+ * every pin on valid input it did not understand (e.g. a trailing comment
+ * on the section header), which let `.dev.vars` win again with no error.
+ */
+const testVars =
+  unstable_readConfig({
+    config: fileURLToPath(new URL("./wrangler.toml", import.meta.url)),
+    env: "test"
+  }).vars ?? {};
+
+// Fail loudly instead of running with no pins: empty bindings would let a
+// local `.dev.vars` override the test env again, invisibly on CI (which has
+// no `.dev.vars`). Miniflare `bindings` win over Wrangler's local
+// `.dev.vars` secrets, which otherwise override `[env.test.vars]` in the
+// workers test pool.
+if (Object.keys(testVars).length === 0) {
+  throw new Error(
+    "vitest.config: wrangler read no [env.test.vars] bindings from wrangler.toml; refusing to run with unpinned test bindings"
+  );
+}
 
 /**
  * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
@@ -38,12 +67,20 @@ export default defineConfig({
      * file runs in the node forks pool instead. Each project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
+     *
+     * The workerd project pins `miniflare.bindings` from `testVars` above
+     * (TOG-21992): bindings win over Wrangler's local `.dev.vars` secrets,
+     * so a local `.dev.vars` can never override a test binding. The node-pool
+     * project needs no bindings (it only reads a committed JSON file).
      */
     projects: [
       {
         plugins: [
           cloudflareTest({
-            wrangler: { configPath: "./wrangler.toml", environment: "test" }
+            wrangler: { configPath: "./wrangler.toml", environment: "test" },
+            miniflare: {
+              bindings: testVars
+            }
           })
         ],
         test: {
