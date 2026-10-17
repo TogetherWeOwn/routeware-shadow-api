@@ -5,7 +5,7 @@ const PROBLEM_JSON = "application/problem+json";
  * e.g. `problemType("not-found")` → `.../PROBLEMS.md#not-found`.
  *
  * This is the committed default only — the effective base resolves from the
- * `PROBLEM_TYPE_BASE` wrangler var via `resolveProblemTypeBase()` (TOG-8357,
+ * `PROBLEM_TYPE_BASE` wrangler var via `resolveProblemTypeBase()` (
  * HANDOVER.md open-task #1). The grep acceptance for this card ("no hardcoded
  * github.com URL in src/ except the fallback constant") points here.
  */
@@ -20,7 +20,7 @@ export const DEFAULT_PROBLEM_TYPE_BASE =
 export const PROBLEM_TYPE_BASE = DEFAULT_PROBLEM_TYPE_BASE;
 
 /**
- * Resolve the effective problem `type` URI base (TOG-8357).
+ * Resolve the effective problem `type` URI base.
  *
  * A non-empty `PROBLEM_TYPE_BASE` binding wins (set it in wrangler.toml
  * `[vars]` / `.dev.vars` / `wrangler secret` at transfer time — the value is

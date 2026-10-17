@@ -1,5 +1,5 @@
 /**
- * Cron last-run persistence (TOG-8883).
+ * Cron last-run persistence.
  *
  * The daily cron (`src/scheduled.ts`) upserts one row per table here after
  * every run, so `GET /api/v1/readiness` can report when the sync last ran

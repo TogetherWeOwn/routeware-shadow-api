@@ -48,7 +48,7 @@ function autoTokenEnabled(env: Env): boolean {
  * Modal GET for the address/container save forms. With retry context the fetch
  * runs through `forwardWithSessionRetry` (one re-establish + retry,
  * `internalMarker` preserved) so an expired stored session heals instead of
- * surfacing a 502 the next save would hit again (TOG-6462); without context it
+ * surfacing a 502 the next save would hit again; without context it
  * keeps the direct forward. Status-shape errors stay with the callers, whose
  * form-specific messages (`Load address modal …` / `Load container modal …`)
  * are pinned by tests and surfaced as the 502 problem+json detail.
@@ -73,7 +73,7 @@ async function fetchAntiForgeryModal(
   }
   return forwardToUpstream(modalReq, modalUrl, session, null, {
     internalMarker: "anti-forgery-modal",
-    // Direct modal path honors UPSTREAM_TIMEOUT_MS (TOG-8359) — the forwarder
+    // Direct modal path honors UPSTREAM_TIMEOUT_MS — the forwarder
     // default alone would ignore the per-deploy override.
     timeoutMs: readUpstreamTimeoutMs(env)
   });
@@ -85,7 +85,7 @@ async function fetchAntiForgeryModal(
  * With retry context the modal fetch runs through `forwardWithSessionRetry`,
  * so an expired stored session (modal answers 302 → login, or HTTP-200 login
  * page) re-establishes once and retries instead of surfacing a 502 the next
- * save would hit again (TOG-6462).
+ * save would hit again.
  */
 export async function prepareSaveAddressFormBody(
   env: Env,
@@ -155,7 +155,7 @@ export async function prepareSaveAddressFormBody(
  * With retry context the modal fetch runs through `forwardWithSessionRetry`,
  * so an expired stored session (modal answers 302 → login, or HTTP-200 login
  * page) re-establishes once and retries instead of surfacing a 502 the next
- * save would hit again (TOG-6462).
+ * save would hit again.
  */
 export async function prepareSaveContainerFormBody(
   env: Env,

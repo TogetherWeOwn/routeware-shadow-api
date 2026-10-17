@@ -23,7 +23,7 @@ export type GetCustomerDetailFullJson = {
 };
 
 /**
- * TOG-5937 / R2-18 size guards for the per-customer unbounded fetch.
+ * Size guards for the per-customer unbounded fetch.
  *
  * Upstream `GetCustomerDetailFull` takes no paging parameters, so one customer
  * always arrives as one response. The byte cap bounds the isolate before
@@ -36,7 +36,7 @@ export const DETAIL_FULL_MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 /** Workers Paid allows ~1000 D1 ops per invocation; keep headroom for the request's own cache I/O. */
 export const DETAIL_FULL_MAX_D1_OPS = 900;
 /**
- * TOG-8374: Cloudflare Workers Paid allows 1,000 Cache API calls per request,
+ * Cloudflare Workers Paid allows 1,000 Cache API calls per request,
  * sharing the 10,000-subrequest quota
  * (https://developers.cloudflare.com/workers/platform/limits/). Every caller
  * of `syncCustomerDetailFullToD1` invalidates one cache entry per graph id
@@ -152,7 +152,7 @@ export function mapCurrentCustomerToRow(cc: Record<string, unknown>): CustomerSn
     phone1: s(cc.Phone1),
     phone2: s(cc.Phone2),
     comments: s(cc.Comments),
-    // TOG-6542: absent Enabled defaults to true, matching the cron CSV
+    // Absent Enabled defaults to true, matching the cron CSV
     // path (`parseBoolDefaultTrue`), the address/container guards below,
     // and the D1 `DEFAULT 1` — coercing undefined yields false and would
     // flap the same customer disabled (POST) / enabled (cron).
@@ -302,7 +302,7 @@ export async function fetchGetCustomerDetailFull(
     });
 
   let session = await readSessionState(sessionStub);
-  // Interactive budget honoring UPSTREAM_TIMEOUT_MS (TOG-8359): the forwarder
+  // Interactive budget honoring UPSTREAM_TIMEOUT_MS: the forwarder
   // default alone would ignore the per-deploy override.
   const timeoutMs = readUpstreamTimeoutMs(env);
   let resp = await forwardToUpstream(makeReq(), url, session, buf, { timeoutMs });
@@ -315,7 +315,7 @@ export async function fetchGetCustomerDetailFull(
     // The body is upstream-controlled HTML/JSON and may carry customer PII —
     // never embed it in the message: this error is logged server-side and
     // POST /api/v1/data/* maps sync failures to a fixed `localSync.code`
-    // (TOG-6535) while keeping the upstream 200.
+    // while keeping the upstream 200.
     throw new Error(`GetCustomerDetailFull failed: HTTP ${resp.status}`);
   }
   // Pre-check: refuse to buffer a graph that would threaten the isolate before
@@ -397,7 +397,7 @@ export async function syncCustomerDetailFullToD1(
     await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, DETAIL_FULL_BATCH.container, syncedAt);
   }
   const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
-  // TOG-25212 (R9-04): one utilization line per successful run so operators
+  // One utilization line per successful run so operators
   // can see D1 op-budget headroom. Emitted after the writes, so it fires
   // exactly once per run that refreshed D1; the over-budget throws above
   // stay throw-only (fail-closed, no line).

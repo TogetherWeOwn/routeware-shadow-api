@@ -3,7 +3,7 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import { InvalidSnapshotCsvError } from "../lib/snapshot/streamSync";
 
 /**
- * Edge guards for the `...-snapshot/import` routes (TOG-6279), kept in their
+ * Edge guards for the `...-snapshot/import` routes, kept in their
  * own module — not in `./shared` — so the pick applies cleanly wherever the
  * snapshot auth helpers have diverged. The input is plain data (a URL string
  * plus the declared length), never the framework context type, so callers on
