@@ -131,6 +131,11 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Coverage ratchet — raise floors when the number goes up
+        # Vitest thresholds fail the run on REGRESSION; this step fails when a
+        # metric climbs a full point above its floor without raising it, and
+        # prints the suggested thresholds block.
+        run: npm run check:coverage-ratchet
       - name: Assert bounded snapshot export heap
         run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants

@@ -167,10 +167,14 @@ export default defineConfig({
        * (2418/2574), functions 98.65% (515/522), lines 98.15% (3403/3467).
        * Branches no longer clears 94, so that floor stays at 93 (never
        * lowered); lines still supports the raise to 98.
+       * Re-measured hermetically 2026-10-17 at `88bf4c9`:
+       * statements 97.89% (3532/3608), branches 94% (2429/2584),
+       * functions 98.66% (516/523), lines 98.18% (3416/3479).
+       * Branches clears 94 again, so that floor rises to 94.
        */
       thresholds: {
         statements: 97,
-        branches: 93,
+        branches: 94,
         functions: 98,
         lines: 98
       }

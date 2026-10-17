@@ -51,9 +51,10 @@ change.** This is a measurement correction, and it is the one time these floors 
   with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
   it matters more after a downward re-baseline, because a global floor that has just been lowered is
   exactly where a localized regression hides.
-- **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
-  re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
-  configured floors — a comment cannot do it. Note also that the floors are uneven in practice:
+- **"Raise them whenever the number goes up" is now a guardrail.** The `build` job
+  runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
+  against the configured floors and fails when a metric climbs a full point above its
+  floor without raising it. Note also that the floors are uneven in practice:
   `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
   under (slack).
 

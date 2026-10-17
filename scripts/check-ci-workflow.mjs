@@ -71,6 +71,14 @@ assert.match(
   /^        run: node scripts\/check-r2-deploy-config\.mjs$/m,
   "build must verify R2 preflight against Wrangler's offline deployed bindings",
 );
+// Vitest thresholds fail the run on regression; the ratchet step fails it on
+// improvement without a floor raise. Pin it present so coverage can never
+// climb a full point without moving the floors with it.
+assert.match(
+  buildGated,
+  /npm run check:coverage-ratchet/,
+  "build must run the coverage ratchet check",
+);
 assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job");
 assert.match(
   buildGated,

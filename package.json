@@ -17,6 +17,7 @@
     "check:d1-drift": "node scripts/check-d1-drift.mjs",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
+    "check:coverage-ratchet": "node scripts/check-coverage-ratchet.mjs",
     "check:r2-preflight": "node scripts/check-r2-preflight.mjs",
     "check:r2-lifecycle-proposal": "node scripts/check-r2-lifecycle-proposal.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
