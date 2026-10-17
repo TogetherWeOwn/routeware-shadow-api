@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 /**
- * Pure helpers for the R2 snapshot-manifest verifier (TOG-8881, gap R3-06).
+ * Pure helpers for the R2 snapshot-manifest verifier (gap R3-06).
  *
  * Each UTC date's archive (`snapshots/<date>/{customer|address|container}.csv`)
  * carries a sidecar `snapshots/<date>.manifest.json` written by

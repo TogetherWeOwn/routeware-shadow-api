@@ -1,5 +1,5 @@
 /**
- * Pure verdict logic for the post-deploy smoke check (TOG-22090).
+ * Pure verdict logic for the post-deploy smoke check.
  *
  * `scripts/smoke-readiness.mjs` is the thin impure wrapper around this module:
  * it resolves env/flags, calls `runSmokeReadiness` with the real `fetch`, prints
@@ -100,7 +100,7 @@ export async function fetchJson(fetchImpl, url, { headers, timeoutMs }) {
  *
  * Each of `health`, `unauth`, `ready` is either `{ status, body }` or
  * `{ error }` (a classified error class from `classifyFetchError`). Output
- * strings on the passing path are byte-identical to the pre-TOG-22090 wrapper
+ * strings on the passing path are byte-identical to the previous wrapper
  * so `test/firstRun.test.ts` stays green.
  *
  * @returns {{ stdout: string[], stderr: string[], exitCode: number }}

@@ -1,6 +1,6 @@
 name: Post-deploy probe
 
-# Scheduled verification for the deployed Worker (TOG-8365, gap G18).
+# Scheduled verification for the deployed Worker (gap G18).
 # Runs the public liveness probe plus the authed probes when operator
 # credentials are present; without them the authed probes SKIP (exit 0)
 # instead of paging. Any probe that actually runs and fails turns the job
@@ -22,7 +22,7 @@ jobs:
   probe:
     name: Probe deployed Worker (skip-safe)
     runs-on: ubuntu-latest
-    # TOG-19017: bound so a hung probe against a down Worker pages via red,
+    # Bound so a hung probe against a down Worker pages via red,
     # not via a forever-running job.
     timeout-minutes: 10
     steps:

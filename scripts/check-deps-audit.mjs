@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Prod dependency audit gate (TOG-8904, extended to tools/api-discovery in
- * TOG-25334).
+ * Prod dependency audit gate, extended to tools/api-discovery.
  *
  * Audits TWO lockfiles and fails on any high/critical advisory that is not
  * explicitly allowlisted in `./lib/depsAuditCheck.mjs`:

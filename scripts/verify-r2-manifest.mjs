@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * R2 snapshot-manifest verifier (TOG-8881, gap R3-06).
+ * R2 snapshot-manifest verifier (gap R3-06).
  *
  * Re-downloads one UTC date's archived CSVs from R2, re-hashes the bytes,
  * and compares against the sidecar `snapshots/<date>.manifest.json` written
