@@ -155,10 +155,11 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm test` / `npm run test:watch` | Vitest. |
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
+| `npm run check:docs-links` | Rule: every relative link in tracked `*.md` files must resolve — the target must be a tracked file (or tracked directory) and any `#anchor` must match a heading slug (GitHub rules) or `<a name>` anchor. External URLs, `/TOG/…` paths and gitignored targets are skipped. Exit 0 when clean, 1 listing `file: link (reason)` findings. |
 | `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
-| `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs. |
+| `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs (artifacts always built; gate last — missing shadow routes fail, stale entries warn unless `--strict`). |
 | `npm run discovery:verify` | `discovery:process` + `npm test` — the full loop after a new recording. |
 
 ### Deploys are not yours to run
@@ -182,7 +183,7 @@ for exact-head CI.
 
 ### Verification loop
 
-`npm run check:ci-workflow` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
+`npm run check:ci-workflow` → `npm run check:docs-links` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
 pushing. `npm run typecheck` runs two configs: the base `tsconfig.json` and
 `tsconfig.src.json` (`noUncheckedIndexedAccess: true` over `src/**/*.ts` plus
 `worker-configuration.d.ts`; `test/` stays on the base config).

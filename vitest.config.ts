@@ -1,5 +1,35 @@
+import { fileURLToPath } from "node:url";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import os from "node:os";
 import { defineConfig } from "vitest/config";
+import { unstable_readConfig } from "wrangler";
+
+/**
+ * Test bindings from wrangler.toml `[env.test.vars]` (TOG-21992), read by
+ * wrangler itself so the toml stays the single source of truth: adding or
+ * editing a key there flows into the test env exactly as wrangler parses it
+ * (trailing header comments, booleans, arrays, escapes, bare numbers such as
+ * `SESSION_TTL_SECONDS` = 1800), and a local `.dev.vars` can never override
+ * a test binding. A hand-rolled TOML subset parser here silently dropped
+ * every pin on valid input it did not understand (e.g. a trailing comment
+ * on the section header), which let `.dev.vars` win again with no error.
+ */
+const testVars =
+  unstable_readConfig({
+    config: fileURLToPath(new URL("./wrangler.toml", import.meta.url)),
+    env: "test"
+  }).vars ?? {};
+
+// Fail loudly instead of running with no pins: empty bindings would let a
+// local `.dev.vars` override the test env again, invisibly on CI (which has
+// no `.dev.vars`). Miniflare `bindings` win over Wrangler's local
+// `.dev.vars` secrets, which otherwise override `[env.test.vars]` in the
+// workers test pool.
+if (Object.keys(testVars).length === 0) {
+  throw new Error(
+    "vitest.config: wrangler read no [env.test.vars] bindings from wrangler.toml; refusing to run with unpinned test bindings"
+  );
+}
 
 /**
  * Well above the 5s default. Istanbul instrumentation adds ~65% to run time,
@@ -8,29 +38,31 @@ import { defineConfig } from "vitest/config";
  * integration test on CI's slower runner while passing locally. The tests
  * themselves do millisecond-scale work; this covers warm-up, not slow logic.
  *
- * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
- * projects do not inherit root test options — each project spreads this in.
+ * Timeouts live in `sharedTestOptions` because workspace projects do not
+ * inherit root test options. The local worker default stays at the root so
+ * Vitest CLI overrides take precedence for every project.
  */
+const localMaxWorkers = Math.max(1, Math.floor(os.availableParallelism() / 2));
 const sharedTestOptions = {
   testTimeout: 30_000,
   hookTimeout: 30_000,
   /**
-   * CI-only worker cap (TOG-7666). An unrestricted `vitest run --coverage`
-   * spawns a worker per core per CI job, and several CI jobs share each
-   * self-hosted runner; under istanbul instrumentation the workers-pool
-   * tests then stall past the 30s timeout (red main 3657b4f, run
-   * 36357586974: 7 files, every failure a timeout; PR #85 the same).
-   * Capping at 2 workers cleared it with no test, assertion or timeout
-   * change (PR #89: the unrestricted run timed out 2 throttle tests, the
-   * `--maxWorkers=2` rerun passed 78 files / 1,128 tests). Local runs stay
-   * uncapped so `npm run test:coverage` keeps full speed; GitHub Actions
-   * always sets CI=true. Pinned by `npm run check:ci-workflow`.
+   * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
+   * `vitest run --coverage` spawns a worker per core per job; several CI jobs
+   * share each self-hosted runner, and local workloads also compete for host
+   * resources. Under istanbul instrumentation, oversubscribed workers stall
+   * past the 30s timeout. Capping CI at 2 cleared prior CI timeouts without
+   * changing tests or timeouts. Local runs cap at half the core count to leave
+   * headroom; the same `authThrottle` test passes alone in ~3.6s but timed out
+   * at 30s under the uncapped suite. GitHub Actions sets CI=true. Pinned by
+   * `npm run check:ci-workflow`.
    */
   maxWorkers: process.env.CI ? 2 : undefined,
 };
 
 export default defineConfig({
   test: {
+    maxWorkers: process.env.CI ? 2 : localMaxWorkers,
     /**
      * Two projects (TOG-25213): the whole suite runs in workerd, except the
      * node-only tests, which run in the node forks pool instead: the R2
@@ -40,18 +72,34 @@ export default defineConfig({
      * (`node:child_process`), which workerd cannot do. Each project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
+     *
+     * The workerd project pins `miniflare.bindings` from `testVars` above
+     * (TOG-21992): bindings win over Wrangler's local `.dev.vars` secrets,
+     * so a local `.dev.vars` can never override a test binding. The node-pool
+     * project needs no bindings (it only reads a committed JSON file).
      */
     projects: [
       {
         plugins: [
           cloudflareTest({
-            wrangler: { configPath: "./wrangler.toml", environment: "test" }
+            wrangler: { configPath: "./wrangler.toml", environment: "test" },
+            miniflare: {
+              bindings: testVars
+            }
           })
         ],
         test: {
           ...sharedTestOptions,
           include: ["test/**/*.test.ts"],
-          exclude: ["test/r2LifecycleProposalCheck.test.ts", "test/checkDepsAudit.test.ts"],
+          // snapshotExportMemory runs separately under vitest.memory.config.ts
+          // (TOG-8892: 32 MiB heap ceiling with --expose-gc); it must stay out
+          // of the default suite, alongside the node-pool R2 proposal guard
+          // and the node-pool deps-audit wrapper test.
+          exclude: [
+            "test/r2LifecycleProposalCheck.test.ts",
+            "test/checkDepsAudit.test.ts",
+            "test/snapshotExportMemory.test.ts",
+          ],
         },
       },
       {

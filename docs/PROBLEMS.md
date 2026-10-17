@@ -50,7 +50,7 @@ This policy also applies to the API's own exports and raw R2 report archives:
 report-origin controls are retained by sync/export, so those CSVs may not be
 HTTP-importable. Do not discover compatibility through a partial restore.
 For recovery without control sanitization, use the integrity-verified in-code
-report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-programmatic-restore-in-code-path).
+report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-readback-route-handoff-and-programmatic-recovery).
 Export → HTTP import is lossless only for import-compatible business cells.
 
 ## Dangling snapshot references (`bad-request`)
@@ -72,17 +72,25 @@ containers). The `detail` lists up to 20 missing integer keys, then `+N more`
 
 ## Blocked customer erasure (`bad-request`)
 
-`DELETE /api/v1/customer-snapshot/{customerId}` hard-deletes one cached
-customer row (GDPR-style erasure for the stored extract — upstream Routeware
-is untouched; see `method-not-allowed`). Erasure removes the D1
-`customer_snapshot` row and evicts the data-entity cache entry. It does not
-remove R2 history CSVs, daily aliases, latest pointers, or the
-archived-CSV readback, and it does not touch upstream Routeware. The row
-returns on the next sync — or on the next save for that customer through
-the proxy — while upstream still holds it. Any R2 restore or CSV import of
-an archive taken before the erasure re-inserts the row, and D1 Time Travel
-can restore it for up to 30 days (7 days on the Workers Free plan), so
-re-apply erasures after any restore. The same FK chain
+`DELETE /api/v1/customer-snapshot/{customerId}` records an id-only D1
+suppression tombstone and deletes one cached customer row (local cache
+suppression only — upstream Routeware is untouched; see `method-not-allowed`).
+The D1 `customer_snapshot` row and data-entity cache entry are removed; other
+edge locations and clients may keep serving the erased PII until the 60 s cache
+TTL expires. A D1 tombstone suppresses the customer on later sync, proxy-save
+refresh, and CSV/archive import. Suppressed address writes for that customer
+are skipped and recorded as id-only lineage so their container writes are
+skipped too; other customers keep fail-closed foreign keys. Tombstones have no automatic expiry; retain
+them while upstream or any archive/backup can return the customer. It does not
+remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV
+readback. D1 Time Travel or a backup restore to a point before the
+erasure may restore a customer row and schema without its tombstone/triggers;
+verify suppression before serving recovered data, so verify suppression after
+database recovery. Customers erased before the suppression migration have no
+tombstone; backfill them with privileged `wrangler d1 execute` (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+Time Travel can restore data for up to 30 days (7 days on the Workers Free
+plan). The same FK chain
 refuses a delete while address rows still reference the customer, mapped to
 400 (never an orphan, never a cascade):
 
