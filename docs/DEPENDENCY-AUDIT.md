@@ -8,17 +8,26 @@ any **high or critical** advisory that is not explicitly allowlisted in
 `scripts/lib/depsAuditCheck.mjs` (`AUDIT_ALLOWLIST`):
 
 - root `package-lock.json` via `npm audit --omit=dev --json`;
-- `tools/api-discovery/package-lock.json` via full `npm audit --json`
+- `tools/api-discovery/package-lock.json` via `npm audit --include=dev --json`
   (TOG-25334). That package is not a workspace member, so the root audit
   never sees its tree (playwright, tsx). It has no prod dependencies, so
   `--omit=dev` would audit an empty tree and pass silently forever — the
   full-tree audit is what keeps its 0-vuln baseline (2026-10-15) honest.
+  The `--include=dev` is explicit because ambient `NODE_ENV=production`,
+  `npm_config_omit=dev` or `npm_config_production=true` would otherwise
+  make npm omit devDependencies by default and audit nothing.
 
 The two reports are merged (`combineAuditJson`) into a single verdict with
 one shared allowlist and one staleness rule. The PASS log names both
 lockfiles with their advisory counts, and every blocking advisory is
 annotated with the lockfile(s) that reported it, so the CI log proves both
 scopes ran.
+
+Before merging, each report must pass `auditReportProblem`: npm prints
+error JSON (e.g. `ENOLOCK` when a lockfile is missing) on stdout with the
+same exit code 1 as "vulnerabilities found", so a report carrying an
+`error`, lacking a `vulnerabilities` object, or covering 0 dependencies
+is an infrastructure failure (exit 2) — never a clean verdict.
 
 - **Prod only (`--omit=dev`).** DevDependencies (vitest, wrangler,
   playwright) never ship to the Worker; auditing them would drown the signal
@@ -39,12 +48,16 @@ scopes ran.
 ## Dependabot keeps the list shrinking
 
 `.github/dependabot.yml` proposes **weekly (Monday 06:00 UTC)** bumps for
-`npm` (minor/patch grouped, limit 5) and `github-actions`. Security updates
+`npm` (minor/patch grouped, limit 5) and `github-actions`, including a
+separate `npm` entry for `/tools/api-discovery` so the discovery lockfile
+has the same automated fix path as the root tree. Security updates
 always break out into their own PRs regardless of grouping. When a bump
 clears an allowlisted advisory, the gate's **staleness rule** fails until
 the entry is removed — so the allowlist only ever shrinks, and a Dependabot
 PR that fixes a vuln must delete its entry (removing the entry is part of
-that PR).
+that PR). While Dependabot is parked (`open-pull-requests-limit: 0`), bump
+the reporting lockfile by hand (`npm update <pkg>` in the root or in
+`tools/api-discovery`).
 
 Dependabot titles use `chore(deps)` / `ci(deps)` prefixes to satisfy the
 `pr-lint` Conventional Commits check; add `Refs: TOG-xxxx` to the body when
@@ -98,4 +111,5 @@ whose GHSA no longer appears is stale by definition.
 | `npm run check:deps-audit` | Full gate: live audits of both lockfiles, allowlist + staleness verdict. |
 | `node scripts/check-deps-audit.mjs --audit-json=<path>` | Gate against a saved root audit file (offline debugging; CI always runs npm). |
 | `node scripts/check-deps-audit.mjs --discovery-audit-json=<path>` | Gate against a saved discovery audit file (offline debugging; pass both flags to stay fully offline). |
-| `npx vitest run test/depsAuditCheck.test.ts` | Unit tests (fixture JSON only — never touches the registry). |
+| `npx vitest run test/depsAuditCheck.test.ts` | Unit tests for the pure helpers (fixture JSON only — never touches the registry). |
+| `npx vitest run test/checkDepsAudit.test.ts` | Wrapper tests: spawns `check-deps-audit.mjs` against offline fixtures (exit codes, scope attribution, error-JSON rejection). |

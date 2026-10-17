@@ -8,24 +8,31 @@
  *
  * - root `package-lock.json` via `npm audit --omit=dev` (prod-only: the
  *   Worker ships prod dependencies; devDependencies would drown the signal);
- * - `tools/api-discovery/package-lock.json` via full `npm audit` (that
- *   package has no prod dependencies — playwright/tsx are its tool runtime —
- *   so `--omit=dev` would audit an empty tree and pass silently forever).
+ * - `tools/api-discovery/package-lock.json` via `npm audit --include=dev`
+ *   (that package has no prod dependencies — playwright/tsx are its tool
+ *   runtime — so omitting dev would audit an empty tree and pass silently
+ *   forever). The include is explicit so ambient `NODE_ENV=production` /
+ *   `npm_config_omit=dev` can never empty the discovery tree.
  *
  * The two reports are merged (`combineAuditJson`) into a single allowlist
  * verdict: one shared allowlist, one staleness rule. `npm audit` exits 1
  * when vulnerabilities are found, but still prints the full JSON report to
- * stdout — so stdout is parsed even on nonzero exit. Exit 2 is reserved for
- * "an audit itself could not run" (no network, unparsable output): that is
- * an infrastructure failure, not a FAIL verdict.
+ * stdout — so stdout is parsed even on nonzero exit. Each parsed report is
+ * validated with `auditReportProblem` before it can feed the verdict: npm
+ * prints error JSON (e.g. ENOLOCK for a missing lockfile) on stdout with
+ * the same exit 1, and that must never read as a clean report. Exit 2 is
+ * reserved for "an audit itself could not run" (no network, unparsable
+ * output, npm error report): that is an infrastructure failure, not a
+ * FAIL verdict.
  *
  * Credential-free: reads package-lock.json files plus public registry
  * advisory data. Never prints credentials — findings name GHSA ids and
  * packages only.
  *
  * Pure logic lives in `./lib/depsAuditCheck.mjs` and is unit-tested with
- * fixture audit JSON (the suite never reaches the registry); this wrapper
- * is intentionally thin.
+ * fixture audit JSON (the suite never reaches the registry); this wrapper's
+ * flag parsing, exit codes and scope attribution are pinned by
+ * `test/checkDepsAudit.test.ts`, which spawns it against offline fixtures.
  *
  * Usage:
  *   npm run check:deps-audit [-- --audit-json=<path> --discovery-audit-json=<path>]
@@ -36,6 +43,7 @@ import path from "node:path";
 import { argv, cwd, exit } from "node:process";
 
 import {
+  auditReportProblem,
   CHECK_NAME,
   combineAuditJson,
   evaluateAudit,
@@ -56,9 +64,12 @@ const SCOPES = [
   {
     key: "discovery-audit-json",
     lockfile: "tools/api-discovery/package-lock.json",
-    auditArgs: ["audit", "--json"],
+    // Explicit --include=dev: the package ships only devDependencies, and
+    // ambient NODE_ENV=production / npm_config_omit=dev would otherwise
+    // make npm audit an empty tree and pass vacuously.
+    auditArgs: ["audit", "--include=dev", "--json"],
     auditCwd: "tools/api-discovery",
-    auditHelp: "parse a saved discovery `npm audit --json` file instead of",
+    auditHelp: "parse a saved discovery `npm audit --include=dev --json` file instead of",
   },
 ];
 
@@ -129,6 +140,11 @@ for (const scope of SCOPES) {
     console.error(
       `${CHECK_NAME}: could not parse npm audit JSON for ${scope.lockfile}: ${error.message}`,
     );
+    exit(2);
+  }
+  const problem = auditReportProblem(parsed);
+  if (problem) {
+    console.error(`${CHECK_NAME}: npm audit did not produce a usable report for ${scope.lockfile}: ${problem}`);
     exit(2);
   }
   parsedByScope.set(scope.lockfile, parsed);

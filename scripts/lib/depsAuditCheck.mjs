@@ -15,10 +15,13 @@
  * Prod-only (`--omit=dev`) is deliberate: devDependencies (vitest, wrangler,
  * playwright) never ship to the Worker, and their advisory surface would
  * drown the signal for what actually runs in production. Exception
- * (TOG-25334): `tools/api-discovery` is audited WITHOUT `--omit=dev`
- * because that standalone package has no prod dependencies at all —
- * playwright/tsx are its tool runtime, so omitting dev would audit an empty
- * tree. See `combineAuditJson` and docs/DEPENDENCY-AUDIT.md.
+ * (TOG-25334): `tools/api-discovery` is audited WITH an explicit
+ * `--include=dev` because that standalone package has no prod dependencies
+ * at all — playwright/tsx are its tool runtime, so omitting dev would audit
+ * an empty tree. The include must be explicit: ambient `NODE_ENV=production`
+ * / `npm_config_omit=dev` otherwise empties the discovery tree and the gate
+ * would pass while auditing nothing. See `combineAuditJson`,
+ * `auditReportProblem` and docs/DEPENDENCY-AUDIT.md.
  *
  * Allowlist lifecycle (documented in docs/DEPENDENCY-AUDIT.md):
  * - every entry names the GHSA id, the affected package, why it is
@@ -148,8 +151,9 @@ export function extractAdvisories(auditJson) {
  * Only `vulnerabilities[*].via` feeds the verdict (`extractAdvisories`
  * ignores npm's package-level rollup), so merging concatenates the `via`
  * arrays per package key. Reports that are missing or malformed contribute
- * nothing — the caller decides whether a scope that could not be read is an
- * infrastructure failure.
+ * nothing to the merge itself — the caller must first reject any report
+ * that is not a real audit (see `auditReportProblem`), otherwise a scope
+ * that could not be audited would silently contribute a clean verdict.
  *
  * @param {Array<unknown>} reports parsed `npm audit --json` outputs
  * @returns {{ vulnerabilities: Record<string, unknown> }}
@@ -173,6 +177,48 @@ export function combineAuditJson(reports) {
     }
   }
   return { vulnerabilities: merged };
+}
+
+/**
+ * Decide whether parsed JSON is a real `npm audit --json` report, as
+ * opposed to npm's error output printed on stdout (e.g.
+ * `{"error":{"code":"ENOLOCK",...}}` when a lockfile is missing, which
+ * `npm audit` exits 1 on — the same exit code as "vulnerabilities found").
+ * Without this check an error report parses cleanly, yields zero
+ * advisories and the gate passes while auditing nothing.
+ *
+ * Also rejects a report whose `metadata.dependencies.total` is explicitly
+ * 0: an audit of an empty tree (the ambient `omit=dev` trap for the
+ * discovery scope) is not evidence of a clean lockfile. Reports without
+ * metadata (offline fixtures) are accepted on their `vulnerabilities`
+ * object alone.
+ *
+ * @param {unknown} parsed JSON.parse output for one scope
+ * @returns {string|null} human-readable problem, or null when usable
+ */
+export function auditReportProblem(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "audit output is not a JSON object";
+  }
+  if (parsed.error) {
+    const code =
+      parsed.error && typeof parsed.error === "object" && typeof parsed.error.code === "string"
+        ? parsed.error.code
+        : "unknown npm error";
+    return `npm audit reported an error (${code}) instead of an audit report`;
+  }
+  if (
+    !parsed.vulnerabilities ||
+    typeof parsed.vulnerabilities !== "object" ||
+    Array.isArray(parsed.vulnerabilities)
+  ) {
+    return "audit report has no vulnerabilities object";
+  }
+  const total = parsed.metadata?.dependencies?.total;
+  if (typeof total === "number" && total === 0) {
+    return "audit report covers 0 dependencies (empty tree — check omit/include flags)";
+  }
+  return null;
 }
 
 /**
@@ -223,7 +269,9 @@ export function formatFailureLog({ blocking, stale }) {
   }
   if (blocking.length > 0) {
     lines.push(
-      "Fix the dependency (Dependabot proposes bumps weekly) or, if the risk is " +
+      "Fix the dependency in the reporting lockfile (Dependabot proposes root " +
+        "bumps weekly; tools/api-discovery has its own Dependabot entry and " +
+        "may need a manual bump while Dependabot is parked) or, if the risk is " +
         "genuinely unreachable, add a GHSA entry with reason + remediation to " +
         "AUDIT_ALLOWLIST in scripts/lib/depsAuditCheck.mjs — see docs/DEPENDENCY-AUDIT.md.",
     );

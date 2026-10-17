@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ALLOWLIST,
+  auditReportProblem,
   BLOCKING_SEVERITIES,
   CHECK_NAME,
   combineAuditJson,
@@ -227,11 +228,50 @@ describe("combineAuditJson (TOG-25334)", () => {
   });
 
   it("tolerates missing or malformed reports so one bad scope cannot poison the merge", () => {
+    // The merge stays tolerant, but the wrapper rejects such reports before
+    // merging (auditReportProblem below) — tolerance here must never be
+    // mistaken for a clean verdict on an unaudited scope.
     const merged = combineAuditJson([
       null,
       { vulnerabilities: null },
       { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", "critical") } },
     ]);
     expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+});
+
+describe("auditReportProblem (TOG-25334 review hardening)", () => {
+  it("accepts a real audit report, with or without metadata", () => {
+    expect(auditReportProblem({ vulnerabilities: {} })).toBeNull();
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { total: 34 } },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects npm error JSON (ENOLOCK) instead of reading it as clean", () => {
+    expect(
+      auditReportProblem({ error: { code: "ENOLOCK", summary: "This command requires an existing lockfile." } }),
+    ).toContain("ENOLOCK");
+  });
+
+  it("rejects reports with no vulnerabilities object", () => {
+    expect(auditReportProblem({})).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: null })).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: [] })).toContain("vulnerabilities");
+    expect(auditReportProblem(null)).not.toBeNull();
+    expect(auditReportProblem("not json")).not.toBeNull();
+    expect(auditReportProblem([])).not.toBeNull();
+  });
+
+  it("rejects an explicit empty-tree report (0 dependencies audited)", () => {
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { prod: 0, dev: 0, total: 0 } },
+      }),
+    ).toContain("0 dependencies");
   });
 });

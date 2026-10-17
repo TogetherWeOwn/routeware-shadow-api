@@ -33,9 +33,11 @@ export default defineConfig({
   test: {
     /**
      * Two projects (TOG-25213): the whole suite runs in workerd, except the
-     * R2 lifecycle proposal guard test, which reads the committed JSON file
-     * from disk (`node:fs`) — stubbed out in the workers pool — so that one
-     * file runs in the node forks pool instead. Each project spreads
+     * node-only tests, which run in the node forks pool instead: the R2
+     * lifecycle proposal guard test reads the committed JSON file from disk
+     * (`node:fs`) — stubbed out in the workers pool — and the deps-audit
+     * wrapper test spawns `scripts/check-deps-audit.mjs` as a child process
+     * (`node:child_process`), which workerd cannot do. Each project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
      */
@@ -49,13 +51,13 @@ export default defineConfig({
         test: {
           ...sharedTestOptions,
           include: ["test/**/*.test.ts"],
-          exclude: ["test/r2LifecycleProposalCheck.test.ts"],
+          exclude: ["test/r2LifecycleProposalCheck.test.ts", "test/checkDepsAudit.test.ts"],
         },
       },
       {
         test: {
           ...sharedTestOptions,
-          include: ["test/r2LifecycleProposalCheck.test.ts"],
+          include: ["test/r2LifecycleProposalCheck.test.ts", "test/checkDepsAudit.test.ts"],
         },
       },
     ],
