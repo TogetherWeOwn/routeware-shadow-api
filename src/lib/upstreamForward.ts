@@ -70,20 +70,24 @@ export async function forwardToUpstream(
     timeoutMs
   );
 
-  return stripUpstreamSetCookie(upstream);
+  return secureUpstreamResponse(upstream);
 }
 
 /**
- * Strip upstream `Set-Cookie` before returning to the client. The Worker owns
- * the Routeware session (browser login → Durable Object); relaying upstream
- * `Set-Cookie` would leak the shared session cookies to shadow-API clients.
+ * Strip upstream session cookies and cache policy before returning to clients.
+ * The Worker owns the Routeware session, and client-facing upstream responses
+ * must not make potentially sensitive bodies cacheable.
  */
-function stripUpstreamSetCookie(res: Response): Response {
-  if (!res.headers.has("set-cookie")) {
+function secureUpstreamResponse(res: Response): Response {
+  if (
+    !res.headers.has("set-cookie") &&
+    res.headers.get("cache-control") === "no-store"
+  ) {
     return res;
   }
   const headers = new Headers(res.headers);
   headers.delete("set-cookie");
+  headers.set("cache-control", "no-store");
   return inheritUpstreamController(res, new Response(res.body, {
     status: res.status,
     statusText: res.statusText,
