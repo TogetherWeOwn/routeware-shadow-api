@@ -24,7 +24,7 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 11 | `src/lib/snapshot/orchestration.ts` chained throw | **was** 1200-char slice of the per-table subrequest body (upstream HTML rode the old APP ERROR + cron `failed` lines) | **FIXED — table/step/status only, zero body bytes (TOG-9205)** |
  * | 12 | `src/lib/readiness.ts` D1 detail (200-char slice) | D1 driver error text | clean — no PII source; existing "no secrets" test |
  * | 13 | `src/lib/httpAuth.ts` login-failure throw | status + cookie *names* (`.WebRW`, …), never values | clean — names are fixed identifiers |
- * | 14 | `src/lib/upstreamForward.ts` `stripUpstreamSetCookie` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
+ * | 14 | `src/lib/upstreamForward.ts` `secureUpstreamResponse` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
  * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED (TOG-6535) — ids + `upstreamBytes` + fixed `code` only; pinned below** |
  * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / omits `__RequestVerificationToken` | clean — pinned below |
  *

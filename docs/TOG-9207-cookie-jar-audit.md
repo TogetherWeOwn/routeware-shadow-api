@@ -8,7 +8,7 @@ Auditor: Security Engineer · 2026-09-28 · code at `src/lib/httpAuth.ts`, tests
   serialized once by `cookieHeaderFrom` and stored in the `AuthSession` DO via
   `storeSession`. It never leaves the server side.
 - Replay: `forwardToUpstream` (`src/lib/upstreamForward.ts:51`) sets `Cookie`
-  from the stored header; `stripUpstreamSetCookie` deletes every upstream
+  from the stored header; `secureUpstreamResponse` deletes every upstream
   `Set-Cookie` before a client response is built.
 - Browser path (`src/lib/browserAuth.ts:96`): the header is built from
   `page.cookies()`; its failure message carries cookie *names* only (fixed

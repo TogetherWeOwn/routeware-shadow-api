@@ -73,6 +73,7 @@ const routes: { path: string; upstream: string; method: string; body?: string; c
 
 let status = 503;
 let contentType = "text/html";
+let cacheControl = "no-store, private";
 let upstreamBody = PII_HTML;
 let loginFirst: false | "redirect" | "html" = false;
 let target = routes[0].upstream;
@@ -116,6 +117,7 @@ describe("client-facing passthrough loud-error containment", () => {
     status = 503;
     contentType = "text/html";
     upstreamBody = PII_HTML;
+    cacheControl = "no-store, private";
     loginFirst = false;
     attempts = 0;
     vi.mocked(establishSession).mockClear();
@@ -144,7 +146,7 @@ describe("client-facing passthrough loud-error containment", () => {
         statusText: MARKERS.join(" "),
         headers: {
           "content-type": contentType,
-          "cache-control": "no-store, private",
+          "cache-control": cacheControl,
           "set-cookie": `.WebRW=${MARKERS[2]}`,
           "x-upstream-debug": MARKERS.join(" "),
           location: `https://upstream.invalid/${MARKERS[2]}`
@@ -198,6 +200,20 @@ describe("client-facing passthrough loud-error containment", () => {
     expect(establishSession).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["private, max-age=3600", "public, max-age=86400", "private"])(
+    "replaces upstream Cache-Control %s on successful proxy responses",
+    async (upstreamPolicy) => {
+      target = routes[1].upstream;
+      status = 200;
+      cacheControl = upstreamPolicy;
+      const response = await call(routes[1]);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.text()).toBe(PII_HTML);
+      expect(attempts).toBe(1);
+    }
+  );
+
   it.each(["text/html", "application/json"])("keeps successful %s bytes unchanged", async (type) => {
     target = routes[1].upstream;
     status = 200;
@@ -206,7 +222,7 @@ describe("client-facing passthrough loud-error containment", () => {
     const response = await call(routes[1]);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe(type);
-    expect(response.headers.get("cache-control")).toBe("no-store, private");
+    expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(await response.text()).toBe(upstreamBody);
     expect(attempts).toBe(1);

@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- TOG-22087: Every `/api/v1/*` response with no handler-set `Cache-Control`
+  now leaves with `Cache-Control: no-store` (stamped in `withCors` after the
+  handler runs), so authenticated snapshot, export, health, readiness, gate
+  401/429 and `notFound`/`onError` responses are never stored by a browser
+  private cache. Handler-set values are preserved: data-entity reads keep
+  `private, max-age=60` with their `ETag`, contained upstream errors keep
+  `no-store`. Successful client-facing proxy responses replace upstream cache
+  directives with `no-store`, including the sessionless login-page proxy.
+  Preflight, `/openapi.json` and `/docs` are unchanged. Pinned in
+  `test/cacheControlNoStore.test.ts`; policy recorded in
+  `docs/TOG-8368-cors-security-headers-audit.md`.
 - TOG-22034: The supported Node runtime moves from 20 (end of life
   2026-04-30, no more security fixes) to 22 (Maintenance LTS, security
   fixes until 2027-04-30): `.nvmrc` is `22`, `engines.node` is `>=22`, and
