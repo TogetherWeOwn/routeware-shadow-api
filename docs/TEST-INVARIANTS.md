@@ -45,18 +45,18 @@ change.** This is a measurement correction, and it is the one time these floors 
 
 ### Remaining gaps, highest risk first
 
-### Two known weaknesses in the ratchet itself
+### Known weaknesses in the ratchet itself
 
 - **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
   with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
   it matters more after a downward re-baseline, because a global floor that has just been lowered is
   exactly where a localized regression hides.
-- **"Raise them whenever the number goes up" is now a guardrail.** The `build` job
+- **"Raise them whenever the number goes up" is enforced on pull requests.** The `build` job
   runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
   against the configured floors and fails when a metric climbs a full point above its
-  floor without raising it. Note also that the floors are uneven in practice:
-  `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
-  under (slack).
+  floor without raising it. The step runs only on pull requests
+  (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
+  main-branch build red or skip a deploy; Vitest thresholds remain the only main-branch gate.
 
 - **Branches, 79.48% — just under the ECC 80% standard.** The single highest-value fix is to apply
   the D1 migrations in the test environment (`vitest.config.ts` has no `applyD1Migrations`, so

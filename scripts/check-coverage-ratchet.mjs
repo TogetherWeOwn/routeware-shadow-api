@@ -58,7 +58,10 @@ let outcome;
 try {
   outcome = runRatchet(configText, summaryText);
 } catch (error) {
-  console.error(`${CHECK_NAME}: ${error.message}`);
+  // Lib errors already carry the `coverage-ratchet:` prefix; prefix only
+  // unexpected ones so the message never stutters.
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message.startsWith(`${CHECK_NAME}:`) ? message : `${CHECK_NAME}: ${message}`);
   exit(2);
 }
 
@@ -70,5 +73,10 @@ if (outcome.ok) {
   exit(0);
 }
 
-for (const line of outcome.lines) console.error(`${CHECK_NAME}: ${line}`);
+// The suggested `thresholds` block is one multi-line entry: print it verbatim
+// so it stays paste-ready instead of wearing a stray prefix on its first line.
+for (const line of outcome.lines) {
+  if (line.includes("\n")) console.error(line);
+  else console.error(`${CHECK_NAME}: ${line}`);
+}
 exit(1);
