@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-8374: `detailFullD1Ops` must equal the real number of `db.batch()` calls
+ * `detailFullD1Ops` must equal the real number of `db.batch()` calls
  * `syncCustomerDetailFullToD1` issues — sharing the batch-size constants is
  * not enough, because the calls-per-chunk fan-out lives inside the upsert
  * functions. This suite runs the real upserts (no `d1SnapshotSync` /

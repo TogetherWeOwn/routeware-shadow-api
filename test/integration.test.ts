@@ -308,7 +308,7 @@ describe("HTTP API", () => {
     expect(body.url).toContain("LoadLongCustomerModal");
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream", async () => {
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     const response = await call(
       "/api/v1/routeware/customer/load-long-modal?customerID=99&evilParam=1"
@@ -325,7 +325,7 @@ describe("HTTP API", () => {
     expect(upstreamUrl.searchParams.has("evilParam")).toBe(false);
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream", async () => {
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     const before = fetchMock.mock.calls.length;
     const response = await call("/api/v1/routeware/customer/load-long-modal");
@@ -343,7 +343,7 @@ describe("HTTP API", () => {
     expect(upstreamCalls).toHaveLength(0);
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID", async () => {
     const response = await call("/api/v1/routeware/customer/load-long-modal?customerID=abc");
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("problem+json");

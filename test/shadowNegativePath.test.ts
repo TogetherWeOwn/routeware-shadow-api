@@ -7,7 +7,7 @@ import { shadowHealthResponseSchema } from "../src/routes/shadow";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-3518 staging slice: negative-path probe for the versioned Shadow API.
+ * Staging slice: negative-path probe for the versioned Shadow API.
  *
  * Asserts the worker rejects cleanly — unknown version prefix and unknown
  * route return the typed 404 envelope (RFC 7807 `application/problem+json`
@@ -95,7 +95,7 @@ describe("shadow API negative path: unknown version and unknown route", () => {
     expect(res.headers.get("content-type")).toContain("problem+json");
   });
 
-  it("known-good still passes per the TOG-3495 contract (negative-of-regression)", async () => {
+  it("known-good still passes per the contract (negative-of-regression)", async () => {
     // Arrange / Act
     const res = await call("/api/v1/shadow/health", API_TOKEN);
 

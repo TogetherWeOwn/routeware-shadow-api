@@ -31,12 +31,12 @@ function jarResponse(setCookies: string[]): Response {
 }
 
 /**
- * TOG-18935: guards added for `noUncheckedIndexedAccess` in `src/`.
+ * Guards added for `noUncheckedIndexedAccess` in `src/`.
  * Each case exercises a new explicit-guard branch reachable from input
  * (headers, CSV bodies, Set-Cookie attributes, report text) and pins the
  * behavior-neutral outcome.
  */
-describe("noUncheckedIndexedAccess guards (TOG-18935)", () => {
+describe("noUncheckedIndexedAccess guards", () => {
   it("bearerFromRequest returns the token or null, never undefined", () => {
     expect(bearerFromRequest(headerReader("Bearer s3cret"))).toBe("s3cret");
     expect(bearerFromRequest(headerReader("bearer s3cret"))).toBe("s3cret");

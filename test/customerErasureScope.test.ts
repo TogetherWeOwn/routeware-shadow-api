@@ -7,7 +7,7 @@ import problemsMd from "../docs/PROBLEMS.md?raw";
 import r2RetentionMd from "../docs/R2-RETENTION.md?raw";
 
 /**
- * Erasure-scope pins (TOG-18933).
+ * Erasure-scope pins.
  *
  * `DELETE /api/v1/customer-snapshot/{customerId}` removes the D1 row and the
  * data-entity cache entry only — R2 history CSVs, daily aliases, latest
@@ -100,7 +100,7 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ");
 }
 
-describe("Customer erasure scope (TOG-18933)", () => {
+describe("Customer erasure scope", () => {
   it("DELETE description states what erasure removes and what it leaves", async () => {
     // Arrange
     const doc = await fetchOpenApiDocument();

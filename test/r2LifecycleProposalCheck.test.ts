@@ -6,8 +6,8 @@ import {
 } from "../scripts/lib/r2LifecycleProposalCheck.mjs";
 
 /**
- * Acceptance tests for TOG-25211 (test-author half of roadmap item R9-05,
- * paired with builder card TOG-25213).
+ * Acceptance tests (test-author half of roadmap item R9-05,
+ * paired with builder card).
  *
  * FAILING-FIRST: `../scripts/lib/r2LifecycleProposalCheck.mjs` does not exist
  * yet — the Builder implements it on this card's branch without editing this
@@ -51,7 +51,7 @@ function errorText(result: { errors: string[] }): string {
   return result.errors.join("\n");
 }
 
-describe("r2 lifecycle proposal guard (TOG-25211)", () => {
+describe("r2 lifecycle proposal guard", () => {
   it("check name is stable for the wrapper's log prefix", () => {
     expect(CHECK_NAME).toBe("r2-lifecycle-proposal");
   });

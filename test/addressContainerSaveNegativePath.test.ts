@@ -11,14 +11,14 @@ const BAD_GATEWAY_TYPE =
   "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-gateway";
 
 /**
- * TOG-7377 — QA-side pin of the TOG-6514 contract (fixed by TOG-6271).
+ * QA-side pin of the save contract.
  *
  * `POST /api/v1/routeware/address/save-address-form` and
  * `POST /api/v1/routeware/container/save-container-form` must surface an
  * upstream HTML error page with HTTP 200 as 502 problem+json — never as a
  * 200 the client would read as a landed save.
  *
- * `test/addressContainerSaveSilentFailure.test.ts` (TOG-6271) covers the
+ * `test/addressContainerSaveSilentFailure.test.ts` covers the
  * mapping itself; this file pins the full problem+json contract (anchored
  * `type`, `instance`) on both routes plus the two adjacent edges a
  * regression sweep needs: explicit-failure JSON is also mapped, while loud
@@ -53,7 +53,7 @@ type ProblemBody = {
   instance: string;
 };
 
-describe("address/container save negative-path contract (TOG-7377)", () => {
+describe("address/container save negative-path contract", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

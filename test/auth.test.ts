@@ -29,7 +29,7 @@ describe("bearerMatches", () => {
     expect(bearerMatches(reqWith("Bearer s3cret"), "s3cret")).toBe(true);
     expect(bearerMatches(reqWith("bearer s3cret"), "s3cret")).toBe(true);
   });
-  it("rejects trailing garbage after the token (TOG-6532)", () => {
+  it("rejects trailing garbage after the token", () => {
     // Unanchored `/^Bearer\s+(\S+)/i` parsed `Bearer <valid> junk` as `<valid>`,
     // so the gate (prefix) and audit/redaction (full header) disagreed.
     expect(bearerMatches(reqWith("Bearer s3cret junk"), "s3cret")).toBe(false);

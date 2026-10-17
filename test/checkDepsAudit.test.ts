@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AUDIT_ALLOWLIST } from "../scripts/lib/depsAuditCheck.mjs";
 
 /**
- * Wrapper tests for `scripts/check-deps-audit.mjs` (TOG-25334).
+ * Wrapper tests for `scripts/check-deps-audit.mjs`.
  *
  * The pure helpers are covered by `depsAuditCheck.test.ts`; this file pins
  * what only the wrapper does — flag parsing, exit codes (0 pass / 1 verdict
@@ -90,7 +90,7 @@ function runWithFixtures(rootReport: unknown, discoveryReport: unknown) {
   ]);
 }
 
-describe("check-deps-audit wrapper (TOG-25334)", () => {
+describe("check-deps-audit wrapper", () => {
   it("passes (exit 0) and names both lockfiles when only allowlisted advisories appear", () => {
     const run = runWithFixtures(cleanRootReport(), { vulnerabilities: {} });
     expect(run.status).toBe(0);

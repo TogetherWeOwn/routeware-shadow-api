@@ -4,7 +4,7 @@ import { httpLogin, mergeSetCookies } from "../src/lib/httpAuth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Fail fast when the runtime has no `Headers.getSetCookie` (TOG-6537).
+ * Fail fast when the runtime has no `Headers.getSetCookie`.
  *
  * Silent-mode-flip bug: `mergeSetCookies` fell back to `[]` when the runtime
  * lacked `getSetCookie`, so every HTTP login silently collected an empty jar —
@@ -59,7 +59,7 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
 
 /**
  * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
- * /get is empty — mirroring the TOG-18959 owner check in `AuthSession`.
+ * /get is empty — mirroring the owner check in `AuthSession`.
  */
 function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
@@ -111,7 +111,7 @@ function restoreGetSetCookie(): void {
 
 const originalFetch = globalThis.fetch;
 
-describe("mergeSetCookies fails fast without getSetCookie (TOG-6537)", () => {
+describe("mergeSetCookies fails fast without getSetCookie", () => {
   afterEach(() => {
     restoreGetSetCookie();
   });
@@ -148,7 +148,7 @@ describe("mergeSetCookies fails fast without getSetCookie (TOG-6537)", () => {
   });
 });
 
-describe("httpLogin fails fast without getSetCookie (TOG-6537)", () => {
+describe("httpLogin fails fast without getSetCookie", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     restoreGetSetCookie();
@@ -176,7 +176,7 @@ describe("httpLogin fails fast without getSetCookie (TOG-6537)", () => {
   });
 });
 
-describe("establishSession never launches the browser without getSetCookie (TOG-6537)", () => {
+describe("establishSession never launches the browser without getSetCookie", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -257,7 +257,7 @@ function capabilityAppEnv(fetchImpl: typeof fetch): Env {
   return env;
 }
 
-describe("app 503 on missing getSetCookie capability (TOG-6537)", () => {
+describe("app 503 on missing getSetCookie capability", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });

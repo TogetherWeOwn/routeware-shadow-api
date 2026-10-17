@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * TOG-8876: `DELETE /api/v1/customer-snapshot/{customerId}` erases one
+ * `DELETE /api/v1/customer-snapshot/{customerId}` erases one
  * customer row from the cached report extract.
  *
  * This is the GDPR-style erasure half of the R3 gap "no snapshot row erasure
@@ -120,7 +120,7 @@ async function readRow(customerId: number): Promise<Response> {
   );
 }
 
-describe("customer snapshot row erasure (TOG-8876)", () => {
+describe("customer snapshot row erasure", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
   });

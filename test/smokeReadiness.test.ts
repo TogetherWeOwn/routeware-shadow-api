@@ -50,7 +50,7 @@ function jsonResponse(status: number, body: unknown) {
   };
 }
 
-describe("smoke-readiness verdicts (TOG-22090)", () => {
+describe("smoke-readiness verdicts", () => {
   it("exits 0 when every check is ok", () => {
     const result = evaluateSmokeReadiness(okInputs());
     expect(result.exitCode).toBe(0);

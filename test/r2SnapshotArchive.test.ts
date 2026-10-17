@@ -128,7 +128,7 @@ describe("putReadableStreamToR2", () => {
   });
 });
 
-describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
+describe("archiveReportCsvToR2AfterD1", () => {
   const logged: Array<Record<string, unknown>> = [];
   const errored: Array<Record<string, unknown>> = [];
   const realInfo = console.info;
@@ -317,7 +317,7 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
   });
 });
 
-describe("putReadableStreamToR2 abort failure (TOG-22168)", () => {
+describe("putReadableStreamToR2 abort failure", () => {
   const warned: Array<Record<string, unknown>> = [];
   const realWarn = console.warn;
 
