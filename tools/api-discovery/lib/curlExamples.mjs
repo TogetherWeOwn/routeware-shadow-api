@@ -71,7 +71,7 @@ export function curlExampleForEntry(entry, harvestRow, bodyText) {
       : "*/*";
     lines.push(
       `curl -sS -X ${entry.method} "$BASE${entry.shadowPath}" \\`,
-      `  -H "Content-Type: ${contentType.replace(/"/g, '\\"')}" \\`,
+      `  -H "Content-Type: ${contentType.replace(/[\\"]/g, "\\$&")}" \\`,
       `  -H "Accept: ${acceptHdr}" \\`,
       `  -H "X-Requested-With: XMLHttpRequest" \\`,
       `  --data-binary "@$DIR/bodies/${bodyFile.fileName}"`

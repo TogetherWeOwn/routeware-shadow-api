@@ -42,7 +42,7 @@ export function renderHarvestApiDoc(discovered, routeMap) {
       lines.push(`#### Sample ${i} (${sample.ts})`);
       lines.push("");
       lines.push(`- **resourceType:** ${sample.resourceType ?? "—"}`);
-      lines.push(`- **pathWithQuery:** \`${(sample.pathWithQuery ?? "").replace(/\|/g, "\\|")}\``);
+      lines.push(`- **pathWithQuery:** \`${(sample.pathWithQuery ?? "").replace(/[\\|]/g, "\\$&")}\``);
       if (sample.frameUrl) {
         lines.push(`- **frameUrl:** \`${sample.frameUrl}\``);
       }
