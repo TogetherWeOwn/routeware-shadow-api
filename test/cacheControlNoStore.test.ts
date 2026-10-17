@@ -14,7 +14,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 const SYNC_SECRET = "test-sync-secret";
 const API_TOKEN = "test-api-token";
 // Distinct TEST-NET IP so the throttle bucket never collides with other suites.
-const THROTTLE_IP = "203.0.113.217";
+const THROTTLE_IP = "203.0.113.233";
 
 const CUSTOMER_HEADER =
   "CustomerID,CustomerTypeID,CompanyName,FirstName,MiddleInitial,LastName,NameSuffix," +

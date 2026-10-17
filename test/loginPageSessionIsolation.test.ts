@@ -45,10 +45,14 @@ describe("login-page session isolation (TOG-6297)", () => {
   const originalFetch = globalThis.fetch;
   let upstreamUrls: string[];
   let upstreamCookies: Array<string | null>;
+  let upstreamCacheControl: string | null;
+  let upstreamSetCookie: string | null;
 
   beforeEach(() => {
     upstreamUrls = [];
     upstreamCookies = [];
+    upstreamCacheControl = "public, max-age=86400";
+    upstreamSetCookie = ".WebRW=upstream-session; Path=/; HttpOnly";
     globalThis.fetch = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const url =
@@ -62,13 +66,18 @@ describe("login-page session isolation (TOG-6297)", () => {
           new Headers(init?.headers ?? {}).get("cookie")
         );
         if (url === LOGIN_URL) {
+          const headers: Record<string, string> = {
+            "content-type": "text/html"
+          };
+          if (upstreamCacheControl !== null) {
+            headers["cache-control"] = upstreamCacheControl;
+          }
+          if (upstreamSetCookie !== null) {
+            headers["set-cookie"] = upstreamSetCookie;
+          }
           return new Response("<html>login</html>", {
             status: 200,
-            headers: {
-              "content-type": "text/html",
-              "cache-control": "public, max-age=86400",
-              "set-cookie": ".WebRW=upstream-session; Path=/; HttpOnly"
-            }
+            headers
           });
         }
         // Fail loudly on any upstream URL the test did not anticipate instead
@@ -109,6 +118,39 @@ describe("login-page session isolation (TOG-6297)", () => {
     expect(upstreamCookies).toEqual([null]);
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("replaces upstream Cache-Control with no-store when no Set-Cookie is present", async () => {
+    // Arrange — TOG-22087: the secureUpstreamResponse guard's cache-control
+    // clause is what stops the direct login-page proxy (routeware.ts:52,
+    // which calls forwardToUpstream directly) relaying an upstream cache
+    // policy when no cookie is set. Without it the upstream value reaches
+    // the client and withCors keeps it.
+    upstreamCacheControl = "public, max-age=86400";
+    upstreamSetCookie = null;
+
+    // Act
+    const response = await callLoginPage();
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("keeps no-store on the identity fast path with no Set-Cookie", async () => {
+    // Arrange — pins the early-return branch: upstream already no-store
+    // with no cookie returns unchanged (still no-store).
+    upstreamCacheControl = "no-store";
+    upstreamSetCookie = null;
+
+    // Act
+    const response = await callLoginPage();
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });
