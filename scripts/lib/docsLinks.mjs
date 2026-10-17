@@ -108,11 +108,54 @@ export function decodeHtmlEntities(htmlText) {
  * `<b>`) is bare and removed. Escaped angle brackets decoded later are
  * punctuation, never tags.
  *
+ * This is a scanner, not a regex replace: a single-pass multi-character
+ * replace can leave a reassembled `<script` behind (CodeQL
+ * js/incomplete-multi-character-sanitization). It is still not a general
+ * HTML sanitizer — its only caller feeds the result to
+ * {@link slugifyHeading}, which keeps only letters, numbers, marks,
+ * connector punctuation, hyphens and spaces, so no markup can reach any
+ * output. A `<` only starts a tag when followed by `!`, `/` or a letter,
+ * and the tag ends at the first `>` before a line terminator.
+ *
  * @param {string} inlineHtml `parseInline` output
  * @returns {string} HTML with tags removed, entities untouched
  */
 function stripHtmlTags(inlineHtml) {
-  return String(inlineHtml).replace(/<[!/a-z].*?>/gi, "");
+  const s = String(inlineHtml);
+  let out = "";
+  let i = 0;
+  while (i < s.length) {
+    const lt = s.indexOf("<", i);
+    if (lt === -1) {
+      out += s.slice(i);
+      break;
+    }
+    out += s.slice(i, lt);
+    const next = s[lt + 1];
+    if (next === undefined || !/[!/a-z]/i.test(next)) {
+      out += "<";
+      i = lt + 1;
+      continue;
+    }
+    let end = lt + 1;
+    while (
+      end < s.length &&
+      s[end] !== ">" &&
+      s[end] !== "\n" &&
+      s[end] !== "\r" &&
+      s[end] !== "\u2028" &&
+      s[end] !== "\u2029"
+    ) {
+      end += 1;
+    }
+    if (end < s.length && s[end] === ">") {
+      i = end + 1;
+    } else {
+      out += "<";
+      i = lt + 1;
+    }
+  }
+  return out;
 }
 
 /**
