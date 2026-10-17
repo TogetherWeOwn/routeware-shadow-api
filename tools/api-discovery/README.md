@@ -139,7 +139,7 @@ This runs, in order:
 1. **`validate-harvest.mjs`** — every line is valid JSON with `ts`, `method`, `pathname`.
 2. **`aggregate.mjs`** — **`out/discovered-operations.json`** (counts, resource types, up to 3 diverse samples per operation with query keys, header names, body/response previews, JSON top-level keys).
 3. **`generate-harvest-docs.mjs`** — **`out/HARVEST_API.md`** (human-readable tables + expandable samples).
-4. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest).
+4. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest). The report step never fails the chain; the gate (`route-gap.mjs --check`, last in `process`) exits 1 when harvested ops lack shadow routes. Stale map entries are warnings by default — re-run with `--strict` after an exhaustive session to fail on them. No aggregate yet, or an aggregate with zero operations, exits 0 (nothing to compare); a truncated aggregate fails loudly.
 5. **`export-curl-examples.mjs`** — **`out/curl-examples.sh`** + **`out/bodies/*.json`** (replay against `BASE`, e.g. `wrangler dev`).
 6. **`suggest-routes.mjs`** — **`out/suggested-routes.stub.ts`** (commented checklist for `src/app.ts`).
 
@@ -164,7 +164,8 @@ Runs **`discovery:process`** then **`npm test`** (includes **route-map contract 
 | `npm run validate:harvest` | Validates `harvest.ndjson` |
 | `npm run aggregate` | `discovered-operations.json` only |
 | `npm run docs:harvest` | `HARVEST_API.md` only |
-| `npm run gap:routes` | `route-gaps.*` only |
+| `npm run gap:routes` | `route-gaps.*` only (report; exits 1 on missing shadow routes, warns on stale entries unless `--strict`) |
+| `npm run gap:check` | Re-checks `route-gaps.json` without recomputing (the `process` gate) |
 | `npm run export:curls` | `curl-examples.sh` + `out/bodies/` |
 | `npm run suggest:routes` | `suggested-routes.stub.ts` (after gaps exist) |
 
@@ -175,6 +176,13 @@ Runs **`discovery:process`** then **`npm test`** (includes **route-map contract 
 3. Use **`out/suggested-routes.stub.ts`** as a naming hint; implement `createRoute` + handler in **`src/app.ts`** (same pattern as existing Routeware forwards).
 4. Add example JSON under **`examples/`** if the exporter needs a body when the harvest has no preview for that path.
 5. Run **`npm run discovery:verify`** from the repo root.
+
+`discovery:process` always builds every artifact (curl examples, route stubs)
+before the trailing gap gate, so the stub exists exactly when gaps exist; the
+gate fails only on missing shadow routes, and `discovery:verify` reaches the
+contract tests once it is green. After an exhaustive recording (every mapped
+route exercised), run `node route-gap.mjs --strict` from `tools/api-discovery`
+to also fail on stale map entries.
 
 ## Example request bodies
 

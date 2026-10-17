@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ALLOWLIST,
+  auditReportProblem,
   BLOCKING_SEVERITIES,
   CHECK_NAME,
+  combineAuditJson,
   evaluateAudit,
   extractAdvisories,
   formatFailureLog,
@@ -160,5 +162,116 @@ describe("evaluateAudit (TOG-8904)", () => {
 describe("formatPassLog (TOG-8904)", () => {
   it("names the check and the counts", () => {
     expect(formatPassLog({ scanned: 33, allowlisted: 8, belowThreshold: 25 })).toContain(CHECK_NAME);
+  });
+});
+
+describe("combineAuditJson (TOG-25334)", () => {
+  it("merges disjoint scopes so one verdict covers both lockfiles", () => {
+    const merged = combineAuditJson([
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-aaaa-bbbb-cccc") } },
+      { vulnerabilities: {} },
+    ]);
+    const outcome = evaluateAudit(merged, [{ id: "GHSA-aaaa-bbbb-cccc" }]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.scanned).toBe(1);
+  });
+
+  it("a synthetic high advisory in the discovery scope trips the merged gate", () => {
+    // Fixture proof the discovery scope is live, not a silent pass: the root
+    // report is clean, so only the discovery GHSA can fail this verdict.
+    const merged = combineAuditJson([
+      { vulnerabilities: {} },
+      {
+        vulnerabilities: {
+          playwright: advisory(
+            "https://github.com/advisories/GHSA-synt-heti-cdis",
+            "high",
+            "some-discovery-dep",
+            "Synthetic fixture advisory",
+          ),
+        },
+      },
+    ]);
+    const outcome = evaluateAudit(merged, []);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.blocking.map((b) => b.id)).toEqual(["GHSA-synt-heti-cdis"]);
+  });
+
+  it("concatenates via entries when both scopes report the same package", () => {
+    const merged = combineAuditJson([
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "moderate",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-qqqq-wwww-eeee", severity: "moderate", title: "t" },
+            ],
+          },
+        },
+      },
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "high",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", severity: "high", title: "t" },
+            ],
+          },
+        },
+      },
+    ]);
+    const found = extractAdvisories(merged);
+    expect(found.size).toBe(2);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+
+  it("tolerates missing or malformed reports so one bad scope cannot poison the merge", () => {
+    // The merge stays tolerant, but the wrapper rejects such reports before
+    // merging (auditReportProblem below) — tolerance here must never be
+    // mistaken for a clean verdict on an unaudited scope.
+    const merged = combineAuditJson([
+      null,
+      { vulnerabilities: null },
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", "critical") } },
+    ]);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+});
+
+describe("auditReportProblem (TOG-25334 review hardening)", () => {
+  it("accepts a real audit report, with or without metadata", () => {
+    expect(auditReportProblem({ vulnerabilities: {} })).toBeNull();
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { total: 34 } },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects npm error JSON (ENOLOCK) instead of reading it as clean", () => {
+    expect(
+      auditReportProblem({ error: { code: "ENOLOCK", summary: "This command requires an existing lockfile." } }),
+    ).toContain("ENOLOCK");
+  });
+
+  it("rejects reports with no vulnerabilities object", () => {
+    expect(auditReportProblem({})).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: null })).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: [] })).toContain("vulnerabilities");
+    expect(auditReportProblem(null)).not.toBeNull();
+    expect(auditReportProblem("not json")).not.toBeNull();
+    expect(auditReportProblem([])).not.toBeNull();
+  });
+
+  it("rejects an explicit empty-tree report (0 dependencies audited)", () => {
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { prod: 0, dev: 0, total: 0 } },
+      }),
+    ).toContain("0 dependencies");
   });
 });

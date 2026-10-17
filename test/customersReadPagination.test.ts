@@ -247,7 +247,7 @@ describe("customers-read pagination passthrough", () => {
 
   it("streams a multi-megabyte upstream page (~8,000 rows) without truncation", async () => {
     // Arrange — ~1.3 MB of JSON; the worker streams `res.body` through
-    // `stripUpstreamSetCookie` without buffering, so size must not matter.
+    // `secureUpstreamResponse` without buffering, so size must not matter.
     const rows = Array.from({ length: 8000 }, (_, i) => customerRow(i + 1));
     const payload = { total: 600000, data: rows };
     const upstreamText = JSON.stringify(payload);
