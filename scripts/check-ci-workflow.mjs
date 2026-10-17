@@ -47,6 +47,10 @@ assert.match(changesJob, /outputs:\n(?:.*\n)*?.*code:/, "changes must output a c
 assert.match(changesJob, /probe:/, "changes must output a probe boolean (TOG-14898)");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean (TOG-14898)");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs (TOG-14898)");
+assert.ok(
+  changesJob.includes("vitest(\\.memory)?\\.config\\.ts$"),
+  "code change detection must include the dedicated memory Vitest config",
+);
 // TOG-22034: `.nvmrc` anchors the Node-pin guard that runs in `build`, so a
 // PR touching only `.nvmrc` must still run it, not merge green past it.
 assert.match(

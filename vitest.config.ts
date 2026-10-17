@@ -89,7 +89,13 @@ export default defineConfig({
         test: {
           ...sharedTestOptions,
           include: ["test/**/*.test.ts"],
-          exclude: ["test/r2LifecycleProposalCheck.test.ts"],
+          // snapshotExportMemory runs separately under vitest.memory.config.ts
+          // (TOG-8892: 32 MiB heap ceiling with --expose-gc); it must stay out
+          // of the default suite, alongside the node-pool R2 proposal guard.
+          exclude: [
+            "test/r2LifecycleProposalCheck.test.ts",
+            "test/snapshotExportMemory.test.ts",
+          ],
         },
       },
       {

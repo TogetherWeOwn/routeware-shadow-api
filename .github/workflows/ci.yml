@@ -67,7 +67,7 @@ jobs:
           echo "Changed files:"
           echo "$files"
           # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -125,6 +125,8 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Assert bounded snapshot export heap
+        run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
       - name: Validate R2 preflight against deployed config (offline)
