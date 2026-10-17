@@ -190,7 +190,7 @@ export async function handleGetDataContainer(
   return res;
 }
 
-// TOG-19136: POST save handlers live in `./dataEntitySave`; re-exported here
+// POST save handlers live in `./dataEntitySave`; re-exported here
 // so existing imports keep working. New code should import from
 // `./dataEntitySave` directly.
 export {

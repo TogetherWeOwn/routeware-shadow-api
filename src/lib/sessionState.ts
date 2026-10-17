@@ -14,7 +14,7 @@ export type SessionState = {
    */
   expired?: boolean;
   /**
-   * Failed-refresh episode anchor (TOG-18119, CISO option B): epoch ms of the
+   * Failed-refresh episode anchor (CISO option B): epoch ms of the
    * first `/unlock` that released a held lock without a `/set`. Present only
    * while an episode is recorded (never `null`), cleared by the next
    * successful `/set`. Lets a waiter elect one bounded takeover login.
@@ -66,7 +66,7 @@ export function sessionExpiryMs(env: Env, nowMs: number = Date.now()): number {
  * failure beats a Worker that quietly stops refreshing), the read path must
  * never hard-fail traffic on a bad value: the next login attempt already fails
  * loudly via `sessionExpiryMs`, so readers fall back to the stored expiry
- * alone (the pre-TOG-6528 behavior).
+ * alone (the previous behavior).
  */
 export function readSessionTtlMs(
   env: Pick<Env, "SESSION_TTL_SECONDS">

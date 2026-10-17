@@ -16,10 +16,10 @@ const STEP_NAMES = ["devvars", "migrate", "seed", "smoke"];
 const green = STEP_NAMES.map((name) => ({ name, ok: true }));
 
 /**
- * Regression tests for TOG-9233 (`npm run first-run`): the chain runs in
+ * Regression tests for `npm run first-run`: the chain runs in
  * order, stops at the first failure, and every retry hint names a real script.
  */
-describe("first-run chain (TOG-9233)", () => {
+describe("first-run chain", () => {
   it("runs devvars, migrate, seed, smoke in that order", () => {
     expect(FIRST_RUN_STEPS.map((step) => step.name)).toEqual(STEP_NAMES);
   });

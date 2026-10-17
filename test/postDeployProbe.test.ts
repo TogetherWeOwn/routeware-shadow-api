@@ -13,7 +13,7 @@ import {
   resolveBase,
 } from "../scripts/lib/postDeployProbe.mjs";
 
-describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
+describe("post-deploy-probe skip-safe planner", () => {
   it("keeps the check name and skip flag stable for the scheduled workflow", () => {
     expect(CHECK_NAME).toBe("post-deploy-probe");
     expect(SKIP_FLAG).toBe("--skip-if-no-token");
@@ -61,7 +61,7 @@ describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
     expect(ALL_PROBE_PATHS).toHaveLength(3);
   });
 
-  it("flags cron.stale=true as stale so the probe fails (TOG-9225)", () => {
+  it("flags cron.stale=true as stale so the probe fails", () => {
     // Reviewer fixture path: point the probe at a readiness body whose cron
     // timestamp is older than CRON_STALE_AFTER_MS (48h) and assert it fires.
     const staleCron = {

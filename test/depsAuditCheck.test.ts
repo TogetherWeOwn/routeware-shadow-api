@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   AUDIT_ALLOWLIST,
+  auditReportProblem,
   BLOCKING_SEVERITIES,
   CHECK_NAME,
+  combineAuditJson,
   evaluateAudit,
   extractAdvisories,
   formatFailureLog,
@@ -12,7 +14,7 @@ import {
 } from "../scripts/lib/depsAuditCheck.mjs";
 
 /**
- * Regression tests for TOG-8904: an unaudited transitive dependency can land
+ * Regression tests: an unaudited transitive dependency can land
  * without a blocking signal. The gate fails on unallowlisted high/critical
  * advisories only; moderate/low findings (e.g. Hono adapters this Worker
  * never mounts) are reported, never blocking.
@@ -29,7 +31,7 @@ function advisory(url: string, severity = "high", name = "some-pkg", title = "So
   };
 }
 
-describe("ghsaIdFromUrl (TOG-8904)", () => {
+describe("ghsaIdFromUrl", () => {
   it("extracts four-segment GHSA ids from advisory URLs", () => {
     expect(ghsaIdFromUrl("https://github.com/advisories/GHSA-rpmf-866q-6p89")).toBe(
       "GHSA-rpmf-866q-6p89",
@@ -43,7 +45,7 @@ describe("ghsaIdFromUrl (TOG-8904)", () => {
   });
 });
 
-describe("severityRank (TOG-8904)", () => {
+describe("severityRank", () => {
   it("orders critical above high above moderate, case-insensitively", () => {
     expect(severityRank("critical")).toBeGreaterThan(severityRank("HIGH"));
     expect(severityRank("high")).toBeGreaterThan(severityRank("moderate"));
@@ -55,7 +57,7 @@ describe("severityRank (TOG-8904)", () => {
   });
 });
 
-describe("extractAdvisories (TOG-8904)", () => {
+describe("extractAdvisories", () => {
   it("uses the per-advisory severity, not npm's package-level rollup", () => {
     // npm rolls hono up to "high" because one of its ~25 advisories is high;
     // the extractor must keep each advisory's own severity, so a moderate
@@ -102,7 +104,7 @@ describe("extractAdvisories (TOG-8904)", () => {
   });
 });
 
-describe("evaluateAudit (TOG-8904)", () => {
+describe("evaluateAudit", () => {
   const allowlist = [{ id: "GHSA-aaaa-bbbb-cccc" }];
 
   it("passes when the only high advisory is allowlisted", () => {
@@ -147,7 +149,7 @@ describe("evaluateAudit (TOG-8904)", () => {
       expect(entry.id).toMatch(/^GHSA-/);
       expect(entry.reason.length).toBeGreaterThan(20);
       // Entries name the card that added them (docs/DEPENDENCY-AUDIT.md);
-      // later advisories add entries under their own card, not TOG-8904.
+      // Later advisories add entries under their own reference, not the original one.
       expect(entry.addedIn).toMatch(/^TOG-\d+$/);
     }
   });
@@ -157,8 +159,119 @@ describe("evaluateAudit (TOG-8904)", () => {
   });
 });
 
-describe("formatPassLog (TOG-8904)", () => {
+describe("formatPassLog", () => {
   it("names the check and the counts", () => {
     expect(formatPassLog({ scanned: 33, allowlisted: 8, belowThreshold: 25 })).toContain(CHECK_NAME);
+  });
+});
+
+describe("combineAuditJson", () => {
+  it("merges disjoint scopes so one verdict covers both lockfiles", () => {
+    const merged = combineAuditJson([
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-aaaa-bbbb-cccc") } },
+      { vulnerabilities: {} },
+    ]);
+    const outcome = evaluateAudit(merged, [{ id: "GHSA-aaaa-bbbb-cccc" }]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.scanned).toBe(1);
+  });
+
+  it("a synthetic high advisory in the discovery scope trips the merged gate", () => {
+    // Fixture proof the discovery scope is live, not a silent pass: the root
+    // report is clean, so only the discovery GHSA can fail this verdict.
+    const merged = combineAuditJson([
+      { vulnerabilities: {} },
+      {
+        vulnerabilities: {
+          playwright: advisory(
+            "https://github.com/advisories/GHSA-synt-heti-cdis",
+            "high",
+            "some-discovery-dep",
+            "Synthetic fixture advisory",
+          ),
+        },
+      },
+    ]);
+    const outcome = evaluateAudit(merged, []);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.blocking.map((b) => b.id)).toEqual(["GHSA-synt-heti-cdis"]);
+  });
+
+  it("concatenates via entries when both scopes report the same package", () => {
+    const merged = combineAuditJson([
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "moderate",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-qqqq-wwww-eeee", severity: "moderate", title: "t" },
+            ],
+          },
+        },
+      },
+      {
+        vulnerabilities: {
+          hono: {
+            name: "hono",
+            severity: "high",
+            via: [
+              { name: "hono", url: "https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", severity: "high", title: "t" },
+            ],
+          },
+        },
+      },
+    ]);
+    const found = extractAdvisories(merged);
+    expect(found.size).toBe(2);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+
+  it("tolerates missing or malformed reports so one bad scope cannot poison the merge", () => {
+    // The merge stays tolerant, but the wrapper rejects such reports before
+    // merging (auditReportProblem below) — tolerance here must never be
+    // mistaken for a clean verdict on an unaudited scope.
+    const merged = combineAuditJson([
+      null,
+      { vulnerabilities: null },
+      { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-zzzz-yyyy-xxxx", "critical") } },
+    ]);
+    expect(evaluateAudit(merged, []).blocking.map((b) => b.id)).toEqual(["GHSA-zzzz-yyyy-xxxx"]);
+  });
+});
+
+describe("auditReportProblem (review hardening)", () => {
+  it("accepts a real audit report, with or without metadata", () => {
+    expect(auditReportProblem({ vulnerabilities: {} })).toBeNull();
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { total: 34 } },
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects npm error JSON (ENOLOCK) instead of reading it as clean", () => {
+    expect(
+      auditReportProblem({ error: { code: "ENOLOCK", summary: "This command requires an existing lockfile." } }),
+    ).toContain("ENOLOCK");
+  });
+
+  it("rejects reports with no vulnerabilities object", () => {
+    expect(auditReportProblem({})).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: null })).toContain("vulnerabilities");
+    expect(auditReportProblem({ vulnerabilities: [] })).toContain("vulnerabilities");
+    expect(auditReportProblem(null)).not.toBeNull();
+    expect(auditReportProblem("not json")).not.toBeNull();
+    expect(auditReportProblem([])).not.toBeNull();
+  });
+
+  it("rejects an explicit empty-tree report (0 dependencies audited)", () => {
+    expect(
+      auditReportProblem({
+        vulnerabilities: {},
+        metadata: { dependencies: { prod: 0, dev: 0, total: 0 } },
+      }),
+    ).toContain("0 dependencies");
   });
 });

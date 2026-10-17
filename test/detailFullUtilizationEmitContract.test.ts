@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-25212 emit-contract pin (builder companion, non-acceptance file).
+ * Emit-contract pin (builder companion, non-acceptance file).
  *
  * `test/detailFullOpBudgetUtilization.test.ts` is the Test Author's
  * acceptance file and stays untouched. This file pins the other half of its

@@ -89,7 +89,7 @@ const invalidExpiries = [
 
 /**
  * Acquire the refresh lock through the real DO and return its ownership token
- * (TOG-18119, reviewer finding 2): simulated holders present it on `/unlock`.
+ * (reviewer finding 2): simulated holders present it on `/unlock`.
  */
 async function lockWithToken(stub: DurableObjectStub): Promise<string> {
   const response = await stub.fetch("https://auth/lock");
@@ -199,7 +199,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
   it("all real establishSession waiters reuse one publication without logging in", async () => {
     const { stub, fetch } = harness();
     await storeThenExpire(stub);
-    // The holder's token threads through its own publication (TOG-18959): a
+    // The holder's token threads through its own publication: a
     // tokenless `/set` stores but no longer releases a live holder's lock, so
     // publishing without it would leave the waiters queued until their budget.
     const lockResponse = await stub.fetch("https://auth/lock");
@@ -222,7 +222,7 @@ describe("concurrent refresh requires a validated unexpired session", () => {
       const { stub, fetch } = harness();
       // The reactive cookie starts outside the 60s skew and is rejected upstream
       // while locally live. Both cookies expire before the failed holder unlocks.
-      // Under bounded takeover (TOG-18119, CISO option B), the holder's failed
+      // Under bounded takeover (CISO option B), the holder's failed
       // release lets this single caller win `/takeover` and publish fresh
       // material — the request then succeeds instead of stalling to a 502.
       const remainingMs = leg === "proactive" ? 1000 : 61_000;

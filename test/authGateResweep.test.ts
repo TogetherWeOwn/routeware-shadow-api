@@ -4,10 +4,10 @@ import app from "../src/app";
 import { problemType } from "../src/lib/problem";
 
 /**
- * TOG-8386 (gap G16): auth-gate re-sweep on the newest routes.
+ * Gap G16: auth-gate re-sweep on the newest routes.
  *
  * The last full sweep predates PRs #96-#110 and the `GET ...-snapshot/export`
- * routes (TOG-8361). `test/authGateSweep.test.ts` already probes every
+ * routes. `test/authGateSweep.test.ts` already probes every
  * registered route with no/wrong tokens at the OUTER gate, and
  * `test/snapshotAuth.test.ts` pins the inner 401 body per privileged route —
  * both green. What neither pins is the privileged SET itself: a new
@@ -56,7 +56,7 @@ function isPrivilegedRoute(method: string, path: string): boolean {
     path.endsWith("/import") ||
     path.endsWith("/export") ||
     path.startsWith("/api/v1/data/") ||
-    // TOG-9202: R2 archive readback carries the same sync-secret inner gate.
+    // R2 archive readback carries the same sync-secret inner gate.
     path.startsWith("/api/v1/snapshots/")
   );
 }
@@ -73,7 +73,7 @@ const PINNED_PRIVILEGED: string[] = [
   "GET /api/v1/data/address",
   "GET /api/v1/data/container",
   "GET /api/v1/data/customer",
-  // TOG-9202: R2 archive readback (sync secret only). The router renders the
+  // R2 archive readback (sync secret only). The router renders the
   // path in Hono `:param` syntax. `livePrivilegedRoutes` sorts with
   // `localeCompare`, so this GET lands with the GET group (after
   // `data/customer`, `data` < `snapshots`); probes carry a concrete table +
@@ -123,7 +123,7 @@ type ProblemBody = {
 // `?id=1` (same as `test/snapshotAuth.test.ts`) so the probe exercises the
 // gates, not the query validator. `instance` still echoes the bare pathname.
 //
-// Same for `GET /api/v1/snapshots/:table/:date` (TOG-9202): the enum/date
+// Same for `GET /api/v1/snapshots/:table/:date`: the enum/date
 // validators reject the literal `:table`/`:date` placeholders, so the probe
 // carries concrete values. `expectedInstance` is the pathname the 401 echoes
 // (probe path minus query) — identical to the pinned string for every other
@@ -139,7 +139,7 @@ function expectedInstance(path: string): string {
   return probePath(path).split("?")[0];
 }
 
-describe("auth-gate re-sweep on newest routes (TOG-8386)", () => {
+describe("auth-gate re-sweep on newest routes", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

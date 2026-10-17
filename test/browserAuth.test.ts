@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LOGIN_PAGE_FIXTURE, LOGIN_PAGE_TOKEN } from "./browserLoginPageFixture";
 
 /**
- * TOG-5837 — the Browser Rendering login (`src/lib/browserAuth.ts`) drives
+ * The Browser Rendering login (`src/lib/browserAuth.ts`) drives
  * the WebRW login page by element id, and the HTTP login
  * (`src/lib/httpAuth.ts`) extracts its anti-forgery token from the same
  * markup. Upstream drift fails syncs silently (HTML-200), so every

@@ -73,7 +73,7 @@ jobs:
           echo "Changed files:"
           echo "$files"
           # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -131,6 +131,8 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Assert bounded snapshot export heap
+        run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
       - name: Validate R2 preflight against deployed config (offline)
@@ -193,6 +195,11 @@ jobs:
       - name: Hermetic post-deploy probe regressions
         # Always run even for probe-only PRs whose filtered build is skipped.
         run: npm run test:probe
+      - name: Discovery transform pins (TOG-25335)
+        # Hermetic node --test suites for the harvest pipeline. Always run:
+        # tools-only PRs skip the filtered `build` job, so without this the
+        # route-gap exit-code contract could regress silently.
+        run: npm run test:discovery
       - name: Regenerate Worker types (TOG-8373)
         # worker-configuration.d.ts is gitignored — regenerate it here so the
         # baked-secrets gate below inspects current wrangler.toml [vars].
@@ -247,6 +254,12 @@ jobs:
         # Credential-free: counts lines in hand-written src/ files, fails on any
         # file over 800 lines. No network access and no credential use.
         run: npm run check:source-file-size
+      - name: Docs link and anchor check (TOG-18936)
+        # Credential-free: resolves every relative link in tracked *.md files
+        # (file must be tracked, #anchor must match a heading slug or <a name>
+        # anchor). External URLs and gitignored paths are skipped. No network
+        # access and no credential use.
+        run: npm run check:docs-links
       - name: R2 lifecycle proposal shape guard (TOG-25213)
         # Credential-free: validates docs/r2-lifecycle-proposal.snapshot-history.json
         # stays a byte-clean S3 PutBucketLifecycleConfiguration body (exact rule
@@ -266,19 +279,21 @@ jobs:
         # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
         # skip the gate.
         run: npm run check:changelog
-      - name: Prod dependency audit (TOG-8904)
-        # Credential-free: `npm audit --omit=dev` against the public registry;
-        # fails on unallowlisted high/critical advisories. The allowlist (with
-        # reasons + remediation paths) lives in scripts/lib/depsAuditCheck.mjs;
-        # stale entries fail the gate so Dependabot fixes clean up after
-        # themselves. Process: docs/DEPENDENCY-AUDIT.md.
+      - name: Prod dependency audit (TOG-8904, TOG-25334)
+        # Credential-free: root `npm audit --omit=dev` plus a full
+        # `tools/api-discovery` audit against the public registry; fails on
+        # unallowlisted high/critical advisories in either lockfile. The
+        # allowlist (with reasons + remediation paths) lives in
+        # scripts/lib/depsAuditCheck.mjs; stale entries fail the gate so
+        # Dependabot fixes clean up after themselves. Process:
+        # docs/DEPENDENCY-AUDIT.md.
         run: npm run check:deps-audit
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
         # so any finding fails the job.
         run: |
-          version=8.18.4
+          version=8.28.0
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks detect --source . --redact --config .gitleaks.toml

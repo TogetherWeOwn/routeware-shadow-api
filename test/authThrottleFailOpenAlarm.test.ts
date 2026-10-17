@@ -5,10 +5,10 @@ import {
   resetAuthThrottleFailOpenLogForTests
 } from "../src/lib/authThrottle";
 
-// Alarm contract for the `AUTH THROTTLE FAIL-OPEN` structured event (TOG-8885):
+// Alarm contract for the `AUTH THROTTLE FAIL-OPEN` structured event:
 // when the throttle DO fails, the event must fire exactly once per window — the
 // alarm without the spam. Companion to the dedup cases in
-// test/authThrottle.test.ts (TOG-6530); this file pins the operator-visible
+// test/authThrottle.test.ts; this file pins the operator-visible
 // contract the runbook (docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md) keys on.
 
 // Fresh TEST-NET-3 IP, never used by authThrottle/throttleBurst/XFF suites
@@ -38,7 +38,7 @@ function envWithDeadDo(): Env {
   } as unknown as Env;
 }
 
-describe("auth-throttle fail-open alarm contract (TOG-8885)", () => {
+describe("auth-throttle fail-open alarm contract", () => {
   const req = reqWith({ "CF-Connecting-IP": DEAD_DO_IP });
 
   // `console.error` is swapped directly rather than with `vi.spyOn`: under

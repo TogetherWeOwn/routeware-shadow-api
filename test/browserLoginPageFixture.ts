@@ -1,5 +1,5 @@
 /**
- * Saved WebRW login-page markup (TOG-5837).
+ * Saved WebRW login-page markup.
  *
  * The Browser Rendering login (`src/lib/browserAuth.ts`) drives this page by
  * element id, and the HTTP login (`src/lib/httpAuth.ts`) extracts the

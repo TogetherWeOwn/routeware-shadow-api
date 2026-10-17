@@ -20,7 +20,7 @@ import { fetchWithUpstreamTimeout, readUpstreamTimeoutMs } from "./upstreamTimeo
 type Jar = Record<string, string>;
 
 /**
- * Upstream `Set-Cookie` attribute semantics for the tenant jar (TOG-9207).
+ * Upstream `Set-Cookie` attribute semantics for the tenant jar.
  *
  * The Worker is a server-side HTTP client, so it plays the network-stack role
  * a browser's cookie store would play — with two simplifications that are safe
@@ -34,7 +34,7 @@ type Jar = Record<string, string>;
  *   a single upstream origin, not a browser profile visiting many sites.
  * - `HttpOnly`: the cookie is invisible to page JavaScript. That holds by
  *   construction — the jar lives in Worker memory and the `AuthSession` DO,
- *   and `stripUpstreamSetCookie` (`src/lib/upstreamForward.ts`) removes every
+ *   and `secureUpstreamResponse` (`src/lib/upstreamForward.ts`) removes every
  *   upstream `Set-Cookie` before a client response is built, so no tenant
  *   cookie value ever reaches a browser, log line, or error message.
  * - `Domain`/`Path`/`SameSite` need no enforcement: the jar replays to exactly
@@ -47,7 +47,7 @@ type Jar = Record<string, string>;
  *   replayed on every forward.
  */
 /**
- * Fail fast when the runtime cannot merge `Set-Cookie` (TOG-6537).
+ * Fail fast when the runtime cannot merge `Set-Cookie`.
  *
  * Without `Headers.getSetCookie` every HTTP login would silently collect an
  * empty jar: `http` mode hard-outages and `auto` mode flips to expensive
@@ -148,7 +148,7 @@ export type HttpLoginResult = {
 
 /** Perform the HTTP login and return the resulting cookie jar (no DO writes). */
 export async function httpLogin(env: Env): Promise<HttpLoginResult> {
-  // Capability assert first (TOG-6537): before any upstream fetch, so a
+  // Capability assert first: before any upstream fetch, so a
   // runtime without `Headers.getSetCookie` fails with an explicit error
   // instead of collecting an empty jar and misdiagnosing as a markup change.
   assertGetSetCookieAvailable();
@@ -159,7 +159,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
   }
   const origin = new URL(env.TARGET_ORIGIN).origin;
   const jar: Jar = {};
-  // Bounded per-attempt budget (TOG-5835): a hung login host throws
+  // Bounded per-attempt budget: a hung login host throws
   // `UpstreamTimeoutError` (a fixed PII-free string) instead of burning the
   // 300s CPU limit. No retry here — the caller (`forwardWithSessionRetry`)
   // already budgets a single retry for the login redirect.
@@ -173,7 +173,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
     { headers: h1, redirect: "manual" },
     timeoutMs
   );
-  // Fail fast on a WAF/maintenance block (TOG-6536): without this, a
+  // Fail fast on a WAF/maintenance block: without this, a
   // non-200 page falls through to "token not found", which `establishSession`
   // misreads as a markup change and answers with expensive Browser Rendering
   // retries. The status (a fixed number) is safe for logs and 502s.
@@ -236,7 +236,7 @@ export async function httpLogin(env: Env): Promise<HttpLoginResult> {
 /**
  * Establish a session over HTTP and store it in the AuthSession Durable
  * Object. `lockToken` proves this caller holds the refresh lock so the DO
- * releases it as part of the write (TOG-18959).
+ * releases it as part of the write.
  */
 export async function establishSessionViaHttp(
   env: Env,

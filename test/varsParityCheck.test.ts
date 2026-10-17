@@ -9,13 +9,13 @@ import {
 } from "../scripts/lib/varsParityCheck.mjs";
 
 /**
- * Regression tests for TOG-8367 (gap G20): a new var can land in
+ * Regression tests for Gap G20: a new var can land in
  * wrangler.toml [vars] without a `.dev.vars.example` mention (or vice
  * versa), causing a fail-closed surprise at deploy or a confusing local
  * setup. Only key names are ever handled — no values, real or fixture.
  */
 
-describe("parseExampleCommentedKeys (TOG-8367)", () => {
+describe("parseExampleCommentedKeys", () => {
   it("finds commented # KEY=, # KEY: and bare # KEY mentions", () => {
     const text = [
       "# Copy to .dev.vars (gitignored). Never commit real values.",
@@ -51,7 +51,7 @@ describe("parseExampleCommentedKeys (TOG-8367)", () => {
   });
 });
 
-describe("compareVarsParity (TOG-8367)", () => {
+describe("compareVarsParity", () => {
   it("passes when every wrangler key is active or commented in the example", () => {
     const outcome = compareVarsParity(
       { TARGET_ORIGIN: "", AUTH_MODE: "" },
@@ -105,7 +105,7 @@ describe("compareVarsParity (TOG-8367)", () => {
   });
 });
 
-describe("vars-parity never prints values (TOG-8367)", () => {
+describe("vars-parity never prints values", () => {
   it("reports keys only even when the parsed maps carry secret-shaped values", () => {
     const secretValue = "placeholder-secret-value";
     const outcome = compareVarsParity(
@@ -121,7 +121,7 @@ describe("vars-parity never prints values (TOG-8367)", () => {
   });
 });
 
-describe("vars-parity report format (TOG-8367)", () => {
+describe("vars-parity report format", () => {
   it("pins the check name and names keys only", () => {
     expect(CHECK_NAME).toBe("vars-parity");
     expect(formatPassLog(17, 12)).toContain("vars-parity: PASS");

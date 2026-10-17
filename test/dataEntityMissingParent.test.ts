@@ -13,7 +13,7 @@ const BAD_REQUEST_TYPE =
   "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request";
 
 /**
- * TOG-8463 — a missing parent id on the data-tier create path is a client
+ * A missing parent id on the data-tier create path is a client
  * error, not a gateway error.
  *
  * `POST /api/v1/data/address` with `PickupAddressID=0` and no `CustomerID`
@@ -21,7 +21,7 @@ const BAD_REQUEST_TYPE =
  * before any upstream fetch and fell into the data-entity catch that maps
  * ALL prep throwns to 502 bad-gateway. The routeware tier already maps these
  * two fixed messages to 400 (`src/routes/address.ts`, `src/routes/container.ts`,
- * pinned by `test/addressContainerSaveMissingParent.test.ts` TOG-8148); the
+ * pinned by `test/addressContainerSaveMissingParent.test.ts`); the
  * data tier now matches. Other prep failures (modal fetch down, missing
  * token in modal HTML) stay 502.
  *
@@ -46,7 +46,7 @@ type ProblemBody = {
 
 const FORM = "application/x-www-form-urlencoded; charset=UTF-8";
 
-describe("data-tier save create without parent id (TOG-8463)", () => {
+describe("data-tier save create without parent id", () => {
   const originalFetch = globalThis.fetch;
   let upstreamCalls = 0;
 

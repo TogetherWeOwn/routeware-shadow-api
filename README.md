@@ -4,7 +4,7 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 > ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
-> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On pull requests targeting
+> GitHub Actions runs on GitHub-hosted `ubuntu-latest` runners. On pull requests targeting
 > `main`, changed-area detection selects credential-free `build` and optional `shadow-api-v1` jobs
 > when relevant paths change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs.
 > Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
@@ -137,7 +137,7 @@ and optional `shadow-api-v1`; `hygiene` always runs, and `ci-ok` accepts intenti
 PRs targeting `main` intentionally skip `build` and `shadow-api-v1`. The production `deploy` job
 runs only on a push to `main` when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively). Deploy then applies
 remote D1 migrations and runs `wrangler deploy` using the `production` environment. All jobs use
-self-hosted runners labeled `two-selfhosted`; without its optional `CF_TOKEN`, the `shadow-api-v1`
+GitHub-hosted `ubuntu-latest` runners; without its optional `CF_TOKEN`, the `shadow-api-v1`
 probe skips contract execution.
 
 **Enable production only after the full setup is ready:**
@@ -194,7 +194,7 @@ masked by default; field names, body structure, and query params are preserved.
 | `npm run discovery:record` | Headed recorder → `tools/api-discovery/out/harvest.ndjson` (redacted). Log in, do your workflow, press Enter to stop |
 | `npm run discovery:record:full` | Same, but captures **all** headers/values (cookies, tokens) for full replay — keep the harvest private |
 | `npm run discovery:codegen` | Record your **UI actions** (clicks/typing) into a replayable Playwright script |
-| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs |
+| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs (artifacts always built; gate fails last on missing shadow routes — stale entries warn unless `--strict`) |
 | `npm run discovery:verify` | Runs **`discovery:process`** then **`npm test`** (route-map + Worker contract tests) |
 
 Typical loop: `discovery:setup` (once) → `discovery:record` while you use the site →

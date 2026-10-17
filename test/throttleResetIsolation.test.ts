@@ -5,8 +5,8 @@ import { AUTH_THROTTLE_MAX_FAILURES } from "../src/lib/authThrottle";
 // Matches wrangler.toml [env.test.vars].
 const API_TOKEN = "test-api-token";
 
-// Fresh TEST-NET IPs (TOG-6287): never used by authThrottle.test.ts
-// (203.0.113.7/.99/.200, 198.51.100.23, 192.0.2.44/.71), the TOG-6278 burst
+// Fresh TEST-NET IPs: never used by authThrottle.test.ts
+// (203.0.113.7/.99/.200, 198.51.100.23, 192.0.2.44/.71), the burst
 // audit (203.0.113.211–217, 192.0.2.211), or the gate sweep, so per-IP DO
 // buckets never leak state between suites.
 const ATTACKER_IP = "203.0.113.231";
@@ -42,7 +42,7 @@ async function burnToBlocked(ip: string): Promise<void> {
   expect(throttled.status).toBe(429);
 }
 
-describe("throttle reset-abuse isolation (TOG-6287)", () => {
+describe("throttle reset-abuse isolation", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

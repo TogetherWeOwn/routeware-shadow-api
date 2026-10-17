@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { saveCustomerLongFormBody } from "./customerFormExamples";
 
 /**
- * PII scrub audit (TOG-5821). CONVENTIONS.md §4 forbids logging cookie headers,
+ * PII scrub audit. CONVENTIONS.md §4 forbids logging cookie headers,
  * passwords, or full upstream request/response bodies in production code paths;
  * nothing pinned it. This file pins the scrub at the sites where untrusted
  * upstream text used to enter a thrown `Error`, plus fixture hygiene.
@@ -19,13 +19,13 @@ import { saveCustomerLongFormBody } from "./customerFormExamples";
  * | 6 | `src/lib/sessionRefreshLock.ts` warn | `err.message` | clean — DO transport errors |
  * | 7 | `src/app.ts` `onError` | generic 500 to client; server log carries the error class (`kind`) only | clean — client never sees internals |
  * | 8 | `src/routes/*` + `dataEntitySave.ts` 502 `detail` | `err.message` from anti-forgery prep (fixed strings, status codes) | clean — pinned below |
- * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only, reason replaced by fixed `code` (TOG-6535)** |
+ * | 9 | `src/lib/detailFullSync.ts` throw | **was** `…HTTP <status>: <upstream body slice>` → reached clients via `localSync.reason` | **FIXED — status only, reason replaced by fixed `code`** |
  * | 10 | `src/lib/routewareQueryReportCsv.ts` throw | **was** `…<status> — <upstream body slice>` → reached cron logs via `[step]` wrap | **FIXED — status only** |
- * | 11 | `src/lib/snapshot/orchestration.ts` chained throw | **was** 1200-char slice of the per-table subrequest body (upstream HTML rode the old APP ERROR + cron `failed` lines) | **FIXED — table/step/status only, zero body bytes (TOG-9205)** |
+ * | 11 | `src/lib/snapshot/orchestration.ts` chained throw | **was** 1200-char slice of the per-table subrequest body (upstream HTML rode the old APP ERROR + cron `failed` lines) | **FIXED — table/step/status only, zero body bytes** |
  * | 12 | `src/lib/readiness.ts` D1 detail (200-char slice) | D1 driver error text | clean — no PII source; existing "no secrets" test |
  * | 13 | `src/lib/httpAuth.ts` login-failure throw | status + cookie *names* (`.WebRW`, …), never values | clean — names are fixed identifiers |
- * | 14 | `src/lib/upstreamForward.ts` `stripUpstreamSetCookie` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
- * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED (TOG-6535) — ids + `upstreamBytes` + fixed `code` only; pinned below** |
+ * | 14 | `src/lib/upstreamForward.ts` `secureUpstreamResponse` | strips upstream `Set-Cookie` before responding | clean — pinned by `upstreamForward.test.ts` + `cors.test.ts` |
+ * | 15 | `POST /api/v1/data/*` response shape | submitted fields + verbatim upstream body | **FIXED — ids + `upstreamBytes` + fixed `code` only; pinned below** |
  * | 16 | fixtures (`test/customerFormExamples.ts`, `tools/api-discovery/examples/*`) | `ExampleCo` / `Jane Doe` / empty phones / omits `__RequestVerificationToken` | clean — pinned below |
  *
  * No real secrets appear anywhere in this file: the PII stand-ins below are
@@ -112,13 +112,13 @@ function expectScrubbed(message: string, status: string): void {
   expect(message).not.toContain("Set-Cookie");
 }
 
-describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
+describe("fetchGetCustomerDetailFull scrub (site 9)", () => {
   it("reports the status without the upstream body", async () => {
     // Arrange — both attempts fail with a body carrying PII-shaped text. (The
     // shared mock answers PII/503 by default; queued explicitly for clarity.)
 
     // Act — the message used to reach API clients verbatim inside
-    // `localSync.reason` before TOG-6535 (POST /api/v1/data/* keeps 200 and
+    // `localSync.reason` before the fix (POST /api/v1/data/* keeps 200 and
     // maps the sync failure to a fixed `localSync.code`).
     behavior.responses = [piiResponse, piiResponse];
     const error = (await fetchGetCustomerDetailFull(baseEnv, sessionStub, 5, true).catch(
@@ -131,8 +131,8 @@ describe("fetchGetCustomerDetailFull scrub (TOG-5821 site 9)", () => {
   });
 });
 
-describe("fetchReportCsvByQueryId scrub (TOG-5821 site 10)", () => {
-  // TOG-6543: every query-id fetch polls QueryRequestIsComplete first, so the
+describe("fetchReportCsvByQueryId scrub (site 10)", () => {
+  // Every query-id fetch polls QueryRequestIsComplete first, so the
   // download-throw pin queues a completed poll ahead of the failing download.
   const pollComplete = () =>
     new Response("true", {

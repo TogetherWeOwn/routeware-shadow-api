@@ -7,8 +7,8 @@ import {
   type AuthThrottleState
 } from "../src/lib/authThrottle";
 
-// TOG-8886 (R3-10): adversarial QA probe — X-Forwarded-For throttle evasion.
-// TOG-8888 (R3-12): the fallback is now gated behind `THROTTLE_TRUST_XFF`.
+// R3-10: adversarial QA probe — X-Forwarded-For throttle evasion.
+// R3-12: the fallback is now gated behind `THROTTLE_TRUST_XFF`.
 //
 // `clientIpFromRequest` (src/lib/authThrottle.ts) honors `X-Forwarded-For`
 // only when `THROTTLE_TRUST_XFF === "true"` (dev/test). Production (flag
@@ -20,7 +20,7 @@ import {
 // the bypass as expected-failures (`it.fails`): with the flag ON, trusting
 // XFF is the documented dev-only tradeoff, not a prod bug. The prod-like
 // behavior (flag off: XFF ignored, throttle still triggers) is pinned by
-// "XFF gate pins (TOG-8888)" at the bottom of this file via direct
+// "XFF gate pins" at the bottom of this file via direct
 // `app.fetch` with synthetic envs and a stateful in-memory throttle stub —
 // hermetic, no DO buckets involved.
 //
@@ -62,7 +62,7 @@ async function probe(opts: ProbeOpts): Promise<Response> {
   return exports.default.fetch(`http://test.local${GATED}`, { headers });
 }
 
-describe("XFF throttle-evasion probes (TOG-8886)", () => {
+describe("XFF throttle-evasion probes", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -133,7 +133,7 @@ describe("XFF throttle-evasion probes (TOG-8886)", () => {
   });
 });
 
-// TOG-8888 (R3-12) gate pins: prod-like env (flag off) ignores XFF, dev env
+// R3-12 gate pins: prod-like env (flag off) ignores XFF, dev env
 // still honors it. Driven via direct `app.fetch` with synthetic envs (the
 // `test/authModeValidation.test.ts` seam — the self-fetch suite above always
 // runs under `[env.test.vars]`, which opts the flag IN) and a stateful
@@ -203,7 +203,7 @@ async function gateCall(
   );
 }
 
-describe("XFF gate pins (TOG-8888)", () => {
+describe("XFF gate pins", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

@@ -1,5 +1,5 @@
 /**
- * TOG-6552: addresses per container `IN (...)` read. Must stay strictly below
+ * Addresses per container `IN (...)` read. Must stay strictly below
  * D1's 100-bind cap (`D1_MAX_BINDS` in `src/lib/snapshot/tableSql.ts`) — the
  * previous value equalled the cap exactly, so a ~100-address customer risked
  * a bind-limit 500. Exported so tests can prove the margin.
@@ -63,7 +63,7 @@ export async function getCustomerBundleFromD1(
   // Fetch all containers for this customer's addresses in batched IN(...) queries
   // instead of one query per address.
   //
-  // TOG-6552: chunked to stay well under D1's 100-bind cap (`D1_MAX_BINDS` in
+  // Chunked to stay well under D1's 100-bind cap (`D1_MAX_BINDS` in
   // `src/lib/snapshot/tableSql.ts`). The previous value equalled the cap
   // exactly, so a ~100-address customer risked a bind-limit 500.
   const containersByAddress = new Map<number, Record<string, unknown>[]>();

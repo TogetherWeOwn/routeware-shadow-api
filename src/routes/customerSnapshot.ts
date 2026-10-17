@@ -112,7 +112,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const total = totalRow?.n ?? 0;
   // A cursor seeks from `customer_id > ?` and never needs OFFSET; keeping the
   // OFFSET-less form off the cursor path is what avoids the scan-past-N-rows
-  // cost this route exists to remove (TOG-5810).
+  // cost this route exists to remove.
   const pageSql =
     p.cursor !== undefined
       ? "ORDER BY customer_id LIMIT ?"
@@ -133,7 +133,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
 });
 
 /**
- * Changes feed: rows touched by the syncs after a client-held cursor (TOG-8877).
+ * Changes feed: rows touched by the syncs after a client-held cursor.
  *
  * A client keeps the largest `(synced_at, customer_id)` pair it has seen and
  * replays `GET /api/v1/customer-snapshot/changes?since=<ts>&since_id=<id>` to
@@ -229,7 +229,7 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
     .bind(...binds)
     .all();
   const rows = results ?? [];
-  // Same convention as the list routes (TOG-5810): full page ⇒ maybe more.
+  // Same convention as the list routes: full page ⇒ maybe more.
   // The cursor is the last row's composite pair, so resuming keeps
   // `(synced_at, customer_id)` keyset order with no boundary skip.
   const last = rows.length === p.limit ? (rows[rows.length - 1] as Record<string, unknown>) : null;
@@ -377,9 +377,9 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+  // `?dryRun=true` runs the full parse/validate path and returns
   // the would-be counts while writing nothing (no D1, no R2).
-  // TOG-19134: forward a valid inbound `x-run-id` so this invocation's
+  // Forward a valid inbound `x-run-id` so this invocation's
   // lines share the originating run's correlation id. Invalid values are
   // dropped — correlation must never fail a sync.
   const runId = parseRunIdHeader(c.req.header("x-run-id"));
@@ -469,7 +469,7 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
       requireDataRows: true,
       rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
-      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      // `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))
     });
     return c.json(r, 200);
@@ -487,20 +487,28 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
 });
 
 /**
- * Customer-row erasure (TOG-8876): hard-deletes one `customer_snapshot` row.
+ * Customer-row erasure: hard-deletes one `customer_snapshot` row.
  *
  * This erases the cached report extract only — it never touches upstream
  * Routeware (which exposes no customer hard delete; see
  * `docs/PROBLEMS.md#method-not-allowed`). Erasure removes the D1
  * `customer_snapshot` row and evicts the data-entity cache entry. It does not
  * remove R2 history CSVs, daily aliases, latest pointers, or the
- * archived-CSV readback, and it does not touch upstream Routeware. The row
- * returns on the next sync — or on the next save for that customer through
- * the proxy — while upstream still holds it (no suppression
- * list; see TOG-18933). Any R2 restore or CSV import of an archive taken
- * before the erasure re-inserts the row, and D1 Time Travel can restore it
- * for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
- * after any restore. This route removes only the `customer_snapshot` row:
+ * archived-CSV readback, and it does not touch upstream Routeware. An id-only
+ * D1 tombstone suppresses the customer on later sync, proxy-save refresh, and
+ * CSV/archive import. Suppressed address writes for that customer are skipped
+ * and recorded as id-only lineage so their container writes are skipped too.
+ * This is local cache suppression, not upstream erasure;
+ * tombstones persist until explicitly removed. A restore of a D1 backup from
+ * before the erasure may restore both the customer row and an older schema
+ * without the tombstone/triggers. D1 Time Travel can restore data for up to
+ * 30 days (7 days on the Workers Free plan), so verify suppression after
+ * database recovery. Customers erased before the suppression migration have
+ * no tombstone; backfill them with privileged `wrangler d1 execute` inserts
+ * (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+ * List and remove markers only with privileged `wrangler d1 execute`
+ * SELECT/DELETE; there is no marker list or delete route. This route removes
+ * only the `customer_snapshot` row:
  * the customer's `address_snapshot` and `container_snapshot` rows are not
  * removed by this route. There is no address or container DELETE route —
  * address rows leave D1 only through upstream-driven reconciliation or
@@ -518,7 +526,7 @@ const customerSnapshotDeleteRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:
-    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it. Any R2 restore or CSV import of an archive taken before the erasure re-inserts the row, and D1 Time Travel can restore it for up to 30 days (7 days on the Workers Free plan), so re-apply erasures after any restore. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
+    "Hard-deletes one `customer_snapshot` row by `customerId` (GDPR-style erasure for the cached report extract — upstream Routeware is untouched). Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when no row exists. Refuses with 400 `bad-request` when address rows still reference the customer — delete the addresses first; the D1 foreign key is never bypassed. A successful delete removes the D1 `customer_snapshot` row and evicts the cached data-entity customer bundle (other edge locations and clients may keep serving the erased PII until the 60 s cache TTL expires). It does not remove R2 history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and it does not touch upstream Routeware. A D1 tombstone suppresses the customer on later sync, proxy-save refresh, and CSV/archive import while upstream still holds it. Suppressed address writes for that customer are skipped and recorded as id-only lineage so their container writes are skipped too. This is local cache suppression, not upstream erasure; tombstones persist until explicitly removed. A restore of a D1 backup from before the erasure may restore both the customer row and an older schema without the tombstone/triggers. D1 Time Travel can restore data for up to 30 days (7 days on the Workers Free plan), so verify suppression after database recovery. Customers erased before the suppression migration have no tombstone; backfill them with privileged `wrangler d1 execute` inserts (see docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933). List and remove markers only with privileged `wrangler d1 execute` SELECT/DELETE; there is no marker list or delete route. This route removes only the `customer_snapshot` row: the customer's `address_snapshot` and `container_snapshot` rows are not removed by this route. There is no address or container DELETE route — address rows leave D1 only through upstream-driven reconciliation or through direct privileged `wrangler d1 execute` deletes in container → address → customer FK order before retrying the customer delete.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
   },
@@ -575,11 +583,21 @@ customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
     return customerNotFound();
   }
   try {
-    const res = await db
-      .prepare("DELETE FROM customer_snapshot WHERE customer_id = ?")
-      .bind(customerId)
-      .run();
-    if ((res.meta.changes ?? 0) === 0) {
+    // Commit the marker and row deletion together: a failed FK delete must not
+    // leave a tombstone that silently suppresses a still-present customer.
+    // Re-check existence in the batch so a concurrent reconcile/delete cannot
+    // create a new marker behind our 404 response.
+    const [, res] = await db.batch([
+      db
+        .prepare(
+          "INSERT INTO customer_snapshot_erasure (customer_id, erased_at) SELECT customer_id, ? FROM customer_snapshot WHERE customer_id = ? ON CONFLICT(customer_id) DO UPDATE SET erased_at = excluded.erased_at"
+        )
+        .bind(new Date().toISOString(), customerId),
+      db
+        .prepare("DELETE FROM customer_snapshot WHERE customer_id = ?")
+        .bind(customerId)
+    ]);
+    if ((res?.meta.changes ?? 0) === 0) {
       // Lost a race with a concurrent delete: the row is gone, so answer absent.
       return customerNotFound();
     }
@@ -619,7 +637,7 @@ customerSnapshotRoutes.openapi(customerSnapshotDeleteRoute, async (c) => {
   // serving the deleted row's PII until TTL expiry. Refuse-semantics plus the
   // D1 FK above guarantee no address/container bundle can reference this
   // customer (any remaining child 400s the delete), so the single customer key
-  // is the whole stale set. Propagates on failure (TOG-6533): never report
+  // is the whole stale set. Propagates on failure: never report
   // success while erased PII may still serve.
   await invalidateDataEntity("customer", customerId);
   return c.json({ customerId, deleted: 1 }, 200);

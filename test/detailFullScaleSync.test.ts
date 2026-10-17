@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-5819: mocked-upstream proof that the `GetCustomerDetailFull` sync path
+ * Mocked-upstream proof that the `GetCustomerDetailFull` sync path
  * (`src/lib/detailFullSync.ts`) handles large customer graphs without loss.
  *
  * The shadow `detail-full` route itself is a byte passthrough (pinned in

@@ -4,9 +4,9 @@ import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 /**
- * Consumer-content pass for Scalar `/docs` (TOG-7381).
+ * Consumer-content pass for Scalar `/docs`.
  *
- * TOG-6283 covers the gated-404 vs enabled-render states only. This pins the
+ * Covers the gated-404 vs enabled-render states only. This pins the
  * *content* quality a first consumer sees in Scalar, driven off the generated
  * `/openapi.json` (the same document Scalar renders), without freezing the
  * whole doc — that is the snapshot's job in `openapiContract.test.ts`:
@@ -131,7 +131,7 @@ function docExample(body: { requestBody?: OpenApiDocument["paths"][string][strin
   return first?.example ?? first?.examples;
 }
 
-describe("Scalar /docs consumer content (TOG-7381)", () => {
+describe("Scalar /docs consumer content", () => {
   it("every tagged operation has a summary and a description", async () => {
     // Arrange
     const doc = await fetchOpenApiDocument();

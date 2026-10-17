@@ -11,7 +11,7 @@ import {
 import { mapDetailFullToRows } from "../src/lib/detailFullSync";
 
 /**
- * TOG-6542: the same entity flapped disabled/enabled between the cron CSV
+ * The same entity flapped disabled/enabled between the cron CSV
  * path and the POST write-through path when `Enabled`/`ExtrasAllowed` were
  * absent. Cron collapses "column absent" and "empty cell" to `""` (via
  * `cell()`), and `parseBool("")` is `false`; write-through

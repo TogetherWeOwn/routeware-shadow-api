@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-6540 — the snapshot-door twin of the route-tier session retry (TOG-6515).
+ * The snapshot-door twin of the route-tier session retry.
  *
  * Routeware answers an expired admin session with HTTP 200 carrying the login
  * form as often as with a 302, and both cron report doors
@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * through as "CSV" and failed the cron spuriously (`streamSync` rejects it as
  * "not valid CSV", or parses zero rows). Both doors now take the same single
  * re-login + retry as `forwardWithSessionRetry` on a 200 login page, and throw
- * (status-only, never the upstream body — TOG-5821) when the retry still sees
+ * (status-only, never the upstream body) when the retry still sees
  * one instead of returning HTML as CSV.
  *
  * Fixtures are structural only (form shape + FAKE stand-ins, no PII/secrets).
@@ -84,7 +84,7 @@ const env = {
   TARGET_ORIGIN: "https://killeen.example.test",
   TARGET_BASE_PATH: "/WebRW",
   LOGIN_URL: "https://killeen.example.test/WebRW/Account/Login",
-  // TOG-6543: 1ms inter-poll delay keeps the poll budget/loop real without
+  // 1ms inter-poll delay keeps the poll budget/loop real without
   // slowing the suite (the guard treats 0 as absent, so it must be ≥ 1).
   REPORT_QUERY_POLL_INTERVAL_MS: "1",
   AUTH_SESSION: {
@@ -102,7 +102,7 @@ beforeEach(() => {
   behavior.responses = [];
 });
 
-describe("fetchReportCsvForPath 200-login-page retry (TOG-6540)", () => {
+describe("fetchReportCsvForPath 200-login-page retry", () => {
   it("re-establishes and retries once on a 200 login page, returning the CSV", async () => {
     // Arrange — expired session served as HTTP 200 login HTML, then real CSV.
     behavior.responses = [loginPage, () => csv()];
@@ -130,7 +130,7 @@ describe("fetchReportCsvForPath 200-login-page retry (TOG-6540)", () => {
     )) as Error;
 
     // Assert — no retry loop (2 forwards, 1 login), and no byte of the
-    // upstream body survives in the message (TOG-5821).
+    // upstream body survives in the message.
     expect(calls.established).toBe(1);
     expect(calls.forwards).toHaveLength(2);
     expect(error).toBeInstanceOf(Error);
@@ -139,8 +139,8 @@ describe("fetchReportCsvForPath 200-login-page retry (TOG-6540)", () => {
   });
 });
 
-describe("fetchReportCsvByQueryId 200-login-page retry (TOG-6540)", () => {
-  // TOG-6543: every query-id fetch polls QueryRequestIsComplete first, so each
+describe("fetchReportCsvByQueryId 200-login-page retry", () => {
+  // Every query-id fetch polls QueryRequestIsComplete first, so each
   // queue below starts with a completed poll; the download responses follow.
   const pollComplete = () =>
     new Response("true", {
@@ -178,7 +178,7 @@ describe("fetchReportCsvByQueryId 200-login-page retry (TOG-6540)", () => {
     )) as Error;
 
     // Assert — no retry loop (3 forwards, 1 login), and no byte of the
-    // upstream body survives in the message (TOG-5821).
+    // upstream body survives in the message.
     expect(calls.established).toBe(1);
     expect(calls.forwards).toHaveLength(3);
     expect(error).toBeInstanceOf(Error);

@@ -12,7 +12,7 @@ import {
 } from "../src/lib/r2SnapshotArchive";
 
 /**
- * R2 archive integrity manifest (TOG-8881, gap R3-06).
+ * R2 archive integrity manifest (gap R3-06).
  *
  * After a successful D1 sync the archiver writes the CSV and upserts one
  * entry (`{key, sha256, bytes}`) into the date's sidecar

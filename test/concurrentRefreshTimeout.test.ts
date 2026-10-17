@@ -13,7 +13,7 @@ import {
 import type { SessionState } from "../src/lib/sessionState";
 
 /**
- * Fail-closed waiter on refresh-lock timeout (TOG-6526).
+ * Fail-closed waiter on refresh-lock timeout.
  *
  * Bug: `waitForConcurrentRefresh` returned void on its 20s deadline and
  * `establishSession` returned with it — after a hung refresh the request
@@ -31,7 +31,7 @@ import type { SessionState } from "../src/lib/sessionState";
  *    ever forwarding the stale cookie. (`app.onError` carries the same 502
  *    mapping as a backstop for direct `establishSession` callers such as the
  *    snapshot sync routes.)
- * 4. TOG-6527: the waiter budget is derived from the lock TTL
+ * 4. The waiter budget is derived from the lock TTL
  *    (`WAIT_TIMEOUT_MS = LOCK_TTL_MS - 30s`), covering a worst-case ~47s
  *    browser login — cold-start waiters previously timed out at 20s while
  *    the login was still running.
@@ -93,7 +93,7 @@ const ctx = {
   passThroughOnException() {}
 } as unknown as ExecutionContext;
 
-describe("waitForConcurrentRefresh deadline (TOG-6526)", () => {
+describe("waitForConcurrentRefresh deadline", () => {
   it("throws ConcurrentRefreshTimeoutError with a fixed PII-free message", async () => {
     // Arrange — a holder that never publishes: every poll still refreshing.
     const stub = hungStub();
@@ -135,7 +135,7 @@ describe("waitForConcurrentRefresh deadline (TOG-6526)", () => {
   });
 });
 
-describe("waiter budget derivation (TOG-6527)", () => {
+describe("waiter budget derivation", () => {
   it("WAIT_TIMEOUT_MS is derived from LOCK_TTL_MS with margin on both sides", () => {
     // The browser path costs ~47s (two 15s selector waits + 15s navigation +
     // 2s settle in `browserAuth.ts`); the old fixed 20s budget timed every
@@ -147,7 +147,7 @@ describe("waiter budget derivation (TOG-6527)", () => {
     expect(WAIT_TIMEOUT_MS).toBeLessThan(LOCK_TTL_MS);
   });
 
-  it("a waiter survives a 50s browser login (cold start, TOG-6527)", async () => {
+  it("a waiter survives a 50s browser login (cold start)", async () => {
     // Arrange — the holder publishes 50s in: past the old 20s deadline (this
     // test rejects under the old budget), inside the new 90s budget. Fake
     // timers drive the poll loop deterministically.
@@ -203,7 +203,7 @@ describe("concurrentRefreshTimeoutProblem", () => {
   });
 });
 
-describe("forwardWithSessionRetry on refresh timeout (TOG-6526)", () => {
+describe("forwardWithSessionRetry on refresh timeout", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -326,7 +326,7 @@ describe("forwardWithSessionRetry on refresh timeout (TOG-6526)", () => {
   });
 });
 
-describe("app end-to-end on refresh timeout (TOG-6526)", () => {
+describe("app end-to-end on refresh timeout", () => {
   const originalFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = originalFetch;
