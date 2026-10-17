@@ -11,7 +11,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   401/429 and `notFound`/`onError` responses are never stored by a browser
   private cache. Handler-set values are preserved: data-entity reads keep
   `private, max-age=60` with their `ETag`, contained upstream errors keep
-  `no-store`. Preflight, `/openapi.json` and `/docs` are unchanged. Pinned in
+  `no-store`. Successful client-facing proxy responses replace upstream cache
+  directives with `no-store`, including the sessionless login-page proxy.
+  Preflight, `/openapi.json` and `/docs` are unchanged. Pinned in
   `test/cacheControlNoStore.test.ts`; policy recorded in
   `docs/TOG-8368-cors-security-headers-audit.md`.
 - TOG-22034: The supported Node runtime moves from 20 (end of life

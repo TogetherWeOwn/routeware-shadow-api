@@ -66,6 +66,7 @@ describe("login-page session isolation (TOG-6297)", () => {
             status: 200,
             headers: {
               "content-type": "text/html",
+              "cache-control": "public, max-age=86400",
               "set-cookie": ".WebRW=upstream-session; Path=/; HttpOnly"
             }
           });
@@ -108,5 +109,6 @@ describe("login-page session isolation (TOG-6297)", () => {
     expect(upstreamCookies).toEqual([null]);
     expect(response.headers.get("set-cookie")).toBeNull();
     expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("cache-control")).toBe("no-store");
   });
 });

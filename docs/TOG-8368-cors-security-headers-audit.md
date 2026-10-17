@@ -74,7 +74,7 @@ private cache; `no-store` is the fail-closed default.
 | Snapshot CSV exports (`...-snapshot/export`, 200 and `304`) | `no-store` | Export sets `ETag` only; the `304` keeps its empty body. Conditional re-downloads still skip the body via `If-None-Match`. |
 | Archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`, 200 and `304`) | `no-store` | Same shape as exports: `ETag` set, policy stamped. |
 | Data-snapshot sync / orphans (`/api/v1/data-snapshot/*`) | `no-store` | No handler value; stamped by `withCors`. |
-| Routeware / customer / address / container proxies (success passthroughs) | `no-store` | `forwardPassthrough` replaces any upstream `Cache-Control` value before returning success responses. |
+| Routeware / customer / address / container proxies (success responses) | `no-store` | Client-facing forwarders replace any upstream `Cache-Control` value before returning the response, including the sessionless login-page proxy. |
 | Data-entity writes (`POST /api/v1/data/*`) | `no-store` | JSON outcome envelope sets no policy; stamped by `withCors`. |
 | `GET /api/v1/health` (public) and `GET /api/v1/readiness` (200 and 503) | `no-store` | Stamped on the public path and the authorized path alike. |
 | Gate `401` and throttle `429` problem responses | `no-store` | Returned through `withCors` at the gate. |
