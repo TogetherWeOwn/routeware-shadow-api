@@ -40,10 +40,13 @@ function readInput(label, fn) {
   }
 }
 
+// `-z` NUL framing: plain `git ls-files` C-quotes non-ASCII paths under the
+// default `core.quotePath` (e.g. `"docs/R\303\251sum\303\251.md"`), whose
+// closing quote fails the `.md` suffix filter and silently unscans the file.
 const tracked = readInput("git index", () =>
-  execFileSync("git", ["ls-files"], { cwd: root, encoding: "utf8" })
-    .split("\n")
-    .map((line) => line.trim().replace(/\\/g, "/"))
+  execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
+    .split("\0")
+    .map((line) => line.replace(/\\/g, "/"))
     .filter((line) => line !== ""),
 );
 
