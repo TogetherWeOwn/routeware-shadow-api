@@ -9,7 +9,7 @@ import { errorKind, logEvent } from "./logger";
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
 /**
- * Machine-readable R2 outcome for one table's archive leg (TOG-6549).
+ * Machine-readable R2 outcome for one table's archive leg.
  *
  * The cron's structured line keys on this — a failed or disabled archive must
  * never again hide behind a D1 `outcome:success`. Only the status, the object
@@ -69,7 +69,7 @@ export function snapshotR2ObjectKey(
 }
 
 /**
- * Sidecar integrity manifest for one UTC date's archive (TOG-8881).
+ * Sidecar integrity manifest for one UTC date's archive.
  *
  * Key: `snapshots/YYYY-MM-DD.manifest.json` — a sibling of the date's CSV
  * "directory" (R2 has no real directories, so the manifest sits next to it,
@@ -165,7 +165,7 @@ export async function putReadableStreamToR2(
   key: string,
   stream: ReadableStream<Uint8Array>,
   options: { httpMetadata: R2HTTPMetadata },
-  // Per-run correlation id (TOG-19134): carried onto the abort-failure warn
+  // Per-run correlation id: carried onto the abort-failure warn
   // when present; absent for direct callers without a run (unchanged records).
   runId?: string
 ): Promise<void> {
@@ -251,10 +251,10 @@ export async function putReadableStreamToR2(
  * Stream `body` through D1 (`sync`) first, then upload the **same bytes** to R2.
  *
  * D1 is primary and the R2 write runs strictly after it resolves: a failed D1
- * sync must never leave a phantom archive row-set that the database never got
- * (TOG-6550). R2 is best-effort — its failures are logged, not thrown.
+ * sync must never leave a phantom archive row-set that the database never got.
+ * R2 is best-effort — its failures are logged, not thrown.
  *
- * `onArchive` reports the machine-readable R2 outcome (TOG-6549) on every
+ * `onArchive` reports the machine-readable R2 outcome on every
  * path — disabled, stored, or failed — so the caller can surface it in the
  * cron log line instead of leaving a missing archive behind a D1
  * `outcome:success`. The callback fires at most once per call and never
@@ -274,7 +274,7 @@ export async function archiveReportCsvToR2AfterD1<T>(
   body: ReadableStream<Uint8Array>,
   sync: (stream: ReadableStream<Uint8Array>) => Promise<T>,
   onArchive?: (detail: R2ArchiveDetail) => void,
-  // Per-run correlation id (TOG-19134): when present, every log line on the
+  // Per-run correlation id: when present, every log line on the
   // archive leg carries it, so the R2 leg attributes to its originating run.
   runId?: string
 ): Promise<T> {
@@ -415,8 +415,8 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
 }
 
 /**
- * Read-modify-write one table's entry into the date's sidecar manifest
- * (TOG-8881). Creates the manifest when absent; a corrupt existing manifest
+ * Read-modify-write one table's entry into the date's sidecar manifest.
+ * Creates the manifest when absent; a corrupt existing manifest
  * is replaced (warned) so one bad sidecar cannot wedge future archives —
  * `verify-r2-manifest` then reports the other tables as missing, loudly.
  *
@@ -429,7 +429,7 @@ export async function updateSnapshotManifest(
   bucket: R2Bucket,
   manifestKey: string,
   entries: Record<string, SnapshotManifestFileEntry>,
-  // Per-run correlation id (TOG-19134): carried onto the replace-path warns
+  // Per-run correlation id: carried onto the replace-path warns
   // when present; absent for direct callers without a run (unchanged records).
   runId?: string
 ): Promise<void> {
@@ -485,7 +485,7 @@ function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
 }
 
 /**
- * Read one archived snapshot CSV back from R2 as a stream (TOG-7394).
+ * Read one archived snapshot CSV back from R2 as a stream.
  *
  * Inverse of the R2 leg in `archiveReportCsvToR2AfterD1`: returns the stored
  * bytes for `snapshots/YYYY-MM-DD/{table}.csv` so the caller can re-sync them

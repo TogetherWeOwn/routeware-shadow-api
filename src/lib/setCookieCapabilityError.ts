@@ -1,5 +1,5 @@
 /**
- * Missing `Headers.getSetCookie` capability signal (TOG-6537).
+ * Missing `Headers.getSetCookie` capability signal.
  *
  * `mergeSetCookies` (`src/lib/httpAuth.ts`) used to fall back to `[]` when
  * the runtime had no `Headers.getSetCookie`, so every HTTP login silently
@@ -12,8 +12,8 @@
  * Rendering budget on a platform gap, not a markup change.
  *
  * Lives in its own module on purpose: test files mock `../httpAuth`, which
- * would wipe a class defined there (see TOG-6531's `InvalidAuthModeError`
- * precedent in `establishSession.ts` and TOG-6536's `LoginPageUnavailableError`
+ * would wipe a class defined there (see `InvalidAuthModeError`
+ * precedent in `establishSession.ts` and `LoginPageUnavailableError`
  * in `loginPageError.ts`). A name check (not `instanceof`) keeps the predicate
  * true across module doubles.
  *

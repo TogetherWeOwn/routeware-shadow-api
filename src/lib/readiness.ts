@@ -1,12 +1,12 @@
 /**
- * Deep readiness probe (TOG-5816).
+ * Deep readiness probe.
  *
  * `GET /api/v1/health` is an unauthenticated liveness check — it proves the
  * Worker is running and nothing more. This module answers the next question an
  * operator asks after a deploy: is D1 reachable, is the R2 binding present,
  * are the report sources the snapshot sync needs actually configured, and
  * when did the daily cron last run (the advisory `cron` staleness probe,
- * TOG-8883 — never flips the overall status)?
+ * never flips the overall status)?
  *
  * Only booleans and short status strings leave this module — never secret
  * values, never row data (customer PII flows through the snapshot path, so
@@ -41,7 +41,7 @@ export type CronTableState = {
 };
 
 /**
- * Cron staleness probe (TOG-8883). Reports the last persisted cron run per
+ * Cron staleness probe. Reports the last persisted cron run per
  * table (`cron_sync_state`, written by `src/scheduled.ts` after every run):
  * `lastRunAt` is the newest row timestamp, `tables` carries each table's own
  * outcome + timestamp, `stale` is true when no row exists or the newest row

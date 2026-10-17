@@ -271,9 +271,9 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
     });
   }
   try {
-    // TOG-9203: `?dryRun=true` runs the full parse/validate path and returns
+    // `?dryRun=true` runs the full parse/validate path and returns
     // the would-be counts while writing nothing (no D1, no R2).
-    // TOG-19134: forward a valid inbound `x-run-id` so this invocation's
+    // Forward a valid inbound `x-run-id` so this invocation's
     // lines share the originating run's correlation id. Invalid values are
     // dropped — correlation must never fail a sync.
     const runId = parseRunIdHeader(c.req.header("x-run-id"));
@@ -366,7 +366,7 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
       requireDataRows: true,
       rejectControlCharacters: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
-      // TOG-9203: `?dryRun=true` validates and counts without writing D1.
+      // `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))
     });
     return c.json(r, 200);

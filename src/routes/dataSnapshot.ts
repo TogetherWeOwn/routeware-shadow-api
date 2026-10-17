@@ -60,7 +60,7 @@ const dataSnapshotSyncRoute = createRoute({
 /**
  * The combined shape is `{upserted, rowCount} | null` per table — the
  * per-table `deleted` reconcile counts stay on the per-table sync responses
- * and the cron line, and are stripped here (TOG-7391). Pinned by
+ * and the cron line, and are stripped here. Pinned by
  * `test/syncSummaryContract.test.ts` and `test/dataSnapshotRoutes.test.ts`.
  */
 function withoutDeleted(
@@ -75,8 +75,8 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
-  // TOG-9203: forward `?dryRun=true` to every chained per-table subrequest.
-  // TOG-19134: forward a valid inbound `x-run-id` the same way, so a direct
+  // Forward `?dryRun=true` to every chained per-table subrequest.
+  // Forward a valid inbound `x-run-id` the same way, so a direct
   // combined call still correlates its sub-invocations. Invalid values are
   // dropped — correlation must never fail a sync.
   const runId = parseRunIdHeader(c.req.header("x-run-id"));

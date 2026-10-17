@@ -6,7 +6,7 @@ import { findForeignKeyError } from "../lib/snapshot/upsert";
 import type { AppEnv } from "./types";
 
 /**
- * Default zod-validation hook for every route module (TOG-5836).
+ * Default zod-validation hook for every route module.
  *
  * Without this, `@hono/zod-openapi` answers schema rejections (bad query,
  * path or body shapes) with its raw `{success:false, error}` 400 as
@@ -72,7 +72,7 @@ export function createRouteModule(): OpenAPIHono<AppEnv> {
  * on top of the app-wide `/api/v1/*` bearer gate in `app.ts`.
  *
  * Only the sync secret clears it — never `SHADOW_API_TOKEN`, and never the
- * read-only `SHADOW_API_READ_TOKEN` (TOG-8878): the read token may pass the
+ * read-only `SHADOW_API_READ_TOKEN`: the read token may pass the
  * outer gate on GET, but every privileged route (including GET exports and
  * `/api/v1/data/*` reads) 401s here.
  */
@@ -89,7 +89,7 @@ type SnapshotAuthContext = {
  * Guard for the snapshot-secret routes: returns a 401 problem+json response to
  * return as-is, or `null` when the caller is authorized.
  *
- * The detail is fixed here (TOG-7030): every privileged route names the sync
+ * The detail is fixed here: every privileged route names the sync
  * secret and the remedy doc, so clients see one canonical 401 body.
  */
 export function requireSnapshotAuth(c: SnapshotAuthContext): Response | null {
@@ -125,7 +125,7 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
 }
 
 /**
- * `?dryRun=true` query flag for the snapshot sync/import routes (TOG-9203).
+ * `?dryRun=true` query flag for the snapshot sync/import routes.
  * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
  * string (including `"false"`) to `true`, which would turn a cautious
  * `?dryRun=false` probe into a real write. Only the exact string `"true"`
@@ -483,7 +483,7 @@ export const containerSaveFormDocs: RouteDocs = {
  * `nextCursor` is the last row's primary key when the page came back full
  * (there may be more rows), or `null` at the end of the result set — set on
  * every list response, not just cursor-driven ones, so an offset caller can
- * switch to cursor pagination once OFFSET gets expensive (TOG-5810).
+ * switch to cursor pagination once OFFSET gets expensive.
  */
 export const snapshotListResponse = z
   .object({
@@ -494,7 +494,7 @@ export const snapshotListResponse = z
   .openapi("CustomerSnapshotList");
 
 /**
- * Worked 200 result for the snapshot import/sync responses (TOG-8360).
+ * Worked 200 result for the snapshot import/sync responses.
  *
  * Byte-identical to the bodies pinned by `test/syncSummaryContract.test.ts`
  * (`{upserted: 2, rowCount: 2, deleted: 0}`), so the Scalar "try it" panel
@@ -509,7 +509,7 @@ export const snapshotWriteResultExample = {
 };
 
 /**
- * Worked 200 result for `POST /api/v1/data-snapshot/sync` (TOG-8360): one
+ * Worked 200 result for `POST /api/v1/data-snapshot/sync`: one
  * `{upserted, rowCount}` pair per table, matching the combined-shape contract
  * in `test/syncSummaryContract.test.ts` (no `deleted` leak, `null` when a
  * table is skipped).

@@ -17,7 +17,7 @@ export type RoutewareSaveKind = "customer" | "address" | "container";
  * successful upstream save; the routeware tier used to forward upstream and
  * return, so a successful save (including the documented
  * `Enabled=false` disable flow) stayed invisible to shadow reads until the
- * next cron sync (TOG-6463).
+ * next cron sync.
  *
  * Never throws: the upstream save succeeded, so a local refresh failure must
  * not turn the passthrough 200 into a 500. Failures are logged, and the

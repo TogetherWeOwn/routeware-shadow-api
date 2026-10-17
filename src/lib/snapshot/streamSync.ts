@@ -20,7 +20,7 @@ export const STREAM_BATCH_ADDR = 80;
 export const STREAM_BATCH_CONT = 40;
 
 /**
- * Cap on `...-snapshot/import` request bodies (TOG-6279). The report `sync`
+ * Cap on `...-snapshot/import` request bodies. The report `sync`
  * path is uncapped — upstream export size is the operator's own config — and
  * both paths stream, so neither buffers the whole file either way.
  */
@@ -91,7 +91,7 @@ export function isSnapshotTooLarge(e: unknown): boolean {
 }
 
 /**
- * TOG-6541: read the expected header off the *parsed* first cell, not the raw
+ * Read the expected header off the *parsed* first cell, not the raw
  * line. Real exports quote headers (`"CustomerID",...`) and `parseCsvLine`
  * strips those quotes; the old raw `line.startsWith(...)` rejected a valid
  * quoted export while the row parser below would have accepted it. Carried
@@ -135,7 +135,7 @@ export async function syncCustomerSnapshotFromStream(
   let dataRows = 0;
   let upserted = 0;
   // Dry runs keep every seen primary key so the would-be delete count can
-  // exclude rows the CSV would refresh (TOG-9203). Only populated in
+  // exclude rows the CSV would refresh. Only populated in
   // dry-run mode, so real syncs keep their streaming memory profile.
   const dryRunKeys: number[] = [];
 
@@ -230,7 +230,7 @@ export async function syncAddressSnapshotFromStream(
   const batch: AddressSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
-  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // Same dry-run contract as the customer path above: count rows
   // without touching D1, keep seen keys for the would-be delete count.
   const dryRunKeys: number[] = [];
 
@@ -325,7 +325,7 @@ export async function syncContainerSnapshotFromStream(
   const batch: ContainerSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
-  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // Same dry-run contract as the customer path above: count rows
   // without touching D1, keep seen keys for the would-be delete count.
   const dryRunKeys: number[] = [];
 
