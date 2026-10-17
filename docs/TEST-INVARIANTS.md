@@ -69,6 +69,12 @@ change.** This is a measurement correction, and it is the one time these floors 
 - `r2SnapshotArchive.ts` — 62.3% statements, 28.6% functions.
 - `routewareQueryReportCsv.ts` — 69.8% statements, 51.1% functions.
 
+### Test worker bindings (TOG-21992)
+
+`vitest.config.ts` builds the test worker's `miniflare.bindings` from `wrangler.toml [env.test.vars]`,
+so the toml is the single source: change it to change the test env. A local `.dev.vars` never affects
+`npx vitest run`.
+
 ---
 
 ## Worker caps — why local runs don't use every core

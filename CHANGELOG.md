@@ -46,6 +46,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   server-side and keeps the fixed `sync_failed` / `unknown_customer_id`
   outcome instead of rejecting the handler, and every posted id is attempted
   even when an earlier eviction throws.
+- TOG-21964: Customer snapshot DELETE records a D1 suppression marker atomically
+  with the row deletion. The additive suppression migration prevents later
+  customer upserts from re-inserting a marked row; FK-blocked deletes roll back
+  the marker too. Suppressed address writes for a marked customer are skipped
+  and recorded as id-only lineage so their container writes are skipped as
+  well; other customers keep fail-closed foreign keys. Container suppression
+  keys on that lineage alone, so an erased customer's containers cannot replay
+  after a live-to-erased re-home, while an address re-homed to a live customer
+  flows again once its stale lineage is cleared. A suppressed re-home into an
+  erased customer also removes that address's existing containers at once, so
+  the stale parent reconciles away on the next sync instead of failing the
+  address-stage delete with a foreign-key error on every tick. Customers erased before this
+  migration have no marker; backfill the marker plus FK-order row deletes with
+  privileged `wrangler d1 execute` (a marker over re-inserted rows freezes them
+  without removing them) and manage markers only via privileged SQL (see
+  `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+  This is local suppression, not upstream or R2 erasure. A
+  whole-database restore can rewind markers and triggers; recovery must verify
+  both and re-apply suppression before serving traffic. Application rollback
+  retains the suppression schema and recorded markers. No live migration,
+  deployment, archive deletion, or automatic marker expiry is included.
 
 - TOG-18119: A request waiting on a concurrent Routeware session refresh no
   longer succeeds with the failed holder's expired cookie. After an explicit
