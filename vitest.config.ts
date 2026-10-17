@@ -5,7 +5,7 @@ import { defineConfig } from "vitest/config";
 import { unstable_readConfig } from "wrangler";
 
 /**
- * Test bindings from wrangler.toml `[env.test.vars]` (TOG-21992), read by
+ * Test bindings from wrangler.toml `[env.test.vars]`, read by
  * wrangler itself so the toml stays the single source of truth: adding or
  * editing a key there flows into the test env exactly as wrangler parses it
  * (trailing header comments, booleans, arrays, escapes, bare numbers such as
@@ -47,7 +47,7 @@ const sharedTestOptions = {
   testTimeout: 30_000,
   hookTimeout: 30_000,
   /**
-   * Worker caps (TOG-7666 CI, TOG-19021 local). An unrestricted
+   * Worker caps for CI and local runs. An unrestricted
    * `vitest run --coverage` spawns a worker per core per job; several CI jobs
    * share each self-hosted runner, and local workloads also compete for host
    * resources. Under istanbul instrumentation, oversubscribed workers stall
@@ -64,7 +64,7 @@ export default defineConfig({
   test: {
     maxWorkers: process.env.CI ? 2 : localMaxWorkers,
     /**
-     * Two projects (TOG-25213): the whole suite runs in workerd, except the
+     * Two projects: the whole suite runs in workerd, except the
      * node-only tests, which run in the node forks pool instead: the R2
      * lifecycle proposal guard test reads the committed JSON file from disk
      * (`node:fs`) — stubbed out in the workers pool — and the deps-audit
@@ -73,8 +73,8 @@ export default defineConfig({
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
      *
-     * The workerd project pins `miniflare.bindings` from `testVars` above
-     * (TOG-21992): bindings win over Wrangler's local `.dev.vars` secrets,
+     * The workerd project pins `miniflare.bindings` from `testVars` above:
+     * bindings win over Wrangler's local `.dev.vars` secrets,
      * so a local `.dev.vars` can never override a test binding. The node-pool
      * project needs no bindings (it only reads a committed JSON file).
      */
@@ -92,7 +92,7 @@ export default defineConfig({
           ...sharedTestOptions,
           include: ["test/**/*.test.ts"],
           // snapshotExportMemory runs separately under vitest.memory.config.ts
-          // (TOG-8892: 32 MiB heap ceiling with --expose-gc); it must stay out
+          // (32 MiB heap ceiling with --expose-gc); it must stay out
           // of the default suite, alongside the node-pool R2 proposal guard
           // and the node-pool deps-audit wrapper test.
           exclude: [
@@ -132,34 +132,34 @@ export default defineConfig({
        * below are the first hermetic measurement of coverage that was always
        * this high in truth.
        *
-       * Branches recovered above the ECC 80% standard on 2026-09-27 (TOG-5484):
+       * Branches recovered above the ECC 80% standard on 2026-09-27:
        * `test/d1TestMigrations.ts` applies the D1 migrations to the test
        * `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the
        * login → download → parse → upsert path with assertions. See
        * docs/TEST-INVARIANTS.md § "The coverage ratchet".
        *
-       * Re-measured hermetically 2026-09-28 at `2d61255` (TOG-5826):
+       * Re-measured hermetically 2026-09-28 at `2d61255`:
        * statements 90.98% (2160/2374), branches 88.27% (1416/1604),
        * functions 93.67% (311/332), lines 91.51% (2103/2298).
-       * Ratcheted 2026-10-08 (TOG-7577) after a hermetic full run:
+       * Ratcheted 2026-10-08 after a hermetic full run:
        * statements 94.70%, branches 90.59%, functions 96.46%, lines 95.20%.
-       * Ratcheted 2026-10-09 (TOG-9219) after a hermetic full run:
+       * Ratcheted 2026-10-09 after a hermetic full run:
        * statements 96.27%, branches 91.51%, functions 97.58%, lines 96.60%.
-       * Ratcheted 2026-10-11 (TOG-22032) after a hermetic full run:
+       * Ratcheted 2026-10-11 after a hermetic full run:
        * statements 97.29%, branches 92.54%, functions 98.21%, lines 97.69%.
        * (`browserAuth.ts` lines 81.57% -> 100%); branches did not move, so that
        * floor stays at 91.
-       * Ratcheted 2026-10-12 (TOG-18935) after a hermetic full run:
+       * Ratcheted 2026-10-12 after a hermetic full run:
        * statements 97.00% (3431/3537), branches 92.41% (2327/2518),
        * functions 98.01% (493/503), lines 97.42% (3324/3412).
        * Merged 2026-10-13: kept both entries; branches floor takes the max
        * (92) since both hermetic runs measured branches above it.
-       * Ratcheted 2026-10-12 (TOG-19016) after a hermetic full run:
+       * Ratcheted 2026-10-12 after a hermetic full run:
        * statements 97.26%, branches 93.91%, functions 98.01%, lines 97.69%.
        * Target-file branches: `upsert.ts` 98.27% (was 63.79%),
        * `csvAddressSnapshot.ts` / `csvContainerSnapshot.ts` /
        * `csvCustomerSnapshot.ts` 100% (were 58.33% / 58.33% / 71.42%).
-       * Re-measured hermetically 2026-10-15 at `7450d46` (TOG-25214):
+       * Re-measured hermetically 2026-10-15 at `7450d46`:
        * statements 97.78% (3483/3562), branches 94.37% (2365/2506),
        * functions 98.65% (513/520), lines 98.07% (3369/3435).
        * Re-measured hermetically 2026-10-16 at `efa883b` after main merges
