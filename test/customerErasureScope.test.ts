@@ -12,11 +12,10 @@ import r2RetentionMd from "../docs/R2-RETENTION.md?raw";
  * `DELETE /api/v1/customer-snapshot/{customerId}` removes the D1 row and the
  * data-entity cache entry only — R2 history CSVs, daily aliases, latest
  * pointers and the archived-CSV readback keep the customer's row, upstream
- * Routeware is untouched, and the row returns on the next sync — or on the
- * next save for that customer through the proxy — while upstream still holds
- * it. A consumer reading "erasure" assumes more than the code does, so these
+ * Routeware is untouched, and a D1 tombstone suppresses later local writes.
+ * A consumer reading "erasure" assumes more than the code does, so these
  * sentences must survive verbatim: a later edit that drops the R2 sentence,
- * the next-sync-or-save sentence, the cache-TTL limit, the restore
+ * the suppression sentence, the cache-TTL limit, the restore
  * re-insert / Time Travel sentence, or the address-children sentences fails
  * here, not in production docs.
  *
@@ -45,8 +44,8 @@ const NOT_REMOVED =
  * next proxied save for that customer (`syncCustomerDetailFullToD1` runs on
  * both paths), so a save re-creates the erased row sooner than the next sync.
  */
-const RETURNS_ON_NEXT_SYNC =
-  "The row returns on the next sync — or on the next save for that customer through the proxy — while upstream still holds it";
+const SUPPRESSED_ON_WRITES =
+  "A D1 tombstone suppresses the customer on later sync, proxy-save refresh, and CSV/archive import";
 
 /**
  * Edge eviction is per-location and clients hold `private, max-age=60`, so
@@ -57,11 +56,13 @@ const CACHE_TTL_LIMIT =
   "may keep serving the erased PII until the 60 s cache TTL expires";
 
 /**
- * Restores re-insert: an R2 restore or CSV import of a pre-erasure archive
- * brings the row back, and D1 Time Travel keeps it recoverable — so erasures
- * must be re-applied after any restore.
+ * Post-restore verification: a D1 backup or Time Travel restore can rewind the
+ * tombstone table/triggers, so recovery must verify suppression before serving
+ * traffic. Pinned to the exact verification sentence (not the generic "before
+ * the erasure" phrase, which appears in background context and cannot guard
+ * the remediation).
  */
-const RESTORE_REINSERTS = "re-apply erasures after any restore";
+const RESTORE_REINSERTS = "verify suppression after database recovery";
 
 /** D1 Time Travel keeps the deleted row recoverable after the DELETE. */
 const TIME_TRAVEL_LIMIT = "D1 Time Travel";
@@ -110,13 +111,13 @@ describe("Customer erasure scope (TOG-18933)", () => {
     );
 
     // Assert — removed = D1 row + data-entity cache; not removed = R2
-    // copies + upstream; the row returns on the next sync or save; edge and
-    // client copies may linger until the cache TTL expires.
+    // copies + upstream; the tombstone suppresses local sync/save/import; edge
+    // and client copies may linger until the cache TTL expires.
     expect(description).toContain("D1 `customer_snapshot` row");
     expect(description).toContain("data-entity");
     expect(description).toContain(NOT_REMOVED);
     expect(description).toContain("upstream Routeware");
-    expect(description).toContain(RETURNS_ON_NEXT_SYNC);
+    expect(description).toContain(SUPPRESSED_ON_WRITES);
     expect(description).toContain(CACHE_TTL_LIMIT);
     expect(description).toContain(RESTORE_REINSERTS);
     expect(description).toContain(TIME_TRAVEL_LIMIT);
@@ -136,7 +137,7 @@ describe("Customer erasure scope (TOG-18933)", () => {
       expect(flat).toContain("D1 `customer_snapshot` row");
       expect(flat).toContain("data-entity");
       expect(flat).toContain(NOT_REMOVED);
-      expect(flat).toContain(RETURNS_ON_NEXT_SYNC);
+      expect(flat).toContain(SUPPRESSED_ON_WRITES);
       expect(flat).toContain(RESTORE_REINSERTS);
       expect(flat).toContain(TIME_TRAVEL_LIMIT);
       expect(flat).toContain(CHILDREN_NOT_REMOVED);

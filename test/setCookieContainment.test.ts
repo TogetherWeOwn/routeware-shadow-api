@@ -1,23 +1,12 @@
-import { env, exports } from "cloudflare:workers";
+import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { forwardWithSessionRetry } from "../src/lib/forwardWithSessionRetry";
 import { forwardToUpstream } from "../src/lib/upstreamForward";
 import type { SessionState } from "../src/lib/sessionState";
 
-/**
- * Bearers derived from the live test env, not hardcoded. The workers pool
- * loads `.dev.vars` over `[env.test.vars]` when present, so a hardcoded
- * `test-api-token` 401s locally whenever a drill `.dev.vars` exists; reading
- * the env keeps this proof green in CI and beside a local drill file.
- * Fallbacks match `wrangler.toml [env.test.vars]`.
- */
-const API_TOKEN =
-  (env as unknown as { SHADOW_API_TOKEN?: string }).SHADOW_API_TOKEN?.trim() ||
-  "test-api-token";
-const SYNC_SECRET =
-  (env as unknown as { CUSTOMER_SNAPSHOT_SYNC_SECRET?: string })
-    .CUSTOMER_SNAPSHOT_SYNC_SECRET?.trim() || "test-sync-secret";
+const API_TOKEN = "test-api-token";
+const SYNC_SECRET = "test-sync-secret";
 
 const UPSTREAM = new URL("https://killeen.routeware.com/WebRW/Home/Index");
 const LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login";
