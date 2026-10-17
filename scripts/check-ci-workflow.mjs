@@ -44,6 +44,11 @@ const changesJob = jobBlock("changes");
 assert.match(changesJob, /fetch-depth: 0/, "changes must use fetch-depth: 0 so the merge-base diff sees the base commit");
 assert.match(changesJob, /git merge-base/, "changes must diff the PR against its merge base with native git");
 assert.match(changesJob, /outputs:\n(?:.*\n)*?.*code:/, "changes must output a code boolean");
+assert.match(
+  changesJob,
+  /^          if echo "\$files" \| grep -qE '\^\(src\/\|test\/\|migrations\/\|tools\/api-discovery\/\|/m,
+  "discovery tooling changes must run the build and vitest pins",
+);
 assert.match(changesJob, /probe:/, "changes must output a probe boolean");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs");

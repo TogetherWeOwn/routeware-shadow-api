@@ -6,7 +6,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stubBlock } from "./lib/stubNaming.mjs";
+import { renderSuggestedRoutesStub } from "./lib/stubNaming.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const gapsPath = join(__dirname, "out", "route-gaps.json");
@@ -21,26 +21,9 @@ try {
 }
 
 const missing = gaps.missingInShadowApi ?? [];
-const lines = [
-  "/**",
-  " * AUTO-GENERATED — do not import. Copy pieces into src/app.ts + route-map.json.",
-  " * Upstream paths are under TARGET_BASE_PATH (default /WebRW).",
-  " */",
-  "",
-  "/* eslint-disable */",
-  ""
-];
-
-for (const m of missing.slice(0, 40)) {
-  // Naming lives in lib/stubNaming.mjs so tests can pin it without a browser.
-  lines.push(...stubBlock(m));
-}
-
-if (missing.length > 40) {
-  lines.push(`// … and ${missing.length - 40} more (see route-gaps.json)`);
-}
+const output = renderSuggestedRoutesStub(missing);
 
 // Fresh checkout has no out/ dir yet — create it before the write below.
 await mkdir(join(__dirname, "out"), { recursive: true });
-await writeFile(outTs, lines.join("\n"), "utf8");
+await writeFile(outTs, output, "utf8");
 console.log("Wrote", outTs, `(${missing.length} gaps, first 40 listed).`);
