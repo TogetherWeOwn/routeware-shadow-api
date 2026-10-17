@@ -156,7 +156,7 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
 | `npm run check:docs-links` | Rule: every relative link in tracked `*.md` files must resolve — the target must be a tracked file (or tracked directory) and any `#anchor` must match a heading slug (GitHub rules) or `<a name>` anchor. External URLs, `/TOG/…` paths and gitignored targets are skipped. Exit 0 when clean, 1 listing `file: link (reason)` findings. |
-| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373). Run after changing bindings; `npm run typecheck` also runs it automatically. |
+| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
 | `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs (artifacts always built; gate last — missing shadow routes fail, stale entries warn unless `--strict`). |
@@ -251,7 +251,7 @@ format step — none is configured.**
 ## 9. Not carried over
 
 For the record, so nobody goes looking: the assistant-harness material in the deleted files was
-**not** migrated, because the Paperclip process replaces it — model routing and question policy, the
+**not** migrated, because the project's automation process replaces it — model routing and question policy, the
 research → plan → TDD → review → commit sequence, delegation and context rules, reviewer selection,
 the vendored `.claude/` install and its rules-precedence note, per-machine tool constraints, and
-pointers into user-scope assistant configuration. Work tracking lives in Paperclip issues.
+pointers into user-scope assistant configuration. Work tracking lives in GitHub issues.

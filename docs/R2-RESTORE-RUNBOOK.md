@@ -461,7 +461,7 @@ re-DELETE after restore — e.g., the erasure ticket or incident log), then dele
 re-restored rows in FK order per the backfill SQL (a re-applied marker over existing
 rows freezes them without removing them), and re-apply
 suppression before normal writers resume, so verify suppression after database
-recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 
 ## 7. Deployed incident recovery — separately authorized, never a drill
 
@@ -786,7 +786,7 @@ Paid default is 10,000, but stops if the deployed limit is 1,000. The recorded
 44,279 container rows touched; the source batch sizes imply 1,374, 1,396 and 1,107
 `db.batch()` calls respectively. That history supports the call-based model but
 does not prove the current target's plan/config or the selected archive's size;
-confirm both before relying on it ([cron evidence](TOG-8387-cron-drill-schedule.md)).
+confirm both before relying on it ([cron evidence](cron-drill-schedule.md)).
 Do not edit the receipt. A failed preflight invalidates any earlier receipt.
 
 Row counts follow importer behavior: invalid-id/blank rows are skipped and
@@ -945,7 +945,7 @@ previously used to re-DELETE after restore — e.g., the erasure ticket or incid
 then delete any re-restored rows in FK order per the backfill SQL (a re-applied marker
 over existing rows freezes them without removing them),
 and re-apply suppression before normal writers resume, so verify suppression after
-database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response
 is retained; the `&&` chain below stops after a failed request without exiting the
 interactive shell, and no chain step is retried after an error.

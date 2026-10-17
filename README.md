@@ -28,7 +28,7 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 ```bash
 nvm use                             # Node 22+, per .nvmrc (engines: >=22)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
-npm run types                       # generate worker-configuration.d.ts (gitignored, TOG-8373) — rerun after any wrangler.toml binding/key change
+npm run types                       # generate worker-configuration.d.ts (gitignored) — rerun after any wrangler.toml binding/key change
 cp .dev.vars.example .dev.vars      # then fill in values (see below)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
 npm run db:seed                     # load the synthetic customer→address→container fixture (idempotent, local D1 only)
@@ -219,7 +219,7 @@ Example mappings from a typical harvest (SPA + ExtJS):
 
 ## License
 
-[MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
+[MIT](./LICENSE).
 
 ## Layout
 

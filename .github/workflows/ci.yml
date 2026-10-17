@@ -275,9 +275,9 @@ jobs:
       - name: Changelog gate
         # Credential-free: diffs the PR against origin/main and fails when a
         # consumer-visible contract path (routes, response shapes, wrangler
-        # routes/vars, D1 schema) changed without a referencing bullet under
-        # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
-        # skip the gate.
+        # routes/vars, D1 schema) changed without an issue-referencing bullet
+        # under CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only
+        # changes skip the gate.
         run: npm run check:changelog
       - name: Prod dependency audit
         # Credential-free: root `npm audit --omit=dev` plus a full

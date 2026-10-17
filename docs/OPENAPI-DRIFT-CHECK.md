@@ -1,4 +1,4 @@
-# OpenAPI contract-drift check (TOG-6282)
+# OpenAPI contract-drift check
 
 **Status:** script, unit tests and CI wiring merged. The check runs in the
 `hygiene` job on every pull request, push to `main` and the nightly schedule
@@ -88,7 +88,7 @@ Credential-free, alongside the other static gates in the `hygiene` job of
   no `if:`, so it is never skipped, including on docs-only PRs. Detection
   latency for a regression that slips past PR gating is ≤ 24h, same bound as
   the cron alarm loop.
-- **Where:** the `OpenAPI drift check (TOG-6282)` step (`ci.yml:234-238`) runs
+- **Where:** the OpenAPI drift check step in `ci.yml` runs
   `npm run check:openapi-drift` (`package.json:18`). The check reads source
   text only, so it needs no token. `scripts/check-ci-workflow.mjs:117` pins the
   step so it cannot be dropped silently.
