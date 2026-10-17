@@ -49,8 +49,16 @@ const COMPUTED_CALL_SITES: ReadonlyArray<{
   },
 ];
 
-/** `logEvent({ ... })` calls whose msg must match a computed-site entry. */
+/** Log calls that the lexical scanner could not inspect as inline objects. */
 type UntrackedMessage = { path: string; line: number; expression: string };
+
+/** Counts source call tokens independently of the scanner's quote/comment state. */
+function countLogEventCalls(text: string): number {
+  return [
+    ...text.matchAll(/\blogEvent\s*\(/g),
+    ...text.matchAll(/\blogEvent\s*\/\*[\s\S]*?\*\/\s*\(/g),
+  ].length;
+}
 
 function skipQuoted(text: string, start: number): number {
   const quote = text[start];
@@ -188,9 +196,23 @@ function inspectLogEventMessages(
 ): { messages: string[]; untracked: UntrackedMessage[] } {
   const found = new Set<string>();
   const untracked: UntrackedMessage[] = [];
+  let callCount = 0;
+  let inspectedCallCount = 0;
   for (const { path, text: sourceText } of files) {
     const text = String(sourceText);
     const normalizedPath = path.replace(/^\.\.\//, "");
+    // logger.ts defines logEvent; it is not an emitted-event call site.
+    if (normalizedPath === "src/lib/logger.ts" || normalizedPath.endsWith("/src/lib/logger.ts")) continue;
+    // Keep an independent count pin so lexer blind spots (including regex
+    // literals) cannot silently hide a new call.
+    callCount += countLogEventCalls(text);
+    if (/import\s*\{[^}]*\blogEvent\s+as\s+\w+/s.test(text)) {
+      untracked.push({
+        path: normalizedPath,
+        line: text.slice(0, text.search(/import\s*\{[^}]*\blogEvent\s+as\s+\w+/s)).split("\n").length,
+        expression: "<aliased logEvent import>",
+      });
+    }
     let at = 0;
     while (at < text.length) {
       const char = text[at];
@@ -205,6 +227,12 @@ function inspectLogEventMessages(
           !/[\w$]/.test(text[at - 1] ?? "") &&
           !/[\w$]/.test(text[at + "logEvent".length] ?? "")
         ) {
+          const openParen = skipTrivia(text, at + "logEvent".length);
+          if (text[openParen] !== "(") {
+            at += "logEvent".length;
+            continue;
+          }
+          inspectedCallCount++;
           const objectStart = logEventObjectStart(text, at);
           const objectEnd = logEventObjectEnd(text, at);
           if (objectStart !== undefined && objectEnd !== undefined) {
@@ -241,13 +269,31 @@ function inspectLogEventMessages(
             }
             at = objectEnd + 1;
           } else {
-            at += "logEvent".length;
+            const openParen = skipTrivia(text, at + "logEvent".length);
+            const end = text[openParen] === "("
+              ? findBalancedEnd(text, openParen)
+              : openParen;
+            untracked.push({
+              path: normalizedPath,
+              line: text.slice(0, at).split("\n").length,
+              expression: text[openParen] === "("
+                ? text.slice(openParen + 1, end).trim() || "<empty argument>"
+                : "<missing call argument>",
+            });
+            at = end < text.length ? end + 1 : at + "logEvent".length;
           }
         } else {
           at++;
         }
       }
     }
+  }
+  if (callCount !== inspectedCallCount) {
+    untracked.push({
+      path: "src/",
+      line: 1,
+      expression: `<logEvent call count mismatch: ${callCount} calls, scanner inspected ${inspectedCallCount}>`,
+    });
   }
   return { messages: [...found].sort(), untracked };
 }
@@ -346,6 +392,39 @@ describe("logging catalogue coverage: extraction", () => {
     ]);
   });
 
+  it("fails closed on non-object calls, aliased imports, and regex literals", () => {
+    const nonObject = inspectLogEventMessages([
+      { path: "src/a.ts", text: "logEvent(payload)" },
+    ]);
+    expect(nonObject.untracked).toContainEqual({
+      path: "src/a.ts",
+      line: 1,
+      expression: "payload",
+    });
+
+    const aliased = inspectLogEventMessages([
+      {
+        path: "src/a.ts",
+        text: 'import { logEvent as emit } from "./logger"; emit({ msg: "Alias event" })',
+      },
+    ]);
+    expect(aliased.untracked).toContainEqual({
+      path: "src/a.ts",
+      line: 1,
+      expression: "<aliased logEvent import>",
+    });
+
+    const regexBeforeCall = inspectLogEventMessages([
+      {
+        path: "src/a.ts",
+        text: 'const re = /"/; logEvent({ msg: "After regex" })',
+      },
+    ]);
+    expect(regexBeforeCall.untracked).toContainEqual(
+      expect.objectContaining({ path: "src/", expression: expect.stringContaining("call count mismatch") }),
+    );
+  });
+
   it("reads catalogue rows only, ignoring headings and prose", () => {
     const md = [
       "## Event catalogue",
@@ -372,8 +451,8 @@ describe("logging catalogue coverage: real tree", () => {
   it("every logEvent msg is a literal or a verified computed expression", () => {
     const files = realFiles();
     expect(files.length).toBeGreaterThan(0);
-    // This checks each call's actual AST initializer, so unrelated msg text
-    // elsewhere in the tree cannot offset an unrecognized logEvent value.
+    // Each scanned inline object's msg is checked, and the independent call
+    // count pin catches calls hidden by unsupported syntax or lexer state.
     expect(inspectLogEventMessages(files).untracked).toEqual([]);
   });
 });
