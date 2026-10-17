@@ -246,6 +246,12 @@ jobs:
         # Credential-free: counts lines in hand-written src/ files, fails on any
         # file over 800 lines. No network access and no credential use.
         run: npm run check:source-file-size
+      - name: Docs link and anchor check (TOG-18936)
+        # Credential-free: resolves every relative link in tracked *.md files
+        # (file must be tracked, #anchor must match a heading slug or <a name>
+        # anchor). External URLs and gitignored paths are skipped. No network
+        # access and no credential use.
+        run: npm run check:docs-links
       - name: R2 lifecycle proposal shape guard (TOG-25213)
         # Credential-free: validates docs/r2-lifecycle-proposal.snapshot-history.json
         # stays a byte-clean S3 PutBucketLifecycleConfiguration body (exact rule
