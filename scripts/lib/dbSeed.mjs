@@ -1,5 +1,5 @@
 /**
- * Pure helpers for `npm run db:seed` (TOG-8882).
+ * Pure helpers for `npm run db:seed`.
  *
  * The seed loads a minimal synthetic customer → address → container fixture
  * into the LOCAL D1 only (`wrangler d1 execute ... --local`). Everything here

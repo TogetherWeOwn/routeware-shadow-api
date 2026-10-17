@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Post-deploy probe (TOG-6274, extended TOG-7382): hits GET /api/v1/health
+ * Post-deploy probe: hits GET /api/v1/health
  * (public), GET /api/v1/shadow/health (authed) and GET /api/v1/readiness
  * (authed) against a base URL.
  *
@@ -285,7 +285,7 @@ async function main() {
         console.error("  readiness reports degraded dependencies (see checks above) — failing the probe.");
         failures += 1;
       }
-      // Probe 3b — cron freshness (TOG-9225, gap O4). The scheduled 07:30 UTC
+      // Probe 3b — cron freshness (gap O4). The scheduled 07:30 UTC
       // probe runs after the 07:00 cron, so a stale verdict here means the
       // cron is dead (two consecutive misses past the 48h threshold) and the
       // job must go red — that is the alert. Manual runs assert it too: a

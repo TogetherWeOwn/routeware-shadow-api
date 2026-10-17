@@ -4,7 +4,7 @@
  * structured helper; its one computed severity dispatch is the sole exception.
  *
  * Pure logic lives in `./lib/consoleUsageCheck.mjs` and is unit-tested
- * (TOG-19019); this wrapper is intentionally thin.
+ * there; this wrapper is intentionally thin.
  *
  * `CONSOLE_USAGE_ROOT` overrides the repo root under test so the suite can
  * run the wrapper against a fixture tree (fail-closed paths) instead of the

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Local D1 seed (TOG-8882).
+ * Local D1 seed.
  *
  * Loads a minimal synthetic customer → address → container fixture into the
  * LOCAL Miniflare D1 (`wrangler d1 execute ... --local`). Run after

@@ -1,7 +1,7 @@
 /**
- * Fixture-driven unit tests for the console-usage lint (TOG-19019).
+ * Fixture-driven unit tests for the console-usage lint.
  *
- * `scripts/check-console-usage.mjs` (landed by TOG-8898, enforced in
+ * `scripts/check-console-usage.mjs` (enforced in
  * `ci.yml` build as `npm run lint`) was the only check script with zero
  * unit tests while every other check lib maps to a test file. The pure
  * logic now lives in `scripts/lib/consoleUsageCheck.mjs`; this suite feeds

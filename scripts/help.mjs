@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Grouped menu of every package.json script (TOG-9233).
+ * Grouped menu of every package.json script.
  *
  * Usage:
  *   npm run help

@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the console-usage lint (TOG-8898, unit-tested TOG-19019).
+ * Pure helpers for the console-usage lint (unit-tested).
  *
  * Rule: no direct console access in `src/` — logging must go through the
  * structured helper in `src/lib/logger.ts`. Its one computed-severity

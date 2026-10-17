@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * wrangler.toml [vars] vs .dev.vars.example parity gate (TOG-8367, gap G20).
+ * wrangler.toml [vars] vs .dev.vars.example parity gate (gap G20).
  *
  * A new var can land in one file but not the other: a fail-closed surprise at
  * deploy (Worker reads wrangler.toml) or a confusing local setup (wrangler

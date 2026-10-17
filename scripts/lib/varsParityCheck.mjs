@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the wrangler.toml [vars] vs .dev.vars.example parity gate
- * (TOG-8367, gap G20).
+ * (gap G20).
  *
  * Gap: a new var can land in one file but not the other — a fail-closed
  * surprise at deploy (Worker reads wrangler.toml) or a confusing local setup

@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the docs link + anchor check (TOG-18936).
+ * Pure helpers for the docs link + anchor check.
  *
  * Rule (docs/CONVENTIONS.md §7): every relative `](path)` / `](path#anchor)`
  * link in tracked `*.md` files must resolve — the target must be a tracked
@@ -48,7 +48,7 @@ export const CHECK_NAME = "docs-links";
 
 /** Any `scheme:` prefix (http:, https:, mailto:, …) — never a repo file. */
 const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
-/** Paperclip-internal board paths (e.g. `/TOG/issues/TOG-18899`). */
+/** Paperclip-internal board paths (e.g. `/TOG/issues/…`). */
 const PAPERCLIP_INTERNAL_PREFIX = "/TOG/";
 /** GitHub custom-anchor syntax inside any HTML token (block or inline). */
 const NAMED_ANCHOR_RE = /<a\s+[^>]*?\bname\s*=\s*(["'])([A-Za-z0-9_-]+)\1[^>]*>/gi;
