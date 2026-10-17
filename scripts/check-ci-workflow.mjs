@@ -92,14 +92,25 @@ assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a CI runner with other CI jobs
-// (red main 3657b4f). The cap lives in vitest.config.ts, gated on CI so
-// local runs keep full speed. Pin it present so a config edit can never
-// silently uncap CI.
+// (red main 3657b4f). The CI cap lives in vitest.config.ts, gated on CI.
+// TOG-19021: local runs cap at half the core count instead of uncapped, for
+// the same oversubscription reason. Pin both present so a config edit can
+// never silently uncap CI or local.
 const vitestConfig = await readFile(new URL("../vitest.config.ts", import.meta.url), "utf8");
 assert.match(
   vitestConfig,
   /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*undefined/,
-  "vitest.config.ts must cap maxWorkers at 2 on CI (TOG-7666)",
+  "vitest.config.ts project options must cap CI at 2 and leave local CLI overrides to Vitest (TOG-7666/TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /localMaxWorkers\s*=\s*Math\.max\(1,\s*Math\.floor\(os\.availableParallelism\(\)\s*\/\s*2\)\)/,
+  "vitest.config.ts must default the root config to half available parallelism locally (TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /test:\s*\{\s*maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
+  "vitest.config.ts root options must cap CI and provide the local default while allowing CLI overrides (TOG-19021)",
 );
 
 const hygiene = jobBlock("hygiene");
