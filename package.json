@@ -36,7 +36,7 @@
     "pretypecheck": "npm run types",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.src.json",
     "lint": "node scripts/check-console-usage.mjs",
-    "test": "npm run test:probe && vitest run",
+    "test": "npm run test:probe && npm run test:console-usage && vitest run",
     "test:watch": "vitest",
     "test:coverage": "npm run test:probe && vitest run --coverage",
     "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",
@@ -49,7 +49,8 @@
     "secret:login-username": "wrangler secret put LOGIN_USERNAME",
     "secret:login-password": "wrangler secret put LOGIN_PASSWORD",
     "test:probe": "node --test scripts/post-deploy-probe.test.mjs scripts/smoke-readiness.test.mjs",
-    "test:discovery": "node --test tools/api-discovery/route-gap.test.mjs tools/api-discovery/route-gap-pipeline.test.mjs tools/api-discovery/validate-harvest.test.mjs"
+    "test:discovery": "node --test tools/api-discovery/route-gap.test.mjs tools/api-discovery/route-gap-pipeline.test.mjs tools/api-discovery/validate-harvest.test.mjs",
+    "test:console-usage": "node --test scripts/check-console-usage.test.mjs"
   },
   "dependencies": {
     "@cloudflare/puppeteer": "^1.0.4",
