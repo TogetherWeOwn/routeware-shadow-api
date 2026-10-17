@@ -88,6 +88,17 @@ describe("unreleasedCardIds (TOG-8385)", () => {
   it("returns empty when no card id is named", () => {
     expect(unreleasedCardIds("- some entry with no card.\n")).toEqual([]);
   });
+
+  it("collects GitHub #N refs at a bullet start or parenthesised in a bullet", () => {
+    expect(unreleasedCardIds("- #456: x.\n- thing (#789).\n")).toEqual(["#456", "#789"]);
+    expect(unreleasedCardIds("- wrapped entry\n  continued here (#42).\n")).toEqual(["#42"]);
+  });
+
+  it("ignores #N refs in prose and headings", () => {
+    expect(unreleasedCardIds("see #3 for context\nFixes #456\n")).toEqual([]);
+    expect(unreleasedCardIds("### Fixed (#123)\n")).toEqual([]);
+    expect(unreleasedCardIds("prose paragraph (#7) outside any bullet\n")).toEqual([]);
+  });
 });
 
 describe("evaluateChangelogGate (TOG-8385)", () => {
@@ -112,6 +123,12 @@ describe("evaluateChangelogGate (TOG-8385)", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.contractPaths).toEqual(["src/routes/customers.ts"]);
     expect(outcome.cards).toEqual(["TOG-8385"]);
+  });
+
+  it("passes a contract change covered by a claimed #N bullet", () => {
+    const outcome = evaluateChangelogGate(["src/routes/customers.ts"], entry("#456"), ["#456"]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.cards).toEqual(["#456"]);
   });
 
   it("passes without a claimed card when any Unreleased bullet exists", () => {

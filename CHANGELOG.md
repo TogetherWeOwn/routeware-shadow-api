@@ -5,6 +5,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #283: the `DELETE /api/v1/customer-snapshot/{customerId}` OpenAPI
+  description (served at `/openapi.json` and `/docs`) and the docs now
+  link the current `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`
+  anchor; the previous fragment no longer resolves to a section.
 - Every `/api/v1/*` response with no handler-set `Cache-Control`
   now leaves with `Cache-Control: no-store` (stamped in `withCors` after the
   handler runs), so authenticated snapshot, export, health, readiness, gate
@@ -72,7 +76,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   migration have no marker; backfill the marker plus FK-order row deletes with
   privileged `wrangler d1 execute` (a marker over re-inserted rows freezes them
   without removing them) and manage markers only via privileged SQL (see
-  `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+  `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
   This is local suppression, not upstream or R2 erasure. A
   whole-database restore can rewind markers and triggers; recovery must verify
   both and re-apply suppression before serving traffic. Application rollback

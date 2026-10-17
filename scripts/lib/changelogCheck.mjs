@@ -82,11 +82,23 @@ export function unreleasedCardIds(section) {
   for (const match of text.matchAll(/\bTOG-(\d+)\b/g)) {
     found.add(`TOG-${match[1]}`);
   }
-  for (const match of text.matchAll(/^\s*[-*]\s+#(\d+)\b/gm)) {
-    found.add(`#${match[1]}`);
-  }
-  for (const match of text.matchAll(/\(#(\d+)\)/g)) {
-    found.add(`#${match[1]}`);
+  // `#N` refs count only inside a bullet: at its start (`- #123:`) or
+  // parenthesised anywhere in the bullet, including wrapped continuation
+  // lines. Prose and heading lines never satisfy the gate.
+  let inBullet = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*[-*]\s+/.test(line)) {
+      inBullet = true;
+      const start = line.match(/^\s*[-*]\s+#(\d+)\b/);
+      if (start) found.add(`#${start[1]}`);
+    } else if (!/^\s+\S/.test(line)) {
+      inBullet = false;
+    }
+    if (inBullet) {
+      for (const match of line.matchAll(/\(#(\d+)\)/g)) {
+        found.add(`#${match[1]}`);
+      }
+    }
   }
   return [...found].sort();
 }

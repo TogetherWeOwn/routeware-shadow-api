@@ -65,7 +65,7 @@ in this doc, not in the JSON:
   outside the rule and keep serving until a separately approved policy removes
   them. Expiring history alone is **not** a complete PII purge.
 - Customer-row erasure (`DELETE /api/v1/customer-snapshot/{customerId}`)
-  leaves R2 untouched (see `R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`);
+  leaves R2 untouched (see `R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`);
   erased rows reappear on re-sync/restore while upstream holds them.
 
 ## Hold procedure for legal/owner keeps

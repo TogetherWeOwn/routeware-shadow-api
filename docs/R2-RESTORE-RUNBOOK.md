@@ -461,7 +461,7 @@ re-DELETE after restore — e.g., the erasure ticket or incident log), then dele
 re-restored rows in FK order per the backfill SQL (a re-applied marker over existing
 rows freezes them without removing them), and re-apply
 suppression before normal writers resume, so verify suppression after database
-recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 
 ## 7. Deployed incident recovery — separately authorized, never a drill
 
@@ -945,7 +945,7 @@ previously used to re-DELETE after restore — e.g., the erasure ticket or incid
 then delete any re-restored rows in FK order per the backfill SQL (a re-applied marker
 over existing rows freezes them without removing them),
 and re-apply suppression before normal writers resume, so verify suppression after
-database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response
 is retained; the `&&` chain below stops after a failed request without exiting the
 interactive shell, and no chain step is retried after an error.

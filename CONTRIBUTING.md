@@ -67,7 +67,8 @@ Hard rules (enforced by tests or CI — see `docs/CONVENTIONS.md` §§ 3–4):
 - Consumer-visible contract changes (routes, response shapes, wrangler
   routes/vars, D1 schema) need a bullet under `CHANGELOG.md`
   `## [Unreleased]` referencing the GitHub issue (e.g. `- #123: …`) —
-  enforced by `npm run check:changelog`. Docs-only,
+  enforced by `npm run check:changelog`. When no issue exists, cite the
+  PR number instead (`- #<PR>: …`). Docs-only,
   test-only, script-only and CI-only changes skip the gate.
 - Never run `npm run deploy` / `wrangler deploy` / remote migrations as ordinary
   development — deploys target production and are separately gated.

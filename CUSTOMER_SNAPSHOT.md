@@ -230,7 +230,7 @@ without removing them), and re-apply suppression before serving
 recovered data, so verify suppression after database recovery. Customers erased
 before the suppression migration have no tombstone; backfill them with
 privileged `wrangler d1 execute` (see
-`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 Time Travel can restore data for up to 30 days (7 days on the Workers Free
 plan). This route removes only the `customer_snapshot` row:
 the customer's `address_snapshot` and `container_snapshot` rows are not

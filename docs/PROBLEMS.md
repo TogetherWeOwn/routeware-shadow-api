@@ -88,7 +88,7 @@ erasure may restore a customer row and schema without its tombstone/triggers;
 verify suppression before serving recovered data, so verify suppression after
 database recovery. Customers erased before the suppression migration have no
 tombstone; backfill them with privileged `wrangler d1 execute` (see
-`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 Time Travel can restore data for up to 30 days (7 days on the Workers Free
 plan). The same FK chain
 refuses a delete while address rows still reference the customer, mapped to

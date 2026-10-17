@@ -13,7 +13,7 @@ import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 import { releaseRefreshLock } from "../src/lib/sessionRefreshLock";
 
 // R9-24 re-verification of the TOG-6278 throttle-burst + secret-residual audit
-// (2026-09-27, docs/TOG-6278-throttle-burst-audit.md) against everything that
+// (2026-09-27, docs/throttle-burst-audit.md) against everything that
 // landed after it: the XFF gate (#155), the 429 `X-RateLimit-*` headers (#216),
 // structured logging via `logEvent` (#226, docs/LOGGING.md), per-IP bucket
 // isolation (R3-20) and the fail-open alarm. Companion auth-login log sites
