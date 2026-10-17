@@ -42,8 +42,14 @@ function generatedExportDb(onDuringPull: () => void) {
             async all<T>() {
               reads += 1;
               if (binds.length === 1) {
-                if (sql.includes("WHERE") || passOpen) {
-                  throw new Error("each export pass must start without a cursor");
+                if (
+                  sql.includes("WHERE") ||
+                  !sql.includes("ORDER BY customer_id LIMIT ?") ||
+                  sql.includes("OFFSET") ||
+                  binds[0] !== SNAPSHOT_EXPORT_PAGE_SIZE ||
+                  passOpen
+                ) {
+                  throw new Error("each export pass must start with an ordered, limited page");
                 }
                 passOpen = true;
               } else {
