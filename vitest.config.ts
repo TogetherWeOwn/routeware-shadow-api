@@ -9,19 +9,11 @@ import { defineConfig } from "vitest/config";
  * integration test on CI's slower runner while passing locally. The tests
  * themselves do millisecond-scale work; this covers warm-up, not slow logic.
  *
- * Lives in `sharedTestOptions` (not top-level `test:`) because workspace
- * projects do not inherit root test options — each project spreads this in.
+ * Timeouts live in `sharedTestOptions` because workspace projects do not
+ * inherit root test options. The local worker default stays at the root so
+ * Vitest CLI overrides take precedence for every project.
  */
-const maxWorkersFlagIndex = process.argv.findIndex((arg) => arg === "--maxWorkers");
-const maxWorkersFlag = maxWorkersFlagIndex >= 0
-  ? process.argv[maxWorkersFlagIndex + 1]
-  : process.argv.find((arg) => arg.startsWith("--maxWorkers="))?.split("=", 2)[1];
-const maxWorkersOverride = maxWorkersFlag === undefined ? undefined : Number(maxWorkersFlag);
-const localMaxWorkers = typeof maxWorkersOverride === "number"
-  && Number.isInteger(maxWorkersOverride)
-  && maxWorkersOverride > 0
-  ? maxWorkersOverride
-  : Math.max(1, Math.floor(os.availableParallelism() / 2));
+const localMaxWorkers = Math.max(1, Math.floor(os.availableParallelism() / 2));
 const sharedTestOptions = {
   testTimeout: 30_000,
   hookTimeout: 30_000,
@@ -36,11 +28,12 @@ const sharedTestOptions = {
    * at 30s under the uncapped suite. GitHub Actions sets CI=true. Pinned by
    * `npm run check:ci-workflow`.
    */
-  maxWorkers: process.env.CI ? 2 : localMaxWorkers,
+  maxWorkers: process.env.CI ? 2 : undefined,
 };
 
 export default defineConfig({
   test: {
+    maxWorkers: process.env.CI ? 2 : localMaxWorkers,
     /**
      * Two projects (TOG-25213): the whole suite runs in workerd, except the
      * R2 lifecycle proposal guard test, which reads the committed JSON file

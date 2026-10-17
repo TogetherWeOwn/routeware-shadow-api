@@ -99,13 +99,18 @@ assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 const vitestConfig = await readFile(new URL("../vitest.config.ts", import.meta.url), "utf8");
 assert.match(
   vitestConfig,
-  /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
-  "vitest.config.ts must cap maxWorkers at 2 on CI and localMaxWorkers locally (TOG-7666/TOG-19021)",
+  /maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*undefined/,
+  "vitest.config.ts project options must cap CI at 2 and leave local CLI overrides to Vitest (TOG-7666/TOG-19021)",
 );
 assert.match(
   vitestConfig,
-  /localMaxWorkers\s*=\s*typeof maxWorkersOverride === "number"\s*&&\s*Number\.isInteger\(maxWorkersOverride\)\s*&&\s*maxWorkersOverride\s*>\s*0\s*\?\s*maxWorkersOverride\s*:\s*Math\.max\(1,\s*Math\.floor\(os\.availableParallelism\(\)\s*\/\s*2\)\)/,
-  "vitest.config.ts must honor a positive integer --maxWorkers override and otherwise default to half available parallelism (TOG-19021)",
+  /localMaxWorkers\s*=\s*Math\.max\(1,\s*Math\.floor\(os\.availableParallelism\(\)\s*\/\s*2\)\)/,
+  "vitest.config.ts must default the root config to half available parallelism locally (TOG-19021)",
+);
+assert.match(
+  vitestConfig,
+  /test:\s*\{\s*maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
+  "vitest.config.ts root options must cap CI and provide the local default while allowing CLI overrides (TOG-19021)",
 );
 
 const hygiene = jobBlock("hygiene");
