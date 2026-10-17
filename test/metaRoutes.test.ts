@@ -16,10 +16,7 @@ import { healthResponseSchema, metaRoutes, readinessResponseSchema } from "../sr
  * for both the 200 and 503 cases.
  *
  * Hermeticity: the shape cases call `metaRoutes.fetch` directly with a fake
- * env, and the gate cases go through the full app *without* a token. Neither
- * depends on the configured bearer, so they pass with the committed
- * `wrangler.toml [env.test.vars]` tokens and with a local `.dev.vars`
- * override alike.
+ * env, and the gate cases go through the full app *without* a token.
  */
 
 function fakeDb(ok = true): D1Database {
