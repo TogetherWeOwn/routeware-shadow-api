@@ -35,7 +35,7 @@ function harness() {
 
 /**
  * Acquire the refresh lock through the real DO and return its ownership token.
- * The DO mints a token per grant (TOG-18119, reviewer finding 2); the holder
+ * The DO mints a token per grant (reviewer finding 2); the holder
  * must present it on `/unlock`, so simulated holders thread it through
  * `releaseRefreshLock` instead of releasing bare.
  */

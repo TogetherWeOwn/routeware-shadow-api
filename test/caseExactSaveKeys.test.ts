@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-6520 — urlencoded form keys are case-EXACT on the save path.
+ * Urlencoded form keys are case-EXACT on the save path.
  *
  * `lastUrlEncodedValue` used to match case-insensitively while upstream
  * `Save*` actions read form keys case-sensitively: a client sending
@@ -63,7 +63,7 @@ beforeEach(() => {
   calls.urls = [];
 });
 
-describe("lastUrlEncodedValue is case-exact (TOG-6520)", () => {
+describe("lastUrlEncodedValue is case-exact", () => {
   it("does not match a lowercase key against a PascalCase lookup", () => {
     // Arrange — the exact wrong-operation shape from the card.
     // Act / Assert
@@ -92,7 +92,7 @@ describe("lastUrlEncodedValue is case-exact (TOG-6520)", () => {
   });
 });
 
-describe("lowercase body keys take the create modal on every save form (TOG-6520)", () => {
+describe("lowercase body keys take the create modal on every save form", () => {
   const env = makeEnv();
 
   it("customer: lowercase customerid loads AddNewLong, not the edit modal", async () => {

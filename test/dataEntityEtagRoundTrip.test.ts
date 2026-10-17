@@ -58,7 +58,7 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
         cacheStore.delete(cacheKey("container", id));
       }
     },
-    // TOG-6534: handlers now call the retry wrapper; evict the same keys.
+    // Handlers now call the retry wrapper; evict the same keys.
     invalidateCustomerGraphWithRetry: async (p: {
       customerId: number;
       addressIds: number[];
@@ -87,7 +87,7 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _r: unknown,
     buf: ArrayBuffer | null
   ) => prepared(buf),
-  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // The handlers evict the rejected token on the silent-failure
   // path; this double carries no cache, so the evict is a no-op.
   evictAntiForgeryTokenCacheForBody: () => false
 }));

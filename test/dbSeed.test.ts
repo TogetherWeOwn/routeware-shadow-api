@@ -13,12 +13,12 @@ import {
 } from "../scripts/lib/dbSeed.mjs";
 
 /**
- * Regression tests for TOG-8882 (`npm run db:seed`): the fixture must stay a
+ * Regression tests for `npm run db:seed`: the fixture must stay a
  * minimal synthetic customer → address → container chain in FK order, written
  * as idempotent UPSERTs — never bare INSERTs, never REPLACE — or the seed
  * duplicates on re-run or trips the D1 FK chain.
  */
-describe("db:seed fixture shape (TOG-8882)", () => {
+describe("db:seed fixture shape", () => {
   it("targets the same local database as db:migrate:*", () => {
     expect(DATABASE).toBe("routeware-customer-snapshot");
   });
@@ -67,7 +67,7 @@ describe("db:seed fixture shape (TOG-8882)", () => {
   });
 });
 
-describe("db:seed verify + report (TOG-8882)", () => {
+describe("db:seed verify + report", () => {
   it("verifies one table each, pinned to the fixture PK", () => {
     expect(VERIFY_QUERIES.map((q) => q.table)).toEqual([
       "customer_snapshot",

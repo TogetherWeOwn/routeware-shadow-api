@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Per-run correlation id for the scheduled data-snapshot-sync path (TOG-19134).
+ * Per-run correlation id for the scheduled data-snapshot-sync path.
  *
  * HTTP routes already correlate with a request id; chained per-table cron
  * invocations could not be correlated because `src/scheduled.ts` minted no

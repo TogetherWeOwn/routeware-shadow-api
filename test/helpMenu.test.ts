@@ -5,11 +5,11 @@ import { formatHelpMenu, groupScripts, isLifecycleHook } from "../scripts/lib/he
 const scripts = packageJson.scripts as Record<string, string>;
 
 /**
- * Regression tests for TOG-9233 (`npm run help`): the menu lists every
+ * Regression tests for `npm run help`: the menu lists every
  * user-facing script exactly once, hides npm lifecycle hooks, and keeps
  * `first-run` and `help` in the general group.
  */
-describe("npm run help menu (TOG-9233)", () => {
+describe("npm run help menu", () => {
   it("hides a lifecycle hook only when its base script exists", () => {
     expect(isLifecycleHook("predev", scripts)).toBe(true);
     expect(isLifecycleHook("dev", scripts)).toBe(false);

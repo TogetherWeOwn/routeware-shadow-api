@@ -59,7 +59,7 @@ async function call(path: string, opts: CallOpts = {}): Promise<Response> {
 }
 
 describe("clientIpFromRequest", () => {
-  // TOG-8888: XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
+  // XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
   // opt-in (dev/test). Production (flag absent/"false") ignores XFF so an
   // attacker value can neither evade the throttle nor frame a victim bucket.
   const TRUST_XFF = { THROTTLE_TRUST_XFF: "true" };
@@ -402,7 +402,7 @@ describe("throttle fail-open paths", () => {
     await expect(clearAuthFailures(env, req)).resolves.toBeUndefined();
   });
 
-  it("logs exactly one error line per window when the DO is down (TOG-6530)", async () => {
+  it("logs exactly one error line per window when the DO is down", async () => {
     // Arrange — the throttle DO is dead; caller still enforces auth (open verdict).
     const env = envWithStub({
       fetch: async () => {
@@ -448,7 +448,7 @@ describe("throttle fail-open paths", () => {
   });
 });
 
-describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
+describe("bearer brute-force throttle on /api/v1/*", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -516,9 +516,9 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(body.title).toBe("Too Many Requests");
     expect(body.status).toBe(429);
     expect(body.detail).toContain("PROBLEMS.md#rate-limited");
-    // Port note (TOG-5820 onto main without sibling TOG-5809): main has no
+    // Port note (ported onto main without its sibling): main has no
     // CORS layer yet, so no ACAO stamp is asserted here. The scope-branch
-    // version asserts the stamp; TOG-5809's merge restores it.
+    // version asserts the stamp; merging that branch restores it.
   });
 
   it("a valid token from the throttled IP still passes and resets the counter", async () => {
@@ -558,7 +558,7 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
   });
 
   it("CORS preflight never consumes throttle budget", async () => {
-    // Arrange — TOG-5809 answers OPTIONS with a 204 preflight before the
+    // Arrange — OPTIONS is answered with a 204 preflight before the
     // bearer gate; it must not burn throttle budget doing so.
     const PREFLIGHT_IP = "192.0.2.71";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {

@@ -5,7 +5,7 @@ import m2 from "../migrations/d1/0002_address_container.sql?raw";
 import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
 
 /**
- * TOG-5830: the container/address free-text list filters (`q` over
+ * The container/address free-text list filters (`q` over
  * `location_address`/`serial_number` and over `address`) had no supporting
  * index — only zip/customer/company/enabled were indexed (0001/0002).
  *
@@ -33,7 +33,7 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  * - `console.log` is swallowed in the pool, so every observation is an
  *   assertion, not a log line.
  *
- * TOG-7383 extension: the same file now also audits the shapes 0003 did NOT
+ * Extension: the same file now also audits the shapes 0003 did NOT
  * touch — the customer list/filter queries (served by 0001's
  * `idx_customer_snapshot_enabled`, so 0003 is a no-op for them) and the
  * container `customerId` join composed with `enabled + q`. Verdict: no
@@ -87,7 +87,7 @@ const ADDR_Q = "instr(lower(coalesce(address, '')), lower(?)) > 0";
 const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
 const CONT_Q =
   "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
-// TOG-7383: same join shape as src/routes/containerSnapshot.ts `customerId` filter.
+// Same join shape as src/routes/containerSnapshot.ts `customerId` filter.
 const CONT_JOIN = "INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id";
 
 const plans: Record<string, string[]> = {};
@@ -136,7 +136,7 @@ beforeAll(async () => {
     "main",
     "main"
   );
-  // TOG-7383: customer shapes use 0001's idx_customer_snapshot_enabled, so
+  // Customer shapes use 0001's idx_customer_snapshot_enabled, so
   // capture them BEFORE 0003 to prove 0003 is a no-op for that table.
   plans.custEnabledQBefore = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
@@ -191,7 +191,7 @@ beforeAll(async () => {
     50,
     0
   );
-  // TOG-7383: prove 0003 changes nothing for the customer table (0001's
+  // Prove 0003 changes nothing for the customer table (0001's
   // enabled index already serves its shapes), record the customer q-alone
   // boundary, and pin the container customerId-join + enabled + q plan.
   plans.custEnabledQAfter = await explain(
@@ -397,7 +397,7 @@ describe("container text filter (q over location_address OR serial_number)", () 
   });
 });
 
-describe("customer text filter (q over company_name) — TOG-7383", () => {
+describe("customer text filter (q over company_name)", () => {
   it("already seeks 0001's enabled index before 0003", () => {
     expect(plans.custEnabledQBefore.join(" ")).toContain(
       "SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)"
@@ -427,7 +427,7 @@ describe("customer text filter (q over company_name) — TOG-7383", () => {
   });
 });
 
-describe("container customerId join + enabled + q — TOG-7383", () => {
+describe("container customerId join + enabled + q", () => {
   it("seeks indexes after 0003 (enabled-prefix composite on c, customer_id on a)", () => {
     const plan = plans.contJoinEnabledQAfter.join(" ");
     expect(plan).toContain("SEARCH");

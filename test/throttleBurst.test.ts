@@ -12,7 +12,7 @@ const API_TOKEN = "test-api-token";
 const RATE_LIMITED_TYPE = `${PROBLEM_TYPE_BASE}rate-limited`;
 const UNAUTHORIZED_TYPE = `${PROBLEM_TYPE_BASE}unauthorized`;
 
-// TOG-6278: burst verification for the 20-failures/60s throttle (TOG-5820).
+// Burst verification for the 20-failures/60s throttle.
 //
 // Gaps this file covers beyond test/authThrottle.test.ts and
 // test/authGateSweep.test.ts:
@@ -84,7 +84,7 @@ async function burnToBlocked(ip: string, path: string = HOME_INDEX): Promise<voi
   expect(throttled.status).toBe(429);
 }
 
-describe("throttle burst verification (TOG-6278)", () => {
+describe("throttle burst verification", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -172,7 +172,7 @@ describe("throttle burst verification (TOG-6278)", () => {
 
   it("OPTIONS interleaved with failures never consumes budget", async () => {
     // Arrange — 10 failures, a 20-deep OPTIONS burst, then 9 more failures.
-    // TOG-5809 answers OPTIONS with a 204 preflight before the bearer gate.
+    // OPTIONS is answered with a 204 preflight before the bearer gate.
     for (let i = 0; i < 10; i++) {
       await expectFailure401(await call(HOME_INDEX, { token: `pre-${i}`, ip: OPTIONS_IP }));
     }

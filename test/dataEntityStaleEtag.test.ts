@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-5834: stale-ETag freshness after POST invalidation.
+ * Stale-ETag freshness after POST invalidation.
  *
  * `test/dataEntityHandlers.test.ts` pins each GET handler's conditional-request
  * branches in isolation (304 on match, 200 on mismatch/prefix/superstring,
@@ -61,7 +61,7 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
         cacheStore.delete(cacheKey("container", id));
       }
     },
-    // TOG-6534: handlers now call the retry wrapper; evict the same keys.
+    // Handlers now call the retry wrapper; evict the same keys.
     invalidateCustomerGraphWithRetry: async (p: {
       customerId: number;
       addressIds: number[];
@@ -90,7 +90,7 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _r: unknown,
     buf: ArrayBuffer | null
   ) => prepared(buf),
-  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // The handlers evict the rejected token on the silent-failure
   // path; this double carries no cache, so the evict is a no-op.
   evictAntiForgeryTokenCacheForBody: () => false
 }));
@@ -239,7 +239,7 @@ beforeEach(() => {
   dbReads = 0;
 });
 
-describe("data-entity stale-ETag freshness after POST (TOG-5834)", () => {
+describe("data-entity stale-ETag freshness after POST", () => {
   it("customer: a GET with the pre-POST ETag returns 200 with fresh data, then 304s on the new ETag", async () => {
     const db = fakeDb();
 

@@ -9,7 +9,7 @@ import {
 } from "./d1TestMigrations";
 
 /**
- * Test-migration parity guard (TOG-6551).
+ * Test-migration parity guard.
  *
  * Before this, `test/d1TestMigrations.ts` hard-imported exactly two migration
  * files and split them by stripping `--` lines and splitting on `;`. That is
@@ -83,7 +83,7 @@ describe("buildMigrations (auto-discovery)", () => {
       .bind("idx_address_snapshot_enabled_address_lower")
       .first<{ name: string }>();
 
-    // Assert: before TOG-6551 only 0001/0002 were hard-imported, so this
+    // Assert: before only 0001/0002 were hard-imported, so this
     // index existed in prod D1 but never in the test schema.
     expect(row?.name).toBe("idx_address_snapshot_enabled_address_lower");
   });

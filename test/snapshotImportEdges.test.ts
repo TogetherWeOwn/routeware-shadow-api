@@ -11,7 +11,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 import { recordingDb } from "./snapshotDbFake";
 
 /**
- * TOG-6279 — snapshot import edge cases.
+ * Snapshot import edge cases.
  *
  * POST /api/v1/{customer,address,container}-snapshot/import must:
  * - reject an empty-string body, a header-only CSV and a malformed CSV with
@@ -107,7 +107,7 @@ type ProblemBody = {
 };
 
 /**
- * TOG-7597 — the live wire shape of a bodyless POST. `curl -X POST` with no
+ * The live wire shape of a bodyless POST. `curl -X POST` with no
  * `Content-Length`/`Transfer-Encoding` arrives as an empty non-null stream,
  * never the `null` body the unit harness builds — so the `!body` guard alone
  * cannot be the only pin. Both shapes must 400, never a silent 200 zeros.
@@ -138,7 +138,7 @@ function postImportEmptyStream(path: string): Promise<Response> {
   } as RequestInit);
 }
 
-describe("snapshot import edges (TOG-6279)", () => {
+describe("snapshot import edges", () => {
   beforeAll(async () => {
     await ensureD1TestTables();
   });
@@ -235,7 +235,7 @@ ${spec.row}`, {
     });
 
     it("rejects a bodyless POST with 400, not a silent 200 zeros", async () => {
-      // Act — no body key at all: the null-body half of the TOG-7597 pair,
+      // Act — no body key at all: the null-body half of the pair,
       // answered by the handler's empty-body guard before any D1 write.
       const res = await postImportBodyless(spec.base);
 
@@ -249,7 +249,7 @@ ${spec.row}`, {
 
     it("rejects an empty-stream POST with 400, not a silent 200 zeros", async () => {
       // Act — an empty non-null stream: the live wire shape of `curl -X POST`
-      // with no Content-Length/Transfer-Encoding (TOG-7597). The guard lets it
+      // with no Content-Length/Transfer-Encoding. The guard lets it
       // through, so the import's requireDataRows rejection must 400 it.
       const res = await postImportEmptyStream(spec.base);
 

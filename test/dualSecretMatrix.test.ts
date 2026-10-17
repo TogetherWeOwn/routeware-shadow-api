@@ -5,7 +5,7 @@ import { apiAccessToken, isApiAuthorized } from "../src/lib/auth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * TOG-6298: dual-secret fallback precedence matrix.
+ * Dual-secret fallback precedence matrix.
  *
  * Two-tier gate under audit:
  * - Outer (`src/app.ts` via `isApiAuthorized`): accepts SHADOW_API_TOKEN **or**
@@ -221,7 +221,7 @@ describe("dual-secret route-class matrix (HTTP, both-set test env)", () => {
 });
 
 /**
- * TOG-8383 (G28): living HTTP re-test contract across all four secret configs.
+ * G28: living HTTP re-test contract across all four secret configs.
  *
  * Matrix 2 above proves the route-class split, but only under the both-set
  * `[env.test.vars]` — the one config the `cloudflare:workers` self-fetch path
@@ -292,7 +292,7 @@ async function matrixCall(
 const PRIVILEGED_PASS_DETAIL =
   "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.";
 
-describe("dual-secret HTTP matrix across all four secret configs (TOG-8383)", () => {
+describe("dual-secret HTTP matrix across all four secret configs", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

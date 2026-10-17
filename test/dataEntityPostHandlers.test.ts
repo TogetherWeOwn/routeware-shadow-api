@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The three POST write paths in `src/lib/dataEntitySave.ts` (split from `src/lib/dataEntityHandlers.ts`, TOG-19136) had zero coverage.
+ * The three POST write paths in `src/lib/dataEntitySave.ts` (split from `src/lib/dataEntityHandlers.ts`) had zero coverage.
  *
  * The highest-risk branch is the one exercised first below: the upstream write to
  * Routeware succeeds, but the follow-up `syncCustomerDetailFullToD1` throws. The
@@ -75,7 +75,7 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _r: unknown,
     buf: ArrayBuffer | null
   ) => prepared(buf),
-  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // The handlers evict the rejected token on the silent-failure
   // path; this double carries no cache, so the evict is a no-op.
   evictAntiForgeryTokenCacheForBody: () => false
 }));
@@ -125,7 +125,7 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
     invalidateCustomerGraph: async (p: Graph) => {
       calls.graph.push(p);
     },
-    // TOG-6534: handlers now call the retry wrapper; track it on the same
+    // Handlers now call the retry wrapper; track it on the same
     // `calls.graph` ledger so success-path assertions are unchanged.
     invalidateCustomerGraphWithRetry: async (p: Graph, maxAttempts?: number) => {
       calls.graph.push(p);
@@ -251,7 +251,7 @@ afterEach(() => {
 describe("POST handlers when the local D1 sync throws after a successful upstream write", () => {
   it("keeps the upstream 200 and reports localSync.done=false with a fixed code", async () => {
     // Arrange — the save reached Routeware; only the shadow-copy sync failed.
-    // The D1 error text must not reach the client (TOG-6535): the handler
+    // The D1 error text must not reach the client: the handler
     // maps it to a fixed `code` and logs the original server-side.
     behavior.syncError = "D1_ERROR: no such table";
 
@@ -280,7 +280,7 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
   });
 
   it("keeps the upstream 200 when the fallback eviction also fails", async () => {
-    // Arrange — TOG-8374: the upstream save already succeeded, so a post-save
+    // Arrange — the upstream save already succeeded, so a post-save
     // cleanup failure (e.g. Cache API quota exhausted mid-graph) must not turn
     // the handler into a rejection the client might retry as a duplicate
     // create. The sync throws, then the single-customer fallback throws too.
@@ -305,7 +305,7 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
   });
 
   it("keeps the upstream 200 when the address fallback evictions also fail", async () => {
-    // Arrange — TOG-8374: both wrapped address-handler fallbacks (customer,
+    // Arrange — both wrapped address-handler fallbacks (customer,
     // then posted address) throw, e.g. Cache API quota exhausted mid-graph.
     behavior.syncError = "boom";
     behavior.entityError = "Too many subrequests";
@@ -496,7 +496,7 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
 
 describe("handlePostDataCustomer", () => {
   it("returns ids + sync outcome only and invalidates the customer graph on success", async () => {
-    // Arrange — TOG-6535: the envelope must carry no `posted` PII map and no
+    // Arrange — the envelope must carry no `posted` PII map and no
     // raw upstream body, only resolved ids and a byte count of the upstream.
     behavior.upstreamBody = '{"success":true}';
     behavior.syncResult = { addressIds: [10, 11], containerIds: [100] };
@@ -590,7 +590,7 @@ describe("handlePostDataCustomer", () => {
     expect("posted" in body).toBe(false);
     expect("upstream" in body).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Saved.");
-    // TOG-6533: the form carries no usable posted id, so there is nothing to
+    // The form carries no usable posted id, so there is nothing to
     // invalidate — but the branch must run without throwing.
     expect(calls.entity).toEqual([]);
   });
@@ -657,7 +657,7 @@ describe("handlePostDataAddress", () => {
   });
 
   it("invalidates the posted address id when the write succeeds with no usable customer id", async () => {
-    // Arrange — TOG-6533: the upstream save succeeded but no graph sync is
+    // Arrange — the upstream save succeeded but no graph sync is
     // possible, so the pre-edit cached address bundle must still be dropped.
     // Act
     const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
@@ -722,7 +722,7 @@ describe("handlePostDataContainer", () => {
   });
 
   it("invalidates the posted address and container ids when the write succeeds with no resolvable customer", async () => {
-    // Arrange — TOG-6533: the upstream save succeeded but neither the form
+    // Arrange — the upstream save succeeded but neither the form
     // nor the address-snapshot fallback yields a customer, so the pre-edit
     // cached bundles must still be dropped.
     const db = fallbackDb({ pickup_address_id: 99, customer_id: 5 });

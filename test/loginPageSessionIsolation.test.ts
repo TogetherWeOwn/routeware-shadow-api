@@ -6,7 +6,7 @@ const API_TOKEN = "test-api-token";
 const LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login";
 
 /**
- * TOG-6297 — the login-page probe fetches upstream without a session.
+ * The login-page probe fetches upstream without a session.
  *
  * `GET /api/v1/routeware/account/login-page` forwards to the fixed
  * `LOGIN_URL` with a `null` session (`src/routes/routeware.ts`): it must
@@ -41,7 +41,7 @@ async function callLoginPage(): Promise<Response> {
   );
 }
 
-describe("login-page session isolation (TOG-6297)", () => {
+describe("login-page session isolation", () => {
   const originalFetch = globalThis.fetch;
   let upstreamUrls: string[];
   let upstreamCookies: Array<string | null>;
@@ -122,7 +122,7 @@ describe("login-page session isolation (TOG-6297)", () => {
   });
 
   it("replaces upstream Cache-Control with no-store when no Set-Cookie is present", async () => {
-    // Arrange — TOG-22087: the secureUpstreamResponse guard's cache-control
+    // Arrange — the secureUpstreamResponse guard's cache-control
     // clause is what stops the direct login-page proxy (routeware.ts:52,
     // which calls forwardToUpstream directly) relaying an upstream cache
     // policy when no cookie is set. Without it the upstream value reaches

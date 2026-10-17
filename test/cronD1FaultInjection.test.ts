@@ -1,7 +1,7 @@
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Cron D1-fault-injection tests (TOG-8889, round-3 gap §3).
+ * Cron D1-fault-injection tests (round-3 gap §3).
  *
  * The gap asks for "tests injecting D1 failures into the scheduled handler;
  * cron returns 503 problem body, never PII, and logs the table name". The
@@ -93,7 +93,7 @@ vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
       run: (s: ReadableStream<Uint8Array>) => Promise<unknown>,
       onArchive?: (detail: { status: string }) => void
     ) => {
-      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // Mirror the real helper's contract: the callback fires on every
       // path, so a healthy table reads `stored` instead of the unreported
       // fallback. Same passthrough as `test/snapshotOrchestration.test.ts`.
       onArchive?.({ status: "stored" });
@@ -315,7 +315,7 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — orchestration stops after the failed step: customer rows from
-    // this run are present, container never ran. TOG-6546: the failed line
+    // this run are present, container never ran. The failed line
     // keeps the customer counts instead of all-null, and names the table.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
@@ -325,7 +325,7 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
       upserted: 2,
       rowCount: 2,
       deleted: 0,
-      // TOG-6549: the succeeded table's archive stored, so its R2 outcome
+      // The succeeded table's archive stored, so its R2 outcome
       // rides the partial counts onto the failed line.
       r2: { status: "stored" },
     });
@@ -343,7 +343,7 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
     // Arrange / Act
     await runScheduled(cronEnv(faultDb(failContainerBatch)));
 
-    // Assert — TOG-6546: both succeeded tables keep their counts on the
+    // Assert — both succeeded tables keep their counts on the
     // failed line; only the failed table is null.
     const line = failedLine();
     expect(line.outcome).toBe("failed");
@@ -353,7 +353,7 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
       upserted: 2,
       rowCount: 2,
       deleted: 0,
-      // TOG-6549: both succeeded tables archived cleanly before the
+      // Both succeeded tables archived cleanly before the
       // container leg failed, so the failed line carries their R2 outcomes.
       r2: { status: "stored" },
     });
@@ -388,7 +388,7 @@ describe("scheduled() D1 fault injection: table attribution + no PII", () => {
   });
 
   it("failed runs persist per-table results: succeeded tables keep counts, the failed table is null", async () => {
-    // Arrange / Act — address fails after customer synced (TOG-6546).
+    // Arrange / Act — address fails after customer synced.
     await runScheduled(cronEnv(faultDb(failAddressBatch)));
 
     // Assert — the readiness staleness probe still advances on fresh

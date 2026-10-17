@@ -32,7 +32,7 @@ function concretePath(path: string): string {
 }
 
 /**
- * TOG-6277: one parameterized auth-gate sweep pinned per route.
+ * One parameterized auth-gate sweep pinned per route.
  *
  * The route list is read off the live router (`app.routes`), not hardcoded, so
  * a newly added `/api/v1/*` route is swept automatically — and the count pin
@@ -92,7 +92,7 @@ async function expectUnauthorized(res: Response, route: string): Promise<Problem
   return body;
 }
 
-describe("auth-gate negative sweep (TOG-6277)", () => {
+describe("auth-gate negative sweep", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -115,11 +115,11 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
     );
     expect(registered).toContain(`${PUBLIC_HEALTH.method} ${PUBLIC_HEALTH.path}`);
     // Pinned count: adding/removing a v1 route must update this sweep explicitly.
-    // 41 = prior 34 + GET ...-snapshot/export x3 (TOG-8361 CSV download) +
-    // DELETE /api/v1/customer-snapshot/{customerId} (TOG-8876 erasure) +
-    // GET /api/v1/snapshots/:table/:date (TOG-9202 R2 archive readback) +
-    // GET /api/v1/customer-snapshot/changes (TOG-8877 changes feed) +
-    // GET /api/v1/data-snapshot/orphans (TOG-5814 orphan report).
+    // 41 = prior 34 + GET ...-snapshot/export x3 (CSV download) +
+    // DELETE /api/v1/customer-snapshot/{customerId} (erasure) +
+    // GET /api/v1/snapshots/:table/:date (R2 archive readback) +
+    // GET /api/v1/customer-snapshot/changes (changes feed) +
+    // GET /api/v1/data-snapshot/orphans (orphan report).
     expect(routes).toHaveLength(41);
   });
 
@@ -189,7 +189,7 @@ describe("auth-gate negative sweep (TOG-6277)", () => {
   });
 
   it("CORS preflight answers 204 without consuming throttle budget", async () => {
-    // TOG-5809 answers OPTIONS with a 204 preflight before the bearer gate;
+    // OPTIONS is answered with a 204 preflight before the bearer gate;
     // it must not burn throttle budget doing so.
     const path = "/api/v1/routeware/home/index";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {

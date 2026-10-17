@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 /**
- * TOG-7744: a snapshot import whose rows reference missing parents must 400,
+ * A snapshot import whose rows reference missing parents must 400,
  * not 500.
  *
  * D1 enforces the snapshot FK chain (`address.customer_id` →

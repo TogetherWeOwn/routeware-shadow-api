@@ -53,7 +53,7 @@ type LockState = {
 /**
  * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
  * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
- * TOG-18959 lock-token owner check: a lock older than the TTL is treated as
+ * lock-token owner check: a lock older than the TTL is treated as
  * crashed and re-granted with a fresh token, and only the matching token
  * releases a held lock — matching `AuthSession`.
  */
@@ -209,13 +209,13 @@ describe("establishSession refresh-lock serialization", () => {
     }
   });
 
-  it("fails closed when a fresh lock is held by a stalled holder (TOG-6526)", async () => {
+  it("fails closed when a fresh lock is held by a stalled holder", async () => {
     // Arrange — a holder took the lock "now" and then stalled without
     // publishing a session (no /set, no /unlock). The lock stays fresh for
     // the whole wait, so the waiter must time out without logging in itself —
     // a duplicate login here is exactly the thundering-herd the lock exists
     // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
-    // deterministically (90s default timeout, TOG-6527).
+    // deterministically (90s default timeout).
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));

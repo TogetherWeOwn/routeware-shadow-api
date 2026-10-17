@@ -7,13 +7,13 @@ import {
 } from "../scripts/lib/verifyConfig.mjs";
 
 /**
- * Regression tests for TOG-9213 (gap O3): three separate config checks an
+ * Regression tests for Gap O3: three separate config checks an
  * operator must remember (devvars, vars-parity, d1-drift) get one
  * `npm run verify:config` preflight with a single pass/fail summary. Only
  * check names and pass/fail are ever handled — no values, real or fixture.
  */
 
-describe("verify:config chain (TOG-9213)", () => {
+describe("verify:config chain", () => {
   it("chains exactly the three operator config checks, d1-drift local-only", () => {
     expect(CHECKS.map((c) => c.name)).toEqual(["check:devvars", "check:vars-parity", "check:d1-drift"]);
     const drift = CHECKS.find((c) => c.name === "check:d1-drift");

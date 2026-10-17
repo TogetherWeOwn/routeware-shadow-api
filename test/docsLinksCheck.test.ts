@@ -1,5 +1,5 @@
 /**
- * Unit tests for the docs link + anchor check (TOG-18936).
+ * Unit tests for the docs link + anchor check.
  *
  * Rule (docs/CONVENTIONS.md §7): every relative `](path)` / `](path#anchor)`
  * link in tracked `*.md` files must resolve — file exists (or is a tracked
@@ -43,7 +43,7 @@ function files(
   return entries.map(([path, text]) => ({ path, text }));
 }
 
-describe("slugifyHeading (GitHub slug rules, TOG-18936)", () => {
+describe("slugifyHeading (GitHub slug rules)", () => {
   it("lowercases, strips punctuation, turns spaces into hyphens", () => {
     expect(slugifyHeading("Smoke Ladder: Five Commands (Fresh Clone)")).toBe(
       "smoke-ladder-five-commands-fresh-clone",
@@ -68,7 +68,7 @@ describe("slugifyHeading (GitHub slug rules, TOG-18936)", () => {
   });
 });
 
-describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
+describe("decodeHtmlEntities + heading slugs (review #261)", () => {
   it("decodes named and numeric entities in a single pass", () => {
     expect(
       decodeHtmlEntities("Don&#39;t &amp; Q &#x51;&amp;&#x41; &quot;hi&quot; &lt;x&gt;"),
@@ -194,7 +194,7 @@ describe("decodeHtmlEntities + heading slugs (TOG-18936, review #261)", () => {
   });
 });
 
-describe("extractLinks (TOG-18936)", () => {
+describe("extractLinks", () => {
   it("finds relative links with and without anchors", () => {
     const links = extractLinks(
       "See [B](B.md) and [sec](B.md#sec) here.\n",
@@ -228,7 +228,7 @@ describe("extractLinks (TOG-18936)", () => {
   });
 });
 
-describe("extractAnchors (TOG-18936)", () => {
+describe("extractAnchors", () => {
   it("slugs headings and numbers duplicates like GitHub (-1, -2)", () => {
     const anchors = extractAnchors("## Dup\n\n## Dup\n\n## Dup\n");
     expect(anchors).toEqual(["dup", "dup-1", "dup-2"]);
@@ -250,7 +250,7 @@ describe("extractAnchors (TOG-18936)", () => {
   });
 });
 
-describe("checkDocsLinks (TOG-18936)", () => {
+describe("checkDocsLinks", () => {
   it("reports a missing file (the docs/docs/… rot class)", () => {
     const findings = checkDocsLinks(
       files([["docs/A.md", "Prior: [drill](docs/B.md).\n"]]),
@@ -358,7 +358,7 @@ describe("checkDocsLinks (TOG-18936)", () => {
   });
 });
 
-describe("gitignore matching (TOG-18936)", () => {
+describe("gitignore matching", () => {
   it("parses directory prefixes, suffix globs and exact files", () => {
     const rules = parseGitignore(
       "# comment\n\ntools/api-discovery/out/\n*.csv\nworker-configuration.d.ts\n",
@@ -378,7 +378,7 @@ describe("gitignore matching (TOG-18936)", () => {
   });
 });
 
-describe("formatReport (TOG-18936)", () => {
+describe("formatReport", () => {
   it("lists file: link (reason) lines, never file contents", () => {
     const lines = formatReport([
       { file: "docs/A.md", text: "drill", target: "docs/B.md", reason: "missing file", resolved: "docs/docs/B.md" },
@@ -396,7 +396,7 @@ describe("formatReport (TOG-18936)", () => {
   });
 });
 
-describe("check name (TOG-18936)", () => {
+describe("check name", () => {
   it("exposes the hygiene check name", () => {
     expect(CHECK_NAME).toBe("docs-links");
   });

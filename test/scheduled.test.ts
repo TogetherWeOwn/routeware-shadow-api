@@ -32,7 +32,7 @@ const behavior: {
   result: { customer: Result; address: Result; container: Result };
   error: string | null;
   rawThrow: boolean;
-  /** When set, the sync throws a partial-failure shaped rejection (TOG-6546). */
+  /** When set, the sync throws a partial-failure shaped rejection. */
   partial: { failedTable: string; partial: { customer: Result; address: Result; container: Result }; message: string } | null;
 } = {
   result: { customer: null, address: null, container: null },
@@ -243,7 +243,7 @@ describe("scheduled sync path selection", () => {
     ["userinfo origin", "https://user:pass@api.example.test"],
   ])("falls back to single-invocation on %s without throwing", async (_label, value) => {
     // Arrange — a malformed SHADOW_API_PUBLIC_BASE must never throw before
-    // logging (TOG-6285): the run falls back and still emits its structured
+    // logging: the run falls back and still emits its structured
     // success/unconfigured line with d1LimitRisk=true.
     behavior.result = { customer: { upserted: 1, rowCount: 1 }, address: null, container: null };
 
@@ -331,10 +331,10 @@ describe("scheduled structured outcome", () => {
     expect(line.error).toBeUndefined();
   });
 
-  it("reports deleted for every synced table in the cron summary (TOG-7391)", async () => {
+  it("reports deleted for every synced table in the cron summary", async () => {
     // Arrange — the chained path now carries per-table `deleted`; the cron
     // line must show it for address/container, not just customer. Stored
-    // archives stay silent in the summary (TOG-6549).
+    // Archives stay silent in the summary.
     behavior.result = {
       customer: { upserted: 3, rowCount: 4, deleted: 1, r2: { status: "stored" } },
       address: { upserted: 5, rowCount: 6, deleted: 2, r2: { status: "stored" } },
@@ -358,7 +358,7 @@ describe("scheduled structured outcome", () => {
     );
   });
 
-  it("surfaces a failed R2 archive in the structured line (TOG-6549)", async () => {
+  it("surfaces a failed R2 archive in the structured line", async () => {
     // Arrange — the acceptance case: D1 succeeded (outcome stays success) but
     // the customer archive leg failed. Only the status travels — no row data.
     behavior.result = {
@@ -381,7 +381,7 @@ describe("scheduled structured outcome", () => {
     expect(line.summary).toContain("container: 7 upserted, 8 rows, r2: disabled");
   });
 
-  it("marks pre-instrumentation counts as r2 unknown instead of inventing success (TOG-6549)", async () => {
+  it("marks pre-instrumentation counts as r2 unknown instead of inventing success", async () => {
     // Arrange — a table result with no `r2` (older route caller) must not read
     // as archived; the summary says unknown.
     behavior.result = {
@@ -436,7 +436,7 @@ describe("scheduled structured outcome", () => {
     expect(errors).toEqual([]);
   });
 
-  it("reports unconfigured on the single-invocation path when nothing was configured (TOG-7397)", async () => {
+  it("reports unconfigured on the single-invocation path when nothing was configured", async () => {
     // Arrange — blanked report vars with no public base: the runbook §5 drill
     // shape. Same config state, fallback mode.
     behavior.result = { customer: null, address: null, container: null };
@@ -515,7 +515,7 @@ describe("scheduled failure handling", () => {
     expect(line).not.toHaveProperty("error");
   });
 
-  it("reports partial per-table progress when a later table fails (TOG-6546)", async () => {
+  it("reports partial per-table progress when a later table fails", async () => {
     // Arrange — the acceptance case: container throws after customer and
     // address already succeeded. The log must keep their counts instead of
     // all-null, and name the failed table.

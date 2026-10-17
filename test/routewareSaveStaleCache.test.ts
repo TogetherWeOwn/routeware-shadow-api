@@ -8,7 +8,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 const SYNC_SECRET = "test-sync-secret";
 
 /**
- * TOG-6463 — the routeware-tier save routes used to forward upstream and
+ * The routeware-tier save routes used to forward upstream and
  * return, so a successful save (including the documented `Enabled=false`
  * disable flow) stayed invisible to shadow reads until the next cron sync:
  * D1 kept the pre-save row and `GET /api/v1/data/*` kept serving the cached
@@ -52,7 +52,7 @@ const behavior = { saveBody: '{"success":true}' };
 
 type CustomerRead = { customer: { company_name: string; enabled: number } };
 
-describe("routeware-tier saves refresh D1 + cache (TOG-6463)", () => {
+describe("routeware-tier saves refresh D1 + cache", () => {
   const originalFetch = globalThis.fetch;
 
   beforeAll(async () => {

@@ -14,7 +14,7 @@ import {
 } from "../scripts/lib/depsAuditCheck.mjs";
 
 /**
- * Regression tests for TOG-8904: an unaudited transitive dependency can land
+ * Regression tests: an unaudited transitive dependency can land
  * without a blocking signal. The gate fails on unallowlisted high/critical
  * advisories only; moderate/low findings (e.g. Hono adapters this Worker
  * never mounts) are reported, never blocking.
@@ -31,7 +31,7 @@ function advisory(url: string, severity = "high", name = "some-pkg", title = "So
   };
 }
 
-describe("ghsaIdFromUrl (TOG-8904)", () => {
+describe("ghsaIdFromUrl", () => {
   it("extracts four-segment GHSA ids from advisory URLs", () => {
     expect(ghsaIdFromUrl("https://github.com/advisories/GHSA-rpmf-866q-6p89")).toBe(
       "GHSA-rpmf-866q-6p89",
@@ -45,7 +45,7 @@ describe("ghsaIdFromUrl (TOG-8904)", () => {
   });
 });
 
-describe("severityRank (TOG-8904)", () => {
+describe("severityRank", () => {
   it("orders critical above high above moderate, case-insensitively", () => {
     expect(severityRank("critical")).toBeGreaterThan(severityRank("HIGH"));
     expect(severityRank("high")).toBeGreaterThan(severityRank("moderate"));
@@ -57,7 +57,7 @@ describe("severityRank (TOG-8904)", () => {
   });
 });
 
-describe("extractAdvisories (TOG-8904)", () => {
+describe("extractAdvisories", () => {
   it("uses the per-advisory severity, not npm's package-level rollup", () => {
     // npm rolls hono up to "high" because one of its ~25 advisories is high;
     // the extractor must keep each advisory's own severity, so a moderate
@@ -104,7 +104,7 @@ describe("extractAdvisories (TOG-8904)", () => {
   });
 });
 
-describe("evaluateAudit (TOG-8904)", () => {
+describe("evaluateAudit", () => {
   const allowlist = [{ id: "GHSA-aaaa-bbbb-cccc" }];
 
   it("passes when the only high advisory is allowlisted", () => {
@@ -149,7 +149,7 @@ describe("evaluateAudit (TOG-8904)", () => {
       expect(entry.id).toMatch(/^GHSA-/);
       expect(entry.reason.length).toBeGreaterThan(20);
       // Entries name the card that added them (docs/DEPENDENCY-AUDIT.md);
-      // later advisories add entries under their own card, not TOG-8904.
+      // Later advisories add entries under their own reference, not the original one.
       expect(entry.addedIn).toMatch(/^TOG-\d+$/);
     }
   });
@@ -159,13 +159,13 @@ describe("evaluateAudit (TOG-8904)", () => {
   });
 });
 
-describe("formatPassLog (TOG-8904)", () => {
+describe("formatPassLog", () => {
   it("names the check and the counts", () => {
     expect(formatPassLog({ scanned: 33, allowlisted: 8, belowThreshold: 25 })).toContain(CHECK_NAME);
   });
 });
 
-describe("combineAuditJson (TOG-25334)", () => {
+describe("combineAuditJson", () => {
   it("merges disjoint scopes so one verdict covers both lockfiles", () => {
     const merged = combineAuditJson([
       { vulnerabilities: { p: advisory("https://github.com/advisories/GHSA-aaaa-bbbb-cccc") } },
@@ -240,7 +240,7 @@ describe("combineAuditJson (TOG-25334)", () => {
   });
 });
 
-describe("auditReportProblem (TOG-25334 review hardening)", () => {
+describe("auditReportProblem (review hardening)", () => {
   it("accepts a real audit report, with or without metadata", () => {
     expect(auditReportProblem({ vulnerabilities: {} })).toBeNull();
     expect(

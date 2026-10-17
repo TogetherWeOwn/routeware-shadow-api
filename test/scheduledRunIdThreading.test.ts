@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Per-run correlation id threading (TOG-19134, round 2).
+ * Per-run correlation id threading (round 2).
  *
  * Minting `runId` in `scheduled()` is not enough: the id must reach every
  * line the run emits — the orchestration skip lines, the R2-archive lines,
@@ -157,7 +157,7 @@ describe("runDataSnapshotSync runId threading", () => {
   });
 
   it("emits byte-identical skip lines without a runId", async () => {
-    // Act — direct callers without a run keep the pre-TOG-19134 shape.
+    // Act — direct callers without a run keep the previous shape.
     await runDataSnapshotSync(emptyEnv);
 
     // Assert

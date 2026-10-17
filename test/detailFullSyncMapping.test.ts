@@ -120,7 +120,7 @@ describe("mapCurrentCustomerToRow", () => {
     [0, false],
     ["0", false],
     ["no", false],
-    // TOG-6542: absent Enabled defaults to true, matching the cron CSV
+    // Absent Enabled defaults to true, matching the cron CSV
     // path, the address/container guards, and the D1 DEFAULT 1.
     [undefined, true]
   ])("reads Enabled=%o as %s", (enabled, expected) => {
