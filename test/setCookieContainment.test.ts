@@ -68,7 +68,7 @@ function expectNoSetCookie(res: Response): void {
   expect(list).toEqual([]);
 }
 
-describe("stripUpstreamSetCookie unit proof (TOG-6284)", () => {
+describe("secureUpstreamResponse unit proof (TOG-6284)", () => {
   const originalFetch = globalThis.fetch;
 
   afterEach(() => {

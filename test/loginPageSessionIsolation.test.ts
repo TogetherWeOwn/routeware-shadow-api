@@ -139,6 +139,25 @@ describe("login-page session isolation (TOG-6297)", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("strips Set-Cookie when upstream Cache-Control is already no-store", async () => {
+    // Arrange — pins the set-cookie half of the secureUpstreamResponse
+    // guard: an upstream response that is already `no-store` must still be
+    // rebuilt to drop its Set-Cookie. Without that clause the fast path
+    // returns the upstream response untouched and the shared Routeware
+    // session cookie reaches the client (CONVENTIONS.md § 4 containment).
+    upstreamCacheControl = "no-store";
+    upstreamSetCookie = ".WebRW=upstream-session; Path=/; HttpOnly";
+
+    // Act
+    const response = await callLoginPage();
+
+    // Assert
+    expect(response.status).toBe(200);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.has("set-cookie")).toBe(false);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("keeps no-store on the identity fast path with no Set-Cookie", async () => {
     // Arrange — pins the early-return branch: upstream already no-store
     // with no cookie returns unchanged (still no-store).
