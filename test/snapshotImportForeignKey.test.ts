@@ -23,10 +23,8 @@ import { beforeAll, describe, expect, it } from "vitest";
  *   still land (batch atomicity, per `docs/BACKFILL-RUNBOOK.md` §5).
  *
  * The route modules are fetched directly rather than through `src/app.ts`
- * (the `test/snapshotRoutes.test.ts` pattern): that bypasses the app-wide
- * `/api/v1/*` gate — whose bearer comes from pool env and differs between
- * local `.dev.vars` and CI — and lets each test supply the real pool
- * `CUSTOMER_DB` with the pool's own sync secret.
+ * (the `test/snapshotRoutes.test.ts` pattern), allowing each test to supply
+ * the real pool `CUSTOMER_DB` with the pool's own sync secret.
  *
  * Synthetic ids only (9xxx/2xxx/3xxx ranges, distinct per test — the file
  * shares one D1, top-to-bottom). Deliberately does NOT assert problem+json
