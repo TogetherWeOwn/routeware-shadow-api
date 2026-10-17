@@ -14,8 +14,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-PR group (TOG-23109): a new push to a PR cancels that PR's
+  # superseded runs, but concurrent PRs never cancel each other.
+  # cancel-in-progress is true ONLY for pull_request events. Non-PR runs
+  # (push-to-main, schedule) each get their own group via run_id, so a
+  # queued run is never replaced and push/nightly runs never cancel each
+  # other. Deploy runs are untouched.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
