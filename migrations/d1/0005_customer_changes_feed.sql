@@ -1,4 +1,4 @@
--- TOG-8877: index serving GET /api/v1/customer-snapshot/changes.
+-- Index serving GET /api/v1/customer-snapshot/changes.
 --
 -- The feed filters `synced_at > ?` and orders by `(synced_at, customer_id)`
 -- (keyset order). The composite index turns that shape from SCAN into SEARCH

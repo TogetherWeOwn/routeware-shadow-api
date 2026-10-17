@@ -1,5 +1,5 @@
--- Narrowly scoped descendant-write suppression for erased customers
--- (TOG-21964, CEO scoped_skip). A suppressed customer row would otherwise
+-- Narrowly scoped descendant-write suppression for erased customers.
+-- A suppressed customer row would otherwise
 -- leave its upstream-retained addresses dangling on the customer foreign key,
 -- aborting the whole sync/restore with SnapshotForeignKeyError.
 --
