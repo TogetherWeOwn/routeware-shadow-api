@@ -91,7 +91,7 @@ assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional 
 assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
 // TOG-7666: the workers-pool suite stalls past the 30s timeout when an
-// unrestricted coverage run shares a self-hosted runner with other CI jobs
+// unrestricted coverage run shares a CI runner with other CI jobs
 // (red main 3657b4f). The cap lives in vitest.config.ts, gated on CI so
 // local runs keep full speed. Pin it present so a config edit can never
 // silently uncap CI.

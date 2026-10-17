@@ -28,6 +28,6 @@ jobs:
   test-guard:
     name: test-guard
     uses: TogetherWeOwn/.github/.github/workflows/test-guard.yml@866275517a9875f02110f946411401db8907ec8a
-    # Public repo: GitHub-hosted runners are free and the org runner group does not serve public repos.
+    # Public repo: GitHub-hosted runners are free; the gate runs on ubuntu-latest.
     with:
       runs-on-json: '["ubuntu-latest"]'

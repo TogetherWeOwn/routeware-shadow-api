@@ -17,8 +17,8 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 ## 0. Do this first — verify PR CI before enabling production deploys
 
-**Verification and production authorization are separate.** CI uses self-hosted runners labeled
-`two-selfhosted`. On PRs to `main`, changed-area detection selects the credential-free `build` and
+**Verification and production authorization are separate.** CI uses GitHub-hosted `ubuntu-latest`
+runners. On PRs to `main`, changed-area detection selects the credential-free `build` and
 optional `shadow-api-v1` jobs; `hygiene` always runs. Docs-only PRs targeting `main` skip build and
 shadow. Pushes to `main` and nightly runs select the full verification suite; `ci-ok` aggregates these
 jobs, accepting intentional skips but failing on failures or cancellations. When selected, `shadow-api-v1`
@@ -104,8 +104,9 @@ production readiness from successful runs; keep production deploys disabled unti
    post-deploy probe is daily; the probe also supports manual `workflow_dispatch`.
 3. **Verify without shipping anything.** Inspect a recent run from a pull request targeting `main` for
    the reviewed head, or use a documentation-only pull request targeting `main` after a transfer.
-   Expect changed-area detection, `Repo hygiene & secret scan`, and `ci-ok` to pass on the self-hosted
-   runners; docs-only PRs targeting `main` intentionally skip build and shadow. For a PR selecting
+   Expect changed-area detection, `Repo hygiene & secret scan`, and `ci-ok` to pass on the
+   GitHub-hosted runners; docs-only PRs targeting `main` intentionally skip build and shadow. For a PR
+   selecting
    build/shadow, confirm build passes and, without `CF_TOKEN`, the shadow gate reports its reason and
    skips contract execution. The deploy job must be skipped on pull requests targeting `main` and remain
    skipped on pushes to `main` unless the effective repository/organization value matches `true`
