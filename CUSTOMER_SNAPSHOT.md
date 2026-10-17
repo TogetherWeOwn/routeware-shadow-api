@@ -208,16 +208,31 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 ### Customer-row erasure scope (TOG-18933)
 
-`DELETE /api/v1/customer-snapshot/{customerId}` is GDPR-style erasure for
-the stored extract only. Erasure removes the D1 `customer_snapshot` row and
-evicts the data-entity cache entry. It does not remove R2 history CSVs,
-daily aliases, latest pointers, or the archived-CSV readback, and it does
-not touch upstream Routeware. The row returns on the next sync — or on the
-next save for that customer through the proxy — while
-upstream still holds it. Any R2 restore or CSV import of an archive taken
-before the erasure re-inserts the row, and D1 Time Travel can restore it
-for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
-after any restore. This route removes only the `customer_snapshot` row:
+`DELETE /api/v1/customer-snapshot/{customerId}` is local cache suppression,
+not upstream Routeware erasure. It writes an id-only D1 tombstone and deletes
+the D1 `customer_snapshot` row in one batch, then evicts the data-entity cache
+entry. If address children prevent the delete, the FK refusal rolls back both
+writes; an absent customer still returns 404. A D1 tombstone suppresses the
+customer on later sync, proxy-save refresh, and CSV/archive import. Suppressed
+address writes for that customer are skipped and recorded as id-only lineage
+so their container writes are skipped too; other customers keep fail-closed
+foreign keys. Tombstones
+have no automatic expiry and remain until explicitly removed; retain them while
+upstream or any archive/backup can return that customer. It does not remove R2
+history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and
+it does not touch upstream Routeware. A D1 Time Travel/backup restore from
+before the erasure can restore the row and lose the tombstone/triggers; verify the
+schema, reconcile tombstones from the operator's out-of-band erased-customer
+list (the same list previously used to re-DELETE after restore — e.g., the
+erasure ticket or incident log), then delete any re-restored rows in FK order
+per the backfill SQL (a re-applied marker over existing rows freezes them
+without removing them), and re-apply suppression before serving
+recovered data, so verify suppression after database recovery. Customers erased
+before the suppression migration have no tombstone; backfill them with
+privileged `wrangler d1 execute` (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+Time Travel can restore data for up to 30 days (7 days on the Workers Free
+plan). This route removes only the `customer_snapshot` row:
 the customer's `address_snapshot` and `container_snapshot` rows are not
 removed by this route. Deleting a customer that still has address rows
 fails closed with 400 (never an orphan, never a cascade). There is no

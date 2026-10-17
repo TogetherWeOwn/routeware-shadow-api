@@ -6,8 +6,8 @@
 Evidence is read from `origin/main` refs and the scheduled workflow's own run
 history. Fixes nothing; records the cadence and the last firing.
 
-Prior drills: [TOG-6280](docs/TOG-6280-cron-drill-report.md) (2026-09-27, all keys
-PASS), [TOG-7393](docs/TOG-7393-cron-drill-report.md) (2026-09-28, §5 recipe
+Prior drills: [TOG-6280](TOG-6280-cron-drill-report.md) (2026-09-27, all keys
+PASS), [TOG-7393](TOG-7393-cron-drill-report.md) (2026-09-28, §5 recipe
 hardened). Last cron success: [TOG-7385](/TOG/issues/TOG-7385) comment
 `78757474-e7dd-4e01-817d-948a798535b8` (2026-09-27 07:00 UTC, read-only D1 ground
 truth). This report adds what those lack: the standing schedule and today's
@@ -20,7 +20,7 @@ automated-alarm firing.
 | Daily cron | `0 7 * * *` UTC daily | `wrangler.toml:95` `[triggers]` `crons = ["0 7 * * *"]`, handler `src/scheduled.ts`, persists per-table rows to `cron_sync_state` (`recordCronRun` at `src/scheduled.ts:220` and `:270`, `migrations/d1/0004_cron_sync_state.sql`) |
 | Daily automated alarm | `30 7 * * *` UTC daily, after the cron settles | `.github/workflows/post-deploy-probe.yml:11`, probe 3b `evalCronFreshness` (`scripts/post-deploy-probe.mjs:275-291`) against `GET /api/v1/readiness` → `checks.cron.stale`, server threshold `CRON_STALE_AFTER_MS` 48h (`src/lib/readiness.ts:79`); red job = two consecutive misses |
 | Manual fallback | Once daily after 07:30 UTC, disposition recorded | `docs/CRON-SYNC-ALARM-RUNBOOK.md` §4 steps 1–5 (step 5: record date, outcome, tables, action — silence is how the next miss goes unnoticed) |
-| Local drill | On demand, after any runbook/`scheduled.ts` change | Runbook §5 two-server recipe (`/__scheduled` + `--local` D1 `NULL` check); reviewer re-run in [TOG-7393](docs/TOG-7393-cron-drill-report.md) § Reviewer re-run |
+| Local drill | On demand, after any runbook/`scheduled.ts` change | Runbook §5 two-server recipe (`/__scheduled` + `--local` D1 `NULL` check); reviewer re-run in [TOG-7393](TOG-7393-cron-drill-report.md) § Reviewer re-run |
 
 Detection bound stays ~24h by design (runbook §6: no paid log-alerting tier —
 owner constraint). The schedule above is the G23 closure: drills are no longer
