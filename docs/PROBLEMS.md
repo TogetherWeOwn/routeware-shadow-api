@@ -124,7 +124,7 @@ Authorization: Bearer <SHADOW_API_TOKEN>
 `/api/v1/data-snapshot/sync`) additionally require
 `CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
 
-### Dual-secret matrix (TOG-6298)
+### Dual-secret matrix
 
 General `/api/v1/*` routes pass the outer gate with **either** secret:
 `isApiAuthorized` (`src/lib/auth.ts`) accepts the bearer when it matches
@@ -162,7 +162,7 @@ Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
 route-class matrix) and `test/snapshotAuth.test.ts` (per-route inner 401
 bodies).
 
-### Read-only bearer role (TOG-8878)
+### Read-only bearer role
 
 `SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
 reads. It passes the outer gate on GET requests only: a GET with the read
@@ -220,8 +220,7 @@ the failure class (never IP/token/PII). Operator alarm path — log query +
 alert-rule proposal, nothing activated:
 `docs/AUTH-THROTTLE-FAIL-OPEN-ALARM-RUNBOOK.md`. Pinned by
 `test/authThrottleFailOpenAlarm.test.ts` (line fires exactly once per window
-on DO failure) alongside the dedup cases in `test/authThrottle.test.ts`
-(TOG-6530).
+on DO failure) alongside the dedup cases in `test/authThrottle.test.ts`.
 
 A valid-token reset only clears the requester's own IP bucket (the same
 `auth-throttle:<ip>` Durable Object key the failures were counted under), so
@@ -275,7 +274,7 @@ session-refresh problems retain their existing types and details.
 ## Upstream timeouts (`bad-gateway`, title "Upstream timed out")
 
 Every Routeware fetch runs under a bounded per-attempt budget
-(`src/lib/upstreamTimeout.ts`, TOG-5835). Before the bound existed, a hung
+(`src/lib/upstreamTimeout.ts`). Before the bound existed, a hung
 upstream host held the Worker until the 300s CPU limit mid-sync. Now each
 fetch races a timer covering time-to-headers only (the `fetch` promise): the
 timer is cleared once headers arrive, so a large report CSV that starts
@@ -330,7 +329,7 @@ attempt; buffered consumers additionally get the body budget described above):
 | Report-CSV downloads (`routewareQueryReportCsv`, `snapshot/reportFetch`) | 60s (`REPORT_UPSTREAM_TIMEOUT_MS`) | 120s | one re-login + retry; timeouts never retried |
 | Query-report poll (`pollQueryRequestIsComplete`: 2.5s × 24 attempts ≈ 60s) | ≈60s poll + 60s download | fits in one Worker invocation | poll loop, not a fetch retry |
 
-Per-route wiring map (TOG-8359 audit — every Routeware-backed route/handler to
+Per-route wiring map (audit — every Routeware-backed route/handler to
 its budget source; all flow through `fetchWithUpstreamTimeout` via
 `forwardToUpstream` or `forwardWithSessionRetry`, never a bare `fetch`):
 
@@ -353,7 +352,7 @@ its budget source; all flow through `fetchWithUpstreamTimeout` via
 | (internal) login: login-page GET, Ext.NET init GET, login POST | LOGIN_URL + ext.axd | `httpAuth.httpLogin` direct `fetchWithUpstreamTimeout` | 15s interactive per fetch |
 | (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` bare `fetch` | no upstream budget — same-Worker subrequest, excluded |
 
-TOG-8359 fixes: four direct `forwardToUpstream` callers (login-page probe,
+Fixes: four direct `forwardToUpstream` callers (login-page probe,
 `fetchGetCustomerDetailFull`, customer modal direct path, address/container
 modal direct path) passed no `timeoutMs`, silently ignoring
 `UPSTREAM_TIMEOUT_MS`. They now pass `readUpstreamTimeoutMs(env)`; report paths
@@ -388,7 +387,7 @@ missing, non-numeric or understated one falls through to a streaming byte
 counter that rejects the same way without buffering the file. The limit
 covers operator uploads only — the report `sync` path is uncapped (upstream
 export size is the operator's own config) — and a rejected import never
-touches D1. Pinned by `test/snapshotImportEdges.test.ts` (TOG-6279).
+touches D1. Pinned by `test/snapshotImportEdges.test.ts`.
 
 ## Unsupported snapshot import media type (`unsupported-media-type`)
 
@@ -498,7 +497,7 @@ Pinned by `test/problemAnchors.test.ts` (the 405 shape) and
 Only one login runs at a time per `AuthSession` instance (the refresh lock).
 A request that arrives while another request is refreshing waits up to 90s
 for the fresh session — the waiter budget is derived from the 120s lock TTL
-so it covers a worst-case ~47s browser login (TOG-6527); if the holder never
+so it covers a worst-case ~47s browser login; if the holder never
 publishes (hung login), the waiter
 answers as 502 problem+json — never by forwarding with the expired cookie,
 which would surface upstream login HTML as a 200.

@@ -319,7 +319,7 @@ and `problemType(slug)` — but 27 of the 28 sites bypass it with an inline stri
 them all through `problemType()` first, then change the constant once.** Doing it the other way means
 28 edits every time the URL moves again.
 
-> **Update (TOG-8357, 2026-09-28): done.** All call sites now use
+> **Update (2026-09-28): done.** All call sites now use
 > `problemType(slug, env)` / `foreignKeyProblem(err, env)` and the base
 > resolves from the `PROBLEM_TYPE_BASE` wrangler var (default `""` = the
 > committed `TogetherWeOwn/.../PROBLEMS.md#` URL). **Transfer step: set
@@ -408,7 +408,7 @@ immediately after** the transfer — every day both exist is a day the old one i
 ### Open tasks, highest value first
 
 1. ~~**§4 — de-hardcode the problem `type` URIs.** Required by the transfer.~~
-   **Done (TOG-8357, 2026-09-28):** every `type` URI now resolves through
+   **Done (2026-09-28):** every `type` URI now resolves through
    [`problemType(slug, env)`](../src/lib/problem.ts) from the `PROBLEM_TYPE_BASE`
    wrangler var (`wrangler.toml` `[vars]`, default `""` = the committed
    `TogetherWeOwn/.../PROBLEMS.md#` URL, unchanged by default). **At transfer
@@ -421,13 +421,13 @@ immediately after** the transfer — every day both exist is a day the old one i
 2. **§5 — delete the old repository** (`Rick7C2/routeware-shadow-api`), which is the last surface
    still exposing the credentials and the PII. Then re-take the rotation decision under the new
    access conditions.
-3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (TOG-5484, 2026-09-27; ratcheted
-   2026-10-09, TOG-9219):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
+3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (2026-09-27; ratcheted
+   2026-10-09):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
    `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the login → download → parse → upsert path
    with assertions. Branch coverage is 91.51% against a floor of 91 (`vitest.config.ts:71-76`; the
    history is at `vitest.config.ts:57-70`). `docs/TEST-INVARIANTS.md` still carries the 2026-08-22
    numbers; update it before relying on it.
-4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done (TOG-8373):** `wrangler types` bakes
+4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done:** `wrangler types` bakes
    `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
    regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored
    (`.gitignore:4`), is not tracked, and the hygiene job fails on any non-synthetic value of the four

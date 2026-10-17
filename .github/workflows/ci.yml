@@ -266,12 +266,12 @@ jobs:
         # .dev.vars.example mentions (active or commented `# KEY=`), failing
         # on divergence in either direction. Keys only, never values.
         run: npm run check:vars-parity
-      - name: Changelog gate (TOG-8385)
+      - name: Changelog gate
         # Credential-free: diffs the PR against origin/main and fails when a
         # consumer-visible contract path (routes, response shapes, wrangler
-        # routes/vars, D1 schema) changed without a TOG-1234 bullet under
-        # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
-        # skip the gate.
+        # routes/vars, D1 schema) changed without an issue-referencing bullet
+        # under CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only
+        # changes skip the gate.
         run: npm run check:changelog
       - name: Prod dependency audit (TOG-8904, TOG-25334)
         # Credential-free: root `npm audit --omit=dev` plus a full

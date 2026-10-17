@@ -1,9 +1,9 @@
-# Proposed R2 lifecycle rule: `snapshot-history/` 30-day expiry (TOG-19231)
+# Proposed R2 lifecycle rule: `snapshot-history/` 30-day expiry
 
 **Status: PROPOSED ONLY — not enabled.** No lifecycle rule is installed, no R2
 object is deleted, and no deploy is changed by this proposal. Enablement is
-R5-16 work: it needs the staging evidence chain (TOG-18890..92), deletion
-approval, and an `Operator:` card with the exact command and rollback. Parent context:
+R5-16 work: it needs the staging evidence chain, deletion
+approval, and a recorded operator step with the exact command and rollback. Parent context:
 `R2-RETENTION.md` (the retention policy those docs call "proposed, not
 enabled").
 
@@ -91,8 +91,8 @@ object tags:
    confirms no unrelated rule is modified. This inventory, the deletion
    approval, and a synthetic-data restore proof in an isolated staging bucket/D1
    pair are preconditions, not footnotes (see `R2-RETENTION.md`).
-4. **Enable only via the R5-16 `Operator:` card** (exact command + rollback),
-   after TOG-18890..92 staging evidence lands. The command is additive:
+4. **Enable only via a recorded R5-16 operator step** (exact command + rollback),
+   after the staging evidence chain lands. The command is additive:
    `wrangler r2 bucket lifecycle add <BUCKET> snapshot-history-30d-expiry snapshot-history/ --expire-days 30`
    ([`r2 bucket lifecycle add`](https://developers.cloudflare.com/workers/wrangler/commands/r2/#r2-bucket-lifecycle-add)).
    Never `lifecycle set --file`: `set` replaces the whole configuration and would

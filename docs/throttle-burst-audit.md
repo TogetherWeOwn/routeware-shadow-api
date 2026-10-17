@@ -1,6 +1,6 @@
-# TOG-6278 — Throttle burst verification + secret-residual audit
+# Throttle burst verification + secret-residual audit
 
-**Date:** 2026-09-27 · **Scope:** post-TOG-5820 throttle (`20 failures / 60 s window / 60 s block`)
+**Date:** 2026-09-27 · **Scope:** current throttle (`20 failures / 60 s window / 60 s block`)
 **Result: zero secret / bearer / PII hits.** Test placeholders only.
 
 ## Burst tests — `test/throttleBurst.test.ts` (7 tests, all passing)
@@ -41,7 +41,7 @@ cookie **names** only), `src/lib/browserAuth.ts`, `src/lib/establishSession.ts`,
 **Routes/errors:** `src/routes/shared.ts`, `customer.ts`, `address.ts`,
 `container.ts` (502 `detail` = static prep messages + status, no token/body),
 `dataSnapshot.ts`, `dataEntity.ts`, snapshot routes (401/503 name the var, no value),
-`src/routes/routeware.ts` allowlist noted (sibling TOG-6270's dirty diff, untouched here).
+`src/routes/routeware.ts` allowlist noted (a sibling in-flight diff, untouched here).
 
 **Spec/config/docs:** OpenAPI snapshot (scheme names vars, no values/cookies),
 `wrangler.toml` (`[vars]` omits bearer secrets by design; `[env.test.vars]` holds

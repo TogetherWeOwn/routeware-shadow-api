@@ -786,7 +786,7 @@ Paid default is 10,000, but stops if the deployed limit is 1,000. The recorded
 44,279 container rows touched; the source batch sizes imply 1,374, 1,396 and 1,107
 `db.batch()` calls respectively. That history supports the call-based model but
 does not prove the current target's plan/config or the selected archive's size;
-confirm both before relying on it ([cron evidence](TOG-8387-cron-drill-schedule.md)).
+confirm both before relying on it ([cron evidence](cron-drill-schedule.md)).
 Do not edit the receipt. A failed preflight invalidates any earlier receipt.
 
 Row counts follow importer behavior: invalid-id/blank rows are skipped and

@@ -65,8 +65,9 @@ Hard rules (enforced by tests or CI — see `docs/CONVENTIONS.md` §§ 3–4):
 - No hand-written source file over 800 lines — split the module instead.
 - Route modules must be `OpenAPIHono` via `createRouteModule()`, never plain `Hono`.
 - Consumer-visible contract changes (routes, response shapes, wrangler
-  routes/vars, D1 schema) need a `TOG-…` bullet under `CHANGELOG.md`
-  `## [Unreleased]` — enforced by `npm run check:changelog`. Docs-only,
+  routes/vars, D1 schema) need a bullet under `CHANGELOG.md`
+  `## [Unreleased]` referencing the GitHub issue (e.g. `- #123: …`) —
+  enforced by `npm run check:changelog`. Docs-only,
   test-only, script-only and CI-only changes skip the gate.
 - Never run `npm run deploy` / `wrangler deploy` / remote migrations as ordinary
   development — deploys target production and are separately gated.
@@ -80,15 +81,15 @@ PR titles and branch commits follow
 - Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`,
   `chore`, `revert`, `style`, `security`.
 - Max 100 characters, no trailing period. The scope is the area of code
-  (`auth`, `events`, `sync`) — keep the card ID out of the title and put it on
-  the PR body's `Refs:` line instead (see the PR template).
+  (`auth`, `events`, `sync`) — keep issue numbers out of the title and link
+  them in the PR body's Linked Issues section instead (see the PR template).
 - Branch names: `type/short-slug`, e.g. `fix/sudo-window`.
 - Merging is squash only — each PR lands on `main` as one commit.
 
 ## Pull request standards
 
 These follow the upstream paperclipai/paperclip contributor rules, adapted for
-this private repo. The existing `pr-lint` check enforces them
+this repo. The existing `pr-lint` check enforces them
 (`.github/scripts/pr_standards.py`, tests beside it).
 
 - **Title** is a Conventional Commits header, `type(scope): summary`, at most
@@ -97,20 +98,22 @@ this private repo. The existing `pr-lint` check enforces them
   Thinking Path, Linked Issues or Issue Description, What Changed, Verification,
   Risks, Model Used and the Checklist. A PR created through the API gets no
   template, so paste it in. Thinking Path needs at least three real items.
-- **Private card reference** stays required: include `Refs: TOG-1234` in the body,
-  never in the title or branch name. `docs`, `chore`, `build`, `ci`, `style`, `test`
-  and `revert` PRs need no linked-issue description or duplicate-search tick,
-  but still need the private card reference.
+- **Linked issue**: link the GitHub issue in the body (`Fixes #123` or
+  `Refs #123`), never in the title or branch name, or describe the problem
+  in the Linked Issues section when no issue exists. `docs`, `chore`,
+  `build`, `ci`, `style`, `test` and `revert` PRs need no linked-issue
+  description or duplicate-search tick.
 - **Model Used** names the provider and exact model/version that wrote or helped
   with the change, or says `None - human-authored`.
 - **Search first.** Look for an open or recent PR that touches the same area,
   and link what you find.
-- **Branch name** is `type/short-slug`, for example `fix/sudo-window`. Agent
-  workspaces may be named after a card: push with
-  `git push origin HEAD:refs/heads/fix/short-slug`.
-- **Rollout** starts with `PR_STANDARDS_MODE: "warn"`: new body-section and
-  duplicate-search findings warn. Invalid titles, empty bodies and missing
-  required private card references remain errors. No new required check is added.
+- **Branch name** is `type/short-slug`, for example `fix/sudo-window`.
+- **Enforcement levels**: invalid titles and empty bodies are errors;
+  missing template sections, an unticked duplicate search, and internal
+  tracker references in the title, body or branch name warn
+  (`PR_STANDARDS_MODE: "warn"`). This is a public repo: keep internal
+  tracker ids, internal hosts and internal links out of every title, body,
+  branch name and commit message — link public GitHub issues instead.
 
 ## PR process
 

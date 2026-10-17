@@ -185,7 +185,7 @@ assert.equal(packageJson.scripts.pretypecheck, "npm run types", "typecheck must 
 assert.equal(packageJson.scripts.types, "wrangler types", "the standalone types command must remain unchanged");
 
 // The changelog gate diffs the PR against origin/main and fails when a
-// consumer-visible contract path changed without a TOG-1234 bullet under
+// consumer-visible contract path changed without a referencing bullet under
 // CHANGELOG.md ## [Unreleased]. Pin it present so a contract change can
 // never land with an empty [Unreleased] (TOG-8385, gap G9).
 assert.match(
