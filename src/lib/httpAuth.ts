@@ -34,7 +34,7 @@ type Jar = Record<string, string>;
  *   a single upstream origin, not a browser profile visiting many sites.
  * - `HttpOnly`: the cookie is invisible to page JavaScript. That holds by
  *   construction — the jar lives in Worker memory and the `AuthSession` DO,
- *   and `stripUpstreamSetCookie` (`src/lib/upstreamForward.ts`) removes every
+ *   and `secureUpstreamResponse` (`src/lib/upstreamForward.ts`) removes every
  *   upstream `Set-Cookie` before a client response is built, so no tenant
  *   cookie value ever reaches a browser, log line, or error message.
  * - `Domain`/`Path`/`SameSite` need no enforcement: the jar replays to exactly
