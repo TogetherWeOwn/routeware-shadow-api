@@ -92,7 +92,9 @@ object tags:
    (outside every lifecycle prefix). For each CSV, compare SHA-256 and byte length
    with the per-run manifest. The per-run manifest describes CSVs, not itself; if
    copying a manifest, compare its copied bytes with the source manifest instead
-   of treating it as self-hashed. These are application-level integrity checks,
+   of treating it as self-hashed. If a held CSV has no manifest, compare the
+   hold copy directly against the source CSV by SHA-256 and byte length; the
+   publication still stays unverified, never latest. These are application-level integrity checks,
    not guarantees supplied by R2 lifecycle. The original stays until step 4
    passes — the hold copy is verified first, never assumed.
 3. **Inventory before touching anything.** The operator lists existing bucket
