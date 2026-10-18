@@ -7,7 +7,7 @@ approval gates unchanged. No new paid plan or service is part of this recipe.
 
 ## Scope and prerequisites
 
-- Use a reviewed PR checkout and Node 22+. Install dependencies before adding
+- Use a reviewed PR checkout and Node 24+. Install dependencies before adding
   Cloudflare credentials to the shell. Because `npm ci` runs dependency lifecycle
   scripts, use a credential-free environment (`env -i`), an isolated `HOME`, empty npm
   user/global config files in the scratch directory, and ensure no local `.env*`,

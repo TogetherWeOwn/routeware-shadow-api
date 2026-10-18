@@ -5,6 +5,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- The supported Node runtime moves from 22 (Maintenance LTS, security
+  fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
+  until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and
+  every CI workflow (including the deploy job that runs `wrangler deploy`)
+  sets up Node 24.
 - #283: the `DELETE /api/v1/customer-snapshot/{customerId}` OpenAPI
   description (served at `/openapi.json` and `/docs`) and the docs now
   link the current `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`

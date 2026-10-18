@@ -4,7 +4,7 @@
 D1**. They never deploy, write remote D1, or sync upstream. §7 separately documents
 an **authorized incident recovery** to a deployed target; it is not a production
 test and must not be executed as part of review or ordinary development.
-Run from the repository root with Bash, Node >=22, Python 3, curl and the lockfile's
+Run from the repository root with Bash, Node >=24, Python 3, curl and the lockfile's
 Wrangler installed (`npm ci --include=dev`). Commands were checked with Wrangler
 4.84.1. Use two terminals: A for the local Worker, B for the recovery commands.
 
