@@ -53,7 +53,7 @@ Binding, not "see also".
 
 | Read | When |
 |---|---|
-| [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntityHandlers.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. |
+| [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) | **(a)** Before editing anything under `src/lib/snapshot/` or `src/routes/`, or any of `src/lib/csv*Snapshot.ts` / `detailFullSync.ts` / `entityDataCache.ts` / `addressContainerSaveForm.ts` / `dataEntityHandlers.ts` / `dataEntitySave.ts` / `d1SnapshotSync.ts` / `customerSaveAutoToken.ts` / `r2SnapshotArchive.ts` / `routewareQueryReportCsv.ts` — **and before deleting any test that looks redundant.** `dataEntitySave.ts` is the one that bites: it holds the branch where the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to `invalidateDataEntity` **so stale PII is not served from cache**. **(b)** After running `npm run test:coverage`, before reading the numbers — read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table, which drops files once they reach 100% and truncates long names. |
 | [`HANDOVER.md`](HANDOVER.md) | Before anything touching deploys, Cloudflare resources, the Routeware tenant, or the repo's location/ownership. The inventory of what lives **outside** this repo (accounts, ids, secrets by name, the report query ids) and the transfer runbook. |
 | [`SECURITY-REMEDIATION.md`](SECURITY-REMEDIATION.md) | Before any repo-visibility change (blocked on it), and before rotating credentials. |
 | [`PROBLEMS.md`](PROBLEMS.md) | When adding or changing an error response — every problem+json `type` is a URL anchoring into it. |
@@ -151,14 +151,15 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run help` | Lists every package.json script grouped by namespace (`scripts/help.mjs`). |
 | `npm run dev` | `wrangler dev` (local Miniflare; runs `check:devvars` first; no `--remote` needed since HTTP login skips Browser Rendering). |
 | `npm run dev:remote` | `wrangler dev --remote` — exercises the Browser Rendering login fallback. |
-| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run typecheck` | Generates Wrangler declarations, then runs `tsc --noEmit`. |
 | `npm test` / `npm run test:watch` | Vitest. |
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
-| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored, TOG-8373; run once after cloning). Run after changing bindings. |
+| `npm run check:docs-links` | Rule: every relative link in tracked `*.md` files must resolve — the target must be a tracked file (or tracked directory) and any `#anchor` must match a heading slug (GitHub rules) or `<a name>` anchor. External URLs, `/TOG/…` paths and gitignored targets are skipped. Exit 0 when clean, 1 listing `file: link (reason)` findings. |
+| `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
-| `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs. |
+| `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs (artifacts always built; gate last — missing shadow routes fail, stale entries warn unless `--strict`). |
 | `npm run discovery:verify` | `discovery:process` + `npm test` — the full loop after a new recording. |
 
 ### Deploys are not yours to run
@@ -171,7 +172,7 @@ infer that the gate is off from a repository-only variable listing. See [`HANDOV
 `npm run db:migrate:remote` as part of ordinary development work — they hit production Cloudflare
 resources.
 
-CI uses self-hosted runners labeled `two-selfhosted`. On pull requests targeting `main`, changed-area
+CI uses GitHub-hosted `ubuntu-latest` runners. On pull requests targeting `main`, changed-area
 detection selects the credential-free `build` and optional `shadow-api-v1` jobs when relevant paths
 change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs. Without `CF_TOKEN`,
 the shadow gate skips contract execution. Deploy remains skipped unless the job-level `vars` value
@@ -182,14 +183,16 @@ for exact-head CI.
 
 ### Verification loop
 
-`npm run check:ci-workflow` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
-pushing.
+`npm run check:ci-workflow` → `npm run check:docs-links` → `npm run typecheck` → `npm test`. Run `npm run test:coverage` before
+pushing. `npm run typecheck` runs two configs: the base `tsconfig.json` and
+`tsconfig.src.json` (`noUncheckedIndexedAccess: true` over `src/**/*.ts` plus
+`worker-configuration.d.ts`; `test/` stays on the base config).
 
 `npm ci` alone may install no devDependencies (npm's `omit=dev` is set in some environments, which
 leaves `tsc` and `vitest` missing); use **`npm ci --include=dev`** if that happens.
 
 When enabled, CI additionally runs `npx wrangler deploy --dry-run`, a hygiene job that fails on
-committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and an informational secret scan. **There is no lint or
+committed `*.csv` / `*:Zone.Identifier` exports or `.dev.vars`, and a blocking full-history secret scan (gitleaks). **There is no lint or
 format step — none is configured.**
 
 ---
@@ -248,7 +251,7 @@ format step — none is configured.**
 ## 9. Not carried over
 
 For the record, so nobody goes looking: the assistant-harness material in the deleted files was
-**not** migrated, because the Paperclip process replaces it — model routing and question policy, the
+**not** migrated, because the project's automation process replaces it — model routing and question policy, the
 research → plan → TDD → review → commit sequence, delegation and context rules, reviewer selection,
 the vendored `.claude/` install and its rules-precedence note, per-machine tool constraints, and
-pointers into user-scope assistant configuration. Work tracking lives in Paperclip issues.
+pointers into user-scope assistant configuration. Work tracking lives in GitHub issues.

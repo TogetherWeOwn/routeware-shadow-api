@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OpenAPI contract-drift check (TOG-6282).
+ * OpenAPI contract-drift check.
  *
  * Compares the routes declared in each mounted route module
  * (`createRoute({ method, path })` in `src/routes/*.ts`) against the ops that

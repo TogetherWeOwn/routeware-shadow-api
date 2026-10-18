@@ -6,7 +6,7 @@ on:
   push:
     branches: [main]
   schedule:
-    # Nightly full suite (TOG-14877 rule 5): push-to-main plus schedule run
+    # Nightly full suite (rule 5): push-to-main plus schedule run
     # EVERYTHING, so a regression that slips past PR gating is caught within hours.
     - cron: "23 4 * * *"
 
@@ -14,19 +14,25 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Per-PR group (TOG-23109): a new push to a PR cancels that PR's
+  # superseded runs, but concurrent PRs never cancel each other.
+  # cancel-in-progress is true ONLY for pull_request events. Non-PR runs
+  # (push-to-main, schedule) each get their own group via run_id, so a
+  # queued run is never replaced and push/nightly runs never cancel each
+  # other. Deploy runs are untouched.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   changes:
     name: Detect changed areas
-    # CI standard (TOG-14877 rules 1-2, TOG-14898): native git diff vs merge
+    # CI standard (rules 1-2): native git diff vs merge
     # base, no third-party action. Outputs one boolean per area; heavy jobs
     # gate on these with job-level `if:` (never workflow-level `paths:`, which
     # would leave required checks unreported). Full suite on push-to-main,
     # nightly schedule, or when infra/filter/deps change (rule 4).
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: every job carries a bound so a hung runner can never stall
+    runs-on: ubuntu-latest
+    # Every job carries a bound so a hung runner can never stall
     # the PR forever (previously only pr-lint set timeout-minutes).
     timeout-minutes: 10
     outputs:
@@ -67,7 +73,7 @@ jobs:
           echo "Changed files:"
           echo "$files"
           # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|package\.json$|package-lock\.json$|tsconfig\.json$|vitest\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|tools/api-discovery/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
@@ -78,17 +84,18 @@ jobs:
           else
             echo "probe=false" >> "$GITHUB_OUTPUT"
           fi
-          # infra: the filter itself, workflow config, shared entry, discovery
-          # manifests. Any infra change means EVERYTHING runs (rule 4).
-          if echo "$files" | grep -qE '^(\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          # infra: the filter itself, workflow config, the .nvmrc Node pin,
+          # shared entry, discovery manifests. Any infra change means
+          # EVERYTHING runs (rule 4).
+          if echo "$files" | grep -qE '^(\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "infra=true" >> "$GITHUB_OUTPUT"
           else
             echo "infra=false" >> "$GITHUB_OUTPUT"
           fi
           # full: root dep manifests also run EVERYTHING (rule 4), so a
-          # package.json/lock bump runs build AND probe (verified TOG-14898).
+          # package.json/lock bump runs build AND probe.
           # Non-PR already exited above; on PRs full = infra OR root dep change.
-          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
@@ -97,20 +104,20 @@ jobs:
   build:
     name: Typecheck, test, build
     needs: [changes]
-    # CI standard gating (TOG-14877): heavy job runs only when its area
+    # CI standard gating: heavy job runs only when its area
     # changed. docs-only PRs skip this; push/main + nightly run it via full.
     if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: bound the full typecheck + coverage suite (heaviest CI job).
+    runs-on: ubuntu-latest
+    # Bound the full typecheck + coverage suite (heaviest CI job).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
-      - name: Regenerate Worker types (TOG-8373)
+      - name: Regenerate Worker types
         # worker-configuration.d.ts is gitignored (generated by `wrangler
         # types`, bakes wrangler.toml [vars] into literal string types).
         # `wrangler types` is deterministic (byte-identical regen) and
@@ -124,6 +131,8 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Assert bounded snapshot export heap
+        run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants
         run: npm run check:ci-workflow
       - name: Validate R2 preflight against deployed config (offline)
@@ -136,20 +145,20 @@ jobs:
   shadow-api-v1:
     name: shadow-api-v1
     needs: [changes]
-    # CI standard gating (TOG-14877): probe inputs only. Keeps the existing
+    # CI standard gating: probe inputs only. Keeps the existing
     # credential fail-closed step gate below; this job-level gate only decides
-    # whether the job runs at all. NOT a required check (hybrid, per TOG-14898).
+    # whether the job runs at all. NOT a required check (hybrid, per the CI standard).
     if: needs.changes.outputs.probe == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: bound so a hung contract run can never stall the PR.
+    runs-on: ubuntu-latest
+    # Bound so a hung contract run can never stall the PR.
     timeout-minutes: 15
     # Skipped-check allowlist: the staging probe stays visible while operator
-    # credentials are gated. The gate emits the reason and links TODO TOG-135.
+    # credentials are gated. The gate emits the reason and links the operator TODO.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - name: Evaluate operator credential gate
         id: credential-gate
@@ -164,13 +173,13 @@ jobs:
 
   hygiene:
     name: Repo hygiene & secret scan
-    # Always-run by design (TOG-6539 + TOG-14877 rule 6): the PII gate
+    # Always-run by design (rule 6): the PII gate
     # (CSV/.dev.vars) and the blocking secret scan must run on EVERY pull
     # request, including docs-only ones. No `if:`/`needs:` here — gating this
     # job would let PII or a secret land while `ci-ok` stays green. LIGHT
     # (~1 min credential-free checks), so always running it costs nothing.
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: bound (gitleaks download + drift gates must fail fast, not hang).
+    runs-on: ubuntu-latest
+    # Bound (gitleaks download + drift gates must fail fast, not hang).
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -180,13 +189,18 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Hermetic post-deploy probe regressions
         # Always run even for probe-only PRs whose filtered build is skipped.
         run: npm run test:probe
-      - name: Regenerate Worker types (TOG-8373)
+      - name: Discovery transform pins
+        # Hermetic node --test suites for the harvest pipeline. Always run:
+        # tools-only PRs skip the filtered `build` job, so without this the
+        # route-gap exit-code contract could regress silently.
+        run: npm run test:discovery
+      - name: Regenerate Worker types
         # worker-configuration.d.ts is gitignored — regenerate it here so the
         # baked-secrets gate below inspects current wrangler.toml [vars].
         run: npm run types
@@ -209,7 +223,7 @@ jobs:
       - name: No real secrets baked into worker-configuration.d.ts
         run: |
           # `wrangler types` bakes wrangler.toml [vars] values into this generated
-          # (gitignored, TOG-8373) file as literal string types. Only the
+          # (gitignored) file as literal string types. Only the
           # synthetic test literals below may appear for these keys; any other value
           # fails the job. Fails closed when the file is absent (a skipped regen
           # must never pass). Gitleaks also scans this file (it is not allowlisted).
@@ -224,62 +238,77 @@ jobs:
             echo "$matches"
             exit 1
           fi
-      - name: D1 migration drift check (TOG-6275)
+      - name: D1 migration drift check
         # Credential-free: manifest sha256 compare + fresh local apply into a
         # scratch persist dir, journal compared to the file list. Fails the
         # build on edited/missing/extra migrations. The read-only remote
         # compare runs only with --remote plus an ambient token (deploy-time
         # concern, never a hygiene secret).
         run: npm run check:d1-drift
-      - name: OpenAPI drift check (TOG-6282)
+      - name: OpenAPI drift check
         # Credential-free: static compare of declared createRoute() ops vs the
         # ops published via .openapi() in each mounted route module. Fails the
         # build on any dropped op (e.g. plain-Hono regression).
         run: npm run check:openapi-drift
-      - name: Source file size guard (TOG-6291)
+      - name: Source file size guard
         # Credential-free: counts lines in hand-written src/ files, fails on any
         # file over 800 lines. No network access and no credential use.
         run: npm run check:source-file-size
-      - name: Vars parity check (TOG-8367)
+      - name: Docs link and anchor check
+        # Credential-free: resolves every relative link in tracked *.md files
+        # (file must be tracked, #anchor must match a heading slug or <a name>
+        # anchor). External URLs and gitignored paths are skipped. No network
+        # access and no credential use.
+        run: npm run check:docs-links
+      - name: R2 lifecycle proposal shape guard
+        # Credential-free: validates docs/r2-lifecycle-proposal.snapshot-history.json
+        # stays a byte-clean S3 PutBucketLifecycleConfiguration body (exact rule
+        # id, Filter.Prefix, and Expiration; Status: Enabled intent; no
+        # Transitions or extra keys). Fails the build on drift so it surfaces
+        # here, not at apply time against a live bucket.
+        run: npm run check:r2-lifecycle-proposal
+      - name: Vars parity check
         # Credential-free: compares wrangler.toml [vars] keys against
         # .dev.vars.example mentions (active or commented `# KEY=`), failing
         # on divergence in either direction. Keys only, never values.
         run: npm run check:vars-parity
-      - name: Changelog gate (TOG-8385)
+      - name: Changelog gate
         # Credential-free: diffs the PR against origin/main and fails when a
         # consumer-visible contract path (routes, response shapes, wrangler
-        # routes/vars, D1 schema) changed without a TOG-1234 bullet under
-        # CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only changes
-        # skip the gate.
+        # routes/vars, D1 schema) changed without an issue-referencing bullet
+        # under CHANGELOG.md ## [Unreleased]. Docs/test/scripts/CI-only
+        # changes skip the gate.
         run: npm run check:changelog
-      - name: Prod dependency audit (TOG-8904)
-        # Credential-free: `npm audit --omit=dev` against the public registry;
-        # fails on unallowlisted high/critical advisories. The allowlist (with
-        # reasons + remediation paths) lives in scripts/lib/depsAuditCheck.mjs;
-        # stale entries fail the gate so Dependabot fixes clean up after
-        # themselves. Process: docs/DEPENDENCY-AUDIT.md.
+      - name: Prod dependency audit
+        # Credential-free: root `npm audit --omit=dev` plus a full
+        # `tools/api-discovery` audit against the public registry; fails on
+        # unallowlisted high/critical advisories in either lockfile. The
+        # allowlist (with reasons + remediation paths) lives in
+        # scripts/lib/depsAuditCheck.mjs; stale entries fail the gate so
+        # Dependabot fixes clean up after themselves. Process:
+        # docs/DEPENDENCY-AUDIT.md.
         run: npm run check:deps-audit
       - name: Secret scan (blocking)
         # Blocking: scans the full git history (fetch-depth: 0 above). History is
         # clean (HANDOVER.md section 5: no refs/pull/*, 0 CSV blobs, 0 secret hits),
         # so any finding fails the job.
         run: |
-          version=8.18.4
+          version=8.28.0
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${version}/gitleaks_${version}_linux_x64.tar.gz" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz gitleaks
           ./gitleaks detect --source . --redact --config .gitleaks.toml
 
   ci-ok:
     name: ci-ok
-    # CI standard aggregator (TOG-14877 rule 3): the ONE required check.
+    # CI standard aggregator (rule 3): the ONE required check.
     # `if: always()` so gating can never leave the PR hanging; passes when
     # every needed job succeeded or was skipped. Branch protection requires
     # only this (+ pr-lint, secret scan via hygiene). Deploy is EXEMPT
     # (own push-only trigger) and is intentionally not in `needs:`.
     if: always()
     needs: [changes, build, shadow-api-v1, hygiene]
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: bound like every other job (trivial aggregation, small cap).
+    runs-on: ubuntu-latest
+    # Bound like every other job (trivial aggregation, small cap).
     timeout-minutes: 5
     steps:
       - name: Verify required jobs passed or were skipped
@@ -298,7 +327,7 @@ jobs:
     # hygiene remain credential-free while this repository variable is absent.
     needs: [build, hygiene]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
-    runs-on: [self-hosted, two-selfhosted]
+    runs-on: ubuntu-latest
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
     # Preflight and deploy read this same config; shell vars are not Worker vars.
@@ -308,17 +337,17 @@ jobs:
     concurrency:
       group: deploy-production
       cancel-in-progress: false
-    # TOG-19017: bound so a stalled deploy (D1 migrate, wrangler push) fails
+    # Bound so a stalled deploy (D1 migrate, wrangler push) fails
     # loudly instead of holding the production environment forever.
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
-      - name: R2 bucket preflight (TOG-6290)
+      - name: R2 bucket preflight
         # Read-only `wrangler r2 bucket info <name> --json` lookup: the SNAPSHOTS
         # bucket must exist before deploy, else snapshot CSV archiving silently
         # drops. Fails closed naming the fix (`wrangler r2 bucket create`); skips

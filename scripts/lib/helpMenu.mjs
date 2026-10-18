@@ -1,5 +1,5 @@
 /**
- * Pure helpers for `npm run help` (TOG-9233).
+ * Pure helpers for `npm run help`.
  *
  * Groups package.json scripts by namespace (the text before the first colon)
  * so a new clone can find its entry point without reading every script line.

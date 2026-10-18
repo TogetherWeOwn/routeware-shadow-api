@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 import {
   assertEveryJobHasTimeout,
   assertFirstPartyActionsPinned,
+  assertNodeVersionsMatchNvmrc,
   assertNoPrTriggerSkips,
   findJobsMissingTimeouts,
+  findNodeVersionDrift,
   findPrTriggerSkips,
-  findUnpinnedFirstPartyActions
+  findUnpinnedFirstPartyActions,
+  parseNvmrcMajor
 } from "../scripts/lib/ciWorkflowCheck.mjs";
 
 /**
- * Regression tests for TOG-6539 (+ TOG-14898 CI standard): `check-ci-workflow.mjs`
+ * Regression tests for the CI standard: `check-ci-workflow.mjs`
  * asserted `on.pull_request: [main]` but never asserted the gate jobs lack
  * `paths-ignore` skips — a workflow edit could drop the CSV/`.dev.vars`
  * gate on PRs while the invariant check stayed green. `hygiene` (PII + secret
@@ -33,7 +36,7 @@ function fixtureWorkflow(overrides: { on?: string; build?: string; hygiene?: str
   return [on, "jobs:", build, hygiene].join("\n");
 }
 
-describe("findPrTriggerSkips (TOG-6539)", () => {
+describe("findPrTriggerSkips", () => {
   it("accepts the unskipped gate workflow", () => {
     expect(findPrTriggerSkips(fixtureWorkflow())).toEqual([]);
     expect(() => assertNoPrTriggerSkips(fixtureWorkflow())).not.toThrow();
@@ -150,7 +153,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(findPrTriggerSkips(workflow)).toEqual([]);
   });
 
-  it("accepts a workflow where every real job is bounded (TOG-19017)", () => {
+  it("accepts a workflow where every real job is bounded", () => {
     const workflow = [
       "on:",
       "jobs:",
@@ -165,7 +168,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertEveryJobHasTimeout(workflow, "fixture")).not.toThrow();
   });
 
-  it("fails when a job has no timeout-minutes (TOG-19017)", () => {
+  it("fails when a job has no timeout-minutes", () => {
     const workflow = [
       "on:",
       "jobs:",
@@ -179,7 +182,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertEveryJobHasTimeout(workflow, "fixture")).toThrow(/build/);
   });
 
-  it("ignores job blocks without their own runs-on (reusable-workflow callers) (TOG-19017)", () => {
+  it("ignores job blocks without their own runs-on (reusable-workflow callers)", () => {
     const workflow = [
       "on:",
       "jobs:",
@@ -193,7 +196,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(findJobsMissingTimeouts(workflow)).toEqual([]);
   });
 
-  it("accepts SHA-pinned first-party actions with a version comment (TOG-19017)", () => {
+  it("accepts SHA-pinned first-party actions with a version comment", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -206,7 +209,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).not.toThrow();
   });
 
-  it("fails when a first-party action floats on a moving tag (TOG-19017)", () => {
+  it("fails when a first-party action floats on a moving tag", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -219,7 +222,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
   });
 
-  it("fails when a SHA pin has no version comment (TOG-19017)", () => {
+  it("fails when a SHA pin has no version comment", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -232,7 +235,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/version comment/);
   });
 
-  it("fails when a name-first step floats on a moving tag (TOG-19017)", () => {
+  it("fails when a name-first step floats on a moving tag", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -246,7 +249,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
   });
 
-  it("fails when a quoted ref floats on a moving tag (TOG-19017)", () => {
+  it("fails when a quoted ref floats on a moving tag", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -259,7 +262,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).toThrow(/actions\/checkout/);
   });
 
-  it("accepts a name-first SHA pin with a version comment (TOG-19017)", () => {
+  it("accepts a name-first SHA pin with a version comment", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -272,7 +275,7 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
     expect(() => assertFirstPartyActionsPinned(workflow, "fixture")).not.toThrow();
   });
 
-  it("ignores third-party actions (only checkout/setup-node are pinned) (TOG-19017)", () => {
+  it("ignores third-party actions (only checkout/setup-node are pinned)", () => {
     const workflow = [
       "jobs:",
       "  build:",
@@ -281,6 +284,148 @@ describe("findPrTriggerSkips (TOG-6539)", () => {
       ""
     ].join("\n");
     expect(findUnpinnedFirstPartyActions(workflow)).toEqual([]);
+  });
+
+  it("reads the Node major from .nvmrc", () => {
+    expect(parseNvmrcMajor("22\n")).toBe("22");
+    expect(parseNvmrcMajor("v22.11.0")).toBe("22");
+    expect(parseNvmrcMajor("lts/*")).toBeNull();
+    expect(parseNvmrcMajor("")).toBeNull();
+  });
+
+  it("accepts setup-node steps pinned to the .nvmrc major", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - name: Second toolchain",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: 22",
+      ""
+    ].join("\n");
+    expect(findNodeVersionDrift(workflow, "22")).toEqual([]);
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "22\n", "fixture")).not.toThrow();
+  });
+
+  it("fails when a node-version drifts from the .nvmrc major", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "  deploy:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: '20'",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("'20'");
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "22\n", "fixture")).toThrow(/fixture.*'20'/s);
+  });
+
+  it("fails on a range or alias instead of the exact major", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: 22.x",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version: lts/*",
+      ""
+    ].join("\n");
+    expect(findNodeVersionDrift(workflow, "22")).toHaveLength(2);
+  });
+
+  it("fails when a setup-node step drops its node-version", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          cache: npm",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 7");
+    expect(errors[0]).toContain("must set node-version");
+  });
+
+  it("checks each setup-node step, so a stray pin cannot offset a missing one", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          cache: npm",
+      "      - uses: some-org/other-action@v1",
+      "        with:",
+      '          node-version: "22"',
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 4");
+    expect(errors[0]).toContain("must set node-version");
+  });
+
+  it("finds the pin of a name-first setup-node step", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - name: Set up Node",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      '          node-version: "22"',
+      "      - name: No toolchain",
+      "        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "      - run: npm test",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 9");
+  });
+
+  it("accepts node-version-file: .nvmrc, which cannot drift", () => {
+    const workflow = [
+      "jobs:",
+      "  build:",
+      "    steps:",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version-file: .nvmrc",
+      "      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4",
+      "        with:",
+      "          node-version-file: .tool-versions",
+      ""
+    ].join("\n");
+    const errors = findNodeVersionDrift(workflow, "22");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain("line 7");
+  });
+
+  it("fails closed when .nvmrc holds no plain major", () => {
+    const workflow = ["jobs:", "  build:", "    steps:", "      - run: npm test", ""].join("\n");
+    expect(() => assertNodeVersionsMatchNvmrc(workflow, "lts/*", "fixture")).toThrow(/\.nvmrc/);
   });
 
   it("names jobs and keys only — never fixture content", () => {

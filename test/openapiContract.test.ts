@@ -147,13 +147,13 @@ describe("published OpenAPI document", () => {
     // Assert
     expect(doc.openapi).toBe("3.1.0");
     expect(doc.info.title).toBe("Routeware Shadow API");
-    // Single-sourced from package.json (TOG-5840): bumping
+    // Single-sourced from package.json: bumping
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
     // Registered once each: `CustomerSnapshotList` is shared by the customer,
     // address and container snapshot list routes, and `CustomerSnapshotChanges`
-    // (TOG-8877) carries the composite `{since, since_id}` cursor instead of
+    // carries the composite `{since, since_id}` cursor instead of
     // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "CustomerSnapshotChanges",
@@ -170,7 +170,7 @@ describe("published OpenAPI document", () => {
   });
 
   it("documents 400 on snapshot imports, lists and the orphan audit", async () => {
-    // Arrange — TOG-6522: imports return 400 on an empty body and lists
+    // Arrange — imports return 400 on an empty body and lists
     // return 400 on out-of-range query params, but neither branch was in the
     // document, so generated clients never surfaced them.
     const doc = await fetchOpenApiDocument();
@@ -225,7 +225,7 @@ describe("published OpenAPI document", () => {
   });
 
   it("documents the id alias on all three data-entity GETs", async () => {
-    // Arrange — TOG-6525: customer GET accepted `id|customerId` while address
+    // Arrange — customer GET accepted `id|customerId` while address
     // and container accepted only `id`. The alias must be visible on all three
     // so generated clients offer the same spelling.
     const doc = await fetchOpenApiDocument();
@@ -248,7 +248,7 @@ describe("published OpenAPI document", () => {
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {
-    // Arrange — TOG-6525: login-page/home-index carried no 401 docs despite
+    // Arrange — login-page/home-index carried no 401 docs despite
     // sitting behind the `/api/v1/*` bearer gate.
     const doc = await fetchOpenApiDocument();
 

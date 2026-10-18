@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Dedicated route tests for `src/routes/dataSnapshot.ts` (TOG-7387).
+ * Dedicated route tests for `src/routes/dataSnapshot.ts`.
  *
  * The route is thin — an auth guard, a secret-configured guard, then
  * delegation to `runDataSnapshotSyncChainedHttp` — but three nearby files
@@ -224,7 +224,7 @@ describe("POST /api/v1/data-snapshot/sync response shapes", () => {
     expect(Object.keys(body.container).sort()).toEqual(["rowCount", "upserted"]);
   });
 
-  it("strips deleted counts from the chained result: the combined shape stays {upserted, rowCount} (TOG-7391)", async () => {
+  it("strips deleted counts from the chained result: the combined shape stays {upserted, rowCount}", async () => {
     // Arrange — the chain now carries per-table `deleted` for the cron line;
     // the combined route must not leak it (shape pinned end to end in
     // syncSummaryContract.test.ts).
@@ -282,8 +282,8 @@ describe("POST /api/v1/data-snapshot/sync response shapes", () => {
 
   it("surfaces a chained failure instead of answering 200", async () => {
     // Arrange — a per-table subrequest failed inside the chain (fixed-shape
-    // step + status message, zero body bytes, per the orchestration contract
-    // TOG-9205). The route installs
+    // step + status message, zero body bytes, per the orchestration contract).
+    // The route installs
     // no error mapping of its own: Hono catches the rejection and answers
     // 500, and the full app's onError wraps it as `internal` problem+json.
     behavior.error = new Error(

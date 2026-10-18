@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * `src/lib/customerSaveAutoToken.ts` — the server-side anti-forgery token cache
- * for `SaveCustomerLongForm` (TOG-5815).
+ * for `SaveCustomerLongForm`.
  *
  * Without the cache, every save with a missing/placeholder
  * `__RequestVerificationToken` pays a modal-HTML GET. These tests pin the three
@@ -204,7 +204,7 @@ describe("anti-forgery token cache", () => {
     expect(decode(second)).toContain("__RequestVerificationToken=TOKEN-2");
   });
 
-  it("evicts a rejected token by value across sessions (TOG-8149)", async () => {
+  it("evicts a rejected token by value across sessions", async () => {
     // Arrange — the same upstream token value cached under two session keys
     // (the modal-heal shape: `resolveSaveCustomerLongFormToken` stores under
     // the fresh session while the route still holds the stale one, so a
@@ -228,7 +228,7 @@ describe("anti-forgery token cache", () => {
     expect(evictAntiForgeryTokenCacheByToken("TOKEN-never-cached")).toBe(false);
   });
 
-  it("evicts from a forwarded save body and never throws (TOG-8149)", async () => {
+  it("evicts from a forwarded save body and never throws", async () => {
     // Arrange
     const env = makeEnv();
     const session = makeSession();

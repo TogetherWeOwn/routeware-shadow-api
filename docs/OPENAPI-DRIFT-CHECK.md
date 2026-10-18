@@ -1,8 +1,9 @@
-# OpenAPI contract-drift check (TOG-6282)
+# OpenAPI contract-drift check
 
-**Status:** script + unit tests merged; CI/schedule wiring pending operator
-publication (no new services, no paid tiers, no new secrets — same constraint
-as the cron alarm runbook).
+**Status:** script, unit tests and CI wiring merged. The check runs in the
+`hygiene` job on every pull request, push to `main` and the nightly schedule
+(no new services, no paid tiers, no new secrets — same constraint as the cron
+alarm runbook).
 
 **Why:** a route module built on plain `Hono` instead of `createRouteModule()`
 still serves traffic while silently dropping every one of its routes from
@@ -77,41 +78,24 @@ repo root, so the fixture resolves only when `--routes-dir` points at a real
 temporarily rebuild any one module on plain `Hono` in a scratch worktree and
 watch the check name every dropped op.)
 
-## 3. Schedule (for operator publication — not yet wired)
+## 3. Schedule (wired)
 
-Nightly, credential-free, alongside the other static gates. Until an
-operator publishes it, run by hand after any route-module change:
+Credential-free, alongside the other static gates in the `hygiene` job of
+`.github/workflows/ci.yml`:
 
-- **Cadence:** nightly on `main` (schedule trigger) + every PR touching
-  `src/routes/` or `src/app.ts` (path filter). Detection latency ≤ 24h, same
-  bound as the cron alarm loop.
-- **Where:** a `schedule: cron: "0 6 * * *"` trigger on the hygiene job
-  (build/hygiene stay credential-free per `check-ci-workflow`; this check
-  reads source text only, so it needs no token).
+- **Cadence:** every pull request, every push to `main`, and the nightly
+  `schedule` trigger (`cron: "23 4 * * *"`, `ci.yml:8-11`). The `hygiene` job has
+  no `if:`, so it is never skipped, including on docs-only PRs. Detection
+  latency for a regression that slips past PR gating is ≤ 24h, same bound as
+  the cron alarm loop.
+- **Where:** the OpenAPI drift check step in `ci.yml` runs
+  `npm run check:openapi-drift` (`package.json:18`). The check reads source
+  text only, so it needs no token. `scripts/check-ci-workflow.mjs:117` pins the
+  step so it cannot be dropped silently.
 - **Alerting:** the step's non-zero exit fails the run — the finding IS the
   alert (name, op, cause in the log). No paging tier, same posture as the
   coverage ratchet and per-file gate. Record the disposition where the team
   looks.
-
-Snippets for the wiring change (one `package.json` line, one hygiene step,
-one `check-ci-workflow` pin — bundled together when an operator publishes):
-
-```json
-"check:openapi-drift": "node scripts/check-openapi-drift.mjs",
-```
-
-```yaml
-- name: OpenAPI contract drift — no silent route drops (TOG-6282)
-  run: npm run check:openapi-drift
-```
-
-```js
-assert.match(
-  hygiene,
-  /npm run check:openapi-drift/,
-  "hygiene must run the OpenAPI contract-drift check (TOG-6282)"
-);
-```
 
 ## 4. What this check does not cover
 

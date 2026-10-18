@@ -9,7 +9,7 @@ throttle metrics (401/429 volume).
 **Scope:** `TogetherWeOwn/routeware-shadow-api`, branch `main`. Signal in
 `src/lib/authThrottle.ts` (`logFailOpenOnce`, `recordAuthFailure`); contract
 pinned by `test/authThrottleFailOpenAlarm.test.ts` plus the dedup cases in
-`test/authThrottle.test.ts` (TOG-6530).
+`test/authThrottle.test.ts`.
 **Why:** throttle storage errors fail OPEN to the pre-throttle 401 behavior —
 auth itself stays enforced, only the brute-force counting degrades. While the
 throttle DO is down, token-guessing is not slowed and `429`s stop entirely.
@@ -111,7 +111,7 @@ NODE_ENV=development npx vitest run test/authThrottleFailOpenAlarm.test.ts
 ## 5. What this runbook does not cover
 
 - Real-time paging: that needs a log-alerting tier this repo deliberately
-  does not buy (card constraint: no paid services). The §2 loop bounds
+  does not buy (project constraint: no paid services). The §2 loop bounds
   detection latency to ~24h; §2's automated rule is a proposal only.
 - Production activation: no alert rule, monitor, or dashboard was created or
-  enabled by this card — applying §2 is an explicit operator step.
+  enabled by this runbook — applying §2 is an explicit operator step.

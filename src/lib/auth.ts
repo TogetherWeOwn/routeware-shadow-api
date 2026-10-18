@@ -11,7 +11,7 @@
  * `CUSTOMER_SNAPSHOT_SYNC_SECRET` so a deployment can run with a single secret.
  * Privileged snapshot/data routes additionally check the sync secret directly.
  *
- * Read-only role (TOG-8878): `SHADOW_API_READ_TOKEN`, when set, grants
+ * Read-only role: `SHADOW_API_READ_TOKEN`, when set, grants
  * GET-only access to non-privileged reads. It passes the outer gate on GET
  * requests; writes/sync/import (non-GET) never pass with it, and privileged
  * routes reject it at their inner sync-secret check.
@@ -49,7 +49,10 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
 export function bearerFromRequest(req: HeaderReader): string | null {
   const auth = req.header("authorization") ?? "";
   const m = /^Bearer\s+(\S+)$/i.exec(auth);
-  return m ? m[1] : null;
+  // noUncheckedIndexedAccess: the capture is always present on a match, but
+  // the index type is `string | undefined`, so fall back to null explicitly.
+  const token = m?.[1];
+  return token ?? null;
 }
 
 /** True when the request carries a bearer token matching `expected` (constant-time). */
@@ -92,8 +95,8 @@ export function readAccessToken(env: Env): string | undefined {
 }
 
 /**
- * True when the request carries the read-only bearer on a GET request
- * (TOG-8878). The read token never authorizes non-GET methods — writes, sync
+ * True when the request carries the read-only bearer on a GET request.
+ * The read token never authorizes non-GET methods — writes, sync
  * and import stay on the full token — and it never clears the privileged
  * inner check (`requireSnapshotAuth` only accepts the sync secret), so no
  * privileged route accepts it. Unset/blank means unconfigured: fail closed.

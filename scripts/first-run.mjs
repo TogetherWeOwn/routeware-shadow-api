@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * One-command first run on a fresh clone (TOG-9233).
+ * One-command first run on a fresh clone.
  *
  * Runs check:devvars, db:migrate:local, db:seed and smoke, stopping at the
  * first failure. The smoke step starts `wrangler dev` on a free loopback port,

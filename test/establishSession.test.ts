@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LoginPageUnavailableError } from "../src/lib/loginPageError";
+import { MissingSetCookieCapabilityError } from "../src/lib/setCookieCapabilityError";
 import type { ConcurrentRefreshTimeoutError } from "../src/lib/sessionRefreshLock";
 
 const httpLoginCalls = { count: 0 };
@@ -51,7 +53,7 @@ type LockState = {
 /**
  * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
  * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
- * TOG-18959 lock-token owner check: a lock older than the TTL is treated as
+ * lock-token owner check: a lock older than the TTL is treated as
  * crashed and re-granted with a fresh token, and only the matching token
  * releases a held lock — matching `AuthSession`.
  */
@@ -207,13 +209,13 @@ describe("establishSession refresh-lock serialization", () => {
     }
   });
 
-  it("fails closed when a fresh lock is held by a stalled holder (TOG-6526)", async () => {
+  it("fails closed when a fresh lock is held by a stalled holder", async () => {
     // Arrange — a holder took the lock "now" and then stalled without
     // publishing a session (no /set, no /unlock). The lock stays fresh for
     // the whole wait, so the waiter must time out without logging in itself —
     // a duplicate login here is exactly the thundering-herd the lock exists
     // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
-    // deterministically (90s default timeout, TOG-6527).
+    // deterministically (90s default timeout).
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
@@ -334,6 +336,102 @@ describe("establishSession refresh-lock serialization", () => {
     expect(browserLoginCalls.count).toBe(1);
     expect(state.cookieHeader).toBe(".WebRW=browser");
     expect(state.refreshing).toBe(false);
+  });
+
+  describe("browser-fallback log marker", () => {
+    // The R5-17 keep/remove-Browser-Rendering decision queries this record, so
+    // its static shape is a contract: renaming a field breaks that query.
+    const SYNTHETIC_SECRET = "SYNTHETIC-HTTP-FAILURE-NOT-A-CREDENTIAL";
+    const MARKER = {
+      level: "warn",
+      msg: "HTTP authentication failed; falling back to Browser Rendering",
+      route: "auth.login",
+      ms: null,
+      fallback: "browser"
+    };
+
+    function fallbackMarkers(warn: { mock: { calls: unknown[][] } }): unknown[] {
+      return warn.mock.calls
+        .map((call) => call[0])
+        .filter((record) => (record as { fallback?: unknown } | null)?.fallback === "browser");
+    }
+
+    async function runWithHttpFailure(
+      mode: string,
+      failure: unknown,
+      warn: { mock: { calls: unknown[][] } }
+    ): Promise<unknown[]> {
+      const { establishSessionViaHttp } = await import("../src/lib/httpAuth");
+      vi.mocked(establishSessionViaHttp).mockRejectedValueOnce(failure);
+      const state = freshState();
+      await establishSession(envWith(mode), fakeStub(state), "https://upstream/Account/Login").catch(
+        () => undefined
+      );
+      return fallbackMarkers(warn);
+    }
+
+    it("emits exactly one allowlisted marker and no error text when auto mode falls back", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure("auto", new Error(SYNTHETIC_SECRET), warn);
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(markers).toEqual([MARKER]);
+        expect(Object.keys(markers[0] as object).sort()).toEqual(
+          ["fallback", "level", "ms", "msg", "route"]
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(SYNTHETIC_SECRET);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([
+      ["http mode", "http", new Error(SYNTHETIC_SECRET)],
+      ["blocked login page", "auto", new LoginPageUnavailableError(403, "synthetic")],
+      ["missing getSetCookie capability", "auto", new MissingSetCookieCapabilityError()]
+    ])("emits no marker and launches no browser for %s", async (_label, mode, failure) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure(mode, failure, warn);
+
+        expect(markers).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+        expect(browserLoginCalls.count).toBe(0);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("emits no marker when HTTP login succeeds in auto mode", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("auto"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(state.cookieHeader).toBe(".WebRW=http");
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("emits no marker for direct browser mode without an HTTP attempt", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("browser"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(httpLoginCalls.count).toBe(0);
+        expect(state.cookieHeader).toBe(".WebRW=browser");
+        expect(fallbackMarkers(warn)).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
   });
 
   it("releases the lock when the DO rejects the session write", async () => {

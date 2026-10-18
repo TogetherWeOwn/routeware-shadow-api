@@ -12,7 +12,7 @@ import { UpstreamTimeoutError } from "../src/lib/upstreamTimeout";
 import { routewareRoutes } from "../src/routes/routeware";
 
 /**
- * Per-route upstream timeout wiring (TOG-8359).
+ * Per-route upstream timeout wiring.
  *
  * Gap G3: `src/lib/upstreamTimeout.ts` existed and the central forwarders
  * (`forwardToUpstream`, `forwardWithSessionRetry`) raced every Routeware fetch
@@ -75,7 +75,7 @@ function fakeSessionStub(session: SessionState): DurableObjectStub {
   } as unknown as DurableObjectStub;
 }
 
-describe("TOG-8359 fixed paths honor UPSTREAM_TIMEOUT_MS on a hang", () => {
+describe("fixed paths honor UPSTREAM_TIMEOUT_MS on a hang", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -260,7 +260,7 @@ function callSpans(text: string, name: string): string[] {
   return spans;
 }
 
-describe("TOG-8359 source wiring: every upstream fetch takes the timeout signal", () => {
+describe("source wiring: every upstream fetch takes the timeout signal", () => {
   it("every direct forwardToUpstream call passes an explicit timeoutMs", () => {
     // Arrange — the two forwarders own the budget themselves:
     // `forwardWithSessionRetry` builds it from `readUpstreamTimeoutMs(env)`
@@ -285,7 +285,7 @@ describe("TOG-8359 source wiring: every upstream fetch takes the timeout signal"
     }
 
     // Assert — a direct caller without `timeoutMs` silently drops the
-    // per-deploy override (the TOG-8359 gap class).
+    // per-deploy override (the gap class).
     expect(missing).toEqual([]);
   });
 

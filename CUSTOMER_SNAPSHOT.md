@@ -138,6 +138,49 @@ fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
 the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
 lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
 
+## Dry-run sync and import
+
+Add `?dryRun=true` to a snapshot `POST` route to run the CSV parse/validation path and
+see the counts that would apply without changing the stored snapshot. This option is
+available on the per-table `/api/v1/{customer,address,container}-snapshot/sync` and
+`/import` routes, and on `/api/v1/data-snapshot/sync`. The combined route forwards the
+flag to each configured per-table sync. It still follows the normal configuration and
+customer → address → container dependency guards.
+
+Dry-run is not offline: sync still fetches the configured report from Routeware and
+may use the Worker’s Routeware browser session. It can read D1 to count stale rows,
+but writes no D1 rows, performs no reconciliation deletes, and creates no R2 archive.
+Import validates the supplied CSV and writes no D1 rows. Because a dry
+run does not apply hypothetical parent rows, it skips foreign-key validation; a CSV
+with a dangling address/container reference can pass dry-run validation and still fail
+when imported for real. Dry-run also does not prove that a real write will succeed.
+
+Only the exact values `true` and `false` are accepted. Only `?dryRun=true` enables
+dry-run; omitting the parameter or passing `?dryRun=false` runs normally and can write
+D1 (and, for sync, archive to R2). Other values return 400 rather than silently
+selecting either mode. Treat the negative value as a real-write control, not a preview.
+
+For example, this customer sync fetches the configured Routeware report but does not
+change D1 or R2:
+
+```sh
+curl -i -X POST \
+  -H 'Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>' \
+  'https://<worker-host>/api/v1/customer-snapshot/sync?dryRun=true'
+```
+
+With two valid CSV rows and one stale customer row, a per-table response is:
+
+```json
+{"upserted":2,"rowCount":2,"deleted":1}
+```
+
+The counts describe the would-be effects; the stale row remains in D1, the two rows
+are not written, and no archive key is created. A combined dry-run returns per-table
+`{ "upserted", "rowCount" }` counts (no `deleted` field), or `null` for a skipped
+table; on a table failure the route returns an error and later tables do not run.
+On a successful response, `null` means that table was skipped.
+
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
 All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`**.
@@ -163,18 +206,33 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
 
-### Customer-row erasure scope (TOG-18933)
+### Customer-row erasure scope
 
-`DELETE /api/v1/customer-snapshot/{customerId}` is GDPR-style erasure for
-the stored extract only. Erasure removes the D1 `customer_snapshot` row and
-evicts the data-entity cache entry. It does not remove R2 history CSVs,
-daily aliases, latest pointers, or the archived-CSV readback, and it does
-not touch upstream Routeware. The row returns on the next sync — or on the
-next save for that customer through the proxy — while
-upstream still holds it. Any R2 restore or CSV import of an archive taken
-before the erasure re-inserts the row, and D1 Time Travel can restore it
-for up to 30 days (7 days on the Workers Free plan), so re-apply erasures
-after any restore. This route removes only the `customer_snapshot` row:
+`DELETE /api/v1/customer-snapshot/{customerId}` is local cache suppression,
+not upstream Routeware erasure. It writes an id-only D1 tombstone and deletes
+the D1 `customer_snapshot` row in one batch, then evicts the data-entity cache
+entry. If address children prevent the delete, the FK refusal rolls back both
+writes; an absent customer still returns 404. A D1 tombstone suppresses the
+customer on later sync, proxy-save refresh, and CSV/archive import. Suppressed
+address writes for that customer are skipped and recorded as id-only lineage
+so their container writes are skipped too; other customers keep fail-closed
+foreign keys. Tombstones
+have no automatic expiry and remain until explicitly removed; retain them while
+upstream or any archive/backup can return that customer. It does not remove R2
+history CSVs, daily aliases, latest pointers, or the archived-CSV readback, and
+it does not touch upstream Routeware. A D1 Time Travel/backup restore from
+before the erasure can restore the row and lose the tombstone/triggers; verify the
+schema, reconcile tombstones from the operator's out-of-band erased-customer
+list (the same list previously used to re-DELETE after restore — e.g., the
+erasure ticket or incident log), then delete any re-restored rows in FK order
+per the backfill SQL (a re-applied marker over existing rows freezes them
+without removing them), and re-apply suppression before serving
+recovered data, so verify suppression after database recovery. Customers erased
+before the suppression migration have no tombstone; backfill them with
+privileged `wrangler d1 execute` (see
+`docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
+Time Travel can restore data for up to 30 days (7 days on the Workers Free
+plan). This route removes only the `customer_snapshot` row:
 the customer's `address_snapshot` and `container_snapshot` rows are not
 removed by this route. Deleting a customer that still has address rows
 fails closed with 400 (never an orphan, never a cascade). There is no
@@ -213,7 +271,7 @@ that margin of the limit can therefore fail re-import even though it was admissi
 before this encoding. No automated split-and-import path exists yet.
 
 The archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`) serves the export's
-encoding so an operator comparison works (TOG-18829). Records are split as the importer
+encoding so an operator comparison works. Records are split as the importer
 splits them, and blank data records are dropped as its row parsers drop them. Each cell is trimmed as the importer's
 `cell()` trims it and then escaped with the export's helper, and `_shadow_csv_encoding`
 with value `1` follows the archived header and every row. Rows end in LF. The readback
@@ -224,7 +282,7 @@ hash) describe the served bytes, and `If-None-Match` with the current tag return
 An archive replaced while it is being read returns 409 `conflict`; one deleted
 meanwhile returns 404.
 
-Decision (TOG-18829): the readback's served bytes change; the stored archive objects
+Decision: the readback's served bytes change; the stored archive objects
 and the sync input do not. Rejected: serving the raw bytes and asking operators not to
 open them in a spreadsheet, which leaves formula cells evaluable; and writing a second
 escaped object at archive time, which doubles R2 storage and adds a transform to the
@@ -277,7 +335,7 @@ ordering, quoting, filenames or authorization.
   overhead; keep overrides for wide tables near the default.
 - **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
   D1 reads (including the final empty read). Every export also runs a content-hash
-  ETag prepass (TOG-8879) over the same pages before the body, so a `200` download
+  ETag prepass over the same pages before the body, so a `200` download
   costs **twice** that number and a conditional `304` costs one pass. Leave room for
   other queries/subrequests under
   [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
@@ -314,11 +372,11 @@ Cloudflare D1 allows **about 1000 SQL operations per Worker invocation** (see [D
 
 If a **single** table still exceeds ~1000 operations, run that table’s sync in multiple passes or ask Cloudflare for a limit increase.
 
-### Sync batch sizing vs the D1 budget (TOG-6293)
+### Sync batch sizing vs the D1 budget
 
 Measured 2026-09-27 (`SELECT COUNT(*)` only, no PII): customer **109,894**, address **111,620**, container **388,735** rows. Under the per-`db.batch()`-call counting model (one call = 1 op + 1 reconcile `DELETE` per non-empty sync), the committed chunk sizes (`STREAM_BATCH_CUST/ADDR = 80`, `STREAM_BATCH_CONT = 40` in `src/lib/snapshot/streamSync.ts`) cost **1,375 / 1,397 / 9,720 ops** per table — every table exceeds its own 1000-op chained budget, and a pooled single invocation totals 12,492 ops. Safe per-table (chained) sizes at these counts: **customer 120** (917 ops, margin 83), **address 120** (932 ops, margin 68), **container 400** (973 ops, margin 27). Even at safe sizes the three tables pooled in one invocation total 2,822 ops, so chained mode stays required; growing the batch further buys fewer calls but packs more statements per call (the 100-bind / 100 KB per-statement caps still bind inside each call, pinned by `test/snapshotUpsert.test.ts`).
 
-Rerun 2026-09-29 (TOG-8380) on current main: numbers unchanged — committed sizes still cost 1,375 / 1,397 / 9,720 ops; safe sizes 120/120/400 with margins 83/68/27 confirmed. Intervening sync fixes (#71 quoted-header guards, #84 import 400/413 rejects, #89 child-reconcile timestamps, #109 R2-after-D1) touch parsing/validation/ordering, not the batch-counting model, so the recommendation stands.
+Rerun 2026-09-29 on current main: numbers unchanged — committed sizes still cost 1,375 / 1,397 / 9,720 ops; safe sizes 120/120/400 with margins 83/68/27 confirmed. Intervening sync fixes (#71 quoted-header guards, #84 import 400/413 rejects, #89 child-reconcile timestamps, #109 R2-after-D1) touch parsing/validation/ordering, not the batch-counting model, so the recommendation stands.
 
 Reproduce: `node scripts/check-sync-batch-budget.mjs` (measures the committed constants; exit 0 always — `OVER` is a finding, not a gate failure). Try candidates without editing source, e.g. `node scripts/check-sync-batch-budget.mjs --batch-customer=120 --batch-address=120 --batch-container=400`, or re-run against fresh counts with `--customer-rows=N --address-rows=N --container-rows=N`. Unit pins: `test/syncBatchBudget.test.ts`.
 
@@ -326,7 +384,7 @@ Reproduce: `node scripts/check-sync-batch-budget.mjs` (measures the committed co
 
 Workers cap **memory** per isolate (~128 MB). Sync and import now **stream** the CSV and upsert in batches (no full-file `string` for report downloads), which is what you need for very large container exports. If you still see `exceededMemory`, run the three `POST` sync routes as **separate** requests in order, or lower batch pressure by splitting work across times.
 
-**Aggregate reads and Routeware writes (OpenAPI tag `data-entity`):** same bearer. **GET** `/api/v1/data/customer?id=…` (or `customerId=…`), `/api/v1/data/address?id=…` (pickup address id), `/api/v1/data/container?id=…` — D1 cache with `ETag` / `If-None-Match` and Workers `Cache` API, invalidated on successful **POST** to the same path. **POST** forwards to Routeware `SaveCustomerLongForm`, `SaveAddressForm`, or `SaveContainerForm` and returns ids + sync outcome only (`ok`, `routewareStatus`, resolved ids, `upstreamBytes`, `localSync` with fixed `code` outcomes — never submitted fields or the upstream body; TOG-6535), then refreshes D1 from `GetCustomerDetailFull` for the affected customer. Create: customer with `CustomerID=0` (or omit); address with `PickupAddressID=0` + `CustomerID`; container with `ContainerID=0` + `PickupAddressID` (and `CustomerID` if you want local sync when D1 is empty).
+**Aggregate reads and Routeware writes (OpenAPI tag `data-entity`):** same bearer. **GET** `/api/v1/data/customer?id=…` (or `customerId=…`), `/api/v1/data/address?id=…` (pickup address id), `/api/v1/data/container?id=…` — D1 cache with `ETag` / `If-None-Match` and Workers `Cache` API, invalidated on successful **POST** to the same path. **POST** forwards to Routeware `SaveCustomerLongForm`, `SaveAddressForm`, or `SaveContainerForm` and returns ids + sync outcome only (`ok`, `routewareStatus`, resolved ids, `upstreamBytes`, `localSync` with fixed `code` outcomes — never submitted fields or the upstream body), then refreshes D1 from `GetCustomerDetailFull` for the affected customer. Create: customer with `CustomerID=0` (or omit); address with `PickupAddressID=0` + `CustomerID`; container with `ContainerID=0` + `PickupAddressID` (and `CustomerID` if you want local sync when D1 is empty).
 
 Interactive docs: `GET /docs` (Scalar). Machine-readable: `GET /openapi.json`.
 

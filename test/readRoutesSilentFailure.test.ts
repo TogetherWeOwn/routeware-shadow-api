@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-6266 — audit of every upstream passthrough route for the HTML-200
+ * Audit of every upstream passthrough route for the HTML-200
  * silent-failure shape (CONVENTIONS.md §1).
  *
- * The three save routes were already guarded (TOG-6022 save-long-form,
- * TOG-6271 address/container saves): they apply `routewarePostLooksSuccessful`
+ * The three save routes were already guarded (save-long-form,
+ * address/container saves): they apply `routewarePostLooksSuccessful`
  * and surface an upstream HTML error page with HTTP 200 as 502 problem+json.
  * This file pins the same guard on the five JSON-expecting read passthroughs,
  * which previously forwarded that shape verbatim as 200:
@@ -49,7 +49,7 @@ async function call(path: string, init: RequestInit = {}): Promise<Response> {
   return exports.default.fetch(`http://test.local${path}`, { ...init, headers });
 }
 
-describe("read passthrough silent-failure guard (TOG-6266)", () => {
+describe("read passthrough silent-failure guard", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {

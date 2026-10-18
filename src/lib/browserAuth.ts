@@ -43,7 +43,7 @@ function browserAuthError(name: string, message: string): Error {
 
 /**
  * Browser Rendering login. `lockToken` proves this caller holds the refresh
- * lock so the DO releases it as part of the write (TOG-18959).
+ * lock so the DO releases it as part of the write.
  */
 export async function establishSessionWithBrowser(
   env: Env,

@@ -54,7 +54,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomersRead"
   );
-  // TOG-5936: `skip`/`take` are translated onto the Ext.NET `start`/`limit`
+  // `skip`/`take` are translated onto the Ext.NET `start`/`limit`
   // spelling before forwarding, so a client sending them gets the window it
   // asked for instead of a silent unpaged/default-window result. Bodies
   // without those keys forward byte-identical.
@@ -281,7 +281,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the /data/* write path.
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up, readUpstreamTimeoutMs(c.env)))) {
-    // TOG-6463: a successful routeware-tier save must refresh D1 + evict the
+    // A successful routeware-tier save must refresh D1 + evict the
     // data-entity cache, or shadow reads keep serving the pre-save record.
     // Never throws: a local refresh failure must not turn the passthrough 200
     // into a 500 (the save itself succeeded upstream).
@@ -289,7 +289,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
-    // TOG-8149: the injected token was rejected upstream (silent failure),
+    // The injected token was rejected upstream (silent failure),
     // so drop it from the cache — otherwise the next token-less save replays
     // the same known-rejected token until the TTL window expires. The next
     // save refetches via one modal GET instead of 502-looping.

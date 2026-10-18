@@ -29,7 +29,7 @@ const calls: {
 const behavior: {
   bodyless: boolean;
   syncError: string | null;
-  /** When set, only this table's stream sync throws (TOG-6546). */
+  /** When set, only this table's stream sync throws. */
   syncErrorTable: string | null;
   httpResponses: Map<string, { status: number; body: string }>;
 } = { bodyless: false, syncError: null, syncErrorTable: null, httpResponses: new Map() };
@@ -67,7 +67,7 @@ vi.mock("../src/lib/r2SnapshotArchive", async (importOriginal) => {
       onArchive?: (detail: { status: string }) => void
     ) => {
       calls.archived.push(kind);
-      // Mirror the real helper's TOG-6549 contract: the callback fires on every
+      // Mirror the real helper's contract: the callback fires on every
       // path, so the orchestration stamps `r2` onto the counts. A stored marker
       // here keeps these tests on the D1 assertions they were written for.
       onArchive?.({ status: "stored" });
@@ -260,7 +260,7 @@ describe("runCustomerSnapshotSync", () => {
     expect(result).toEqual({ upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } });
   });
 
-  it("stamps the R2 archive outcome onto the counts (TOG-6549)", async () => {
+  it("stamps the R2 archive outcome onto the counts", async () => {
     // Arrange / Act — the mock archive reports stored, so the counts carry it.
     const result = await runCustomerSnapshotSync(envWith({ CUSTOMER_REPORT_QUERY_ID: "23" }));
 
@@ -329,7 +329,7 @@ describe("runDataSnapshotSync", () => {
     expect(error.cause).toBeInstanceOf(Error);
   });
 
-  it("carries the partial results and failed table on the thrown error (TOG-6546)", async () => {
+  it("carries the partial results and failed table on the thrown error", async () => {
     // Arrange — the acceptance case: container fails after customer and
     // address succeeded. Both tables were attempted (three sync calls) and
     // the error keeps the two successes. Only counts travel — never row data.
@@ -349,7 +349,7 @@ describe("runDataSnapshotSync", () => {
     expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
     expect(error.failedTable).toBe("container");
     expect(error.partial).toEqual({
-      // TOG-6549: the mock archive reports stored, so the succeeded tables
+      // The mock archive reports stored, so the succeeded tables
       // carry their R2 outcome into the partial error.
       customer: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
       address: { upserted: 3, rowCount: 3, deleted: 0, r2: { status: "stored" } },
@@ -457,7 +457,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(result.customer).toBeNull();
   });
 
-  it("carries deleted counts for every synced table, not just customer (TOG-7391)", async () => {
+  it("carries deleted counts for every synced table, not just customer", async () => {
     // Arrange — each per-table subrequest reports its reconcile deletions.
     stubFetch();
     for (const [path, deleted] of [
@@ -486,7 +486,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     });
   });
 
-  it("carries a validated R2 outcome from each subrequest (TOG-6549)", async () => {
+  it("carries a validated R2 outcome from each subrequest", async () => {
     // Arrange — each per-table route stamps the flat `r2` outcome the
     // single-invocation leg produced; the chained runner must surface it so a
     // failed archive cannot hide behind a D1 `outcome:success`.
@@ -517,7 +517,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect("r2" in (result.address as object)).toBe(false);
   });
 
-  it("drops a malformed R2 outcome from a subrequest instead of trusting it (TOG-6549)", async () => {
+  it("drops a malformed R2 outcome from a subrequest instead of trusting it", async () => {
     // Arrange — subrequest JSON crosses a trust boundary: a non-detail `r2`
     // (wrong shape, unknown status) must not reach the cron line.
     stubFetch();
@@ -556,7 +556,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect("deleted" in (result.customer as object)).toBe(false);
   });
 
-  it("throws a fixed-shape error with zero upstream bytes when a subrequest fails (TOG-9205)", async () => {
+  it("throws a fixed-shape error with zero upstream bytes when a subrequest fails", async () => {
     // Arrange — the body is upstream-controlled HTML, so the message carries
     // table/step/status only (R4-04/B1).
     stubFetch();
@@ -581,7 +581,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(error.message).not.toContain("UPSTREAM-MARKER");
   });
 
-  it("throws the same fixed shape, not a SyntaxError quoting input, on a 200 with a non-JSON body (TOG-9205)", async () => {
+  it("throws the same fixed shape, not a SyntaxError quoting input, on a 200 with a non-JSON body", async () => {
     // Arrange — V8's SyntaxError message quotes the offending input bytes,
     // which would ride the same log lines as the old body slice.
     stubFetch();
@@ -606,7 +606,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(error.message).not.toContain("UPSTREAM-MARKER");
   });
 
-  it("carries succeeded tables on the error when a later subrequest fails (TOG-6546)", async () => {
+  it("carries succeeded tables on the error when a later subrequest fails", async () => {
     // Arrange — container subrequest fails after customer/address succeeded.
     stubFetch();
     const { PartialDataSnapshotSyncError } = await import(
@@ -652,7 +652,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     expect(result).toEqual({ customer: null, address: null, container: null });
   });
 
-  it("fails fast with a tagged timeout when a subrequest hangs (TOG-6547)", async () => {
+  it("fails fast with a tagged timeout when a subrequest hangs", async () => {
     // Arrange — the customer subrequest never settles (hung table). Before the
     // bound it held the cron invocation to the platform timeout, starving the
     // tables behind it with only `durationMs` as signal.
@@ -691,7 +691,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     ]);
   });
 
-  it("tags a fast subrequest network failure without mapping it to a timeout (TOG-6547)", async () => {
+  it("tags a fast subrequest network failure without mapping it to a timeout", async () => {
     // Arrange — the customer subrequest fails fast with a DNS-style error,
     // not a hang: it must surface tagged with the table, never mapped to a
     // timeout, and the bearer-gate 401/429 path (`!resp.ok`) is untouched.
@@ -720,7 +720,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
   });
 });
 
-describe("readChainedSyncTimeoutMs (TOG-6547)", () => {
+describe("readChainedSyncTimeoutMs", () => {
   it("defaults to 180s and honors the CHAINED_SYNC_TIMEOUT_MS binding", async () => {
     // Arrange / Act
     const { DEFAULT_CHAINED_SYNC_TIMEOUT_MS, readChainedSyncTimeoutMs } = await import(

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Sync batch-sizing benchmark vs the D1 per-invocation budget (TOG-6293).
+ * Sync batch-sizing benchmark vs the D1 per-invocation budget.
  *
  * Measures the committed `STREAM_BATCH_*` chunk sizes in
  * `src/lib/snapshot/streamSync.ts` against D1's per-invocation query budget

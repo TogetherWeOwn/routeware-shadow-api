@@ -19,6 +19,19 @@ regexes = [
   '''test-sync-secret''',
   '''test-password-not-real''',
   # `SNAPSHOTS_R2_ENABLED` is a "true"/"false" feature flag in wrangler.toml, not a
-  # secret — the generic-api-key rule flags the identifier itself (TOG-5485).
+  # secret — the generic-api-key rule flags the identifier itself.
   '''SNAPSHOTS_R2_ENABLED''',
+  # curl-auth-header false positives from the public-first gate: docs show
+  # dummy-literal Bearer examples, never real tokens. The gitleaks global
+  # allowlist matches against the detected secret fragment (the part after
+  # `Bearer `), so only the bare dummy literals are listed, anchored to the
+  # full fragment. Verified with gitleaks 8.28.0 (the version pinned in
+  # ci.yml): 0 leaks across all refs.
+  # `-H 'Authorization: Bearer local-recovery-sync'` in docs/R2-RESTORE-RUNBOOK.md.
+  '''^local-recovery-sync$''',
+  # `Bearer wrong-token` negative-probe example in docs/SECRET-ROTATION-RUNBOOK.md
+  # (the curl-auth-header rule spans up to 5 lines after curl, so the hit
+  # reported at line 61 is really this literal at line 65; `$VAR` forms are
+  # never captured — the rule's token class excludes `$`).
+  '''^wrong-token$''',
 ]

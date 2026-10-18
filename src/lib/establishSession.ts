@@ -21,7 +21,7 @@ export type AuthMode = (typeof AUTH_MODES)[number];
  *
  * A typo must fail fast here — never fall into the HTTP-then-browser
  * fallback, which would silently trigger expensive Browser Rendering logins
- * on what the operator intended as an `http`-only deploy (TOG-6531).
+ * on what the operator intended as an `http`-only deploy.
  * `received` echoes the operator's own config value (never a credential or
  * customer data), so it is safe to surface in a 503 detail.
  */
@@ -73,18 +73,18 @@ export async function establishSession(
   bootstrapUrl: string
 ): Promise<void> {
   // The lock token proves this caller holds the refresh lock: only the
-  // matching token releases it via `/unlock` or the holder's `/set`
-  // (TOG-18959). It is granted by `/lock` directly, or by `/takeover` after
+  // matching token releases it via `/unlock` or the holder's `/set`.
+  // It is granted by `/lock` directly, or by `/takeover` after
   // waiting — and is presented on the failure-path `/unlock` so a late
   // release can never clear another holder's live lock.
   let lockToken = await acquireRefreshLock(stub);
   if (lockToken === null) {
     // Another request is already refreshing. Wait for its publication — or,
     // after its explicit failed release, take over with one bounded fresh
-    // login (TOG-18119, CISO option B: the atomic `/takeover` elects a single
+    // login (CISO option B: the atomic `/takeover` elects a single
     // winner inside the failed-release window; losers wait on the new
     // holder). On deadline, or once a failed takeover spent the window
-    // budget, the wait throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it
+    // budget, the wait throws `ConcurrentRefreshTimeoutError` — it
     // propagates so the caller fails closed to 502 instead of forwarding with
     // the expired cookie.
     const settlement = await waitForPublicationOrTakeover(stub);
@@ -128,7 +128,7 @@ async function login(
   bootstrapUrl: string,
   lockToken: string
 ): Promise<void> {
-  // Closed validation (TOG-6531): unknown values throw before any login
+  // Closed validation: unknown values throw before any login
   // attempt, so a typo never falls into the HTTP-then-browser fallback.
   const mode = resolveAuthMode(env);
 
@@ -140,11 +140,11 @@ async function login(
     await establishSessionViaHttp(env, stub, lockToken);
     return;
   } catch (err) {
-    // A blocked login page (TOG-6536) is never a browser case: the token is
+    // A blocked login page is never a browser case: the token is
     // missing because upstream answered 403/500, not because the markup
     // changed. Re-run the browser there would burn Browser Rendering budget
     // on a page that has no form at all. A missing getSetCookie capability
-    // (TOG-6537) is likewise never a browser case: there are no cookies to
+    // is likewise never a browser case: there are no cookies to
     // fall back from, so a browser retry would burn budget on a platform
     // gap, not a markup change.
     if (

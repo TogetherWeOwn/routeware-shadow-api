@@ -8,11 +8,13 @@ import {
 import {
   handleGetDataAddress,
   handleGetDataContainer,
-  handleGetDataCustomer,
+  handleGetDataCustomer
+} from "../lib/dataEntityHandlers";
+import {
   handlePostDataAddress,
   handlePostDataContainer,
   handlePostDataCustomer
-} from "../lib/dataEntityHandlers";
+} from "../lib/dataEntitySave";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,

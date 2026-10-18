@@ -17,8 +17,8 @@ Two facts govern every change in this codebase, and neither is obvious from the 
 
 ## 0. Do this first — verify PR CI before enabling production deploys
 
-**Verification and production authorization are separate.** CI uses self-hosted runners labeled
-`two-selfhosted`. On PRs to `main`, changed-area detection selects the credential-free `build` and
+**Verification and production authorization are separate.** CI uses GitHub-hosted `ubuntu-latest`
+runners. On PRs to `main`, changed-area detection selects the credential-free `build` and
 optional `shadow-api-v1` jobs; `hygiene` always runs. Docs-only PRs targeting `main` skip build and
 shadow. Pushes to `main` and nightly runs select the full verification suite; `ci-ok` aggregates these
 jobs, accepting intentional skips but failing on failures or cancellations. When selected, `shadow-api-v1`
@@ -104,8 +104,9 @@ production readiness from successful runs; keep production deploys disabled unti
    post-deploy probe is daily; the probe also supports manual `workflow_dispatch`.
 3. **Verify without shipping anything.** Inspect a recent run from a pull request targeting `main` for
    the reviewed head, or use a documentation-only pull request targeting `main` after a transfer.
-   Expect changed-area detection, `Repo hygiene & secret scan`, and `ci-ok` to pass on the self-hosted
-   runners; docs-only PRs targeting `main` intentionally skip build and shadow. For a PR selecting
+   Expect changed-area detection, `Repo hygiene & secret scan`, and `ci-ok` to pass on the
+   GitHub-hosted runners; docs-only PRs targeting `main` intentionally skip build and shadow. For a PR
+   selecting
    build/shadow, confirm build passes and, without `CF_TOKEN`, the shadow gate reports its reason and
    skips contract execution. The deploy job must be skipped on pull requests targeting `main` and remain
    skipped on pushes to `main` unless the effective repository/organization value matches `true`
@@ -318,7 +319,7 @@ and `problemType(slug)` — but 27 of the 28 sites bypass it with an inline stri
 them all through `problemType()` first, then change the constant once.** Doing it the other way means
 28 edits every time the URL moves again.
 
-> **Update (TOG-8357, 2026-09-28): done.** All call sites now use
+> **Update (2026-09-28): done.** All call sites now use
 > `problemType(slug, env)` / `foreignKeyProblem(err, env)` and the base
 > resolves from the `PROBLEM_TYPE_BASE` wrangler var (default `""` = the
 > committed `TogetherWeOwn/.../PROBLEMS.md#` URL). **Transfer step: set
@@ -407,7 +408,7 @@ immediately after** the transfer — every day both exist is a day the old one i
 ### Open tasks, highest value first
 
 1. ~~**§4 — de-hardcode the problem `type` URIs.** Required by the transfer.~~
-   **Done (TOG-8357, 2026-09-28):** every `type` URI now resolves through
+   **Done (2026-09-28):** every `type` URI now resolves through
    [`problemType(slug, env)`](../src/lib/problem.ts) from the `PROBLEM_TYPE_BASE`
    wrangler var (`wrangler.toml` `[vars]`, default `""` = the committed
    `TogetherWeOwn/.../PROBLEMS.md#` URL, unchanged by default). **At transfer
@@ -420,23 +421,22 @@ immediately after** the transfer — every day both exist is a day the old one i
 2. **§5 — delete the old repository** (`Rick7C2/routeware-shadow-api`), which is the last surface
    still exposing the credentials and the PII. Then re-take the rotation decision under the new
    access conditions.
-3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (TOG-5484, 2026-09-27; ratcheted
-   2026-10-09, TOG-9219):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
+3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (2026-09-27; ratcheted
+   2026-10-09):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
    `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the login → download → parse → upsert path
    with assertions. Branch coverage is 91.51% against a floor of 91 (`vitest.config.ts:71-76`; the
    history is at `vitest.config.ts:57-70`). `docs/TEST-INVARIANTS.md` still carries the 2026-08-22
    numbers; update it before relying on it.
-4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done (TOG-8373):** `wrangler types` bakes
+4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done:** `wrangler types` bakes
    `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
    regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored
    (`.gitignore:4`), is not tracked, and the hygiene job fails on any non-synthetic value of the four
-   Worker-secret keys in it (`.github/workflows/ci.yml:200-217`). Never force-add it.
-   `docs/SECURITY-REMEDIATION.md` (lines 214-227) still records this as open; its status needs the
-   security owner's update.
+   Worker-secret keys in it (`.github/workflows/ci.yml:209-226`). Never force-add it.
+   `docs/SECURITY-REMEDIATION.md` Step 3 records it as closed.
 5. ~~**Promote the CI gitleaks step to blocking** and drop `--no-git`.~~ **Done:** the step has no
-   `continue-on-error` and runs without `--no-git` over the full history (`.github/workflows/ci.yml:253-261`).
-   §5 (deleting the old repository) is still open. The runbook still lists this step as
-   `continue-on-error`; update it together with item 4.
+   `continue-on-error` and runs without `--no-git` over the full history (`.github/workflows/ci.yml:262-270`).
+   `docs/SECURITY-REMEDIATION.md` Step 3 records it as blocking. §5 (deleting the old repository) is
+   still open.
 
 ---
 

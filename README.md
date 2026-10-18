@@ -4,7 +4,7 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 > ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
-> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On pull requests targeting
+> GitHub Actions runs on GitHub-hosted `ubuntu-latest` runners. On pull requests targeting
 > `main`, changed-area detection selects credential-free `build` and optional `shadow-api-v1` jobs
 > when relevant paths change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs.
 > Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
@@ -20,15 +20,15 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 ## Prerequisites
 
-- Node 20+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
+- Node 22+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
 - Cloudflare account (for `wrangler deploy`)
 
 ## Quick start (local)
 
 ```bash
-nvm use                             # Node 20+, per .nvmrc (engines: >=20)
+nvm use                             # Node 22+, per .nvmrc (engines: >=22)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
-npm run types                       # generate worker-configuration.d.ts (gitignored, TOG-8373) — rerun after any wrangler.toml binding/key change
+npm run types                       # generate worker-configuration.d.ts (gitignored) — rerun after any wrangler.toml binding/key change
 cp .dev.vars.example .dev.vars      # then fill in values (see below)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
 npm run db:seed                     # load the synthetic customer→address→container fixture (idempotent, local D1 only)
@@ -121,8 +121,8 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
 | `npm run db:seed` | Load the synthetic customer→address→container fixture into the **local** D1 (idempotent UPSERTs — safe to re-run; never touches remote) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
-| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run once after cloning, and after any `wrangler.toml` binding/key change) |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run after any `wrangler.toml` binding/key change; `npm run typecheck` runs it automatically) |
+| `npm run typecheck` | Generate Wrangler declarations, then run `tsc --noEmit` |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
 | `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
@@ -137,7 +137,7 @@ and optional `shadow-api-v1`; `hygiene` always runs, and `ci-ok` accepts intenti
 PRs targeting `main` intentionally skip `build` and `shadow-api-v1`. The production `deploy` job
 runs only on a push to `main` when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively). Deploy then applies
 remote D1 migrations and runs `wrangler deploy` using the `production` environment. All jobs use
-self-hosted runners labeled `two-selfhosted`; without its optional `CF_TOKEN`, the `shadow-api-v1`
+GitHub-hosted `ubuntu-latest` runners; without its optional `CF_TOKEN`, the `shadow-api-v1`
 probe skips contract execution.
 
 **Enable production only after the full setup is ready:**
@@ -194,7 +194,7 @@ masked by default; field names, body structure, and query params are preserved.
 | `npm run discovery:record` | Headed recorder → `tools/api-discovery/out/harvest.ndjson` (redacted). Log in, do your workflow, press Enter to stop |
 | `npm run discovery:record:full` | Same, but captures **all** headers/values (cookies, tokens) for full replay — keep the harvest private |
 | `npm run discovery:codegen` | Record your **UI actions** (clicks/typing) into a replayable Playwright script |
-| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs |
+| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs (artifacts always built; gate fails last on missing shadow routes — stale entries warn unless `--strict`) |
 | `npm run discovery:verify` | Runs **`discovery:process`** then **`npm test`** (route-map + Worker contract tests) |
 
 Typical loop: `discovery:setup` (once) → `discovery:record` while you use the site →
@@ -219,9 +219,13 @@ Example mappings from a typical harvest (SPA + ExtJS):
 
 ## License
 
-[MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
+[MIT](./LICENSE).
 
 ## Layout
+
+For the request, session, snapshot and cron paths, start with
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), including a step-by-step trace of a
+`data/*` POST.
 
 - [`src/worker.ts`](./src/worker.ts) — Worker entry (re-exports `AuthSession` + Hono `app`).
 - [`src/app.ts`](./src/app.ts) — Routes and OpenAPI.

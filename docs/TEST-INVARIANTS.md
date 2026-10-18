@@ -69,16 +69,59 @@ change.** This is a measurement correction, and it is the one time these floors 
 - `r2SnapshotArchive.ts` — 62.3% statements, 28.6% functions.
 - `routewareQueryReportCsv.ts` — 69.8% statements, 51.1% functions.
 
+### Test worker bindings
+
+`vitest.config.ts` builds the test worker's `miniflare.bindings` from `wrangler.toml [env.test.vars]`,
+so the toml is the single source: change it to change the test env. A local `.dev.vars` never affects
+`npx vitest run`.
+
+---
+
+## Worker caps — why local runs don't use every core
+
+`vitest.config.ts` sets `maxWorkers` to **2 on CI** (`process.env.CI`, which GitHub
+Actions always sets) and defaults local runs to **half the available parallelism**
+(`Math.max(1, Math.floor(os.availableParallelism() / 2))`). Both caps exist for
+the same reason: **worker oversubscription under istanbul instrumentation**.
+
+Each workers-pool worker boots its own workerd instance, and istanbul
+instrumentation adds ~65% to run time. An uncapped `vitest run --coverage`
+spawns a worker per core, so on a loaded host the workers contend past the 30s
+`testTimeout` and tests fail with timeouts that reproduce neither alone nor on
+an idle box:
+
+- **CI:** several CI jobs share each self-hosted runner; the
+  unrestricted run stalled 7 files, every failure a timeout (red main
+  `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
+  no test, assertion or timeout change (PR #89: unrestricted timed out 2
+  throttle tests, `--maxWorkers=2` passed 78 files / 1,128 tests).
+- **Local:** one uncapped local `vitest run --coverage` failed
+  `test/authThrottle.test.ts` ("brute-forcing a bad token") at the 30s
+  timeout while the same file passes alone in ~3.6s. Halving the core count
+  leaves headroom for whatever else the host is doing while keeping most of
+  the parallelism.
+
+Do not "restore full speed" by uncapping either side: a timeout failure after
+such a change is the cap doing its job, not a slow test. To override once on a
+local run, pass a Vitest-supported `--maxWorkers` value; the local cap is set at
+the root config level so Vitest can apply CLI overrides (including percentages
+and kebab-case spelling) to every project. CI stays fixed at 2. If a new local
+default proves stable, change `localMaxWorkers` instead so
+`npm run check:ci-workflow` keeps pinning the invariant.
+
 ---
 
 ## Per-file invariants
 
-### `dataEntityHandlers.ts` — 93.4% statements / 100% functions
+### `dataEntityHandlers.ts` — 93.4% statements / 100% functions (GET/ETag paths; POST moved to `dataEntitySave.ts`)
 
-`test/dataEntityHandlers.test.ts` covers the GET/ETag paths; `test/dataEntityPostHandlers.test.ts`
-covers the three POST write paths — including the branch where the upstream save succeeds but the D1
-sync throws, which must keep the 200 and fall back to `invalidateDataEntity` so stale PII is not
-served from cache.
+`test/dataEntityHandlers.test.ts` covers the GET/ETag paths.
+
+### `dataEntitySave.ts` — POST write paths (split from `dataEntityHandlers.ts`)
+
+`test/dataEntityPostHandlers.test.ts` covers the three POST write paths — including the branch where
+the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to
+`invalidateDataEntity` so stale PII is not served from cache.
 
 Still open, smaller: several handlers here exceed the 50-line guideline.
 
@@ -117,7 +160,22 @@ Mutation-verified six ways, including both casing swaps.
 
 Both mutation-verified.
 
-### `upstreamTimeout.ts` / bounded upstream budgets (TOG-5835)
+### Concurrent identical saves
+
+- `test/concurrentDuplicateSave.test.ts` fires 8 identical saves at once at each of the six save
+  routes (`/api/v1/routeware/{customer,address,container}/save-*` and
+  `POST /api/v1/data/{customer,address,container}`), through `app.fetch` with real D1 and the Cache
+  API. Every request answers 200, each is forwarded upstream exactly once, and D1 ends with one row
+  per id and the whole customer graph.
+- The newest-first case makes the sync with the newest `synced_at` write first. The older syncs that
+  land after it must neither overwrite it (the `synced_at <= excluded.synced_at` upsert guard) nor
+  delete it in `reconcileCustomerChildren`.
+- Identical creates are not deduplicated: Routeware takes no idempotency key, so 8 creates make 8
+  customers upstream. D1 mirrors exactly those 8, no more.
+
+Mutation-verified: dropping the upsert guard fails the newest-first case on all six routes.
+
+### `upstreamTimeout.ts` / bounded upstream budgets
 
 `test/upstreamTimeout.test.ts` (11 tests) pins the retry-budget split the whole
 change rests on: a hung upstream throws `UpstreamTimeoutError` within budget
@@ -236,13 +294,12 @@ an assertion. The `*.sql?raw` / `cloudflare:test` declarations live in
 `test/sqlRaw.d.ts` (no precedent existed; the `?raw` import was probe-verified
 in-pool before use).
 
-TOG-7383 full-table audit (2026-09-27): every list/filter shape in
+Full-table audit (2026-09-27): every list/filter shape in
 `src/routes/{customer,address,container}Snapshot.ts` (23 shapes: plain list,
 id lookups, `q`-alone, `enabled`-alone, `enabled + q` SELECT + COUNT, and the
 container `customerId` join composed with `enabled + q`) was run through
 `EXPLAIN QUERY PLAN` before and after 0003 under `node:sqlite`
-(SQLite 3.53.4, same engine family as D1; full 146-line matrix attached to
-[TOG-7383](/TOG/issues/TOG-7383)). Post-0003 plans: customer `enabled + q`
+(SQLite 3.53.4, same engine family as D1; the full 146-line matrix was recorded with the audit). Post-0003 plans: customer `enabled + q`
 `SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled
 (enabled=?)` — 0001 already served it, 0003 is a no-op there (pinned by
 before/after equality assertions); address `enabled + q` `SEARCH
@@ -264,12 +321,11 @@ change; removing them is a separate decision.
 ### `routes/shared.ts` — the snapshot auth helpers
 
 `requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
-routes (13 at TOG-7030 plus the 3 `GET ...-snapshot/export` downloads,
-TOG-8361), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
+routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
 body every route shares. The per-call-site `detail` wording was unified in
-the helpers by TOG-7030 (one 401 detail naming the sync secret, one 503
+the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and
-`instance`). `test/authGateResweep.test.ts` (TOG-8386) pins the privileged
+`instance`). `test/authGateResweep.test.ts` pins the privileged
 inventory itself from the live router, so a new sync/import/export/data route
 without `requireSnapshotAuth` fails there instead of slipping past the outer
 gate on the general API token.

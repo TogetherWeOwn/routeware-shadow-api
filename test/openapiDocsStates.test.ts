@@ -10,9 +10,9 @@ import app from "../src/app";
 import wranglerToml from "../wrangler.toml?raw";
 
 /**
- * Pin the Scalar UI gated-404 vs enabled-render states end to end (TOG-6283).
+ * Pin the Scalar UI gated-404 vs enabled-render states end to end.
  *
- * `test/openapiDocsGate.test.ts` (TOG-5828) already proves the app gate logic
+ * `test/openapiDocsGate.test.ts` already proves the app gate logic
  * with fabricated envs. This file pins what that file cannot: the actual
  * `wrangler.toml` wiring — default env OFF (`404 problem+json` on both
  * endpoints) and `[env.test]` ON (spec renders, Scalar HTML renders) — so a
@@ -57,7 +57,7 @@ async function get(path: string, env: Env): Promise<Response> {
   return app.fetch(new Request(`http://test.local${path}`), env, ctx);
 }
 
-describe("docs gate wiring per wrangler env (TOG-6283)", () => {
+describe("docs gate wiring per wrangler env", () => {
   it('default [vars] keeps OPENAPI_DOCS_ENABLED="false"', () => {
     expect(docsFlagFor("default")).toBe("false");
   });

@@ -6,7 +6,7 @@ import { shadowHealthResponseSchema } from "../src/routes/shadow";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-3495 staging slice: contract test for the versioned Shadow API
+ * Staging slice: contract test for the versioned Shadow API
  * `GET /api/v1/shadow/health` -> 200 with schema.
  *
  * Staging-only, behind the existing Cloudflare creds / bearer gate: the route

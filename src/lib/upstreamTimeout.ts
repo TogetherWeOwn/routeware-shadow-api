@@ -1,7 +1,7 @@
 import { problemJsonResponse, problemType } from "./problem";
 
 /**
- * Bounded upstream timeouts (TOG-5835).
+ * Bounded upstream timeouts.
  *
  * Upstream forwards had session retry but no documented timeout: a hung
  * Routeware host held the Worker until the 300s CPU limit mid-sync. Every
@@ -53,7 +53,7 @@ export function readReportTimeoutMs(env?: Env): number {
 }
 
 /**
- * Chained-sync budget (TOG-6547): one `POST` to our own per-table sync route
+ * Chained-sync budget: one `POST` to our own per-table sync route
  * runs a full table sync server-side (report download + D1 streaming + R2
  * archive), so its budget must clear the 60s report budget with headroom.
  * 180s bounds a hung table well below the 300s platform CPU limit while

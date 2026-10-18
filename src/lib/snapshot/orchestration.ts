@@ -6,6 +6,7 @@ import {
   type SnapshotArchiveTable
 } from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
+import { readReportQueryDates } from "../reportQueryDates";
 import {
   fetchWithUpstreamTimeout,
   isUpstreamTimeout,
@@ -31,7 +32,7 @@ export type SnapshotTableResult = {
    * it, and the chained path carries it once the per-table sync reported it.
    */
   deleted?: number;
-  /** R2 archive outcome for this table's CSV leg (TOG-6549). */
+  /** R2 archive outcome for this table's CSV leg. */
   r2?: R2ArchiveDetail;
 } | null;
 
@@ -43,7 +44,7 @@ export type DataSnapshotResult = {
 
 /**
  * Runs one table's D1→R2 legs and stamps the R2 outcome flat onto the D1
- * counts (TOG-6549), following the house precedent that extra count fields
+ * counts, following the house precedent that extra count fields
  * (e.g. `deleted`) travel by spread. The per-table route serializes the
  * counts as-is, so the chained path and the cron line see the R2 status each
  * table observed. `r2` is always set: the helper fires `onArchive` on every
@@ -54,26 +55,62 @@ function syncTableWithR2(
   env: Env,
   table: SnapshotArchiveTable,
   body: ReadableStream<Uint8Array>,
-  sync: (stream: ReadableStream<Uint8Array>) => Promise<SnapshotSyncCounts>
+  sync: (stream: ReadableStream<Uint8Array>) => Promise<SnapshotSyncCounts>,
+  runId?: string
 ): Promise<SnapshotSyncCounts & { r2: R2ArchiveDetail }> {
   let archive: R2ArchiveDetail | null = null;
   return archiveReportCsvToR2AfterD1(env, table, body, sync, (d) => {
     archive = d;
-  }).then((counts) => ({
+  }, runId).then((counts) => ({
     ...counts,
     r2: archive ?? { status: "failed", reason: "R2 outcome unreported" }
   }));
 }
 
 /**
- * Dry-run switch for the per-table sync runners (TOG-9203): parse and count
+ * Dry-run switch for the per-table sync runners: parse and count
  * the report CSV as usual, but write nothing — no D1 upserts, no reconcile
  * deletes, and no R2 archive. The second positional is optional so existing
  * callers (cron, tests) keep compiling unchanged.
  */
 export type SnapshotSyncRunOptions = {
   dryRun?: boolean;
+  /**
+   * Per-run correlation id: when present, every `logEvent` on the
+   * sync path carries it. Minted once per `scheduled()` firing and threaded
+   * from the cron base; chained per-table subrequests forward it on the
+   * `x-run-id` header (validated at the per-table routes), so a
+   * sub-invocation's skip and R2-archive lines share the originating run's id.
+   * A bare UUID — PII-free by construction. Absent for direct route calls
+   * without the header (those lines carry no id, as before).
+   */
+  runId?: string;
 };
+
+const RUN_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Validates an inbound `x-run-id` header value. Returns the id
+ * only when it is UUID-shaped; anything else (absent, blank, malformed, or a
+ * non-UUID string that could carry attacker text) is dropped — correlation
+ * must never fail a sync or smuggle free text into the logs.
+ */
+export function parseRunIdHeader(
+  value: string | null | undefined
+): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const v = value.trim();
+  return RUN_ID_RE.test(v) ? v : undefined;
+}
+
+/**
+ * Spreads `{ runId }` onto a log call when the run carries one; spreads
+ * nothing otherwise, so no-`runId` callers emit byte-identical records.
+ */
+function runIdField(opts: SnapshotSyncRunOptions): { runId?: string } {
+  return opts.runId ? { runId: opts.runId } : {};
+}
 
 export async function runCustomerSnapshotSync(
   env: Env,
@@ -86,7 +123,8 @@ export async function runCustomerSnapshotSync(
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.customer",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -104,7 +142,8 @@ export async function runCustomerSnapshotSync(
       level: "info",
       msg: "Customer snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.customer",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
     return syncCustomerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CUST, {
       reconcile: true,
@@ -117,7 +156,8 @@ export async function runCustomerSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -132,7 +172,8 @@ export async function runAddressSnapshotSync(
       level: "info",
       msg: "Address snapshot sync skipped: source is not configured",
       route: "snapshot.address",
-      table: "address"
+      table: "address",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -150,7 +191,8 @@ export async function runAddressSnapshotSync(
       level: "info",
       msg: "Address snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.address",
-      table: "address"
+      table: "address",
+      ...runIdField(opts)
     });
     return syncAddressSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_ADDR, {
       reconcile: true,
@@ -163,7 +205,8 @@ export async function runAddressSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -178,7 +221,8 @@ export async function runContainerSnapshotSync(
       level: "info",
       msg: "Container snapshot sync skipped: source is not configured",
       route: "snapshot.container",
-      table: "container"
+      table: "container",
+      ...runIdField(opts)
     });
     return null;
   }
@@ -196,7 +240,8 @@ export async function runContainerSnapshotSync(
       level: "info",
       msg: "Container snapshot dry run: validating without writing D1 or R2",
       route: "snapshot.container",
-      table: "container"
+      table: "container",
+      ...runIdField(opts)
     });
     return syncContainerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CONT, {
       reconcile: true,
@@ -209,7 +254,8 @@ export async function runContainerSnapshotSync(
       reconcile: true,
       syncedAt,
       dryRun
-    })
+    }),
+    opts.runId
   );
 }
 
@@ -242,8 +288,8 @@ class ChainedSubrequestError extends Error {
 }
 
 /**
- * Thrown when a table sync fails after earlier tables may have completed
- * (TOG-6546). Carries the per-table results collected so far so the cron log
+ * Thrown when a table sync fails after earlier tables may have completed.
+ * Carries the per-table results collected so far so the cron log
  * can report partial progress instead of all-null: tables that succeeded keep
  * their counts, the failed table is named by `failedTable`, and tables never
  * attempted stay null.
@@ -300,9 +346,22 @@ export function getDataSnapshotPlan(env: Env): {
   };
 }
 
+function validatePlannedReportQueryDates(
+  env: Env,
+  plan: ReturnType<typeof getDataSnapshotPlan>
+): void {
+  if (
+    (plan.runCustomer && env.CUSTOMER_REPORT_QUERY_ID?.trim()) ||
+    (plan.runAddress && env.ADDRESS_REPORT_QUERY_ID?.trim()) ||
+    (plan.runContainer && env.CONTAINER_REPORT_QUERY_ID?.trim())
+  ) {
+    readReportQueryDates(env);
+  }
+}
+
 /**
  * Carry the per-table sync counts through, including `deleted` when the
- * subrequest reported it (TOG-7391). The chained runner previously rebuilt
+ * subrequest reported it. The chained runner previously rebuilt
  * `{upserted, rowCount}` here, so the cron line showed `deleted` only on the
  * single-invocation path. The combined `POST /api/v1/data-snapshot/sync`
  * route strips `deleted` back out (its `{upserted, rowCount}` shape is
@@ -332,8 +391,8 @@ function syncJsonToResult(j: unknown): SnapshotTableResult {
     fields.deleted === undefined
       ? { upserted, rowCount }
       : { upserted, rowCount, deleted: fields.deleted as number };
-  // Extra count fields are dropped on the chained path by precedent (TOG-7378
-  // pins the explicit pick: subrequest JSON crosses a trust boundary, so row
+  // Extra count fields are dropped on the chained path by precedent (the
+  // explicit pick is pinned: subrequest JSON crosses a trust boundary, so row
   // data must not ride it into the cron line); the R2 outcome is the
   // exception — without it a failed archive hides behind a D1
   // `outcome:success`. Guarded: only a well-formed detail travels (status
@@ -359,17 +418,25 @@ export async function runDataSnapshotSyncChainedHttp(
     throw new Error("CUSTOMER_SNAPSHOT_SYNC_SECRET is not set");
   }
   const base = publicBaseUrl.replace(/\/$/, "");
-  const h = {
+  // The per-run id rides to each chained sub-invocation on `x-run-id`:
+  // the per-table routes UUID-validate it and thread it into
+  // their own skip and R2-archive lines, so one run's records correlate
+  // across invocations. Sent only when the caller supplied one.
+  const h: Record<string, string> = {
     authorization: `Bearer ${bearer}`,
-    "content-type": "application/json"
-  } as const;
+    "content-type": "application/json",
+    ...(opts.runId ? { "x-run-id": opts.runId } : {})
+  };
   const plan = getDataSnapshotPlan(env);
+  // Fail at the caller before a per-table 503 becomes a generic chained error,
+  // or an earlier static export writes data under an invalid shared range.
+  validatePlannedReportQueryDates(env, plan);
   const out: DataSnapshotResult = {
     customer: null,
     address: null,
     container: null
   };
-  // Bounded per-table budget (TOG-6547): a hung subrequest threw nothing
+  // Bounded per-table budget: a hung subrequest threw nothing
   // before, holding the cron invocation to the platform timeout and starving
   // the tables behind it. The timer covers time-to-headers (the `fetch`
   // promise) — the per-table route sends no headers until its report
@@ -378,7 +445,7 @@ export async function runDataSnapshotSyncChainedHttp(
   // bounded: the helper races the timer, not just the abort.
   const timeoutMs = readChainedSyncTimeoutMs(env);
 
-  // TOG-9203: a combined dry run must dry-run every table — a real write
+  // A combined dry run must dry-run every table — a real write
   // hiding behind one subrequest would defeat the no-write guarantee.
   const drySuffix = opts.dryRun === true ? "?dryRun=true" : "";
   async function post(
@@ -400,7 +467,7 @@ export async function runDataSnapshotSyncChainedHttp(
     }
     // Consumed then discarded: drains the body so the connection can be
     // reused, but zero upstream bytes ever reach the thrown error below
-    // (TOG-9205 R4-04/B1 — these messages reach logs, so they carry
+    // (these messages reach logs, so they carry
     // table/step/status only).
     const text = await resp.text();
     if (!resp.ok) {
@@ -435,7 +502,8 @@ export async function runDataSnapshotSyncChainedHttp(
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.orchestration",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
   }
   if (plan.runAddress) {
@@ -453,14 +521,16 @@ export async function runDataSnapshotSyncChainedHttp(
         msg: "Address snapshot sync skipped because customer is not configured",
         route: "snapshot.orchestration",
         table: "address",
-        dependency: "customer"
+        dependency: "customer",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Address snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "address"
+        table: "address",
+        ...runIdField(opts)
       });
     }
   }
@@ -481,14 +551,16 @@ export async function runDataSnapshotSyncChainedHttp(
         msg: "Container snapshot sync skipped because a required parent source is not configured",
         route: "snapshot.orchestration",
         table: "container",
-        dependency: "customer-or-address"
+        dependency: "customer-or-address",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Container snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "container"
+        table: "container",
+        ...runIdField(opts)
       });
     }
   }
@@ -500,8 +572,13 @@ export async function runDataSnapshotSyncChainedHttp(
  * Large imports can hit D1’s per-invocation query cap; use
  * {@link runDataSnapshotSyncChainedHttp} for `POST /data-snapshot/sync` instead.
  */
-export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult> {
+export async function runDataSnapshotSync(
+  env: Env,
+  opts: SnapshotSyncRunOptions = {}
+): Promise<DataSnapshotResult> {
   const plan = getDataSnapshotPlan(env);
+  // Cron's single-invocation fallback needs the same no-partial-write preflight.
+  validatePlannedReportQueryDates(env, plan);
   const out: DataSnapshotResult = {
     customer: null,
     address: null,
@@ -509,7 +586,7 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
   };
   if (plan.runCustomer) {
     try {
-      out.customer = await runCustomerSnapshotSync(env);
+      out.customer = await runCustomerSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("customer snapshot", "customer", e, out);
     }
@@ -518,12 +595,13 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
       level: "info",
       msg: "Customer snapshot sync skipped: source is not configured",
       route: "snapshot.orchestration",
-      table: "customer"
+      table: "customer",
+      ...runIdField(opts)
     });
   }
   if (plan.runAddress) {
     try {
-      out.address = await runAddressSnapshotSync(env);
+      out.address = await runAddressSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("address snapshot", "address", e, out);
     }
@@ -534,20 +612,22 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         msg: "Address snapshot sync skipped because customer is not configured",
         route: "snapshot.orchestration",
         table: "address",
-        dependency: "customer"
+        dependency: "customer",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Address snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "address"
+        table: "address",
+        ...runIdField(opts)
       });
     }
   }
   if (plan.runContainer) {
     try {
-      out.container = await runContainerSnapshotSync(env);
+      out.container = await runContainerSnapshotSync(env, opts);
     } catch (e) {
       rethrowWithSnapshotContext("container snapshot", "container", e, out);
     }
@@ -560,14 +640,16 @@ export async function runDataSnapshotSync(env: Env): Promise<DataSnapshotResult>
         msg: "Container snapshot sync skipped because a required parent source is not configured",
         route: "snapshot.orchestration",
         table: "container",
-        dependency: "customer-or-address"
+        dependency: "customer-or-address",
+        ...runIdField(opts)
       });
     } else {
       logEvent({
         level: "info",
         msg: "Container snapshot sync skipped: source is not configured",
         route: "snapshot.orchestration",
-        table: "container"
+        table: "container",
+        ...runIdField(opts)
       });
     }
   }

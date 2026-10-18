@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readReportQueryDates } from "../src/lib/reportQueryDates";
 import { resolveChainedBase } from "../src/scheduled";
 import {
   checkDevVarsValues,
@@ -10,7 +11,7 @@ import {
 } from "../scripts/lib/devVarsCheck.mjs";
 
 /**
- * Regression tests for TOG-6538: the old checker split each `.dev.vars` line
+ * Regression tests: the old checker split each `.dev.vars` line
  * on the first `=` and validated the raw text, while `wrangler dev` applies
  * dotenv semantics (export prefix, quote stripping, unquoted `#` comments).
  * Values also went unchecked (`SESSION_TTL_SECONDS` arrived quoted → NaN
@@ -35,7 +36,7 @@ function validEffective(overrides: Record<string, string> = {}): Record<string, 
   };
 }
 
-describe("parseDevVarsText (dotenv parity — TOG-6538)", () => {
+describe("parseDevVarsText (dotenv parity)", () => {
   it("strips surrounding single, double and backtick quotes", () => {
     const parsed = parseDevVarsText(
       "A='quoted'\nB=\"double\"\nC=`back`\nD=bare\n"
@@ -76,7 +77,7 @@ describe("parseDevVarsText (dotenv parity — TOG-6538)", () => {
   });
 });
 
-describe("checkDevVarsValues (full required env — TOG-6538)", () => {
+describe("checkDevVarsValues (full required env)", () => {
   it("accepts a complete effective vars set", () => {
     expect(checkDevVarsValues(validEffective()).ok).toBe(true);
   });
@@ -169,7 +170,7 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
     expect(result.errors.some((e) => e.includes("LOGIN_PASSWORD"))).toBe(true);
   });
 
-  describe("operational key families (TOG-9212, gap O2)", () => {
+  describe("operational key families (gap O2)", () => {
     it("fails fast on a bogus REPORT_QUERY_START_DATE (acceptance: before any sync)", () => {
       const result = checkDevVarsValues(validEffective({ REPORT_QUERY_START_DATE: "bogus" }));
       expect(result.ok).toBe(false);
@@ -216,6 +217,58 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
         )
       ).toBe(true);
     });
+
+    it.each([
+      ["2026-06-10", undefined, false],
+      ["2026-06-10", "", false],
+      ["2026-06-10", "   ", false],
+      [undefined, "2026-06-01", true],
+      ["", "  ", true],
+      [undefined, undefined, true],
+      ["2026-06-10", "2026-06-01", false],
+      ["2024-02-29", "2024-03-01", true],
+      ["1900-01-01", "1900-01-01", true]
+    ] as const)(
+      "report query date range mirrors the runtime for start=%s end=%s",
+      (start, end, accepted) => {
+        const runtimeInput: { REPORT_QUERY_START_DATE?: string; REPORT_QUERY_END_DATE?: string } = {};
+        if (start !== undefined) {
+          runtimeInput.REPORT_QUERY_START_DATE = start;
+        }
+        if (end !== undefined) {
+          runtimeInput.REPORT_QUERY_END_DATE = end;
+        }
+        let runtimeOk = true;
+        try {
+          readReportQueryDates(runtimeInput);
+        } catch {
+          runtimeOk = false;
+        }
+        expect(runtimeOk).toBe(accepted);
+
+        const vars = validEffective();
+        if (start === undefined) {
+          delete vars.REPORT_QUERY_START_DATE;
+        } else {
+          vars.REPORT_QUERY_START_DATE = start;
+        }
+        if (end === undefined) {
+          delete vars.REPORT_QUERY_END_DATE;
+        } else {
+          vars.REPORT_QUERY_END_DATE = end;
+        }
+        const result = checkDevVarsValues(vars);
+        expect(result.ok).toBe(accepted);
+        if (!accepted) {
+          expect(
+            result.errors.some(
+              (e) =>
+                e.includes("REPORT_QUERY_START_DATE") && e.includes("REPORT_QUERY_END_DATE")
+            )
+          ).toBe(true);
+        }
+      }
+    );
 
     it("treats absent or empty REPORT_QUERY_* dates as unset (runtime placeholder fallback)", () => {
       const missing = validEffective();
@@ -373,7 +426,7 @@ describe("checkDevVarsValues (full required env — TOG-6538)", () => {
   });
 });
 
-describe("wrangler [vars] overlay (TOG-6538)", () => {
+describe("wrangler [vars] overlay", () => {
   const TOML = [
     "[vars]",
     'TARGET_ORIGIN = "https://placeholder.example"',

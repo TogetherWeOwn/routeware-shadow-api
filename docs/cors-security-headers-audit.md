@@ -1,4 +1,4 @@
-# TOG-8368 — CORS + security-headers audit (`/api/v1/*`, `/openapi.json`, `/docs`)
+# CORS + security-headers audit (`/api/v1/*`, `/openapi.json`, `/docs`)
 
 Auditor: Security Engineer · 2026-09-28 · code at `src/lib/cors.ts`, `src/app.ts`.
 
@@ -60,6 +60,38 @@ Auditor: Security Engineer · 2026-09-28 · code at `src/lib/cors.ts`, `src/app.
    the Worker would double-assert a transport property the app does not
    control.
 
+## Cache policy
+
+Every `/api/v1/*` response flowing through `withCors` (`src/lib/cors.ts`)
+leaves with a `Cache-Control` value: the handler's own when it set one,
+otherwise `no-store` (stamped by `applyApiCachePolicy` after the handler
+runs). Browsers may otherwise keep authenticated PII responses in their
+private cache; `no-store` is the fail-closed default.
+
+| Route family | `Cache-Control` sent | Notes |
+|---|---|---|
+| Snapshot list / by-id (`customer/address/container-snapshot`, incl. `changes`, `sync`, `import`, `DELETE`) | `no-store` | No handler value; stamped by `withCors`. |
+| Snapshot CSV exports (`...-snapshot/export`, 200 and `304`) | `no-store` | Export sets `ETag` only; the `304` keeps its empty body. Conditional re-downloads still skip the body via `If-None-Match`. |
+| Archived-CSV readback (`GET /api/v1/snapshots/{table}/{date}`, 200 and `304`) | `no-store` | Same shape as exports: `ETag` set, policy stamped. |
+| Data-snapshot sync / orphans (`/api/v1/data-snapshot/*`) | `no-store` | No handler value; stamped by `withCors`. |
+| Routeware / customer / address / container proxies (success responses) | `no-store` | Client-facing forwarders replace any upstream `Cache-Control` value before returning the response, including the sessionless login-page proxy. |
+| Data-entity writes (`POST /api/v1/data/*`) | `no-store` | JSON outcome envelope sets no policy; stamped by `withCors`. |
+| `GET /api/v1/health` (public) and `GET /api/v1/readiness` (200 and 503) | `no-store` | Stamped on the public path and the authorized path alike. |
+| Gate `401` and throttle `429` problem responses | `no-store` | Returned through `withCors` at the gate. |
+| `notFound` and `onError` problem responses (`404`/`5xx`, incl. `502`/`503` backstops) | `no-store` | Run outside the `/api/v1/*` chain and wrap with `withCors` directly. |
+| Data-entity reads (`GET /api/v1/data/*`, 200 and `304`) | `private, max-age=60` (preserved) | Set by `src/lib/dataEntityHandlers.ts` via `entityDataCacheControlValue()`; the stamp leaves it untouched. |
+| Contained upstream errors (`forwardPassthrough`, `4xx`/`5xx`) | `no-store` (preserved) | Set explicitly at containment; the stamp leaves it untouched. |
+| `OPTIONS /api/v1/*` preflight (`204`) | none (unchanged) | Carries no body or data — only the CORS grant with its own `Access-Control-Max-Age: 86400`. |
+| `/openapi.json` and `/docs` (served spec/UI and docs-disabled `404`s) | none (unchanged) | Use `withSecurityHeaders`, never `withCors`. |
+
+Why data-entity reads differ: they are the one deliberately cacheable family.
+Freshness comes from the `Cache-Control` header stored on each
+cached `200` (`private, max-age=60`), not from a `cache.put` TTL; the Workers
+Cache API holds the bundle and every successful `POST` evicts the affected
+graph (`invalidateCustomerGraph`), so the 60-second TTL only bounds how long
+an *unwritten* entry stays warm. Changing that policy is out of scope here —
+if PII caching there should change, it is a separate decision.
+
 ## Regression tests pinning this policy
 
 - `test/cors.test.ts`: preflight strips non-allowlisted headers; `If-None-Match`
@@ -67,3 +99,7 @@ Auditor: Security Engineer · 2026-09-28 · code at `src/lib/cors.ts`, `src/app.
   `Allow-Credentials`; hardening on 200/401/404; no upstream `Set-Cookie` relay.
 - `test/openapiDocsGate.test.ts`: hardening headers on the disabled-branch
   404s and on the served spec + UI.
+- `test/cacheControlNoStore.test.ts`: `no-store` on snapshot list
+  200, CSV export 200 (+ empty-body `304`), health 200, `401`, `429` and
+  `404`; `private, max-age=60` preserved on a data-entity 200; no
+  `Cache-Control` on preflight, `/openapi.json` or `/docs`.

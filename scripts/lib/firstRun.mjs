@@ -1,5 +1,5 @@
 /**
- * Pure helpers for `npm run first-run` (TOG-9233).
+ * Pure helpers for `npm run first-run`.
  *
  * `scripts/first-run.mjs` runs these steps in order and stops at the first
  * failure. Everything here is pure (results in, decisions out) so it is

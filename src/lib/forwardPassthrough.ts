@@ -1,6 +1,7 @@
 import { forwardWithSessionRetry, type EstablishSession } from "./forwardWithSessionRetry";
 import { problemJsonResponse, problemType } from "./problem";
 import type { ForwardOptions } from "./upstreamForward";
+import { inheritUpstreamController } from "./upstreamTimeout";
 
 /** Client-facing boundary; internal save consumers keep the raw retry helper. */
 export async function forwardPassthrough(
@@ -20,7 +21,13 @@ export async function forwardPassthrough(
 
 function containUpstreamError(response: Response, env: Env): Response {
   if (response.status < 400) {
-    return response;
+    const headers = new Headers(response.headers);
+    headers.set("cache-control", "no-store");
+    return inheritUpstreamController(response, new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers
+    }));
   }
 
   // Neither attempt's error body, headers nor status text is safe to relay.

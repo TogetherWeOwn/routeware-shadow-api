@@ -1,6 +1,6 @@
 name: Post-deploy probe
 
-# Scheduled verification for the deployed Worker (TOG-8365, gap G18).
+# Scheduled verification for the deployed Worker (gap G18).
 # Runs the public liveness probe plus the authed probes when operator
 # credentials are present; without them the authed probes SKIP (exit 0)
 # instead of paging. Any probe that actually runs and fails turns the job
@@ -15,21 +15,23 @@ permissions:
   contents: read
 
 concurrency:
-  group: post-deploy-probe-${{ github.ref }}
-  cancel-in-progress: true
+  # Schedule/dispatch-only workflow (TOG-23109): keep each execution isolated
+  # so a newer pending probe cannot replace an earlier alert-path run.
+  group: post-deploy-probe-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
 
 jobs:
   probe:
     name: Probe deployed Worker (skip-safe)
-    runs-on: [self-hosted, two-selfhosted]
-    # TOG-19017: bound so a hung probe against a down Worker pages via red,
+    runs-on: ubuntu-latest
+    # Bound so a hung probe against a down Worker pages via red,
     # not via a forever-running job.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Run skip-safe probe

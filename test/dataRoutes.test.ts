@@ -54,7 +54,12 @@ const chainedResult = {
 vi.mock("../src/lib/dataEntityHandlers", () => ({
   handleGetDataCustomer: async (ctx: unknown, id: number) => record("getCustomer", ctx, id),
   handleGetDataAddress: async (ctx: unknown, id: number) => record("getAddress", ctx, id),
-  handleGetDataContainer: async (ctx: unknown, id: number) => record("getContainer", ctx, id),
+  handleGetDataContainer: async (ctx: unknown, id: number) => record("getContainer", ctx, id)
+}));
+
+// POST save handlers moved to `../src/lib/dataEntitySave`; the
+// route imports them from there, so the delegation doubles live there too.
+vi.mock("../src/lib/dataEntitySave", () => ({
   handlePostDataCustomer: async (ctx: unknown) => record("postCustomer", ctx),
   handlePostDataAddress: async (ctx: unknown) => record("postAddress", ctx),
   handlePostDataContainer: async (ctx: unknown) => record("postContainer", ctx)

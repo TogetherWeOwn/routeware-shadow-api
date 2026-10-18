@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the one-command config preflight (TOG-9213, gap O3).
+ * Pure helpers for the one-command config preflight (gap O3).
  *
  * `npm run verify:config` chains the three operator config checks an
  * operator would otherwise have to remember separately:

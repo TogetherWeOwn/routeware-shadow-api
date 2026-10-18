@@ -4,7 +4,7 @@
 D1**. They never deploy, write remote D1, or sync upstream. §7 separately documents
 an **authorized incident recovery** to a deployed target; it is not a production
 test and must not be executed as part of review or ordinary development.
-Run from the repository root with Bash, Node >=20, Python 3, curl and the lockfile's
+Run from the repository root with Bash, Node >=22, Python 3, curl and the lockfile's
 Wrangler installed (`npm ci --include=dev`). Commands were checked with Wrangler
 4.84.1. Use two terminals: A for the local Worker, B for the recovery commands.
 
@@ -453,10 +453,15 @@ date and bucket (`restoreSnapshotCsvFromR2` retrieves bytes but does not verify 
 manifest), run the three tables in FK order with `syncCustomerSnapshotFromStream`,
 `syncAddressSnapshotFromStream`, then `syncContainerSnapshotFromStream` (default
 upsert-without-reconciliation options, restamping `synced_at`), and keep the entry point
-separate from public HTTP import without adding an import-validation opt-out. Re-apply
-customer erasures after any restore: an archive taken before a customer erasure re-inserts
-the erased row (the API keeps no suppression list), so track erased `customerId` values
-out of band and re-`DELETE` each one afterwards (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+separate from public HTTP import without adding an import-validation opt-out. CSV/R2 imports into a database with the suppression migration skip tombstoned customer
+rows and their descendant address/container rows (import customer → address → container so descendant lineage is recorded before containers replay). After a whole-D1 restore, verify the tombstone table and triggers survived; a restore
+to before erasure may restore the row and remove the marker/schema. Reconcile markers from
+the operator's out-of-band erased-customer list (the same list previously used to
+re-DELETE after restore — e.g., the erasure ticket or incident log), then delete any
+re-restored rows in FK order per the backfill SQL (a re-applied marker over existing
+rows freezes them without removing them), and re-apply
+suppression before normal writers resume, so verify suppression after database
+recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 
 ## 7. Deployed incident recovery — separately authorized, never a drill
 
@@ -781,7 +786,7 @@ Paid default is 10,000, but stops if the deployed limit is 1,000. The recorded
 44,279 container rows touched; the source batch sizes imply 1,374, 1,396 and 1,107
 `db.batch()` calls respectively. That history supports the call-based model but
 does not prove the current target's plan/config or the selected archive's size;
-confirm both before relying on it ([cron evidence](TOG-8387-cron-drill-schedule.md)).
+confirm both before relying on it ([cron evidence](cron-drill-schedule.md)).
 Do not edit the receipt. A failed preflight invalidates any earlier receipt.
 
 Row counts follow importer behavior: invalid-id/blank rows are skipped and
@@ -932,10 +937,15 @@ the approved empty-table/union expectations and both orphan counts to zero.
 Privately query sampled primary keys with `d1 execute --remote --command SELECT…`
 and compare their values to the verified CSV; unaffected tables must match their
 pre-recovery state. A 200 or import acknowledgment alone is not incident closure.
-Re-apply customer erasures after any restore: an archive taken before a customer
-erasure re-inserts the erased row, so track erased `customerId` values out of band
-(the API keeps no suppression list) and re-`DELETE` each one after the restore
-(see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched-tog-18933`).
+CSV/R2 imports into a database with the suppression migration skip tombstoned
+customer rows. After a whole-D1 restore, verify the tombstone table and triggers
+survived; a restore to before erasure may restore the row and remove the marker/schema.
+Reconcile markers from the operator's out-of-band erased-customer list (the same list
+previously used to re-DELETE after restore — e.g., the erasure ticket or incident log),
+then delete any re-restored rows in FK order per the backfill SQL (a re-applied marker
+over existing rows freezes them without removing them),
+and re-apply suppression before normal writers resume, so verify suppression after
+database recovery (see `docs/R2-RETENTION.md#customer-row-erasure-leaves-r2-untouched`).
 Use `--fail-with-body` on any manual `curl` re-checks so a row-numbered problem response
 is retained; the `&&` chain below stops after a failed request without exiting the
 interactive shell, and no chain step is retried after an error.

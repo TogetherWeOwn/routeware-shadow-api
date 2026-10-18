@@ -202,7 +202,7 @@ describe("fetchGetCustomerDetailFull", () => {
     // Arrange — the upstream error page is untrusted and can be large, so the
     // message keeps the status for diagnosis but never embeds the body: it
     // is logged server-side and POST /api/v1/data/* maps sync failures to a
-    // fixed `localSync.code` (TOG-5821, TOG-6535).
+    // fixed `localSync.code`.
     const long = "E".repeat(500);
     behavior.responses = [
       () => new Response(long, { status: 503 }),

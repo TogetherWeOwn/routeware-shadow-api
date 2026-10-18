@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the OpenAPI contract-drift check (TOG-6282).
+ * Pure helpers for the OpenAPI contract-drift check.
  *
  * Catches the plain-Hono mount regression (CONVENTIONS.md §3): mounting a
  * plain `Hono` sub-app still serves traffic while silently dropping every one
@@ -172,7 +172,7 @@ export function runDriftCheck({ appText, modules, allExports = [] }) {
       }
       // Direct plain-Hono handlers with no matching createRoute() declaration
       // are served-but-undocumented traffic Side A (declarations-only) would
-      // otherwise miss: one drop per unmatched handler (TOG-7016 review).
+      // otherwise miss: one drop per unmatched handler.
       const declaredOps = new Set(parsed.ops.map((op) => `${op.method} ${op.path}`));
       for (const handler of parsed.plainHandlers) {
         if (!declaredOps.has(handler)) {

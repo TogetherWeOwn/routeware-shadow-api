@@ -1,14 +1,20 @@
-# TOG-9223 — R2-archive recovery drill report (QA exploratory)
+# R2-archive recovery drill report (QA exploratory)
 
-**Date:** 2026-09-28 · **Driller:** QA & Release Engineer · **Scope:** `origin/main`
+> **Superseded — 2026-10-15.** This is a historical drill report; do not use
+> it as current procedure evidence. Superseding re-drill:
+> the 2026-10-15 re-drill (all verdicts PASS). Current
+> procedure: [R2 snapshot restore runbook §§2–5](R2-RESTORE-RUNBOOK.md#2-create-private-scratch-state-terminal-b)
+> (the credential-free reviewer drill starts at §2).
+
+**Date:** 2026-09-28 · **Scope:** `origin/main`
 (`e3749fa` restore runbook + `adc2e9d` integrity manifest), local-only.
 **Method:** followed only written docs — `docs/R2-RESTORE-RUNBOOK.md` (R2 → CSV → D1
-operator path, TOG-7394) + `docs/BACKFILL-RUNBOOK.md` (FK order, failure table) +
+operator path) + `docs/BACKFILL-RUNBOOK.md` (FK order, failure table) +
 `docs/D1-BACKUP-RESTORE-RUNBOOK.md` (§2 wipe rule). Synthetic drill rows only
 (customers 901/902, addresses 991/992, containers 881/882 — no PII). No `--remote`
-at any point. The sibling branch already carries TOG-9202
+at any point. The sibling branch already carries the snapshot readback route
 (`GET /api/v1/snapshots/:table/:date`, uncommitted here) — exercised read-only as
-H1–H4; no verdict given on it (not this card's deliverable).
+H1–H4; no verdict given on it (not this drill's deliverable).
 
 ## Recovery time (wall clock, timed per step)
 
@@ -44,15 +50,15 @@ is sub-second and the dominant cost is locating the right archive date.
 
 ## Findings (1 filed)
 
-1. **TOG-9398 — R2 restore runbook never verifies the integrity manifest before
+1. **R2 restore runbook never verifies the integrity manifest before
    import.** The runbook (§2–§3 import, §5 verify) never invokes
-   `snapshots/<date>.manifest.json` / `npm run verify:r2-manifest` (TOG-8881), so a
+   `snapshots/<date>.manifest.json` / `npm run verify:r2-manifest`, so a
    truncated/tampered CSV would silently upsert bad rows past the count/spot checks
    (`.../import` never deletes). Acceptance: runbook gains a verify-first step with
    `--remote`/`--persist-to` pairing noted; reviewer re-runs the tamper recipe from
    the verify script header.
 
-## Non-findings (checked, already covered — no new card)
+## Non-findings (checked, already covered — no new issue)
 
 - FK-order enforcement, wipe-before-restore, `?dryRun` flag, archive-disabled
   logging, 503-unbound vs 404-absent distinction — all behave as their docs/tests

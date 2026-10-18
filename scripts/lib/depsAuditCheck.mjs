@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the prod dependency audit gate (TOG-8904).
+ * Pure helpers for the prod dependency audit gate.
  *
  * Gap: transitive vulnerabilities can land via any `npm install` without a
  * blocking signal — `npm audit` is advisory-only unless something fails the
@@ -8,13 +8,20 @@
  * below. Moderate/low advisories are reported but never block: historically
  * the tree carried ~25 of them (mostly Hono middleware adapters this Worker
  * never mounts — JSX, Lambda, toSSG), and gating on those would hold the
- * gate permanently red and teach everyone to ignore it. As of TOG-18932
- * (hono 4.13.13) the tree carries 0 below-threshold advisories — every
+ * gate permanently red and teach everyone to ignore it. At the last
+ * review (hono 4.13.13) the tree carries 0 below-threshold advisories — every
  * reported GHSA is high and allowlisted.
  *
  * Prod-only (`--omit=dev`) is deliberate: devDependencies (vitest, wrangler,
  * playwright) never ship to the Worker, and their advisory surface would
- * drown the signal for what actually runs in production.
+ * drown the signal for what actually runs in production. Exception:
+ * `tools/api-discovery` is audited WITH an explicit
+ * `--include=dev` because that standalone package has no prod dependencies
+ * at all — playwright/tsx are its tool runtime, so omitting dev would audit
+ * an empty tree. The include must be explicit: ambient `NODE_ENV=production`
+ * / `npm_config_omit=dev` otherwise empties the discovery tree and the gate
+ * would pass while auditing nothing. See `combineAuditJson`,
+ * `auditReportProblem` and docs/DEPENDENCY-AUDIT.md.
  *
  * Allowlist lifecycle (documented in docs/DEPENDENCY-AUDIT.md):
  * - every entry names the GHSA id, the affected package, why it is
@@ -38,12 +45,12 @@ export const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 };
 
 /**
- * Reviewed high/critical advisories present in the tree as of TOG-18932
+ * Reviewed high/critical advisories present in the tree at last review
  * (2026-10-09, `npm audit --omit=dev`: 7 packages, 3 distinct high GHSA,
  * 0 critical). Each entry must carry a remediation path; entries are
  * removed — never edited into permanence — once the advisory is gone.
  *
- * Retired in TOG-18932 (hono ^4.13.7 bump + `npm audit fix`, non-breaking):
+ * Retired (hono ^4.13.7 bump + `npm audit fix`, non-breaking):
  * GHSA-28wg-ghj8-5hjv, GHSA-xwg4-73v4-xw9w (nanoid → 5.1.16),
  * GHSA-96hv-2xvq-fx4p (ws → 8.22.0), GHSA-mwp4-54f8-5fhr (ip-address →
  * 10.7.3), GHSA-rpmf-866q-6p89 (basic-ftp → 5.3.1), GHSA-88fw-hqm2-52qc
@@ -136,6 +143,85 @@ export function extractAdvisories(auditJson) {
 }
 
 /**
+ * Merge several parsed `npm audit --json` reports into one, so the gate can
+ * cover multiple lockfiles with a single allowlist verdict (the
+ * root Worker tree plus the standalone `tools/api-discovery` package, which
+ * is not a workspace member and has its own lockfile).
+ *
+ * Only `vulnerabilities[*].via` feeds the verdict (`extractAdvisories`
+ * ignores npm's package-level rollup), so merging concatenates the `via`
+ * arrays per package key. Reports that are missing or malformed contribute
+ * nothing to the merge itself — the caller must first reject any report
+ * that is not a real audit (see `auditReportProblem`), otherwise a scope
+ * that could not be audited would silently contribute a clean verdict.
+ *
+ * @param {Array<unknown>} reports parsed `npm audit --json` outputs
+ * @returns {{ vulnerabilities: Record<string, unknown> }}
+ */
+export function combineAuditJson(reports) {
+  const merged = {};
+  for (const report of reports ?? []) {
+    const vulnerabilities =
+      report && typeof report === "object" ? (report.vulnerabilities ?? {}) : {};
+    if (!vulnerabilities || typeof vulnerabilities !== "object") continue;
+    for (const [pkg, entry] of Object.entries(vulnerabilities)) {
+      const via =
+        entry && typeof entry === "object" && Array.isArray(entry.via) ? entry.via : [];
+      const existing = merged[pkg];
+      if (!existing) {
+        merged[pkg] = { ...entry, via: [...via] };
+      } else {
+        const existingVia = Array.isArray(existing.via) ? existing.via : [];
+        merged[pkg] = { ...existing, via: [...existingVia, ...via] };
+      }
+    }
+  }
+  return { vulnerabilities: merged };
+}
+
+/**
+ * Decide whether parsed JSON is a real `npm audit --json` report, as
+ * opposed to npm's error output printed on stdout (e.g.
+ * `{"error":{"code":"ENOLOCK",...}}` when a lockfile is missing, which
+ * `npm audit` exits 1 on — the same exit code as "vulnerabilities found").
+ * Without this check an error report parses cleanly, yields zero
+ * advisories and the gate passes while auditing nothing.
+ *
+ * Also rejects a report whose `metadata.dependencies.total` is explicitly
+ * 0: an audit of an empty tree (the ambient `omit=dev` trap for the
+ * discovery scope) is not evidence of a clean lockfile. Reports without
+ * metadata (offline fixtures) are accepted on their `vulnerabilities`
+ * object alone.
+ *
+ * @param {unknown} parsed JSON.parse output for one scope
+ * @returns {string|null} human-readable problem, or null when usable
+ */
+export function auditReportProblem(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "audit output is not a JSON object";
+  }
+  if (parsed.error) {
+    const code =
+      parsed.error && typeof parsed.error === "object" && typeof parsed.error.code === "string"
+        ? parsed.error.code
+        : "unknown npm error";
+    return `npm audit reported an error (${code}) instead of an audit report`;
+  }
+  if (
+    !parsed.vulnerabilities ||
+    typeof parsed.vulnerabilities !== "object" ||
+    Array.isArray(parsed.vulnerabilities)
+  ) {
+    return "audit report has no vulnerabilities object";
+  }
+  const total = parsed.metadata?.dependencies?.total;
+  if (typeof total === "number" && total === 0) {
+    return "audit report covers 0 dependencies (empty tree — check omit/include flags)";
+  }
+  return null;
+}
+
+/**
  * A flattened advisory record (one per distinct GHSA id).
  *
  * @typedef {{ id: string, package: string, severity: string, title: string }} AdvisoryRecord
@@ -183,7 +269,9 @@ export function formatFailureLog({ blocking, stale }) {
   }
   if (blocking.length > 0) {
     lines.push(
-      "Fix the dependency (Dependabot proposes bumps weekly) or, if the risk is " +
+      "Fix the dependency in the reporting lockfile (Dependabot proposes root " +
+        "bumps weekly; tools/api-discovery has its own Dependabot entry and " +
+        "may need a manual bump while Dependabot is parked) or, if the risk is " +
         "genuinely unreachable, add a GHSA entry with reason + remediation to " +
         "AUDIT_ALLOWLIST in scripts/lib/depsAuditCheck.mjs — see docs/DEPENDENCY-AUDIT.md.",
     );
