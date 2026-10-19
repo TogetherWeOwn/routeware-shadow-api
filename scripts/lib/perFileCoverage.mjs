@@ -161,6 +161,11 @@ export function runPerFileCheck(summaryText, allowlistText) {
     throw new Error(`${CHECK_NAME}: coverage summary is not valid JSON`);
   }
   const entries = parseFileEntries(summary);
+  if (entries.length === 0) {
+    throw new Error(
+      `${CHECK_NAME}: coverage summary contains no src file entries — refusing to pass a report that inspected nothing`,
+    );
+  }
   const allowlist = parseAllowlist(allowlistText);
   const result = comparePerFile(entries, allowlist);
   return {

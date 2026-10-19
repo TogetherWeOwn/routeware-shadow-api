@@ -58,7 +58,10 @@ let outcome;
 try {
   outcome = runPerFileCheck(summaryText, allowlistText);
 } catch (error) {
-  console.error(`${CHECK_NAME}: ${error.message}`);
+  // Lib errors already carry the `per-file-coverage:` prefix; prefix only
+  // unexpected ones so the message never stutters.
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message.startsWith(`${CHECK_NAME}:`) ? message : `${CHECK_NAME}: ${message}`);
   exit(2);
 }
 

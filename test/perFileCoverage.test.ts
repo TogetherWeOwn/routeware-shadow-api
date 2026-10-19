@@ -117,4 +117,25 @@ describe("per-file coverage gate", () => {
       `${CHECK_NAME}: coverage summary is not valid JSON`,
     );
   });
+
+  it("throws on a summary with zero src entries instead of passing a report that inspected nothing", () => {
+    const emptyAllowlist = JSON.stringify({ files: [] });
+    const zeroEntrySummaries = [
+      "{}",
+      "[]",
+      JSON.stringify({
+        total: { statements: { total: 100, covered: 50, skipped: 0, pct: 50 } },
+      }),
+      JSON.stringify({
+        "/repo/test/only.ts": {
+          statements: { total: 10, covered: 5, skipped: 0, pct: 50 },
+        },
+      }),
+    ];
+    for (const summaryText of zeroEntrySummaries) {
+      expect(() => runPerFileCheck(summaryText, emptyAllowlist)).toThrow(
+        `${CHECK_NAME}: coverage summary contains no src file entries`,
+      );
+    }
+  });
 });
