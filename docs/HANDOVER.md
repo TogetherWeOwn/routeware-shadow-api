@@ -60,8 +60,9 @@ production readiness from successful runs; keep production deploys disabled unti
   were **skipped**. A green docs-only run does not mean typecheck, coverage or remote contract
   tests executed.
 - **Runners:** every CI job on both runs carries labels `[self-hosted, two-selfhosted]`, matching
-  `.github/workflows/ci.yml` (re-verified on the 2026-10-09 main run). These labels are the
-  stable contract, not individual host names.
+  `.github/workflows/ci.yml` (re-verified on the 2026-10-09 main run). That was the
+  stable contract then, not individual host names; CI has since moved to
+  `ubuntu-latest`.
 - **Optional contract gate:** on the 2026-10-09 main run, `Evaluate operator credential gate`
   succeeded and `Execute versioned API contract tests` was **skipped** while `shadow-api-v1`
   stayed green.
@@ -388,12 +389,14 @@ immediately after** the transfer — every day both exist is a day the old one i
   Do not use this snapshot as current administrative state. The reconciled workflow separates
   credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
 - **Suite (2026-08-22 snapshot):** 30 files, 549 tests, green. **Coverage (same snapshot):** 85.74%
-  statements / 79.48% branches / 89.09% functions / 86.36% lines. **Current (2026-10-09):** 156
-  `*.test.ts` files; coverage 96.27% statements / 91.51% branches / 97.58% functions / 96.60% lines,
-  as recorded in [`vitest.config.ts`](../vitest.config.ts) (not re-run for this refresh: no
-  `node_modules` in the checkout). (`npm test` runs in a few seconds; `npm run test:coverage` takes
-  ~38s here — istanbul instrumentation adds roughly 65%, which is why `testTimeout` is 30s and not the
-  5s default.)
+  statements / 79.48% branches / 89.09% functions / 86.36% lines — historical, not current figures.
+  **Current (2026-10-16):** 173 `*.test.ts` files at `efa883b` (187 at this
+  head); coverage 97.85% statements / 93.93% branches /
+  98.65% functions / 98.15% lines, as recorded in [`vitest.config.ts`](../vitest.config.ts)
+  (not re-run for this refresh). See [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md#the-coverage-ratchet)
+  for the dated table and matching floors. **No test may reach the network.** (`npm test` runs in a
+  few seconds; `npm run test:coverage` takes ~38s here — istanbul instrumentation adds roughly 65%,
+  which is why `testTimeout` is 30s and not the 5s default.)
 - These coverage floors were **re-baselined downward on 2026-08-22**, once, and the reason is
   recorded in [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md) § "The coverage ratchet". Short version: one
   test was reaching the live Routeware host and counting unasserted lines as covered; when upstream
@@ -422,11 +425,11 @@ immediately after** the transfer — every day both exist is a day the old one i
    still exposing the credentials and the PII. Then re-take the rotation decision under the new
    access conditions.
 3. ~~**Recover branch coverage above the ECC 80% standard.**~~ **Done (2026-09-27; ratcheted
-   2026-10-09):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
+   2026-10-16):** `test/d1TestMigrations.ts` applies the D1 migrations to the test
    `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` drives the login → download → parse → upsert path
-   with assertions. Branch coverage is 91.51% against a floor of 91 (`vitest.config.ts:71-76`; the
-   history is at `vitest.config.ts:57-70`). `docs/TEST-INVARIANTS.md` still carries the 2026-08-22
-   numbers; update it before relying on it.
+   with assertions. Branch coverage is 93.93% against a floor of 93 (`vitest.config.ts:171-176`; the
+   history is at `vitest.config.ts:119-169`). `docs/TEST-INVARIANTS.md` § "The coverage ratchet"
+   records the 2026-10-16 measurement with the 2026-08-22 figures kept explicitly historical.
 4. ~~**Close the `worker-configuration.d.ts` leak vector.**~~ **Done:** `wrangler types` bakes
    `wrangler.toml` `[vars]` values into that generated file as literal string types. A real value plus a
    regenerate committed it, which is how `4e219dd` happened in the old repository. The file is gitignored

@@ -4,9 +4,15 @@ What the test suite pins, per file, and **why** — most of it guards behaviour 
 in production rather than loudly. Read this before changing any file it names, or before deleting a
 test that looks redundant.
 
-Extracted verbatim from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
-every session, but is only needed when touching these specific modules). Coverage percentages are as
-measured at commit `ad7acde`; re-measure rather than trusting them.
+Originally extracted from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
+every session, but is only needed when touching these specific modules). Per-file percentages in the
+invariant descriptions are historical measurements at commit `ad7acde` unless dated otherwise;
+re-measure rather than trusting them. The dated suite-wide measurement under
+[The coverage ratchet](#the-coverage-ratchet) is separate.
+
+**[No test may reach the network](#no-test-may-reach-the-network).** Coverage runs use the local
+Vitest bindings and synthetic fixtures, never the live tenant or remote D1. Keep outbound fetches
+stubbed and throw on any unexpected upstream URL.
 
 ---
 
@@ -19,9 +25,11 @@ number up.** That is the whole mechanism.
 Read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table: the
 table drops files once they reach 100% and truncates long names.
 
-### Current floors, and why they were lowered once
+### Historical correction (2026-08-22)
 
-| Measured 2026-08-22 (hermetic) | Floor in `vitest.config.ts` |
+These are the **historical** baseline and floors, not the current gate.
+
+| Measured 2026-08-22 (hermetic) | Floor on 2026-08-22 |
 |---|---|
 | Statements 85.74% (1407/1641) | 85 |
 | Branches **79.48%** (833/1048) | 79 |
@@ -43,6 +51,23 @@ Stubbing `fetch` in that file (house pattern: throw on any unanticipated upstrea
 incidental execution and gave the numbers above. **No source line lost a real test; the code did not
 change.** This is a measurement correction, and it is the one time these floors move down.
 
+### Current main measurement (2026-10-16)
+
+Latest hermetic full run recorded in `vitest.config.ts` (2026-10-16, `efa883b`;
+not re-run for this refresh). `test/d1TestMigrations.ts` applies the D1 migrations to the local
+test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the customer → address → container
+sync path with mocked login and stubbed report fetches:
+
+| Metric | Measured 2026-10-16 | Floor in `vitest.config.ts` at this head |
+|---|---:|---:|
+| Statements | 97.85% (3518/3595) | 97 |
+| Branches | **93.93%** (2418/2574) | 93 |
+| Functions | 98.65% (515/522) | 98 |
+| Lines | 98.15% (3403/3467) | 98 |
+
+The 2026-08-22 figures above remain a historical baseline, not the current main measurement.
+**Do not recover coverage by letting tests reach the network.**
+
 ### Remaining gaps, highest risk first
 
 ### Known weaknesses in the ratchet itself
@@ -58,12 +83,11 @@ change.** This is a measurement correction, and it is the one time these floors 
   (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
   main-branch build red or skip a deploy; Vitest thresholds remain the only main-branch gate.
 
-- **Branches, 79.48% — just under the ECC 80% standard.** The single highest-value fix is to apply
-  the D1 migrations in the test environment (`vitest.config.ts` has no `applyD1Migrations`, so
-  `CUSTOMER_DB` has no tables and no route test can drive a snapshot sync to a 200). With that in
-  place, an end-to-end sync test — mock `../src/lib/httpAuth` the way `test/establishSession.test.ts`
-  does, stub only the `QueryExecuteDownload` CSV — would cover the login → download → parse → upsert
-  path **with assertions**, which is what the removed incidental execution never did.
+- **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` applies the
+  migrations to the local test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the
+  customer → address → container sync path with local fixtures. The 2026-10-16 recorded run measured
+  93.93% branches (2418/2574), above the current 93% global floor. **Do not recover coverage by
+  allowing tests to reach the network.**
 
 - The three `csv*Snapshot.ts` parsers — 33–39% statements, 33% functions. The per-row
   `parse*SnapshotRow` half is well covered via `streamSync`; the bulk `parse*SnapshotCsv` half is not.
@@ -91,7 +115,8 @@ spawns a worker per core, so on a loaded host the workers contend past the 30s
 `testTimeout` and tests fail with timeouts that reproduce neither alone nor on
 an idle box:
 
-- **CI:** several CI jobs share each self-hosted runner; the
+- **CI:** several CI jobs shared each self-hosted runner (self-hosted at
+  the time; CI has since moved to `ubuntu-latest`); the
   unrestricted run stalled 7 files, every failure a timeout (red main
   `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
   no test, assertion or timeout change (PR #89: unrestricted timed out 2

@@ -1,6 +1,6 @@
 /**
  * Shared synthetic world for the discovery downstream-transform acceptance
- * tests (TOG-25412, roadmap R9-23). One coherent fake harvest drives all
+ * tests (roadmap R9-23). One coherent fake harvest drives all
  * three render scripts:
  *
  *   route-gaps.json            -> suggest-routes.mjs        -> suggested-routes.stub.ts
@@ -11,8 +11,8 @@
  * upstream paths reuse real route-map shapes so the pins read like the real
  * pipeline. Consumers: test/discoveryDownstream.test.ts (vitest, lib pins)
  * and tools/api-discovery/downstream-scripts.test.mjs (node --test, script
- * pins). Paired build card [TOG-25413](/TOG/issues/TOG-25413) must never
- * edit this file.
+ * pins). Render-script changes must update the pins, not this shared
+ * fixture.
  *
  * Notes on the shapes:
  * - Every route-map entry carries every key (undefined where absent) so the

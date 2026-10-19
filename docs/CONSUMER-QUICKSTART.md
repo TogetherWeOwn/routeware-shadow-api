@@ -92,6 +92,79 @@ Empty `rows` with HTTP 200 means auth works but no snapshot has been synced
 yet — ask the operator to run `POST /api/v1/data-snapshot/sync` (or the daily
 cron), not a bug in your call.
 
+## 2a. Upstream customer pagination: `skip`/`take` or `start`/`limit`
+
+`POST /api/v1/routeware/customer/customers-read` is an **upstream read**, not
+one of the D1 snapshot lists above. Use either bearer token from step 1 and
+`Content-Type: application/json`. A successful read also needs a working
+Routeware session on the Worker (operator-configured login credentials).
+
+These two requests ask for the same window: skip zero customers, take two.
+The Worker maps `skip` → `start` and `take` → `limit` before forwarding:
+
+```bash
+curl -s -w '\nHTTP %{http_code}\n' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"skip":0,"take":2}' \
+  http://localhost:8787/api/v1/routeware/customer/customers-read
+# Upstream body: {"start":0,"limit":2}
+# Typical success: {"success":true,"total":N,"data":[...]}
+# HTTP 200
+
+curl -s -w '\nHTTP %{http_code}\n' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"start":0,"limit":2}' \
+  http://localhost:8787/api/v1/routeware/customer/customers-read
+# Same upstream window; success body comes from Routeware unchanged.
+# HTTP 200
+```
+
+The response is not the snapshot `{rows,total,nextCursor}` envelope; row
+contents and totals depend on upstream data. There is no Worker-generated
+cursor or page number. `page`, `filter`, `sort`, and `group` are left untouched.
+These examples were checked against a local Worker with a mocked upstream,
+not the live tenant.
+
+**Precedence is per key:** an explicit `start` wins over `skip`, and an
+explicit `limit` wins over `take`. Valid aliases are removed, so upstream
+receives only one spelling of each window component:
+
+```bash
+curl -s -w '\nHTTP %{http_code}\n' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{"skip":200,"take":100,"start":0,"limit":2}' \
+  http://localhost:8787/api/v1/routeware/customer/customers-read
+# Upstream body: {"start":0,"limit":2}, not the 200/100 window.
+# HTTP 200 on a successful upstream read.
+```
+
+Aliases must be JSON numbers that are nonnegative integers; `take: 0` maps
+faithfully to `limit: 0`. If either present alias is invalid (e.g. `"take":"2"`,
+`"skip":-1`, or `"take":1.5`), **no translation happens**: the entire original
+body is forwarded unchanged. Non-object or non-JSON bodies also pass through.
+This mapper is not a validator: invalid pagination does **not** guarantee a
+local 400. An upstream 400 keeps its status; do not rely on its original
+error body. An HTML error page — or a JSON body with `success: false` — on
+an upstream HTTP 200 instead becomes a 502 `bad-gateway` problem.
+
+For a guaranteed **local 400** example, use the neighboring read route with
+an invalid `customerID`. This rejects before any upstream call, independently
+of the pagination rules:
+
+```bash
+curl -s -w '\nHTTP %{http_code}\n' \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/routeware/customer/load-long-modal?customerID=abc"
+# application/problem+json:
+# {"type":".../PROBLEMS.md#bad-request","title":"Bad Request","status":400,
+#  "detail":"Query `customerID` is required and must be a positive integer. See docs/PROBLEMS.md#bad-request.",
+#  "instance":"/api/v1/routeware/customer/load-long-modal"}
+# HTTP 400
+```
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with

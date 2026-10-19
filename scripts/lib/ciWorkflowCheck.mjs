@@ -324,7 +324,7 @@ export function assertFirstPartyActionsPinned(workflowText, label = "workflow") 
 }
 
 /**
- * Read the Node major pinned by `.nvmrc` (`22`, `v22`, `22.11.0` → `"22"`).
+ * Read the Node major pinned by `.nvmrc` (`24`, `v24`, `24.11.0` → `"24"`).
  * Returns null for aliases such as `lts/*`, which cannot anchor a drift
  * check.
  *
@@ -421,7 +421,7 @@ export function findNodeVersionDrift(workflowText, expectedMajor) {
 export function assertNodeVersionsMatchNvmrc(workflowText, nvmrcText, label = "workflow") {
   const major = parseNvmrcMajor(nvmrcText);
   if (!major) {
-    throw new Error("CI Node-pin guards failed: .nvmrc must hold a plain Node major such as 22");
+    throw new Error("CI Node-pin guards failed: .nvmrc must hold a plain Node major such as 24");
   }
   const errors = findNodeVersionDrift(workflowText, major);
   if (errors.length > 0) {

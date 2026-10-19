@@ -20,13 +20,13 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 ## Prerequisites
 
-- Node 22+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
+- Node 24+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
 - Cloudflare account (for `wrangler deploy`)
 
 ## Quick start (local)
 
 ```bash
-nvm use                             # Node 22+, per .nvmrc (engines: >=22)
+nvm use                             # Node 24+, per .nvmrc (engines: >=24)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
 npm run types                       # generate worker-configuration.d.ts (gitignored) — rerun after any wrangler.toml binding/key change
 cp .dev.vars.example .dev.vars      # then fill in values (see below)

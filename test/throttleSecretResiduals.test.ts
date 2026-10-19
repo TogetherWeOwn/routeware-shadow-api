@@ -21,7 +21,7 @@ import { releaseRefreshLock } from "../src/lib/sessionRefreshLock";
 //
 // Probe pattern: every probe below is a distinct, unmistakable string
 // submitted through a real input channel (bearer, extra header, DO error,
-// DO response body, lock clientIpFromRequest; assertions then demand ZERO occurrences of
+// DO response body, lock token, `clientIpFromRequest`); assertions then demand ZERO occurrences of
 // every probe in (a) every structured log line emitted, (b) every response
 // body, and (c) every response header value. A probe appearing anywhere in
 // those blobs fails the test by name.
@@ -70,7 +70,9 @@ function captureLogs(): void {
   logLines.length = 0;
   for (const level of ["info", "warn", "error"] as const) {
     console[level] = (...args: unknown[]) => {
-      logLines.push({ level, record: args[0] });
+      // Keep every argument, not just args[0]: a probe smuggled into a
+      // second argument must still fail expectLogsClean.
+      logLines.push({ level, record: args.length === 1 ? args[0] : args });
     };
   }
 }
@@ -195,6 +197,22 @@ it("pass-and-pin: throttle constants match the audited 20/60s/60s policy", () =>
   expect(AUTH_THROTTLE_ALLOWED_FAILURES).toBe(19);
   expect(AUTH_THROTTLE_WINDOW_MS).toBe(60_000);
   expect(AUTH_THROTTLE_BLOCK_MS).toBe(60_000);
+});
+
+it("meta-pin: log capture keeps probes in second console argument", () => {
+  // Pins the multi-arg widening in captureLogs: a probe smuggled into a
+  // second console argument must still fail expectLogsClean. With an
+  // args[0]-only capture this passes vacuously, hiding the secret.
+  const probe = "probe-multiarg-r9-7c3e91";
+  const cleanRecord = { msg: "clean record" };
+  captureLogs();
+  try {
+    console.error(cleanRecord, probe);
+    expect(logLines).toEqual([{ level: "error", record: [cleanRecord, probe] }]);
+    expect(() => expectLogsClean([probe])).toThrow();
+  } finally {
+    restoreLogs();
+  }
 });
 
 describe("throttle burst re-verification + log residuals (R9-24)", () => {
