@@ -131,6 +131,15 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Coverage ratchet — raise floors when the number goes up
+        # PR-only: a coverage gain must fail the PR author, never the
+        # main-branch build that deploy needs. Vitest thresholds remain the
+        # only main-branch gate.
+        if: github.event_name == 'pull_request'
+        # Vitest thresholds fail the run on REGRESSION; this step fails when a
+        # metric climbs a full point above its floor without raising it, and
+        # prints the suggested thresholds block.
+        run: npm run check:coverage-ratchet
       - name: Assert bounded snapshot export heap
         run: npm run test:snapshot-export-memory
       - name: Validate CI workflow invariants
@@ -206,7 +215,9 @@ jobs:
         run: npm run types
       - name: No committed Routeware report exports (PII)
         run: |
-          matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
+          # `-z` NUL framing (mirrors check-docs-links.mjs): plain `git ls-files`
+          # C-quotes non-ASCII paths, whose closing quote defeats the `$` anchors.
+          matches="$(git ls-files -z | tr '\0' '\n' | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
           if [ -n "$matches" ]; then
             echo "::error::Tracked CSV / Zone.Identifier files found — Routeware exports contain PII and must not be committed:"
             echo "$matches"
@@ -214,7 +225,9 @@ jobs:
           fi
       - name: No committed .dev.vars
         run: |
-          matches="$(git ls-files | grep -E '(^|/)\.dev\.vars$' || true)"
+          # Same `-z` framing: without it a non-ASCII dir quotes the path and
+          # the `(^|/)\.dev\.vars$` anchor misses a tracked secrets file.
+          matches="$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)\.dev\.vars$' || true)"
           if [ -n "$matches" ]; then
             echo "::error::A .dev.vars file is tracked — local secrets must stay untracked (only .dev.vars.example is allowed):"
             echo "$matches"

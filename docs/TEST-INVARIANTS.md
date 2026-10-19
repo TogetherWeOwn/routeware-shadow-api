@@ -36,6 +36,21 @@ These are the **historical** baseline and floors, not the current gate.
 | Functions 89.09% (188/211) | 89 |
 | Lines 86.36% (1374/1591) | 86 |
 
+The earlier figures — ~90.6% / ~82.0% / ~93.4% / ~91.1%, measured at `ad7acde` — were **not
+reproducible**, and the floors derived from them (90/81/93/91) were not either. One test,
+`test/snapshotAuth.test.ts` › *"lets the sync secret past the inner check"*, sent the correct sync
+secret and so ran the **real** `POST /api/v1/container-snapshot/sync` body. That file stubbed nothing,
+so the request performed a live login against `killeen.routeware.com` and downloaded a live report.
+Every line it touched counted as covered while the test asserted nothing about any of it.
+
+By 2026-08-22 upstream no longer completed that flow: the request hung to the 30s `testTimeout`, the
+suite failed, and — decisively — `npm run test:coverage` on a clean `main` produced **no coverage
+report at all**. There was no 90.6% baseline left to hold.
+
+Stubbing `fetch` in that file (house pattern: throw on any unanticipated upstream URL) dropped the
+incidental execution and gave the numbers above. **No source line lost a real test; the code did not
+change.** This is a measurement correction, and it is the one time these floors move down.
+
 ### Current main measurement (2026-10-16)
 
 Latest hermetic full run recorded in `vitest.config.ts` (2026-10-16, `efa883b`;
@@ -53,34 +68,20 @@ sync path with mocked login and stubbed report fetches:
 The 2026-08-22 figures above remain a historical baseline, not the current main measurement.
 **Do not recover coverage by letting tests reach the network.**
 
-The earlier figures — ~90.6% / ~82.0% / ~93.4% / ~91.1%, measured at `ad7acde` — were **not
-reproducible**, and the floors derived from them (90/81/93/91) were not either. One test,
-`test/snapshotAuth.test.ts` › *"lets the sync secret past the inner check"*, sent the correct sync
-secret and so ran the **real** `POST /api/v1/container-snapshot/sync` body. That file stubbed nothing,
-so the request performed a live login against `killeen.routeware.com` and downloaded a live report.
-Every line it touched counted as covered while the test asserted nothing about any of it.
-
-By 2026-08-22 upstream no longer completed that flow: the request hung to the 30s `testTimeout`, the
-suite failed, and — decisively — `npm run test:coverage` on a clean `main` produced **no coverage
-report at all**. There was no 90.6% baseline left to hold.
-
-Stubbing `fetch` in that file (house pattern: throw on any unanticipated upstream URL) dropped the
-incidental execution and gave the numbers above. **No source line lost a real test; the code did not
-change.** This is a measurement correction, and it is the one time these floors move down.
-
 ### Remaining gaps, highest risk first
 
-### Two known weaknesses in the ratchet itself
+### Known weaknesses in the ratchet itself
 
 - **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
   with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
   it matters more after a downward re-baseline, because a global floor that has just been lowered is
   exactly where a localized regression hides.
-- **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
-  re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
-  configured floors — a comment cannot do it. Note also that the floors are uneven in practice:
-  `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
-  under (slack).
+- **"Raise them whenever the number goes up" is enforced on pull requests.** The `build` job
+  runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
+  against the configured floors and fails when a metric climbs a full point above its
+  floor without raising it. The step runs only on pull requests
+  (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
+  main-branch build red or skip a deploy; Vitest thresholds remain the only main-branch gate.
 
 - **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` applies the
   migrations to the local test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the
@@ -114,7 +115,8 @@ spawns a worker per core, so on a loaded host the workers contend past the 30s
 `testTimeout` and tests fail with timeouts that reproduce neither alone nor on
 an idle box:
 
-- **CI:** several CI jobs share each self-hosted runner; the
+- **CI:** several CI jobs shared each self-hosted runner (self-hosted at
+  the time; CI has since moved to `ubuntu-latest`); the
   unrestricted run stalled 7 files, every failure a timeout (red main
   `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
   no test, assertion or timeout change (PR #89: unrestricted timed out 2

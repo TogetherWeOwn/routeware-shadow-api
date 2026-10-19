@@ -67,9 +67,10 @@ export default defineConfig({
      * Two projects: the whole suite runs in workerd, except the
      * node-only tests, which run in the node forks pool instead: the R2
      * lifecycle proposal guard test reads the committed JSON file from disk
-     * (`node:fs`) — stubbed out in the workers pool — and the deps-audit
-     * wrapper test spawns `scripts/check-deps-audit.mjs` as a child process
-     * (`node:child_process`), which workerd cannot do. Each project spreads
+     * (`node:fs`) — stubbed out in the workers pool — and the deps-audit and
+     * coverage-ratchet wrapper tests spawn their `scripts/check-*.mjs` as a
+     * child process (`node:child_process`), which workerd cannot do. Each
+     * project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
      *
@@ -94,10 +95,11 @@ export default defineConfig({
           // snapshotExportMemory runs separately under vitest.memory.config.ts
           // (32 MiB heap ceiling with --expose-gc); it must stay out
           // of the default suite, alongside the node-pool R2 proposal guard
-          // and the node-pool deps-audit wrapper test.
+          // and the node-pool wrapper tests (deps-audit, coverage-ratchet).
           exclude: [
             "test/r2LifecycleProposalCheck.test.ts",
             "test/checkDepsAudit.test.ts",
+            "test/checkCoverageRatchet.test.ts",
             "test/snapshotExportMemory.test.ts",
           ],
         },
@@ -105,7 +107,11 @@ export default defineConfig({
       {
         test: {
           ...sharedTestOptions,
-          include: ["test/r2LifecycleProposalCheck.test.ts", "test/checkDepsAudit.test.ts"],
+          include: [
+            "test/r2LifecycleProposalCheck.test.ts",
+            "test/checkDepsAudit.test.ts",
+            "test/checkCoverageRatchet.test.ts",
+          ],
         },
       },
     ],
@@ -167,10 +173,14 @@ export default defineConfig({
        * (2418/2574), functions 98.65% (515/522), lines 98.15% (3403/3467).
        * Branches no longer clears 94, so that floor stays at 93 (never
        * lowered); lines still supports the raise to 98.
+       * Re-measured hermetically 2026-10-17 at `88bf4c9`:
+       * statements 97.89% (3532/3608), branches 94% (2429/2584),
+       * functions 98.66% (516/523), lines 98.18% (3416/3479).
+       * Branches clears 94 again, so that floor rises to 94.
        */
       thresholds: {
         statements: 97,
-        branches: 93,
+        branches: 94,
         functions: 98,
         lines: 98
       }

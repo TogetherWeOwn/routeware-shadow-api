@@ -574,6 +574,86 @@ describe("erasure direct-SQL UPDATE boundary and lineage cleanup", () => {
     }
   });
 
+  it("keeps container children on a same-owner plain UPDATE, removes them on an owner change", async () => {
+    // Pins the same-owner guard (customer_id != NEW.customer_id) on the
+    // container DELETE in suppress_erased_address_update: dropping the guard
+    // removes the same-owner child below; dropping the DELETE leaves the
+    // re-homed child behind.
+    const sameOwnerCustomer = 9865;
+    const sameOwnerAddress = 9865;
+    const sameOwnerContainer = 9865;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(sameOwnerCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Original St', 1, '2026-10-01')").bind(sameOwnerAddress, sameOwnerCustomer).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9865', 1, '2026-10-01')").bind(sameOwnerContainer, sameOwnerAddress).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(sameOwnerCustomer).run();
+
+    // Same owner, so the trigger fires (NEW is erased) but the guard is false:
+    // the UPDATE is ignored, lineage is recorded, and the child stays.
+    await db().prepare("UPDATE address_snapshot SET address = 'Hacked St' WHERE pickup_address_id = ?").bind(sameOwnerAddress).run();
+    const kept = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(sameOwnerAddress).first<{ address: string }>();
+    expect(kept?.address).toBe("Original St");
+    expect(await containerExists(sameOwnerContainer)).toBe(true);
+    const keptLineage = await db().prepare("SELECT customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(sameOwnerAddress).first<{ customer_id: number }>();
+    expect(keptLineage?.customer_id).toBe(sameOwnerCustomer);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(sameOwnerContainer).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(sameOwnerAddress).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(sameOwnerCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(sameOwnerAddress).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(sameOwnerCustomer).run();
+
+    // Owner change into an erased customer: the guard is true, so the
+    // erased-attributed children are removed and the row stays live.
+    const liveCustomer = 9866;
+    const erasedCustomer = 9867;
+    const addressId = 9866;
+    const containerId = 9866;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(liveCustomer).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, enabled, synced_at) VALUES (?, ?, 1, '2026-10-01')").bind(addressId, liveCustomer).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9866', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(erasedCustomer).run();
+
+    await db().prepare("UPDATE address_snapshot SET customer_id = ? WHERE pickup_address_id = ?").bind(erasedCustomer, addressId).run();
+    const stayed = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(stayed?.customer_id).toBe(liveCustomer);
+    expect(await containerExists(containerId)).toBe(false);
+
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(liveCustomer).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
+  });
+
+  it("keeps container children on a same-owner address upsert (INSERT trigger)", async () => {
+    // Pins the same-owner guard (customer_id != NEW.customer_id) on the
+    // container DELETE in suppress_erased_address_insert: BEFORE INSERT fires
+    // before SQLite resolves ON CONFLICT, so the app upsert path reaches this
+    // trigger first. Dropping the guard removes the child below.
+    const customerId = 9868;
+    const addressId = 9868;
+    const containerId = 9868;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Original St', 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9868', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+
+    // Same-owner replay through the upsert path: the INSERT trigger fires
+    // (NEW is erased) but the guard is false, so the write is ignored,
+    // lineage is recorded, and the child stays.
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Hacked St', 1, '2026-10-02') ON CONFLICT(pickup_address_id) DO UPDATE SET address = excluded.address").bind(addressId, customerId).run();
+    const kept = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ address: string }>();
+    expect(kept?.address).toBe("Original St");
+    expect(await containerExists(containerId)).toBe(true);
+    const keptLineage = await db().prepare("SELECT customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(keptLineage?.customer_id).toBe(customerId);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+  });
+
   it("ignores a plain UPDATE on a lineage-suppressed container", async () => {
     const customerId = 9853;
     const addressId = 9853;
@@ -726,8 +806,8 @@ describe("erasure direct-SQL UPDATE boundary and lineage cleanup", () => {
     const addressRow = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
     expect(addressRow?.customer_id).toBe(liveCustomer);
     expect(await containerExists(containerId)).toBe(false);
-    // The skipped UPDATE trigger records lineage (dropping its INSERT leaves
-    // nothing for the container trigger to key on).
+    // The skipped INSERT trigger records lineage (dropping its lineage
+    // INSERT leaves nothing for the container trigger to key on).
     const lineage = await db().prepare("SELECT customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
     expect(lineage?.customer_id).toBe(erasedCustomer);
 
