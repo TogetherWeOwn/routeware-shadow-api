@@ -433,9 +433,12 @@ describe("logging catalogue coverage: extraction", () => {
         text: 'const re = /"/; logEvent({ msg: "After regex" })',
       },
     ]);
-    expect(regexBeforeCall.untracked).toContainEqual(
-      expect.objectContaining({ path: "src/", expression: expect.stringContaining("call count mismatch") }),
-    );
+    expect(regexBeforeCall.untracked).toContainEqual({
+      path: "src/",
+      line: 1,
+      expression:
+        "<logEvent call count mismatch: 1 calls, scanner inspected 0; offending files: src/a.ts (1 calls, 0 inspected)>",
+    });
   });
 
   it("reads catalogue rows only, ignoring headings and prose", () => {

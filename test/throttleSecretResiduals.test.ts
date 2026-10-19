@@ -199,6 +199,22 @@ it("pass-and-pin: throttle constants match the audited 20/60s/60s policy", () =>
   expect(AUTH_THROTTLE_BLOCK_MS).toBe(60_000);
 });
 
+it("meta-pin: log capture keeps probes in second console argument", () => {
+  // Pins the multi-arg widening in captureLogs: a probe smuggled into a
+  // second console argument must still fail expectLogsClean. With an
+  // args[0]-only capture this passes vacuously, hiding the secret.
+  const probe = "probe-multiarg-r9-7c3e91";
+  const cleanRecord = { msg: "clean record" };
+  captureLogs();
+  try {
+    console.error(cleanRecord, probe);
+    expect(logLines).toEqual([{ level: "error", record: [cleanRecord, probe] }]);
+    expect(() => expectLogsClean([probe])).toThrow();
+  } finally {
+    restoreLogs();
+  }
+});
+
 describe("throttle burst re-verification + log residuals (R9-24)", () => {
   const originalFetch = globalThis.fetch;
 
