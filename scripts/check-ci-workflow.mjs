@@ -120,7 +120,7 @@ assert.match(
 );
 assert.doesNotMatch(
   prLint.split(/^jobs:/m)[1] ?? "",
-  /concurrency:/,
+  /^\s*concurrency\s*:/m,
   "pr-lint must not define job-level concurrency that overrides the top-level group",
 );
 
@@ -160,6 +160,14 @@ const activeProjects = projectsBlock[1]
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .replace(/\/\/.*$/gm, "");
 const projectChunks = activeProjects.split(/^      \{.*$/gm).slice(1);
+// Count every top-level projects element (6-space indent, not a closing brace)
+// so a string, identifier or spread entry cannot slip past the object-only split.
+const elementStarts = (activeProjects.match(/^      [^}\s]/gm) ?? []).length;
+assert.equal(
+  elementStarts,
+  projectChunks.length,
+  "vitest.config.ts projects array must contain only object-literal projects counted by this pin (update the pin when adding a project in any form)",
+);
 assert.equal(
   projectChunks.length,
   2,
