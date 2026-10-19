@@ -1,9 +1,9 @@
 /**
  * Acceptance tests driving the REAL downstream render scripts
- * (TOG-25412, roadmap R9-23): suggest-routes.mjs, export-curl-examples.mjs,
+ * (roadmap R9-23): suggest-routes.mjs, export-curl-examples.mjs,
  * generate-harvest-docs.mjs.
  *
- * Hermetic by construction (same pattern as the R9-16 pair on TOG-25329):
+ * Hermetic by construction (same pattern as the R9-16 pair):
  * each test copies the three scripts and the whole lib/ directory into a
  * fresh temp dir, lays down the shared synthetic fixtures from
  * downstream-fixtures.mjs (route-map.json, out/route-gaps.json,
@@ -20,11 +20,10 @@
  * what vitest's workers pool cannot: exit codes and files on disk,
  * including missing-input behavior.
  *
- * Expected on current main: exactly ONE failure — the PUT entry renders
- * `-X POST` (export-curl-examples hardcodes the method). Everything else
- * already passes and is regression armor for the extraction. Paired build
- * card [TOG-25413](/TOG/issues/TOG-25413) implements on this branch and
- * must never edit this file.
+ * Expected on current main: all green — the PUT entry renders `-X PUT`
+ * and the remaining pins are regression armor for the extraction.
+ * Render-script changes must update the pins through new script behavior,
+ * not by weakening these assertions.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

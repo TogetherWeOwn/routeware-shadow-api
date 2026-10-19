@@ -198,6 +198,8 @@ function inspectLogEventMessages(
   const untracked: UntrackedMessage[] = [];
   let callCount = 0;
   let inspectedCallCount = 0;
+  const callsByFile = new Map<string, number>();
+  const inspectedByFile = new Map<string, number>();
   for (const { path, text: sourceText } of files) {
     const text = String(sourceText);
     const normalizedPath = path.replace(/^\.\.\//, "");
@@ -205,7 +207,9 @@ function inspectLogEventMessages(
     if (normalizedPath === "src/lib/logger.ts" || normalizedPath.endsWith("/src/lib/logger.ts")) continue;
     // Keep an independent count pin so lexer blind spots (including regex
     // literals) cannot silently hide a new call.
-    callCount += countLogEventCalls(text);
+    const fileCalls = countLogEventCalls(text);
+    callCount += fileCalls;
+    callsByFile.set(normalizedPath, fileCalls);
     if (/import\s*\{[^}]*\blogEvent\s+as\s+\w+/s.test(text)) {
       untracked.push({
         path: normalizedPath,
@@ -233,6 +237,7 @@ function inspectLogEventMessages(
             continue;
           }
           inspectedCallCount++;
+          inspectedByFile.set(normalizedPath, (inspectedByFile.get(normalizedPath) ?? 0) + 1);
           const objectStart = logEventObjectStart(text, at);
           const objectEnd = logEventObjectEnd(text, at);
           if (objectStart !== undefined && objectEnd !== undefined) {
@@ -289,10 +294,18 @@ function inspectLogEventMessages(
     }
   }
   if (callCount !== inspectedCallCount) {
+    const offenders: string[] = [];
+    for (const [filePath, calls] of callsByFile) {
+      const inspected = inspectedByFile.get(filePath) ?? 0;
+      if (calls !== inspected) {
+        offenders.push(`${filePath} (${calls} calls, ${inspected} inspected)`);
+      }
+    }
+    const offenderSuffix = offenders.length > 0 ? `; offending files: ${offenders.join(", ")}` : "";
     untracked.push({
       path: "src/",
       line: 1,
-      expression: `<logEvent call count mismatch: ${callCount} calls, scanner inspected ${inspectedCallCount}>`,
+      expression: `<logEvent call count mismatch: ${callCount} calls, scanner inspected ${inspectedCallCount}${offenderSuffix}>`,
     });
   }
   return { messages: [...found].sort(), untracked };
@@ -420,9 +433,12 @@ describe("logging catalogue coverage: extraction", () => {
         text: 'const re = /"/; logEvent({ msg: "After regex" })',
       },
     ]);
-    expect(regexBeforeCall.untracked).toContainEqual(
-      expect.objectContaining({ path: "src/", expression: expect.stringContaining("call count mismatch") }),
-    );
+    expect(regexBeforeCall.untracked).toContainEqual({
+      path: "src/",
+      line: 1,
+      expression:
+        "<logEvent call count mismatch: 1 calls, scanner inspected 0; offending files: src/a.ts (1 calls, 0 inspected)>",
+    });
   });
 
   it("reads catalogue rows only, ignoring headings and prose", () => {

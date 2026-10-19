@@ -168,4 +168,6 @@ while `snapshots/2026-10-09/customer.csv` and
 
 Enabling the rule; deleting any R2 object; staging or production deploys;
 changing writer, restore, or verifier code; expiring `snapshots/` or
-`snapshot-latest/`; any new CI check or scheduled job.
+`snapshot-latest/`; any scheduled job. (The shape guard itself —
+`npm run check:r2-lifecycle-proposal` in CI — has since landed, so "no new
+CI check" no longer applies to it.)

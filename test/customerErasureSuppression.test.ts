@@ -806,8 +806,8 @@ describe("erasure direct-SQL UPDATE boundary and lineage cleanup", () => {
     const addressRow = await db().prepare("SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
     expect(addressRow?.customer_id).toBe(liveCustomer);
     expect(await containerExists(containerId)).toBe(false);
-    // The skipped UPDATE trigger records lineage (dropping its INSERT leaves
-    // nothing for the container trigger to key on).
+    // The skipped INSERT trigger records lineage (dropping its lineage
+    // INSERT leaves nothing for the container trigger to key on).
     const lineage = await db().prepare("SELECT customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
     expect(lineage?.customer_id).toBe(erasedCustomer);
 
