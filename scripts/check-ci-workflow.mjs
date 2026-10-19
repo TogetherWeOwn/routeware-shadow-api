@@ -104,16 +104,24 @@ assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 // runs) and on the sha otherwise, so a queued push-to-main run is never
 // replaced and every push's commits are linted. Cancel-in-progress applies
 // to pull_request only. Pin both so a workflow edit can never silently
-// uncancel PR runs or start cancelling main runs.
+// uncancel PR runs or start cancelling main runs. Scope to the pre-jobs
+// section with anchored lines so commented-out settings can never satisfy
+// the pin, and forbid job-level concurrency that would override it.
+const prLintPreJobs = prLint.split(/^jobs:/m)[0];
 assert.match(
-  prLint,
-  /group: pr-lint-\$\{\{ github\.event\.pull_request\.number \|\| github\.sha \}\}/,
+  prLintPreJobs,
+  /^  group: pr-lint-\$\{\{ github\.event\.pull_request\.number \|\| github\.sha \}\}$/m,
   "pr-lint concurrency must group per-PR by number with sha fallback",
 );
 assert.match(
-  prLint,
-  /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/,
+  prLintPreJobs,
+  /^  cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}$/m,
   "pr-lint must cancel in-progress runs on pull_request events only",
+);
+assert.doesNotMatch(
+  prLint.split(/^jobs:/m)[1] ?? "",
+  /concurrency:/,
+  "pr-lint must not define job-level concurrency that overrides the top-level group",
 );
 
 // The workers-pool suite stalls past the 30s timeout when an
@@ -142,22 +150,30 @@ assert.match(
 // Workspace projects do not inherit root test options, so each project must
 // spread sharedTestOptions (timeouts plus the CI worker cap). A project that
 // drops the spread silently runs with default timeouts on an uncapped pool.
-// Pin the spread count to the project count so a dropped spread — or a new
-// project without one — fails the guard.
+// Assert per project — not by global totals — so a commented-out, duplicated
+// or misplaced spread in one project can never satisfy another project's pin.
 const projectsBlock = vitestConfig.match(/projects:\s*\[([\s\S]*?)\n    \],/);
 assert.ok(projectsBlock, "vitest.config.ts must define a projects array");
-const projectBlocks = (projectsBlock[1].match(/^      \{$/gm) ?? []).length;
-const sharedSpreads = (projectsBlock[1].match(/\.\.\.sharedTestOptions/g) ?? []).length;
+// Strip comments so only active code counts; split on project boundaries
+// (6 spaces + "{" plus rest-of-line, so a single-line inline project counts).
+const activeProjects = projectsBlock[1]
+  .replace(/\/\*[\s\S]*?\*\//g, "")
+  .replace(/\/\/.*$/gm, "");
+const projectChunks = activeProjects.split(/^      \{.*$/gm).slice(1);
 assert.equal(
-  projectBlocks,
+  projectChunks.length,
   2,
   "vitest.config.ts must define exactly two workspace projects (update this pin when adding one)",
 );
-assert.equal(
-  sharedSpreads,
-  projectBlocks,
-  "every vitest workspace project must spread ...sharedTestOptions",
-);
+for (const [index, chunk] of projectChunks.entries()) {
+  const testBlock = chunk.match(/\n        test:\s*\{([\s\S]*?)\n        \},/);
+  assert.ok(testBlock, `vitest workspace project ${index + 1} must define a test block`);
+  assert.match(
+    testBlock[1],
+    /^\s*\.\.\.sharedTestOptions,?\s*$/m,
+    `vitest workspace project ${index + 1} must spread ...sharedTestOptions in its test options`,
+  );
+}
 
 const hygiene = jobBlock("hygiene");
 // The D1 drift check runs credential-free in hygiene (local apply into a
