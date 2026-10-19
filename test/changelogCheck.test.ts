@@ -99,6 +99,14 @@ describe("unreleasedCardIds", () => {
     expect(unreleasedCardIds("### Fixed (#123)\n")).toEqual([]);
     expect(unreleasedCardIds("prose paragraph (#7) outside any bullet\n")).toEqual([]);
   });
+
+  it("ignores a bare #N mid-bullet that is neither leading nor parenthesised", () => {
+    // Only a bullet-leading `#N` or a parenthesised `(#N)` counts: a bare
+    // ref in the bullet body (or its wrapped continuation) never satisfies
+    // the gate.
+    expect(unreleasedCardIds("- fixes #123 without parens\n")).toEqual([]);
+    expect(unreleasedCardIds("- wrapped entry\n  bare #42 on continuation\n")).toEqual([]);
+  });
 });
 
 describe("evaluateChangelogGate", () => {

@@ -124,10 +124,28 @@ test("passes a clean module with no console reference", () => {
   );
 });
 
-test("ignores an object property merely named console", () => {
+test("exempts the property name but still flags the property value", () => {
   assert.deepEqual(
     findConsoleViolations([{ path: "src/routes/orders.ts", text: "const x = { console: 1 };\n" }]),
     [],
+  );
+  // The `name === node` conjunct: only the name side is exempt. Narrowing
+  // `isConsoleReference` to `ts.isPropertyAssignment(node.parent)` lets this
+  // value-side `console` through, so it must stay flagged (column 19).
+  assert.deepEqual(
+    findConsoleViolations([{ path: "src/routes/orders.ts", text: "const o = { sink: console };\n" }]),
+    [{ file: "src/routes/orders.ts", line: 1, column: 19 }],
+  );
+});
+
+test("flags the template-literal globalThis[`console`] form", () => {
+  // Pins `isStringLiteralLike` over `isStringLiteral`: a no-substitution
+  // template is StringLiteralLike, so narrowing the check lets this through.
+  assert.deepEqual(
+    findConsoleViolations([
+      { path: "src/routes/orders.ts", text: "globalThis[`console`].log(1);\n" },
+    ]),
+    [{ file: "src/routes/orders.ts", line: 1, column: 1 }],
   );
 });
 
