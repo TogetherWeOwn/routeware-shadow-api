@@ -71,6 +71,28 @@ assert.match(
   /^        run: node scripts\/check-r2-deploy-config\.mjs$/m,
   "build must verify R2 preflight against Wrangler's offline deployed bindings",
 );
+// Vitest thresholds fail the run on regression; the ratchet step fails it on
+// improvement without a floor raise. Pin it present so coverage can never
+// climb a full point without moving the floors with it. The match anchors on
+// the real `run:` line (a bare substring would also match a commented-out
+// step or an `echo` impersonator), rejects a `continue-on-error` soft-fail,
+// and requires the PR-only gate so a coverage gain can never turn the
+// main-branch build red and skip a deploy.
+assert.match(
+  buildGated,
+  /^        run: npm run check:coverage-ratchet$/m,
+  "build must run the coverage ratchet check",
+);
+assert.doesNotMatch(
+  buildGated,
+  /check:coverage-ratchet\n\s+continue-on-error/,
+  "the coverage ratchet must not soft-fail",
+);
+assert.match(
+  buildGated,
+  /^        if: github\.event_name == 'pull_request'$/m,
+  "the coverage ratchet must run only on pull requests so a coverage gain never blocks main deploys",
+);
 assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job");
 assert.match(
   buildGated,

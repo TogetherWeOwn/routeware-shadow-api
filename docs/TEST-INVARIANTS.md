@@ -76,11 +76,12 @@ The 2026-08-22 figures above remain a historical baseline, not the current main 
   with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
   it matters more after a downward re-baseline, because a global floor that has just been lowered is
   exactly where a localized regression hides.
-- **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
-  re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
-  configured floors — a comment cannot do it. Note also that the floors are uneven in practice
-  (2026-10-16 table): `lines` sits 0.15 points under the measurement (hair-trigger) while
-  `branches` sits 0.93 under (slack).
+- **"Raise them whenever the number goes up" is enforced on pull requests.** The `build` job
+  runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
+  against the configured floors and fails when a metric climbs a full point above its
+  floor without raising it. The step runs only on pull requests
+  (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
+  main-branch build red or skip a deploy; Vitest thresholds remain the only main-branch gate.
 
 - **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` applies the
   migrations to the local test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the
