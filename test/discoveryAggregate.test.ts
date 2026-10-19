@@ -343,11 +343,15 @@ describe("buildSample and sampleSignature units", () => {
     const sample = buildSample(
       row({
         requestHeaders: { "x-zeta": "1", accept: "application/json" },
-        responseHeaders: { "content-type": "application/json" }
+        responseHeaders: {
+          "x-zeta": "aaa-first-by-value",
+          "content-type": "application/json",
+          accept: "zzz-last-by-value"
+        }
       })
     );
     expect(sample.requestHeaderNames).toEqual(["accept", "x-zeta"]);
-    expect(sample.responseHeaderNames).toEqual(["content-type"]);
+    expect(sample.responseHeaderNames).toEqual(["accept", "content-type", "x-zeta"]);
   });
 
   it("truncates a body preview longer than PREVIEW_IN_AGGREGATE with the marker", () => {
@@ -383,6 +387,22 @@ describe("buildSample and sampleSignature units", () => {
     expect(sample.responseBodyTruncated).toBe(false);
     expect(sample.requestBodyPreview).toBeUndefined();
     expect(sample.responseBodyPreview).toBeUndefined();
+  });
+
+  it("passes truncated flags through from the row", () => {
+    // Asymmetric on purpose: identical values would still pass if the two
+    // fields were ever cross-wired in buildSample.
+    const requestOnly = buildSample(
+      row({ requestBodyTruncated: true, responseBodyTruncated: false })
+    );
+    expect(requestOnly.requestBodyTruncated).toBe(true);
+    expect(requestOnly.responseBodyTruncated).toBe(false);
+
+    const responseOnly = buildSample(
+      row({ requestBodyTruncated: false, responseBodyTruncated: true })
+    );
+    expect(responseOnly.requestBodyTruncated).toBe(false);
+    expect(responseOnly.responseBodyTruncated).toBe(true);
   });
 
   it("signature ignores response-only differences and body chars past 240", () => {
