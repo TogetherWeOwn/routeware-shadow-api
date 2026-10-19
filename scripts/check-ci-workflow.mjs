@@ -99,6 +99,23 @@ const prLint = await readFile(new URL("../.github/workflows/pr-lint.yml", import
 assert.match(prLint, /Conventional Commits/, "pr-lint must enforce Conventional Commits titles");
 assertFirstPartyActionsPinned(prLint, "pr-lint.yml");
 
+// pr-lint cancels superseded runs per PR: the concurrency group keys on the
+// PR number for pull_request events (a new push cancels that PR's stale
+// runs) and on the sha otherwise, so a queued push-to-main run is never
+// replaced and every push's commits are linted. Cancel-in-progress applies
+// to pull_request only. Pin both so a workflow edit can never silently
+// uncancel PR runs or start cancelling main runs.
+assert.match(
+  prLint,
+  /group: pr-lint-\$\{\{ github\.event\.pull_request\.number \|\| github\.sha \}\}/,
+  "pr-lint concurrency must group per-PR by number with sha fallback",
+);
+assert.match(
+  prLint,
+  /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/,
+  "pr-lint must cancel in-progress runs on pull_request events only",
+);
+
 // The workers-pool suite stalls past the 30s timeout when an
 // unrestricted coverage run shares a CI runner with other CI jobs
 // (red main 3657b4f). The CI cap lives in vitest.config.ts, gated on CI.
@@ -120,6 +137,26 @@ assert.match(
   vitestConfig,
   /test:\s*\{\s*maxWorkers:\s*process\.env\.CI\s*\?\s*2\s*:\s*localMaxWorkers/,
   "vitest.config.ts root options must cap CI and provide the local default while allowing CLI overrides",
+);
+
+// Workspace projects do not inherit root test options, so each project must
+// spread sharedTestOptions (timeouts plus the CI worker cap). A project that
+// drops the spread silently runs with default timeouts on an uncapped pool.
+// Pin the spread count to the project count so a dropped spread — or a new
+// project without one — fails the guard.
+const projectsBlock = vitestConfig.match(/projects:\s*\[([\s\S]*?)\n    \],/);
+assert.ok(projectsBlock, "vitest.config.ts must define a projects array");
+const projectBlocks = (projectsBlock[1].match(/^      \{$/gm) ?? []).length;
+const sharedSpreads = (projectsBlock[1].match(/\.\.\.sharedTestOptions/g) ?? []).length;
+assert.equal(
+  projectBlocks,
+  2,
+  "vitest.config.ts must define exactly two workspace projects (update this pin when adding one)",
+);
+assert.equal(
+  sharedSpreads,
+  projectBlocks,
+  "every vitest workspace project must spread ...sharedTestOptions",
 );
 
 const hygiene = jobBlock("hygiene");
