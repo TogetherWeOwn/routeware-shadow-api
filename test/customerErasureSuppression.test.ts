@@ -624,6 +624,36 @@ describe("erasure direct-SQL UPDATE boundary and lineage cleanup", () => {
     await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(erasedCustomer).run();
   });
 
+  it("keeps container children on a same-owner address upsert (INSERT trigger)", async () => {
+    // Pins the same-owner guard (customer_id != NEW.customer_id) on the
+    // container DELETE in suppress_erased_address_insert: BEFORE INSERT fires
+    // before SQLite resolves ON CONFLICT, so the app upsert path reaches this
+    // trigger first. Dropping the guard removes the child below.
+    const customerId = 9868;
+    const addressId = 9868;
+    const containerId = 9868;
+    await db().prepare("INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (?, 'Synthetic', 1, '2026-10-01')").bind(customerId).run();
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Original St', 1, '2026-10-01')").bind(addressId, customerId).run();
+    await db().prepare("INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, enabled, synced_at) VALUES (?, ?, 'SN-9868', 1, '2026-10-01')").bind(containerId, addressId).run();
+    await db().prepare("INSERT INTO customer_snapshot_erasure (customer_id, erased_at) VALUES (?, '2026-10-15T00:00:00.000Z')").bind(customerId).run();
+
+    // Same-owner replay through the upsert path: the INSERT trigger fires
+    // (NEW is erased) but the guard is false, so the write is ignored,
+    // lineage is recorded, and the child stays.
+    await db().prepare("INSERT INTO address_snapshot (pickup_address_id, customer_id, address, enabled, synced_at) VALUES (?, ?, 'Hacked St', 1, '2026-10-02') ON CONFLICT(pickup_address_id) DO UPDATE SET address = excluded.address").bind(addressId, customerId).run();
+    const kept = await db().prepare("SELECT address FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).first<{ address: string }>();
+    expect(kept?.address).toBe("Original St");
+    expect(await containerExists(containerId)).toBe(true);
+    const keptLineage = await db().prepare("SELECT customer_id FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).first<{ customer_id: number }>();
+    expect(keptLineage?.customer_id).toBe(customerId);
+
+    await db().prepare("DELETE FROM container_snapshot WHERE container_id = ?").bind(containerId).run();
+    await db().prepare("DELETE FROM address_snapshot WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot WHERE customer_id = ?").bind(customerId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure_address WHERE pickup_address_id = ?").bind(addressId).run();
+    await db().prepare("DELETE FROM customer_snapshot_erasure WHERE customer_id = ?").bind(customerId).run();
+  });
+
   it("ignores a plain UPDATE on a lineage-suppressed container", async () => {
     const customerId = 9853;
     const addressId = 9853;
