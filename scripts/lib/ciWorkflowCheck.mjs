@@ -176,8 +176,15 @@ export function findPrTriggerSkips(workflowText) {
       );
     }
     // Step keys sit at 8 spaces; `run: |` bodies indent deeper, so a match
-    // here is a real step condition, not shell text.
-    if (/^        if:/m.test(block)) {
+    // here is a real step condition, not shell text. The one exception is a
+    // step gated `if: github.event_name == 'pull_request'`: it runs on every
+    // pull request and skips only non-PR runs (push-to-main, schedule), so it
+    // can never drop the gate on a PR. That is the coverage ratchet's PR-only
+    // gate — a coverage gain must fail the PR author, never the main-branch
+    // build that deploy needs. Any other step-level `if:` still drops a gate
+    // on pull requests.
+    const stepIfs = block.match(/^        if: (.+)$/gm) ?? [];
+    if (stepIfs.some((line) => line.trim() !== "if: github.event_name == 'pull_request'")) {
       errors.push(
         `${job} job steps must not define 'if:' — a skipped step drops the PII gate on pull requests`
       );

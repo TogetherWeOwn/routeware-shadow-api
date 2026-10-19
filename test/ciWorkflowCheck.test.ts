@@ -117,6 +117,43 @@ describe("findPrTriggerSkips", () => {
     expect(() => assertNoPrTriggerSkips(workflow)).toThrow(/hygiene/);
   });
 
+  it("allows a PR-only step-level if: in build (coverage ratchet gate)", () => {
+    // `if: github.event_name == 'pull_request'` runs on every PR and skips
+    // only non-PR runs, so it can never drop the gate on a pull request.
+    const workflow = fixtureWorkflow({
+      build: [
+        "  build:",
+        "    runs-on: [self-hosted, two-selfhosted]",
+        "    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'",
+        "    steps:",
+        "      - name: Coverage ratchet",
+        "        if: github.event_name == 'pull_request'",
+        "        run: npm run check:coverage-ratchet",
+        ""
+      ].join("\n")
+    });
+    expect(findPrTriggerSkips(workflow)).toEqual([]);
+    expect(() => assertNoPrTriggerSkips(workflow)).not.toThrow();
+  });
+
+  it("still fails on any other step-level if: in build", () => {
+    const workflow = fixtureWorkflow({
+      build: [
+        "  build:",
+        "    runs-on: [self-hosted, two-selfhosted]",
+        "    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'",
+        "    steps:",
+        "      - name: Coverage ratchet",
+        "        if: github.event_name == 'push'",
+        "        run: npm run check:coverage-ratchet",
+        ""
+      ].join("\n")
+    });
+    const errors = findPrTriggerSkips(workflow);
+    expect(errors.some((e) => e.includes("build") && e.includes("steps must not"))).toBe(true);
+    expect(() => assertNoPrTriggerSkips(workflow)).toThrow(/build/);
+  });
+
   it("fails when the pull_request trigger narrows with paths or types", () => {
     const paths = fixtureWorkflow({
       on: ["on:", "  pull_request:", "    branches: [main]", "    paths:", "      - 'src/**'", ""].join("\n")
