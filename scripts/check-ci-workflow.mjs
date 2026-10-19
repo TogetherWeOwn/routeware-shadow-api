@@ -93,6 +93,29 @@ assert.match(
   /^        if: github\.event_name == 'pull_request'$/m,
   "the coverage ratchet must run only on pull requests so a coverage gain never blocks main deploys",
 );
+// A global floor can be masked by well-covered files, so a new module with
+// zero tests still passes every aggregate number. Pin the per-file gate
+// present so no untested module can hide behind the globals. The match
+// anchors on the real `run:` line (a bare substring would also match a
+// commented-out step or an `echo` impersonator) and rejects a
+// `continue-on-error` soft-fail. Unlike the ratchet, this is a regression
+// gate like the Vitest thresholds: it runs on every build, so pin that no
+// PR-only `if:` precedes its step.
+assert.match(
+  buildGated,
+  /^        run: npm run check:per-file-coverage$/m,
+  "build must run the per-file coverage gate",
+);
+assert.doesNotMatch(
+  buildGated,
+  /check:per-file-coverage\n\s+continue-on-error/,
+  "the per-file coverage gate must not soft-fail",
+);
+assert.doesNotMatch(
+  buildGated,
+  /if: github\.event_name == 'pull_request'\n(\s*#[^\n]*\n)*\s*run: npm run check:per-file-coverage/,
+  "the per-file coverage gate must run on every build, not only on pull requests",
+);
 assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job");
 assert.match(
   buildGated,

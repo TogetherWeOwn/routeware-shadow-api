@@ -131,10 +131,17 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Per-file coverage gate — no untested modules
+        # Always-run regression gate, like the Vitest thresholds: global floors
+        # guard the aggregates, but a new module with zero tests passes every
+        # global floor behind well-covered files. This fails on any src file
+        # with 0 covered statements unless allowlisted in
+        # scripts/per-file-coverage-allowlist.json.
+        run: npm run check:per-file-coverage
       - name: Coverage ratchet — raise floors when the number goes up
         # PR-only: a coverage gain must fail the PR author, never the
-        # main-branch build that deploy needs. Vitest thresholds remain the
-        # only main-branch gate.
+        # main-branch build that deploy needs. Vitest thresholds plus the
+        # per-file gate remain the main-branch gates.
         if: github.event_name == 'pull_request'
         # Vitest thresholds fail the run on REGRESSION; this step fails when a
         # metric climbs a full point above its floor without raising it, and
