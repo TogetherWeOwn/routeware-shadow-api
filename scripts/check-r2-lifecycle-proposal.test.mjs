@@ -203,6 +203,13 @@ test("rejects an extra Expiration key", () => {
   );
 });
 
+test("rejects an Expiration without Days", () => {
+  assertViolation(
+    withRule((rule) => ({ ...rule, Expiration: {} })),
+    /Expiration\.Days must be 30/,
+  );
+});
+
 for (const days of [29, 31, "30", null]) {
   test(`rejects Expiration.Days=${JSON.stringify(days)} (exactly 30 required)`, () => {
     assertViolation(
