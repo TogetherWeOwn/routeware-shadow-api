@@ -60,8 +60,9 @@ production readiness from successful runs; keep production deploys disabled unti
   were **skipped**. A green docs-only run does not mean typecheck, coverage or remote contract
   tests executed.
 - **Runners:** every CI job on both runs carries labels `[self-hosted, two-selfhosted]`, matching
-  `.github/workflows/ci.yml` (re-verified on the 2026-10-09 main run). These labels are the
-  stable contract, not individual host names.
+  `.github/workflows/ci.yml` (re-verified on the 2026-10-09 main run). That was the
+  stable contract then, not individual host names; CI has since moved to
+  `ubuntu-latest`.
 - **Optional contract gate:** on the 2026-10-09 main run, `Evaluate operator credential gate`
   succeeded and `Execute versioned API contract tests` was **skipped** while `shadow-api-v1`
   stayed green.
@@ -389,7 +390,8 @@ immediately after** the transfer — every day both exist is a day the old one i
   credential-free build/hygiene from production opt-in; **§ 0 has the phased procedure.**
 - **Suite (2026-08-22 snapshot):** 30 files, 549 tests, green. **Coverage (same snapshot):** 85.74%
   statements / 79.48% branches / 89.09% functions / 86.36% lines — historical, not current figures.
-  **Current (2026-10-16):** 187 `*.test.ts` files; coverage 97.85% statements / 93.93% branches /
+  **Current (2026-10-16):** 173 `*.test.ts` files at `efa883b` (187 at this
+  head); coverage 97.85% statements / 93.93% branches /
   98.65% functions / 98.15% lines, as recorded in [`vitest.config.ts`](../vitest.config.ts)
   (not re-run for this refresh). See [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md#the-coverage-ratchet)
   for the dated table and matching floors. **No test may reach the network.** (`npm test` runs in a

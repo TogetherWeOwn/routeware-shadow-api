@@ -60,6 +60,17 @@ describe("slugifyHeading (GitHub slug rules)", () => {
     expect(slugifyHeading("gateway_failure readyz")).toBe("gateway_failure-readyz");
   });
 
+  it("keeps Nl letter-numbers, Pc connectors and M marks, like GitHub", () => {
+    // The kept classes of the slug regex, beyond Nd and `_`: a Roman numeral
+    // (Nl) lowercases but survives, a non-underscore connector (Pc) survives,
+    // and a combining mark (M) stays attached to its base letter. Explicit
+    // escapes throughout: a precomposed é would pin \p{L}, not \p{M}, and
+    // must survive any NFC normalization of this file.
+    expect(slugifyHeading("Chapter \u2167 overview")).toBe("chapter-\u2177-overview");
+    expect(slugifyHeading("a\u203Fb")).toBe("a\u203Fb");
+    expect(slugifyHeading("cafe\u0301 combining")).toBe("cafe\u0301-combining");
+  });
+
   it("slugs rendered heading text, not raw markdown", () => {
     // Backticks and link destinations never reach a GitHub anchor.
     expect(slugifyHeading("See `npm run foo` and link text")).toBe(

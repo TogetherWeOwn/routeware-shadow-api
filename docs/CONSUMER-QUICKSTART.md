@@ -147,8 +147,8 @@ faithfully to `limit: 0`. If either present alias is invalid (e.g. `"take":"2"`,
 body is forwarded unchanged. Non-object or non-JSON bodies also pass through.
 This mapper is not a validator: invalid pagination does **not** guarantee a
 local 400. An upstream 400 keeps its status; do not rely on its original
-error body. An HTML error page with upstream HTTP 200 instead becomes a 502
-`bad-gateway` problem.
+error body. An HTML error page — or a JSON body with `success: false` — on
+an upstream HTTP 200 instead becomes a 502 `bad-gateway` problem.
 
 For a guaranteed **local 400** example, use the neighboring read route with
 an invalid `customerID`. This rejects before any upstream call, independently

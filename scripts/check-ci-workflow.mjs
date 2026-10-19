@@ -89,6 +89,27 @@ assert.match(
 const hygieneAlwaysRun = jobBlock("hygiene");
 assert.doesNotMatch(hygieneAlwaysRun, /^    if:/m, "hygiene must stay always-run (no if:) so PII + secret scan run on every PR including docs-only");
 
+// The CSV/.dev.vars gates must list with `git ls-files -z` piped through
+// `tr '\0' '\n'` (mirroring scripts/check-docs-links.mjs): plain `git ls-files`
+// C-quotes non-ASCII paths under the default `core.quotePath`, whose closing
+// quote defeats the `$` anchors and lets a PII export or secrets file through
+// silently (Résumé.csv and café/.dev.vars missed by plain, caught by `-z`).
+assert.match(
+  hygieneAlwaysRun,
+  /git ls-files -z \| tr '\\0' '\\n' \| grep -iE/,
+  "PII CSV gate must use -z/NUL framing so non-ASCII exports cannot slip past the $ anchors",
+);
+assert.match(
+  hygieneAlwaysRun,
+  /git ls-files -z \| tr '\\0' '\\n' \| grep -E/,
+  ".dev.vars gate must use -z/NUL framing so a non-ASCII dir cannot hide a tracked secrets file",
+);
+assert.doesNotMatch(
+  hygieneAlwaysRun,
+  /git ls-files \| grep/,
+  "hygiene gates must not use plain git ls-files piping (C-quotes non-ASCII paths fail-open)",
+);
+
 const ciOkJob = jobBlock("ci-ok");
 assert.match(ciOkJob, /^    if: always\(\)$/m, "ci-ok must use if: always() so gating can never leave the PR hanging");
 assert.match(ciOkJob, /needs: \[changes, build, shadow-api-v1, hygiene\]/, "ci-ok must aggregate every gated job");
