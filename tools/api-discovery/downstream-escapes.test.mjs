@@ -4,7 +4,7 @@
  * not edit) the paired acceptance suites downstream-scripts.test.mjs and
  * test/discoveryDownstream.test.ts: they pin inputs those fixtures do not
  * carry — shell-active characters in a recorded Content-Type, a backslash
- * in pathWithQuery, and a GET entry handed a body preview.
+ * in pathWithQuery, and the GET-vs-POST body-file guard.
  *
  * Run: `node --test tools/api-discovery/downstream-escapes.test.mjs`
  * (wired into `npm run test:probe`). Synthetic inputs only; the one bash
@@ -68,6 +68,18 @@ test("GET entry with a body preview emits no body file or data flag", () => {
   );
   assert.equal(out.bodyFile, null);
   assert.ok(!out.lines.some((l) => l.includes("--data-binary")));
+});
+
+test("POST entry with a body preview emits a body file and data flag", () => {
+  const out = curlExampleForEntry(
+    entry("/WebRW/Customer/CustomersRead"),
+    { requestContentType: "application/json" },
+    '{"x":1}'
+  );
+  assert.ok(out.bodyFile, "POST with a body preview must emit a body file");
+  assert.equal(out.bodyFile.fileName, "POST_WebRW_Customer_CustomersRead.json");
+  assert.equal(out.bodyFile.text, '{"x":1}');
+  assert.ok(out.lines.some((l) => l.includes("--data-binary")), "POST curl must reference the body file");
 });
 
 test("pathWithQuery backslash escape is literal in the code span (pinned)", () => {
