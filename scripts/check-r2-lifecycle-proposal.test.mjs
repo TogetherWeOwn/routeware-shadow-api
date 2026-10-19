@@ -101,9 +101,31 @@ test("rejects a rule id other than snapshot-history-30d-expiry", () => {
   );
 });
 
+test("rejects a missing rule id", () => {
+  assertViolation(
+    withRule((rule) => {
+      const { ID, ...rest } = rule;
+      assert.ok(ID, "fixture must start with an ID to remove");
+      return rest;
+    }),
+    /ID must be "snapshot-history-30d-expiry"/,
+  );
+});
+
 test("rejects a Status other than Enabled", () => {
   assertViolation(
     withRule((rule) => ({ ...rule, Status: "Disabled" })),
+    /Status must be "Enabled"/,
+  );
+});
+
+test("rejects a missing Status", () => {
+  assertViolation(
+    withRule((rule) => {
+      const { Status, ...rest } = rule;
+      assert.ok(Status, "fixture must start with a Status to remove");
+      return rest;
+    }),
     /Status must be "Enabled"/,
   );
 });
@@ -146,6 +168,22 @@ test("rejects a Filter.Prefix without the exact trailing-slash prefix", () => {
     /Filter\.Prefix must be exactly "snapshot-history\/"/,
   );
 });
+
+test("rejects a Filter without Prefix", () => {
+  assertViolation(
+    withRule((rule) => ({ ...rule, Filter: {} })),
+    /Filter\.Prefix must be exactly "snapshot-history\/"/,
+  );
+});
+
+for (const prefix of ["", null, "snapshot-history/sub/"]) {
+  test(`rejects Filter.Prefix=${JSON.stringify(prefix)} (exact prefix required)`, () => {
+    assertViolation(
+      withRule((rule) => ({ ...rule, Filter: { Prefix: prefix } })),
+      /Filter\.Prefix must be exactly "snapshot-history\/"/,
+    );
+  });
+}
 
 test("rejects a missing Expiration", () => {
   assertViolation(
