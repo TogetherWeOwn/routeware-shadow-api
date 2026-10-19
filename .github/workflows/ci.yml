@@ -206,7 +206,9 @@ jobs:
         run: npm run types
       - name: No committed Routeware report exports (PII)
         run: |
-          matches="$(git ls-files | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
+          # `-z` NUL framing (mirrors check-docs-links.mjs): plain `git ls-files`
+          # C-quotes non-ASCII paths, whose closing quote defeats the `$` anchors.
+          matches="$(git ls-files -z | tr '\0' '\n' | grep -iE '\.csv$|:Zone\.Identifier$' || true)"
           if [ -n "$matches" ]; then
             echo "::error::Tracked CSV / Zone.Identifier files found — Routeware exports contain PII and must not be committed:"
             echo "$matches"
@@ -214,7 +216,9 @@ jobs:
           fi
       - name: No committed .dev.vars
         run: |
-          matches="$(git ls-files | grep -E '(^|/)\.dev\.vars$' || true)"
+          # Same `-z` framing: without it a non-ASCII dir quotes the path and
+          # the `(^|/)\.dev\.vars$` anchor misses a tracked secrets file.
+          matches="$(git ls-files -z | tr '\0' '\n' | grep -E '(^|/)\.dev\.vars$' || true)"
           if [ -n "$matches" ]; then
             echo "::error::A .dev.vars file is tracked — local secrets must stay untracked (only .dev.vars.example is allowed):"
             echo "$matches"
