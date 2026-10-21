@@ -29,17 +29,43 @@ export type R2ArchiveDetail = {
 
 const R2_ARCHIVE_STATUSES: readonly string[] = ["stored", "disabled", "failed"];
 
-/**
- * Structural guard for an R2 outcome crossing a trust boundary (chained
- * subrequest JSON, stubbed sync in tests). Checks the `status` discriminant
- * only — `reason`/`key` are optional log strings, never row data.
- */
+/** Status guard for local archive results; wire callers must project, not retain the object. */
 export function isR2ArchiveDetail(v: unknown): v is R2ArchiveDetail {
-  if (typeof v !== "object" || v === null) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
     return false;
   }
   const s = (v as { status?: unknown }).status;
   return typeof s === "string" && R2_ARCHIVE_STATUSES.includes(s);
+}
+
+/**
+ * Pick only sanctioned wire metadata before it can reach chained cron reports.
+ * Keys and arbitrary properties never cross this boundary. Known publication
+ * stages become fixed classifications, never driver messages or their suffixes.
+ */
+export function projectR2ArchiveDetail(v: unknown): R2ArchiveDetail | undefined {
+  if (!isR2ArchiveDetail(v)) return undefined;
+  const out: R2ArchiveDetail = { status: v.status };
+  if (typeof v.reason !== "string") return out;
+  if (v.status === "disabled") {
+    if (v.reason === "SNAPSHOTS binding unbound" || v.reason === "SNAPSHOTS_R2_ENABLED=false") {
+      out.reason = v.reason;
+    }
+  } else if (v.status === "failed") {
+    if (v.reason === "R2 publication unavailable" || v.reason === "R2 outcome unreported") {
+      out.reason = v.reason;
+    } else if (v.reason.startsWith("daily alias: ")) {
+      out.reason = "daily alias: R2 publication unavailable";
+    }
+  } else {
+    for (const stage of ["history manifest", "daily manifest", "latest pointer"]) {
+      if (v.reason.startsWith(`manifest: ${stage}: `)) {
+        out.reason = `manifest: ${stage}: R2 publication unavailable`;
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 /** S3 / R2 minimum part size for multipart uploads; last part may be smaller. */
