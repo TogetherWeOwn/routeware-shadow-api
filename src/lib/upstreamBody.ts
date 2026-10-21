@@ -1,16 +1,27 @@
 import { abortUpstreamResponse, UpstreamTimeoutError } from "./upstreamTimeout";
 
+/** A buffered response exceeded its caller's actual-byte ceiling. No response bytes. */
+export class UpstreamBodyTooLargeError extends Error {
+  constructor(readonly maxBytes: number) {
+    super(`Upstream response exceeds ${maxBytes} bytes`);
+    this.name = "UpstreamBodyTooLargeError";
+  }
+}
+
 /**
  * A separate, total buffered-body budget, starting when consumption begins.
  * Preserve the original only for passthrough handlers; on timeout cancel BOTH
  * tee branches without awaiting the source's potentially hanging cancellation.
+ * Optional maxBytes is inclusive and counts actual stream bytes, not a claimed
+ * Content-Length or decoded characters. Oversize uses the same nonawaited teardown.
  * Streaming CSV/report consumers do not call this helper.
  * https://developer.mozilla.org/en-US/docs/Web/API/ReadableStreamDefaultReader/cancel
  */
 export async function readUpstreamText(
   response: Response,
   timeoutMs: number,
-  preserveBody = false
+  preserveBody = false,
+  maxBytes?: number
 ): Promise<string> {
   const body = (preserveBody ? response.clone() : response).body;
   if (!body) {
@@ -39,13 +50,19 @@ export async function readUpstreamText(
     const parts: string[] = [];
     let chunksSinceYield = 0;
     let bytesSinceYield = 0;
+    let totalBytes = 0;
     while (true) {
       const { value, done } = await reader.read();
       if (done) {
         parts.push(decoder.decode());
         return parts.join("");
       }
-      parts.push(decoder.decode(value, { stream: true }));
+      totalBytes += value.byteLength;
+      if (maxBytes !== undefined && totalBytes > maxBytes) {
+        throw new UpstreamBodyTooLargeError(maxBytes);
+      }
+      const decoded = decoder.decode(value, { stream: true });
+      if (decoded) parts.push(decoded);
       chunksSinceYield++;
       bytesSinceYield += value.byteLength;
       if (chunksSinceYield >= 64 || bytesSinceYield >= 64 * 1024) {
@@ -63,6 +80,11 @@ export async function readUpstreamText(
   } catch (err) {
     if (timedOut) {
       throw new UpstreamTimeoutError(timeoutMs);
+    }
+    if (err instanceof UpstreamBodyTooLargeError) {
+      abortUpstreamResponse(response);
+      void reader.cancel(err).catch(() => {});
+      if (preserveBody) void response.body?.cancel(err).catch(() => {});
     }
     throw err;
   } finally {

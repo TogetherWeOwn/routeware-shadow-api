@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #325: Chained snapshot sync now bounds each table's full header+body observation
+  to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
+  UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
+  for cancellation. Failures never replay a POST, stop later tables and retain
+  completed-table counts. Cron records carry fixed refusal kinds and
+  `next_action: inspect_table_sync_before_resubmitting`; optional `deleted`
+  is validated without coercion and R2 wire metadata excludes keys, arbitrary
+  properties and free text while retaining archive status/fixed stage reasons.
+  Combined HTTP success counts/null, dry runs and correlation IDs are unchanged.
 - Discovery curl examples are inert by default: choose a stable method/path
   identity to execute a single local-only GET. Non-GET material is commented
   documentation; truncated previews are replaced by complete repository examples
