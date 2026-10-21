@@ -367,7 +367,12 @@ test("truncated preview falls back to complete repository example with synthetic
 });
 
 test("truncated preview without fallback is unavailable with a fixed code and next action", (t) => {
-  const f = generated(t, { rows: [bodyRow({ requestBodyPreview: TRUNCATED, requestBodyTruncated: true })] });
+  const f = fixture(t, { rows: [bodyRow({ requestBodyPreview: TRUNCATED, requestBodyTruncated: true })] });
+  const harvestFile = path.join(f.dir, "out/harvest.ndjson");
+  const harvestBefore = fs.readFileSync(harvestFile);
+  f.generation = f.generate();
+  assert.deepEqual(fs.readFileSync(harvestFile), harvestBefore, "source harvest bytes must remain unchanged");
+  assert.equal(f.generation.status, 0, f.generation.output);
   assert.equal(fs.existsSync(path.join(f.dir, "out/bodies/POST_WebRW_Fixture_Save.json")), false, "truncated preview must never be emitted as a payload file");
   assert.ok(!f.generation.output.includes("INCOMPLETE_PREVIEW_SENTINEL"));
   const result = f.shell(["--json"]);
@@ -379,7 +384,8 @@ test("truncated preview without fallback is unavailable with a fixed code and ne
   assert.ok(op.body.next_action.length > 0);
   assert.ok(op.body.file == null, "unavailable preview cannot have a payload artifact");
   assert.equal(op.executable, false);
-  for (const record of Object.values(snapshot(path.join(f.dir, "out")))) {
+  for (const [name, record] of Object.entries(snapshot(path.join(f.dir, "out")))) {
+    if (name === "harvest.ndjson") continue; // Source input, not a generated artifact.
     if (record.bytes) assert.ok(!Buffer.from(record.bytes, "base64").toString("utf8").includes(TRUNCATED), "discard incomplete payload bytes, including in documentation");
   }
   assert.ok(!result.output.includes("INCOMPLETE_PREVIEW_SENTINEL"));
