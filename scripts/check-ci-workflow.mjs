@@ -101,8 +101,9 @@ assert.match(
 // is a regression gate like the Vitest thresholds: it runs on every build
 // and must never soft-fail. Slice the whole step block (its header through
 // the next step) and reject ANY `continue-on-error` and ANY step-level
-// `if:` inside it, regardless of key order or YAML key quoting (GitHub
-// honours `"if":` / `'continue-on-error':`) — adjacency regexes let
+// `if:` inside it, regardless of key order, dash-line first-key placement, or
+// YAML key quoting (GitHub honours `"if":` / `'continue-on-error':`, and the
+// first key of a step may sit on the `- ` line) — adjacency regexes let
 // `continue-on-error` above the run line, below it with a comment between,
 // or a PR-only `if:` with another key between slip through.
 const perFileRun = /^        run: npm run check:per-file-coverage$/m.exec(buildGated);
@@ -116,12 +117,12 @@ const perFileStep = buildGated.slice(
 );
 assert.doesNotMatch(
   perFileStep,
-  /^ +["']?continue-on-error["']?\s*:/m,
+  /^ +(?:- )?["']?continue-on-error["']?\s*:/m,
   "the per-file coverage gate must not soft-fail",
 );
 assert.doesNotMatch(
   perFileStep,
-  /^ +["']?if["']?\s*:/m,
+  /^ +(?:- )?["']?if["']?\s*:/m,
   "the per-file coverage gate must run on every build, not only on pull requests",
 );
 // The gate's own files must route to build: a PR touching only the gate
