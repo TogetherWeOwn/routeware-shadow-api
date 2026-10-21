@@ -261,7 +261,10 @@ const customerSnapshotExportRoute = createRoute({
       content: { "text/csv": { schema: z.string(), example: customerExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
-    401: { description: "Unauthorized" }
+    401: { description: "Unauthorized" },
+    503: {
+      description: "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing."
+    }
   }
 });
 
@@ -275,7 +278,8 @@ customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
     c.env.CUSTOMER_DB,
     CUSTOMER_SNAPSHOT_EXPORT,
     c.req.header("if-none-match"),
-    readSnapshotExportPageSize(c.env)
+    readSnapshotExportPageSize(c.env),
+    c.env
   );
 });
 
