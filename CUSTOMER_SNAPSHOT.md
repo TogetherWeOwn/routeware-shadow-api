@@ -161,26 +161,29 @@ npx wrangler d1 execute routeware-customer-snapshot --remote --json \
 Each successful archive also upserts one entry per CSV into a sidecar
 `snapshots/<UTC-date>.manifest.json` — a sibling of the date's CSV "directory",
 carrying `{ version, date, files: { "<table>.csv": { key, sha256, bytes } } }`
-(`src/lib/r2SnapshotArchive.ts`). Hashes and keys only, never row data, so the
-manifest is safe to log and print. A failed CSV put writes no entry; a corrupt
-existing sidecar is replaced (warned), and verify then reports the other tables
-as missing, loudly.
+(`src/lib/r2SnapshotArchive.ts`). The writer emits hashes and keys, never row
+data; never print an unvalidated downloaded manifest. A failed CSV put writes
+no entry. A corrupt existing sidecar is replaced (warned), potentially omitting
+other tables; explicit expectations are needed to detect that coverage gap.
 
-Check one date's archive without credentials (local Miniflare R2 under a
-`--persist-to` dir) or read-only against remote (needs `CLOUDFLARE_API_TOKEN` in
-the environment, never a flag):
+Check full-chain identity and byte coverage without credentials (local Miniflare
+R2 under an approved `--persist-to` directory):
 
 ```bash
-npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir>
+npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir> --expect=customer,address,container --json
 ```
 
-Exit 0 when every entry verifies; exit 1 on any mismatch, missing object, or
-unreadable manifest; exit 2 on flag/usage errors. A tampered CSV fails by name
-with both hashes, e.g. `FAIL customer.csv (snapshots/2026-09-28/customer.csv):
-sha256 mismatch (manifest <old>, r2 <new>; ...)`. Reviewer acceptance path —
-fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
-the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
-lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
+Without `--expect`, success is **listed-only (partial)**, not proof that all tables
+exist. The verifier validates the requested date and exact daily keys before CSV
+reads. Add `--dry-run` for a zero-execution plan. Remote execution is read-only but
+requires already-authorized `CLOUDFLARE_API_TOKEN` environment injection; use
+`--remote` instead of `--persist-to`, never a token flag. No new grant is implied.
+
+Exit 0 = verified coverage or valid dry-run; 1 = verification/credential failure;
+2 = invalid flags. JSON has a bounded versioned schema, stable codes/IDs and next
+actions. See [verifier contract and recovery guidance](docs/R2-MANIFEST-VERIFY.md).
+Run `npm run check:r2-manifest` for pure and hermetic fake-reader acceptance tests
+(no Wrangler/R2 access); the wrapper suite also runs in `npm run test:probe`.
 
 ## Dry-run sync and import
 
@@ -249,6 +252,53 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Customer changes cursor
+
+`GET /api/v1/customer-snapshot/changes` is an **upsert feed**, not deletion CDC
+or a point-in-time snapshot. It reads only local D1. Omit `since` (or send it
+empty) **without** `since_id` for the initial page. A bare `since` returns only
+strictly later timestamps, so it replays later sync runs whole, not the
+remaining rows of the boundary run.
+
+Timestamp comparison uses canonical UTC milliseconds: seconds-only and
+one-, two- or three-fraction-digit timestamps are normalized before SQL.
+For example, `2026-09-01T00:00:00.1Z`, `.10Z` and `.100Z` describe the same
+boundary. More than three fraction digits is a 400 even if the extra digits
+are zero; no rounding or truncation. Offsets, local datetimes and date-only
+inputs are not accepted in place of the existing UTC `Z` datetime format.
+
+Resume a page with **both** fields from `nextCursor`. `since_id` requires a
+nonempty valid `since` and must be an exact unpadded ASCII decimal integer
+from `0` through `9007199254740991`; `0` remains the boundary sentinel.
+Whitespace, signs, prefixes, exponents, decimal points and repeated cursor
+keys are invalid. The value-free anchored 400 names only fields; see
+[query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+
+Synthetic example: rows `(8402, 2026-09-01T00:00:00.100Z)` and
+`(8407, 2026-09-01T00:00:00.100Z)` share a timestamp. A `limit=1` page ending
+at `8402` returns:
+
+```json
+{"nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
+```
+
+The next request's query is
+`since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=1`; it includes
+`8407` instead of skipping the millisecond tie. Order stays
+`(synced_at, customer_id)`, page limit stays `1..500` (default `50`), and
+`total` counts only the returned rows. Every full page emits a cursor,
+including the final full page; continue until `nextCursor` is `null`.
+Cursor timestamps are always emitted with three fraction digits.
+
+Hermetic regression check, also listed by `npm run help`:
+
+```bash
+npm run check:customer-changes-cursor
+```
+
+This uses synthetic local D1 rows only; no credentials, upstream requests,
+production replay or deployment.
 
 ### Customer-row erasure scope
 
