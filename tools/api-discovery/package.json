@@ -10,11 +10,12 @@
     "aggregate": "node aggregate.mjs",
     "export:curls": "node export-curl-examples.mjs",
     "validate:harvest": "node validate-harvest.mjs",
+    "validate:routes": "node route-map-validation.mjs",
     "docs:harvest": "node generate-harvest-docs.mjs",
     "gap:routes": "node route-gap.mjs",
     "gap:check": "node route-gap.mjs --check",
     "suggest:routes": "node suggest-routes.mjs",
-    "process": "node validate-harvest.mjs && node aggregate.mjs && node generate-harvest-docs.mjs && node route-gap.mjs --report-only && node export-curl-examples.mjs && node suggest-routes.mjs && node route-gap.mjs --check"
+    "process": "node route-map-validation.mjs && node validate-harvest.mjs && node aggregate.mjs && node generate-harvest-docs.mjs && node route-gap.mjs --report-only && node export-curl-examples.mjs && node suggest-routes.mjs && node route-gap.mjs --check"
   },
   "devDependencies": {
     "playwright": "^1.49.1",

@@ -194,7 +194,8 @@ masked by default; field names, body structure, and query params are preserved.
 | `npm run discovery:record` | Headed recorder → `tools/api-discovery/out/harvest.ndjson` (redacted). Log in, do your workflow, press Enter to stop |
 | `npm run discovery:record:full` | Same, but captures **all** headers/values (cookies, tokens) for full replay — keep the harvest private |
 | `npm run discovery:codegen` | Record your **UI actions** (clicks/typing) into a replayable Playwright script |
-| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs (artifacts always built; gate fails last on missing shadow routes — stale entries warn unless `--strict`) |
+| `npm run discovery:process` | Validate route map → validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs (artifacts always built; gate fails last on missing shadow routes — stale entries warn unless `--strict`) |
+| `npm run discovery:validate` | Validate `route-map.json` alone (read-only; `--json` for one machine-readable object) |
 | `npm run discovery:verify` | Runs **`discovery:process`** then **`npm test`** (route-map + Worker contract tests) |
 
 Typical loop: `discovery:setup` (once) → `discovery:record` while you use the site →

@@ -3,11 +3,16 @@
  * Writes out/curl-examples.sh and out/bodies/* — uses harvest requestBodyPreview
  * when present, otherwise copies route-map exampleFile.
  * Respects Content-Type (JSON vs form-urlencoded) from harvest or route-map.
+ *
+ * Validates route-map.json with the shared library before producing output;
+ * an invalid map exits 1 and writes nothing. --dry-run validates, prints
+ * the verdict, and writes nothing.
  */
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { curlExampleForEntry, findHarvestRow } from "./lib/curlExamples.mjs";
+import { validateRouteMap } from "./lib/routeMapValidation.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const harvestPath = join(__dirname, "out", "harvest.ndjson");
@@ -15,7 +20,33 @@ const mapPath = join(__dirname, "route-map.json");
 const bodiesDir = join(__dirname, "out", "bodies");
 const outSh = join(__dirname, "out", "curl-examples.sh");
 
-const map = JSON.parse(await readFile(mapPath, "utf8"));
+const dryRun = new Set(process.argv.slice(2)).has("--dry-run");
+
+let map;
+try {
+  map = JSON.parse(await readFile(mapPath, "utf8"));
+} catch (e) {
+  console.error(`export-curl-examples: cannot read ${mapPath}:`, e?.message ?? e);
+  process.exit(1);
+}
+const mapValidation = validateRouteMap(map);
+if (!mapValidation.ok) {
+  for (const finding of mapValidation.findings) {
+    console.error(
+      `${finding.code} [${finding.checkId}] entries ${finding.entryIndexes.join(",") || "—"}: ${finding.nextAction}`
+    );
+  }
+  console.error(
+    `export-curl-examples: route map invalid (${mapValidation.findings.length} findings) — refusing to generate.`
+  );
+  process.exit(1);
+}
+if (dryRun) {
+  console.log(
+    `dry-run: route map valid (${map.length} entries, no mapping findings); would write ${outSh} and ${bodiesDir}/ — no files written.`
+  );
+  process.exit(0);
+}
 let harvestLines = [];
 try {
   harvestLines = (await readFile(harvestPath, "utf8"))
