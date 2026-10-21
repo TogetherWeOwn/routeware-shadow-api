@@ -235,6 +235,18 @@ all three sync paths and both archive-readback passes while slow-drip streams
 complete, and `test/reportStreamStall.test.ts` pins cancel-on-stall,
 window-reset near the bound, and the env reader's default/override/fallback.
 
+### Chained sync response boundary
+
+`test/chainedSyncResponseBoundary.acceptance.test.ts` uses synthetic streams and a
+deny-by-default fetch stub. It pins a single 180s per-table header+body deadline
+(`CHAINED_SYNC_TIMEOUT_MS` override), the inclusive 65,536-byte UTF-8 ceiling,
+headers/prefix-then-stall, continuous/oversized producers, nonsettling cancellation,
+immediate non-2xx refusal, safe optional `deleted`, allowlisted R2 wire metadata,
+fixed cron kinds/next action, partial progress and dry-run/run-ID compatibility.
+The combined HTTP route still returns only `{upserted,rowCount}|null` on success.
+The [runbook](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary) gives the
+hermetic focused check. Do not recover by retrying a sync POST or using live data.
+
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
 `test/snapshotReportFetch.test.ts`, 19 tests, mutation-verified six ways. This is the single door
