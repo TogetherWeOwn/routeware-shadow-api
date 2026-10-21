@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
+- #319: CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
   503 `application/problem+json` (`snapshot-export-query-budget`) before CSV
   starts. The ETag prepass is bounded; both passes and their terminal empty
   reads must fit a 950-query allowance within the existing 1000-query Paid
