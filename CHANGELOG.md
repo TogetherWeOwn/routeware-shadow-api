@@ -11,6 +11,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
   stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
 
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
 - `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
   unknown arguments and remote requests before executing anything. `--dry-run`
   reports deterministic local fixture intent without subprocesses or state changes;
