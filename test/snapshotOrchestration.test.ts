@@ -486,7 +486,7 @@ describe("runDataSnapshotSyncChainedHttp", () => {
     });
   });
 
-  it("carries a validated R2 outcome from each subrequest", async () => {
+  it("carries a failed R2 status but drops an arbitrary wire reason", async () => {
     // Arrange — each per-table route stamps the flat `r2` outcome the
     // single-invocation leg produced; the chained runner must surface it so a
     // failed archive cannot hide behind a D1 `outcome:success`.
@@ -507,12 +507,13 @@ describe("runDataSnapshotSyncChainedHttp", () => {
       envWith({ ...ALL_CONFIGURED, CUSTOMER_SNAPSHOT_SYNC_SECRET: "test-secret" })
     );
 
-    // Assert — failed travels; the default stub's tables carry no `r2`.
+    // Assert — failed travels without untrusted free text; the default stub's
+    // tables carry no `r2`. Single-invocation producer details stay unchanged.
     expect(result.customer).toEqual({
       upserted: 3,
       rowCount: 3,
       deleted: 1,
-      r2: { status: "failed", reason: "R2 boom" }
+      r2: { status: "failed" }
     });
     expect("r2" in (result.address as object)).toBe(false);
   });
