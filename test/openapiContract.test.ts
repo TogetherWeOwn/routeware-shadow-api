@@ -301,6 +301,23 @@ describe("published OpenAPI document", () => {
     expect(problems).toEqual([]);
   });
 
+  it.each(["customer", "address", "container"])(
+    "documents the pre-CSV query-budget 503 on the %s snapshot export",
+    async (table) => {
+      const doc = await fetchOpenApiDocument();
+      const operation = doc.paths[`/api/v1/${table}-snapshot/export`]?.get as {
+        responses: Record<string, { description?: string }>;
+      };
+
+      // Keep the refusal and its remedy visible to clients even if someone
+      // updates the full-document snapshot after dropping a response entry.
+      expect(operation.responses["503"]).toEqual({
+        description:
+          "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing."
+      });
+    }
+  );
+
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
     const doc = await fetchOpenApiDocument();
