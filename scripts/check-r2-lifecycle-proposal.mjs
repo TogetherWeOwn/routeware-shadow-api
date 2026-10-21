@@ -25,6 +25,7 @@ import {
   CHECK_NAME,
   evaluateR2LifecycleProposal,
 } from "./lib/r2LifecycleProposalCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 
@@ -38,9 +39,22 @@ function usage() {
   return [
     "Usage: node scripts/check-r2-lifecycle-proposal.mjs [--file=<path>]",
     "",
+    "R2 lifecycle proposal shape guard: fails the build on drift so it surfaces here, not at apply time.",
+    "",
     "  --file=<path>  Proposal JSON path (default docs/r2-lifecycle-proposal.snapshot-history.json).",
+    "  -h, --help     Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Proposal matches the proposed S3 lifecycle shape.",
+    "  1  Proposal drifts or is not valid JSON.",
+    "  2  Cannot read the proposal file, or unknown flag.",
+    "",
+    "Example:",
+    "  node scripts/check-r2-lifecycle-proposal.mjs --file=docs/r2-lifecycle-proposal.snapshot-history.json",
   ].join("\n");
 }
+
+handleHelpFlag(argv.slice(2), usage());
 
 for (const arg of argv.slice(2)) {
   if (!arg.startsWith("--file=")) {

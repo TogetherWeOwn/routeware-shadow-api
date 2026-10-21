@@ -8,6 +8,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   checkDevVarsValues,
@@ -15,6 +16,26 @@ import {
   parseDevVarsText,
   parseWranglerVarsSection
 } from "./lib/devVarsCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-devvars.mjs",
+    "",
+    "Verifies .dev.vars exists beside wrangler.toml and defines the required keys (never prints values).",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Effective dev vars define every required key.",
+    "  1  Missing file or invalid values.",
+    "",
+    "Example:",
+    "  node scripts/check-devvars.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const devVarsPath = path.join(root, ".dev.vars");

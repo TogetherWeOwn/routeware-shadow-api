@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
+import { argv } from "node:process";
 import {
   assertEveryJobHasTimeout,
   assertFirstPartyActionsPinned,
@@ -7,6 +8,26 @@ import {
   assertNoPrTriggerSkips,
   parseNvmrcMajor,
 } from "./lib/ciWorkflowCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-ci-workflow.mjs",
+    "",
+    "CI workflow guard: pins ci.yml invariants (timeouts, pinned actions, change gating, deploy order).",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every invariant holds.",
+    "  1  An invariant fails (assertion names the job and key).",
+    "",
+    "Example:",
+    "  node scripts/check-ci-workflow.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
