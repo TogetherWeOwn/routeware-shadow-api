@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Chained snapshot sync now bounds each table's full header+body observation
+  to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
+  UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
+  for cancellation. Failures never replay a POST, stop later tables and retain
+  completed-table counts. Cron records carry fixed refusal kinds and
+  `next_action: inspect_table_sync_before_resubmitting`; optional `deleted`
+  is validated without coercion and R2 wire metadata excludes keys, arbitrary
+  properties and free text while retaining archive status/fixed stage reasons.
+  Combined HTTP success counts/null, dry runs and correlation IDs are unchanged.
+
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and

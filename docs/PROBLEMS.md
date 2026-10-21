@@ -327,8 +327,19 @@ Operator `...-snapshot/import` uploads stay unbounded (a client disconnect
 aborts them). Report-download login sniffing retains its existing unbounded
 behavior for nonstandard content types; it explicitly opts out so a legitimate
 long CSV served as text/plain is not cut off. The sessionless login-page probe
-only forwards a stream and remains header-bounded. Chained same-Worker sync
-response reads are not Routeware responses and are outside this fix.
+only forwards a stream and remains header-bounded.
+
+Chained same-Worker sync responses use a different contract: **one per-table
+180s deadline** (`CHAINED_SYNC_TIMEOUT_MS`, absent/invalid → default), spanning
+headers and body together, with an inclusive **65,536-byte** actual-body cap.
+Non-2xx bodies are cancelled, not drained. Timeout, oversize, source-read and
+invalid JSON/count metadata refusals use fixed chained error kinds; cron keeps
+completed-table counts and the combined HTTP route retains its existing generic
+500 `internal` problem (no new partial-progress API). No POST retry or redirect
+replay occurs. Cancellation is best-effort and never awaited: remote work may
+already have completed. Inspect the failed table before resubmitting, as the
+fixed cron `next_action` directs. See [the chained response boundary and focused
+check](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary).
 
 Per-step **header** budgets (single-retry max, so headers cost at most 2x one
 attempt; buffered consumers additionally get the body budget described above):
