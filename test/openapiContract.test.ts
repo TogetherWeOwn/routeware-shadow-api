@@ -109,6 +109,36 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
   return (await res.json()) as OpenApiDocument;
 }
 
+/**
+ * Copy of the document with the free-text `description`/`example` of the
+ * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
+ * Everything else, including the parameter's position, enum, default and the
+ * nullable `total` type, still goes through the byte-for-byte snapshot.
+ */
+function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
+  const copy = structuredClone(doc) as {
+    paths?: Record<string, Record<string, { parameters?: Array<Record<string, unknown>> }>>;
+    components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
+  };
+  for (const item of Object.values(copy.paths ?? {})) {
+    for (const operation of Object.values(item)) {
+      for (const param of operation.parameters ?? []) {
+        if (param.name !== "includeTotal") continue;
+        delete param.description;
+        delete param.example;
+        const schema = param.schema as Record<string, unknown> | undefined;
+        if (schema) {
+          delete schema.description;
+          delete schema.example;
+        }
+      }
+    }
+  }
+  const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
+  if (total) delete total.description;
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -279,8 +309,11 @@ describe("published OpenAPI document", () => {
     const doc = await fetchOpenApiDocument();
 
     // Assert — full-document freeze: descriptions, parameters, response
-    // schemas and per-operation tags all have to survive the refactor.
-    expect(doc).toMatchSnapshot();
+    // schemas and per-operation tags all have to survive the refactor. The
+    // wording of the includeTotal prose is pinned by hand-written assertions in
+    // `test/snapshotCountFreePagination.test.ts`; only its structure (name,
+    // location, enum, default, nullable total) is frozen here.
+    expect(withoutIncludeTotalProse(doc)).toMatchSnapshot();
   });
 });
 
