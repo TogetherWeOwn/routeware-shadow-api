@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 vi.mock("../src/lib/httpAuth", () => ({
   establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
@@ -325,7 +326,7 @@ describe("snapshot dry-run (e2e, real app + D1 + R2)", () => {
           headers: { "content-type": "text/csv" }
         });
       }
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

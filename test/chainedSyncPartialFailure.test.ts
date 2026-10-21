@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
  * Chained-sync partial-failure contract (round-4 gap QA3).
@@ -208,7 +209,7 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
           headers: { "content-type": "text/csv" }
         });
       }
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);
