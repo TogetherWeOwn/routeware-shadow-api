@@ -1954,27 +1954,29 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`).",
         "parameters": [
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 10,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "pickupAddressId",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 10,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
         ],
@@ -2060,7 +2062,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
           },
           "401": {
             "description": "Unauthorized",
@@ -2152,27 +2154,29 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`).",
         "parameters": [
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 100,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "containerId",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 100,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
         ],
@@ -2256,7 +2260,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
           },
           "401": {
             "description": "Unauthorized",
@@ -2348,27 +2352,29 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`).",
         "parameters": [
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 345734,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
           {
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
             "in": "query",
             "name": "customerId",
             "required": false,
             "schema": {
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
               "example": 345734,
-              "type": [
-                "integer",
-                "null",
-              ],
+              "maximum": 9007199254740991,
+              "minimum": 1,
+              "type": "integer",
             },
           },
         ],
@@ -2456,7 +2462,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing id",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
           },
           "401": {
             "description": "Unauthorized",

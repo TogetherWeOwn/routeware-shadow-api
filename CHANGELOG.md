@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Hydrated `GET /api/v1/data/customer|address|container` reads now require
+  canonical positive decimal safe-integer IDs (`1`–`9007199254740991`) for
+  both `id` and the existing `customerId` / `pickupAddressId` / `containerId`
+  aliases. Empty or whitespace text, leading zeros, signs, fractions,
+  exponents, hex, nonpositive and unsafe IDs return anchored 400 problems
+  before handler/cache/D1 access instead of being numerically coerced.
+  Every supplied spelling is validated, including an unused alias; when both
+  are valid, `id` still wins even if their values differ. Valid unknown IDs
+  remain 404; hydrated rows, ETags, auth ordering and save handlers are unchanged.
+
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and

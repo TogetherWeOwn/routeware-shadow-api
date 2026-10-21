@@ -18,6 +18,7 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  parsePositiveIdParam,
   requireSnapshotAuth
 } from "./shared";
 
@@ -26,6 +27,28 @@ import {
  * through Routeware and then refresh the local snapshot.
  */
 export const dataEntityRoutes = createRouteModule();
+
+// Keep preliminary numeric validation in its existing position before the inner
+// auth gate. Check raw text after that gate: coercion alone accepts noncanonical
+// spellings and can round unsafe IDs before the data handler sees them.
+const hydratedReadIdQuery = z.coerce.number().int().optional().openapi({
+  type: "integer",
+  minimum: 1,
+  maximum: Number.MAX_SAFE_INTEGER,
+  description:
+    "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias."
+});
+const hydratedReadBadRequest = {
+  description:
+    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json)."
+};
+
+function parseHydratedReadId(rawId: string | undefined, rawAlias: string | undefined): number | null {
+  const id = rawId === undefined ? undefined : parsePositiveIdParam(rawId);
+  const alias = rawAlias === undefined ? undefined : parsePositiveIdParam(rawAlias);
+  if (id === null || alias === null) return null;
+  return id ?? alias ?? null;
+}
 
 const dataCustomerGetRoute = createRoute({
   method: "get",
@@ -36,8 +59,8 @@ const dataCustomerGetRoute = createRoute({
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`).",
   request: {
     query: z.object({
-      id: z.coerce.number().int().optional().openapi({ example: 345734 }),
-      customerId: z.coerce.number().int().optional().openapi({ example: 345734 })
+      id: hydratedReadIdQuery.openapi({ example: 345734 }),
+      customerId: hydratedReadIdQuery.openapi({ example: 345734 })
     })
   },
   responses: {
@@ -46,7 +69,7 @@ const dataCustomerGetRoute = createRoute({
       content: { "application/json": { schema: z.unknown(), example: customerBundleExample } }
     },
     304: { description: "Not modified" },
-    400: { description: "Missing id" },
+    400: hydratedReadBadRequest,
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -55,15 +78,17 @@ const dataCustomerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const q = c.req.valid("query");
-  const id = q.id ?? q.customerId;
-  if (id === undefined) {
+  const rawId = c.req.query("id");
+  const rawAlias = c.req.query("customerId");
+  const id = parseHydratedReadId(rawId, rawAlias);
+  if (id === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
       status: 400,
-      detail:
-        "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request.",
+      detail: rawId === undefined && rawAlias === undefined
+        ? "Query `id` or `customerId` (customer_id) is required. See docs/PROBLEMS.md#bad-request."
+        : "Query `id` and `customerId`, when supplied, must be canonical positive decimal safe integers without leading zeros. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.url).pathname
     });
   }
@@ -79,8 +104,8 @@ const dataAddressGetRoute = createRoute({
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
   request: {
     query: z.object({
-      id: z.coerce.number().int().optional().openapi({ example: 10 }),
-      pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 })
+      id: hydratedReadIdQuery.openapi({ example: 10 }),
+      pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 })
     })
   },
   responses: {
@@ -89,7 +114,7 @@ const dataAddressGetRoute = createRoute({
       content: { "application/json": { schema: z.unknown(), example: addressBundleExample } }
     },
     304: { description: "Not modified" },
-    400: { description: "Invalid id (application/problem+json)" },
+    400: hydratedReadBadRequest,
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -98,9 +123,8 @@ const dataAddressGetRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const q = c.req.valid("query");
-  const id = q.id ?? q.pickupAddressId;
-  if (id === undefined || !Number.isInteger(id) || id <= 0) {
+  const id = parseHydratedReadId(c.req.query("id"), c.req.query("pickupAddressId"));
+  if (id === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
@@ -122,8 +146,8 @@ const dataContainerGetRoute = createRoute({
     "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
   request: {
     query: z.object({
-      id: z.coerce.number().int().optional().openapi({ example: 100 }),
-      containerId: z.coerce.number().int().optional().openapi({ example: 100 })
+      id: hydratedReadIdQuery.openapi({ example: 100 }),
+      containerId: hydratedReadIdQuery.openapi({ example: 100 })
     })
   },
   responses: {
@@ -132,7 +156,7 @@ const dataContainerGetRoute = createRoute({
       content: { "application/json": { schema: z.unknown(), example: containerBundleExample } }
     },
     304: { description: "Not modified" },
-    400: { description: "Invalid id (application/problem+json)" },
+    400: hydratedReadBadRequest,
     401: { description: "Unauthorized" },
     404: { description: "Not in D1" }
   }
@@ -141,9 +165,8 @@ const dataContainerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  const q = c.req.valid("query");
-  const id = q.id ?? q.containerId;
-  if (id === undefined || !Number.isInteger(id) || id <= 0) {
+  const id = parseHydratedReadId(c.req.query("id"), c.req.query("containerId"));
+  if (id === null) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
       title: "Bad Request",
