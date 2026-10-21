@@ -32,12 +32,12 @@ const USAGE = [
 ].join("\n");
 
 const rawArgs = process.argv.slice(2);
-let json = false;
+const json = rawArgs.includes("--json");
 let mountedOperationsPath = null;
 let unknown = null;
 for (const arg of rawArgs) {
   if (arg === "--json") {
-    json = true;
+    continue;
   } else if (arg.startsWith("--mounted-operations=")) {
     mountedOperationsPath = arg.slice("--mounted-operations=".length);
   } else {
