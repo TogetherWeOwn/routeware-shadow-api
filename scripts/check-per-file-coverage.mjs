@@ -27,6 +27,30 @@ import path from "node:path";
 import { argv, exit } from "node:process";
 
 import { CHECK_NAME, runPerFileCheck } from "./lib/perFileCoverage.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-per-file-coverage.mjs [--summary=<path>] [--allowlist=<path>]",
+    "",
+    "Per-file coverage gate: fails when any src file in the coverage report has zero",
+    "covered statements, unless it is named in the allowlist.",
+    "",
+    "  --summary=<path>    coverage summary (default coverage/coverage-summary.json)",
+    "  --allowlist=<path>  allowlist JSON (default scripts/per-file-coverage-allowlist.json)",
+    "  -h, --help          Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every file is tested or allowlisted.",
+    "  1  An untested, graduated, or stale file (named on stderr).",
+    "  2  An input is missing or unparseable.",
+    "",
+    "Example:",
+    "  node scripts/check-per-file-coverage.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 
