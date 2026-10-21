@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
+
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged
