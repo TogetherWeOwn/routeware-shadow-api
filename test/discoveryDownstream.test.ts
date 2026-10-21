@@ -8,10 +8,11 @@
  * disk) is pinned by the sibling sandbox suite
  * tools/api-discovery/downstream-scripts.test.mjs (`node --test`).
  *
- * THE CONTRACT the paired build implements (roadmap R9-23, PR #275;
- * builds on this branch, never edits this file): extract the pure render
- * logic from the three scripts into tools/api-discovery/lib/ with NO
- * rendered-output change for existing inputs, exposing:
+ * Historical extraction contract (roadmap R9-23, PR #275), amended by the
+ * local-example safety acceptance: non-GET snippets are labelled commented
+ * documentation, truncated previews are unavailable, complete body bytes are
+ * preserved, and GET flags are observed by the fake-curl public-boundary suite.
+ * Other extraction/Content-Type/query controls remain intact. Exports:
  *
  * - lib/stubNaming.mjs: `renderSuggestedRoutesStub(missing)` -> string
  *   (the whole suggested-routes.stub.ts text: header + one stubBlock per
@@ -26,14 +27,12 @@
  *   `curlExampleForEntry(entry, harvestRow, bodyText)` ->
  *   `{ lines: string[], bodyFile: { fileName, text } | null }` where lines
  *   end with the "" separator the script appends per entry, bodyText is the
- *   caller-resolved body (harvest preview or example file, trimmed) or null,
+ *   caller-resolved complete body (harvest or example file, byte-exact) or null,
  *   and the Content-Type precedence is harvestRow.requestContentType ??
  *   entry.exampleContentType ?? "application/json".
- *   One deliberate fix rides along: a non-GET entry renders `-X <its own
- *   method>` (today every body-carrying entry renders `-X POST`, so a PUT
- *   route-map entry generates a curl that calls the wrong method). Output
- *   for GET/POST entries — every entry in the real route-map — is
- *   byte-identical to today.
+ *   Non-GET documentation retains `-X <its own method>`, Content-Type,
+ *   Accept and body references, but every nonblank snippet line is commented.
+ *   GET query precedence and URL escaping remain protected.
  * - lib/harvestDocs.mjs (new): `renderHarvestApiDoc(discovered, routeMap)`
  *   -> string (the whole HARVEST_API.md when discovered-operations exists;
  *   the missing-input stub stays script-level behavior).
@@ -153,7 +152,23 @@ describe("curlExamples helpers (export-curl-examples)", () => {
   });
 });
 
+// Non-GET examples retain escaped curl documentation, not executable lines.
+function uncomment(lines: string[]) {
+  return lines.map((line) => line.replace(/^\s*# ?/, ""));
+}
+
 describe("curlExampleForEntry (Content-Type handling)", () => {
+  it("refuses a truncated harvested body even when the caller passes its preview", () => {
+    const preview = '{"fixture":"INCOMPLETE_PREVIEW';
+    const out = curlExampleForEntry(
+      entry("/WebRW/Customer/CustomersRead"),
+      { requestContentType: "application/json", requestBodyTruncated: true, requestBodyPreview: preview },
+      preview
+    );
+    expect(out.bodyFile).toBeNull();
+    expect(out.lines.join("\n")).not.toContain(preview);
+    expect(out.lines.every((line) => !line.trim() || line.trimStart().startsWith("#"))).toBe(true);
+  });
   it("renders a JSON POST with .json body file and JSON Accept", () => {
     const row = findHarvestRow(
       HARVEST_LINES,
@@ -169,15 +184,13 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
       fileName: "POST_WebRW_Customer_CustomersRead.json",
       text: '{"page":99}',
     });
-    expect(out.lines).toEqual([
-      "# POST /WebRW/Customer/CustomersRead → /api/v1/routeware/customer/customers-read",
-      'curl -sS -X POST "$BASE/api/v1/routeware/customer/customers-read" \\',
-      '  -H "Content-Type: application/json; charset=utf-8" \\',
-      '  -H "Accept: application/json, text/javascript, */*; q=0.01" \\',
-      '  -H "X-Requested-With: XMLHttpRequest" \\',
-      '  --data-binary "@$DIR/bodies/POST_WebRW_Customer_CustomersRead.json"',
-      "",
-    ]);
+    expect(out.lines.every((line) => !line.trim() || line.trimStart().startsWith("#"))).toBe(true);
+    const material = out.lines.join("\n");
+    expect(material).toContain("-X POST");
+    expect(material).toContain("Content-Type: application/json; charset=utf-8");
+    expect(material).toContain("Accept: application/json, text/javascript, */*; q=0.01");
+    expect(material).toContain("--data-binary");
+    expect(material).toMatch(/non-executable|documentation.only|disabled/i);
   });
 
   it("renders a form-urlencoded POST with .body file and */* Accept", () => {
@@ -195,11 +208,11 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
       fileName: "POST_WebRW_Customer_CustomerTypesRead.body",
       text: "EnabledOnly=true",
     });
-    expect(out.lines).toContain(
+    expect(uncomment(out.lines)).toContain(
       '  -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \\'
     );
-    expect(out.lines).toContain('  -H "Accept: */*" \\');
-    expect(out.lines).toContain(
+    expect(uncomment(out.lines)).toContain('  -H "Accept: */*" \\');
+    expect(uncomment(out.lines)).toContain(
       '  --data-binary "@$DIR/bodies/POST_WebRW_Customer_CustomerTypesRead.body"'
     );
   });
@@ -213,10 +226,10 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
     expect(out.bodyFile?.fileName).toBe(
       "POST_WebRW_Customer_SaveCustomerLongForm.body"
     );
-    expect(out.lines).toContain(
+    expect(uncomment(out.lines)).toContain(
       '  -H "Content-Type: application/x-www-form-urlencoded; charset=UTF-8" \\'
     );
-    expect(out.lines).toContain('  -H "Accept: */*" \\');
+    expect(uncomment(out.lines)).toContain('  -H "Accept: */*" \\');
   });
 
   it("lets the harvest Content-Type beat the route-map exampleContentType", () => {
@@ -234,7 +247,7 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
     expect(out.bodyFile?.fileName).toBe(
       "POST_WebRW_Customer_SaveCustomerLongForm.json"
     );
-    expect(out.lines).toContain('  -H "Content-Type: application/json" \\');
+    expect(uncomment(out.lines)).toContain('  -H "Content-Type: application/json" \\');
   });
 
   it("defaults Content-Type to application/json when nothing declares one", () => {
@@ -246,7 +259,7 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
     expect(out.bodyFile?.fileName).toBe(
       "POST_WebRW_Customer_CustomersRead.json"
     );
-    expect(out.lines).toContain('  -H "Content-Type: application/json" \\');
+    expect(uncomment(out.lines)).toContain('  -H "Content-Type: application/json" \\');
   });
 
   it("preserves a non-POST method instead of rendering -X POST", () => {
@@ -260,7 +273,7 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
       row,
       '{"v":2}'
     );
-    expect(out.lines).toContain(
+    expect(uncomment(out.lines)).toContain(
       'curl -sS -X PUT "$BASE/api/v1/routeware/customer/update-thing" \\'
     );
     expect(out.bodyFile?.fileName).toBe("PUT_WebRW_Customer_UpdateThing.json");
@@ -278,11 +291,12 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
       null
     );
     expect(out.bodyFile).toBeNull();
-    expect(out.lines).toEqual([
-      "# GET /WebRW/Customer/LoadLongCustomerModal → /api/v1/routeware/customer/load-long-modal",
-      'curl -sS "$BASE/api/v1/routeware/customer/load-long-modal?customerID=999&tab=a+b" -H "Accept: */*" -H "X-Requested-With: XMLHttpRequest"',
-      "",
-    ]);
+    const material = out.lines.join("\n");
+    expect(material).toContain("$BASE/api/v1/routeware/customer/load-long-modal?customerID=999&tab=a+b");
+    expect(material).toContain("Accept: */*");
+    expect(material).toContain("X-Requested-With: XMLHttpRequest");
+    // The public fake-curl suite owns dispatch, timeout and HTTP-failure flags.
+    expect(material).not.toContain("--data-binary");
   });
 
   it("renders GET with exampleQuery when there is no harvest query", () => {
@@ -291,8 +305,8 @@ describe("curlExampleForEntry (Content-Type handling)", () => {
       null,
       null
     );
-    expect(out.lines).toContain(
-      'curl -sS "$BASE/api/v1/routeware/reports/query-request-is-complete?requestID=REPLACE_WITH_UUID" -H "Accept: */*" -H "X-Requested-With: XMLHttpRequest"'
+    expect(out.lines.join("\n")).toContain(
+      "$BASE/api/v1/routeware/reports/query-request-is-complete?requestID=REPLACE_WITH_UUID"
     );
     const emptyQueryRow = {
       method: "GET",
