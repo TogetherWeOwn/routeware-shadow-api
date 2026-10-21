@@ -2,13 +2,13 @@
 
 /**
  * Acceptance pins for the discovery downstream render transforms
- * (TOG-25412, roadmap R9-23): suggest-routes.mjs, export-curl-examples.mjs,
+ * (roadmap R9-23, PR #275): suggest-routes.mjs, export-curl-examples.mjs,
  * generate-harvest-docs.mjs. Pure-text pins only — the workers pool has no
  * node:fs/child_process, so script-level behavior (exit codes, files on
  * disk) is pinned by the sibling sandbox suite
  * tools/api-discovery/downstream-scripts.test.mjs (`node --test`).
  *
- * THE CONTRACT the paired build card implements ([TOG-25413](/TOG/issues/TOG-25413),
+ * THE CONTRACT the paired build implements (roadmap R9-23, PR #275;
  * builds on this branch, never edits this file): extract the pure render
  * logic from the three scripts into tools/api-discovery/lib/ with NO
  * rendered-output change for existing inputs, exposing:
