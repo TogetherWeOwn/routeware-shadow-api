@@ -219,27 +219,23 @@ npx wrangler r2 object get "$BUCKET/snapshots/$DATE.manifest.json" \
 
 node --input-type=module <<'JS'
 import { readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { parseManifest, sha256HexBytes, verifyManifestHashes } from './scripts/lib/r2ManifestVerify.mjs';
 const { RUN, DATE } = process.env;
-let manifest;
 try {
-  manifest = JSON.parse(readFileSync(`${RUN}/manifest.json`, 'utf8'));
-  if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    throw new Error('invalid manifest shape');
-  }
+  const parsed = parseManifest(readFileSync(`${RUN}/manifest.json`, 'utf8'), `snapshots/${DATE}.manifest.json`);
+  if (!parsed.ok) throw new Error();
+  const entry = parsed.manifest.files.find(file => file.name === 'customer.csv');
+  if (!entry) throw new Error();  // explicit customer coverage, not an empty listed-only check
+  const csv = readFileSync(`${RUN}/customer.csv`);
+  const digest = sha256HexBytes(csv);
+  const result = verifyManifestHashes([entry], [{ name: 'customer.csv',
+    key: `snapshots/${DATE}/customer.csv`, sha256: digest, bytes: csv.length }]);
+  if (!result.ok || csv.length === 0) throw new Error();  // recovery still requires data
+  console.log(`PASS customer.csv: ${csv.length} bytes, SHA-256 ${digest}`);
 } catch {
-  console.error('STOP: unreadable or invalid archive manifest');
-  process.exit(1);  // never echo downloaded content or the parser's error
+  console.error('STOP: unreadable or invalid customer archive/manifest');
+  process.exit(1);  // never echo downloaded content or driver/parser errors
 }
-const entry = manifest.files?.['customer.csv'];
-const csv = readFileSync(`${RUN}/customer.csv`);
-const digest = createHash('sha256').update(csv).digest('hex');
-if (manifest.version !== 1 || manifest.date !== DATE ||
-    entry?.key !== `snapshots/${DATE}/customer.csv` ||
-    !Number.isInteger(entry?.bytes) || entry.bytes <= 0 ||
-    entry.bytes !== csv.length || !/^[0-9a-f]{64}$/.test(entry?.sha256 ?? '') ||
-    entry.sha256 !== digest) throw new Error('STOP: customer archive integrity mismatch');
-console.log(`PASS customer.csv: ${csv.length} bytes, SHA-256 ${digest}`);
 JS
 )
 ```
@@ -250,17 +246,26 @@ support cannot pass this gate; choose a known-good manifested archive or
 escalate the recovery gap. Do not print CSV bodies/headers as an existence check.
 Leave verified downloads unchanged; re-run the gate if you replace a file.
 
-On main, the optional whole-date audit verifies every manifest entry in the
-**selected** local bucket and persistence directory:
+An optional audit verifies every manifest entry in the **selected** local bucket
+and persistence directory. Choose explicit coverage: `--expect=customer` for the
+one-table §3 fixture (below); for a full-chain recovery replace it with
+`--expect=customer,address,container`. A missing expected entry fails even when
+omitted by the manifest. Without `--expect`, PASS is **listed-only (partial)**,
+not proof that all tables were archived:
 
 ```bash
 (
 set -euo pipefail
 source "${RECOVERY_CONTEXT:?use the context created in section 2}"
 node scripts/verify-r2-manifest.mjs --date="$DATE" --bucket="$BUCKET" \
-  --persist-to "$RUN/state"
+  --persist-to "$RUN/state" --expect=customer --json
 )
 ```
+
+Add `--dry-run` for a validated date/mode/coverage plan with no child processes,
+object reads or artifact changes, even with `--remote` and no token. A plan is not
+a verification result. See [verifier codes and recovery actions](R2-MANIFEST-VERIFY.md).
+Stop on failure; never manufacture a sidecar or silently narrow expectations.
 
 For an authorized remote audit, replace `--persist-to "$RUN/state"` with
 `--remote`. This script specifically requires `CLOUDFLARE_API_TOKEN` already
