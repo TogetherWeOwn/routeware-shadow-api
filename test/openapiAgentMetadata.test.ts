@@ -6,7 +6,7 @@ import changelog from "../CHANGELOG.md?raw";
 import quickstart from "../docs/CONSUMER-QUICKSTART.md?raw";
 
 /**
- * Agent-facing OpenAPI metadata (TOG-35515, acceptance for R12-03).
+ * Agent-facing OpenAPI metadata (acceptance for operation discovery).
  *
  * An AI agent choosing a tool needs three machine-readable facts per mounted
  * operation, without reading prose: a stable `operationId`, an access class
