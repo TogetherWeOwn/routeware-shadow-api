@@ -147,6 +147,32 @@ export function isDryRunRequested(query: { dryRun?: string }): boolean {
 }
 
 /**
+ * Rejects `?includeTotal=` given more than once, before any D1 access.
+ *
+ * Hono's single-value query parser keeps the FIRST value for a repeated key,
+ * so `?includeTotal=false&includeTotal=true` would otherwise validate as
+ * `"false"` and silently pick a cost behavior the client may not have meant.
+ * The zod schema never sees the repetition, so each ordinary list handler
+ * calls this first. The body matches `validationFailureHook` exactly —
+ * same field name, same anchor, no echoed values.
+ */
+export function rejectRepeatedIncludeTotal(c: {
+  req: { queries: (key: string) => string[] | undefined };
+  env?: Env;
+}): Response | null {
+  const seen = c.req.queries("includeTotal");
+  if (seen === undefined || seen.length < 2) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail: "Invalid request query (includeTotal). See docs/PROBLEMS.md#bad-request."
+  });
+}
+
+/**
  * Map a dangling-FK snapshot failure to 400 `bad-request` problem+json, or
  * `null` when the error is not an FK violation. Lists up to 20 missing integer
  * keys, then `+N more` — integer keys only, no PII, no secrets.
@@ -488,7 +514,13 @@ export const containerSaveFormDocs: RouteDocs = {
 export const snapshotListResponse = z
   .object({
     rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int(),
+    total: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "Exact row count for this page's filters. Pass includeTotal=false to skip the COUNT query: total is then null, meaning deliberately not computed rather than zero, with the same rows and nextCursor."
+      ),
     nextCursor: z.number().int().nullable()
   })
   .openapi("CustomerSnapshotList");

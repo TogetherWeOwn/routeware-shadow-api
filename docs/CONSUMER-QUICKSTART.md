@@ -80,6 +80,18 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor, or null at the end
 ```
 
+Scanning pages without needing an exact count? Pass `includeTotal=false` to
+skip the `COUNT(*)` query: the response keeps the same `rows` and
+`nextCursor`, but `total` comes back `null` — deliberately not computed, not
+zero. Defaults are unchanged: omit the key (or pass `includeTotal=true`) for
+today's exact count.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false"
+# {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
+```
+
 Single rows:
 
 ```bash
