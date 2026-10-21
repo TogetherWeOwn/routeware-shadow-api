@@ -23,19 +23,84 @@ curl http://localhost:8787/api/v1/health
 
 Anything else means the Worker is not running (`npm run dev`).
 
-## 1. Authenticate: two bearer tokens
+## 1. Authenticate: bearer roles
 
-Ask your operator for both tokens. Every `/api/v1/*` route except the health
-check needs `Authorization: Bearer <token>`:
+Use the least-privileged configured token supplied by your operator. Every
+`/api/v1/*` route except the health check needs one
+`Authorization: Bearer <token>` header:
 
 | Token | Unlocks |
 |---|---|
-| `SHADOW_API_TOKEN` (general) | Snapshot list reads, all `/api/v1/routeware/*` forwards, `GET /api/v1/shadow/health` |
-| `CUSTOMER_SNAPSHOT_SYNC_SECRET` (privileged) | Everything above, **plus** `.../sync`, `.../import`, and all `/api/v1/data/*` reads/writes |
+| `SHADOW_API_READ_TOKEN` (optional read-only role) | Non-privileged **GET** operations only; never POST reads or privileged GETs |
+| `SHADOW_API_TOKEN` (general/full) | Snapshot list/by-id reads, all `/api/v1/routeware/*` forwards, health/readiness probes |
+| `CUSTOMER_SNAPSHOT_SYNC_SECRET` (privileged) | Everything above, **plus** sync/import, snapshot exports/erasure, orphan checks, archives and all `/api/v1/data/*` reads/writes |
 
-Rule of thumb: **use the general token for ordinary reads** and the sync
-secret only for privileged routes. When their values are distinct, the
-general token 401s on privileged routes even when it is otherwise valid.
+The general token falls back to `CUSTOMER_SNAPSHOT_SYNC_SECRET` when unset;
+the sync secret also passes the outer gate when a distinct general token is
+configured. A privileged operation checks that **same bearer** at the inner
+gate. Distinct general and read tokens 401 there even on GET. Do not send
+multiple credentials or interpret OpenAPI security entries as combined roles.
+
+### Discover operations before choosing a tool
+
+The enabled, mounted `/openapi.json` document is the source of truth. Each
+`/api/v1` operation has the following compact discovery projection (example:
+`GET /api/v1/customer-snapshot`):
+
+```json
+{
+  "operationId": "listCustomerSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read"
+}
+```
+
+`operationId` is a unique, stable lowerCamelCase identifier, explicitly kept
+with the route definition (including existing `health` and
+`listCustomerSnapshot`). `x-access` describes authorization, **not effects**:
+
+| `x-access` enum | Required bearer |
+|---|---|
+| `public` | None; only `GET /api/v1/health` (its `security: []` overrides the global bearer requirement) |
+| `read` | Read-only token on GET, general/full token, or sync secret |
+| `full` | General/full token or sync secret; includes **POST reads** |
+| `sync-secret` | Sync secret only, through both gates; includes privileged GETs |
+
+`x-effect` describes intended application-data effects, **not authority,
+idempotency, replay safety or a guarantee of refresh success**:
+
+| `x-effect` enum | Data effect |
+|---|---|
+| `none` | Liveness or unsupported-operation response; no application data access |
+| `local-read` | D1/R2/config reads only; no upstream data request |
+| `upstream-read` | Routeware read, including POST reads; may establish/renew the upstream session |
+| `local-write` | Local D1 mutation without writing Routeware; imports may also archive to R2 |
+| `upstream-read-local-sync` | Routeware report read plus local D1 sync and optional R2 archive |
+| `upstream-write-local-refresh` | Routeware write plus best-effort D1/cache refresh, not an atomic guarantee; `/data/*` responses report `localSync`, passthrough saves do not |
+
+For example, `POST /api/v1/routeware/customer/customers-read` is
+`full` + `upstream-read`, while `GET /api/v1/data/customer` is
+`sync-secret` + `local-read`. Method alone predicts neither access nor
+effects. These classes exclude incidental auth-throttle bookkeeping and
+session maintenance; `upstream-read` does not promise no side effects in the
+upstream application (for example starting a report job).
+
+The document root's `x-agent-metadata: {access, effect}` contains a one-line
+legend keyed by these exact enum values. Unknown or missing metadata should
+stop tool selection, not default to public/read-only access. No role,
+credential, endpoint or execution authority is created by these annotations.
+
+Credential-free check (no running Worker, live tenant or `.dev.vars` needed):
+
+```bash
+npm run check:openapi-agent-metadata
+```
+
+This validates completeness/uniqueness against the **actual mounted router
+and document**, plus classification against hermetic authorization probes.
+It is also included by the existing `npm test` / `npm run test:coverage`
+Vitest discovery; it does not publish a static spec or generate a client.
+`OPENAPI_DOCS_ENABLED` still gates `/openapi.json` and `/docs` unchanged.
 
 ```bash
 export TOKEN=<paste-either-token>

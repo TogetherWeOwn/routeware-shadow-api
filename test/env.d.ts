@@ -26,3 +26,9 @@ declare module "*.sql?raw" {
   const content: string;
   export default content;
 }
+
+/** Vite raw-text imports (`import text from "../CHANGELOG.md?raw"`). */
+declare module "*.md?raw" {
+  const text: string;
+  export default text;
+}
