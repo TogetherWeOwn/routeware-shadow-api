@@ -31,8 +31,8 @@ describe("r2 manifest verify (pure)", () => {
 
   it("parses a valid manifest and sorts entries", () => {
     const text = manifestJson({
-      "customer.csv": { key: "snapshots/2026-9-28/customer.csv", sha256: SHA_A, bytes: 10 },
-      "address.csv": { key: "snapshots/2026-9-28/address.csv", sha256: SHA_B, bytes: 20 },
+      "customer.csv": { key: "snapshots/2026-09-28/customer.csv", sha256: SHA_A, bytes: 10 },
+      "address.csv": { key: "snapshots/2026-09-28/address.csv", sha256: SHA_B, bytes: 20 },
     });
     const parsed = parseManifest(text, "snapshots/2026-09-28.manifest.json");
     expect(parsed.ok).toBe(true);
@@ -52,9 +52,9 @@ describe("r2 manifest verify (pure)", () => {
     expect(parseManifest(JSON.stringify({ version: 1, date: "yesterday", files: {} }), key).error).toMatch(
       /date is not YYYY-MM-DD/
     );
-    const badSha = manifestJson({ "customer.csv": { key: "k", sha256: "zzz", bytes: 1 } });
+    const badSha = manifestJson({ "customer.csv": { key: "snapshots/2026-09-28/customer.csv", sha256: "zzz", bytes: 1 } });
     expect(parseManifest(badSha, key).error).toMatch(/malformed sha256/);
-    const badBytes = manifestJson({ "customer.csv": { key: "k", sha256: SHA_A, bytes: -1 } });
+    const badBytes = manifestJson({ "customer.csv": { key: "snapshots/2026-09-28/customer.csv", sha256: SHA_A, bytes: -1 } });
     expect(parseManifest(badBytes, key).error).toMatch(/malformed byte size/);
     expect(parseManifest(JSON.stringify({ version: 1, date: "2026-09-28", files: null }), key).error).toMatch(
       /files is not an object/
@@ -62,7 +62,7 @@ describe("r2 manifest verify (pure)", () => {
   });
 
   it("passes when every entry matches", () => {
-    const files = [{ name: "customer.csv", key: "k", sha256: SHA_A, bytes: 10 }];
+    const files = [{ name: "customer.csv", key: "snapshots/2026-09-28/customer.csv", sha256: SHA_A, bytes: 10 }];
     const result = verifyManifestHashes(files, [{ ...files[0] }]);
     expect(result).toEqual({ ok: true, passed: ["customer.csv"], mismatched: [], missing: [] });
   });
@@ -91,8 +91,8 @@ describe("r2 manifest verify (pure)", () => {
 
   it("reports manifest entries that cannot be fetched as missing", () => {
     const files = [
-      { name: "customer.csv", key: "k1", sha256: SHA_A, bytes: 1 },
-      { name: "address.csv", key: "k2", sha256: SHA_B, bytes: 2 },
+      { name: "customer.csv", key: "snapshots/2026-09-28/customer.csv", sha256: SHA_A, bytes: 1 },
+      { name: "address.csv", key: "snapshots/2026-09-28/address.csv", sha256: SHA_B, bytes: 2 },
     ];
     const result = verifyManifestHashes(files, [{ ...files[0] }], ["address.csv"]);
     expect(result.ok).toBe(false);
