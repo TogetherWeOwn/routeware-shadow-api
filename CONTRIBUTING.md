@@ -40,6 +40,19 @@ at the first failing step. `npm run help` lists every script, grouped by namespa
 upstream-backed routes; dummy values work for everything else. See the
 [README](./README.md#quick-start-local) for the full walkthrough.
 
+### verify:config: one-command preflight (human and JSON)
+
+`npm run verify:config` chains `check:devvars`, `check:vars-parity` and local-only
+`check:d1-drift` with one summary; exit 0 when every leg passes, 1 otherwise.
+
+- `npm run verify:config:json` (`--json`) prints exactly one single-line JSON object
+  (`schemaVersion: 1`) with a per-leg `outcome` (`passed`, `nonzero_exit`, `timeout`,
+  `spawn_error`), `errorCode` and fixed `nextAction` — no child output or secret text.
+- `npm run verify:config:dry-run` (`--dry-run --json`) prints the check plan and spawns
+  nothing; repeat runs are identical.
+- Every leg is bounded by the documented per-leg `timeout` (`CHECK_TIMEOUT_MS`); a
+  timed-out leg aborts its child and the run continues with the remaining legs.
+
 ## Forks (external contributors)
 
 This is a public repo. External contributors work from a fork:
