@@ -5,6 +5,7 @@ import customersReadExample from "../tools/api-discovery/examples/customers-read
 import detailFullExample from "../tools/api-discovery/examples/get-customer-detail-full.post.example.json";
 import routeMapJson from "../tools/api-discovery/route-map.json";
 import { customerTypesReadBody, saveCustomerLongFormBody } from "./customerFormExamples";
+import { isUpstreamUrl } from "./upstreamHost";
 
 type RouteMapEntry = {
   method: string;
@@ -45,7 +46,7 @@ describe("route-map → shadow Worker", () => {
         const internalTokenFetch = shadowHdr === "anti-forgery-modal";
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Customer/LoadLongCustomerModal")
         ) {
           return new Response(
@@ -55,7 +56,7 @@ describe("route-map → shadow Worker", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Customer/AddNewLong")
         ) {
           return new Response(
@@ -63,7 +64,7 @@ describe("route-map → shadow Worker", () => {
             { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
           );
         }
-        if (url.includes("killeen.routeware.com") && url.includes("/WebRW/")) {
+        if (isUpstreamUrl(url) && url.includes("/WebRW/")) {
           return new Response(JSON.stringify({ mocked: true, url }), {
             status: 200,
             headers: { "content-type": "application/json" }

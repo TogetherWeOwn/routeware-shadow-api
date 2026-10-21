@@ -46,6 +46,12 @@ const fixture = `
   };
 `;
 
+// Canonical RegExp escape: escaping only "." is an incomplete sanitization
+// (CodeQL js/incomplete-sanitization) — every metacharacter must be escaped.
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function run(args = [], env = {}, timeoutMs = 1000) {
   const result = spawnSync(process.execPath, [
     `--import=data:text/javascript,${encodeURIComponent(fixture)}`, wrapper,
@@ -98,7 +104,7 @@ test("missing token fails with usage and makes no requests", () => {
 test("healthy run sends auth only on the authenticated readiness probe", () => {
   const result = run([], { SHADOW_API_BASE: BASE, SHADOW_API_TOKEN: TOKEN });
   assert.equal(result.status, 0, result.output);
-  assert.match(result.output, new RegExp(`FIXTURE_FETCH ${BASE.replace(/\./g, "\\.")}/api/v1/health GET public`));
+  assert.match(result.output, new RegExp(`FIXTURE_FETCH ${escapeRegExp(BASE)}/api/v1/health GET public`));
   const readiness = result.output.match(/FIXTURE_FETCH \S+\/api\/v1\/readiness GET \w+/g) ?? [];
   assert.deepEqual(readiness, [
     `FIXTURE_FETCH ${BASE}/api/v1/readiness GET public`,

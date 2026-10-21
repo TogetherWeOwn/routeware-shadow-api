@@ -390,7 +390,10 @@ but is **not** a test-only change.
 Every test runs against stubs. `test/integration.test.ts` sets the house pattern: replace
 `globalThis.fetch` in `beforeEach`, restore it in `afterEach`, and **throw** on any upstream URL the
 test did not anticipate, so a leak fails loudly instead of silently calling
-`killeen.routeware.com`.
+`killeen.routeware.com`. Detect upstream URLs with `test/upstreamHost.ts`
+(`isUpstreamUrl`, exact parsed-hostname comparison) — never `url.includes(host)`,
+which both false-trips on crafted URLs and misses case variants (CodeQL
+`js/incomplete-url-substring-sanitization`).
 
 **`test/snapshotAuth.test.ts` must keep its stub.** Fifteen of its sixteen tests are rejected at the
 auth gate and never reach a handler body, which is why the file had no stub for a long time. The
