@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Hydrated `GET /api/v1/data/customer|address|container` reads now require
+- #324: Hydrated `GET /api/v1/data/customer|address|container` reads now require
   canonical positive decimal safe-integer IDs (`1`–`9007199254740991`) for
   both `id` and the existing `customerId` / `pickupAddressId` / `containerId`
   aliases. Empty or whitespace text, leading zeros, signs, fractions,
