@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
+  unknown arguments and remote requests before executing anything. `--dry-run`
+  reports deterministic local fixture intent without subprocesses or state changes;
+  composable `--json` emits one versioned plan/result with stable operation/check
+  IDs, stage/count fields and fixed, sanitized errors with correction actions.
+  No-flag local execution and idempotent fixture ordering are unchanged.
+
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and
