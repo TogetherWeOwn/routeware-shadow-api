@@ -5,6 +5,7 @@
  */
 
 import { errorKind, logEvent } from "./logger";
+import { readReportStreamStallTimeoutMs, readWithStallTimeout } from "./upstreamTimeout";
 
 export type SnapshotArchiveTable = "customer" | "address" | "container";
 
@@ -299,11 +300,14 @@ export async function archiveReportCsvToR2AfterD1<T>(
   const manifestKey = snapshotR2ManifestObjectKey(now);
 
   // Drain the source once; both legs consume identical in-memory copies.
+  // Stall-bounded like the D1 leg: a hung upstream mid-stream must fail here
+  // as a 502 timeout, not hold the Worker while the sync below never runs.
   const reader = body.getReader();
   const chunks: Uint8Array[] = [];
+  const stallTimeoutMs = readReportStreamStallTimeoutMs(env);
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithStallTimeout(reader, stallTimeoutMs);
       if (value?.byteLength) {
         chunks.push(value.slice());
       }

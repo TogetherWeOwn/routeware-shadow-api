@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CHANGELOG gate (TOG-8385, gap G9). Fails when consumer-visible contract
+ * CHANGELOG gate (PR #171). Fails when consumer-visible contract
  * paths changed without a referencing bullet (`#123`, or a legacy
  * `TOG-1234`) under `## [Unreleased]`.
  *

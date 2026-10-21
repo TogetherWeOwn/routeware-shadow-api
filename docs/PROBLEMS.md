@@ -121,7 +121,9 @@ Authorization: Bearer <SHADOW_API_TOKEN>
 `SHADOW_API_TOKEN` gates general access. When it is unset, the Worker falls back to
 `CUSTOMER_SNAPSHOT_SYNC_SECRET`. The privileged snapshot/data routes
 (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`,
-`/api/v1/data-snapshot/sync`) additionally require
+`/api/v1/data-snapshot/sync`, the `DELETE` customer erasure route,
+`GET /api/v1/data-snapshot/orphans`, `GET /api/v1/snapshots/:table/:date`
+readback) additionally require
 `CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
 
 ### Dual-secret matrix
@@ -155,7 +157,7 @@ passing the outer gate with the API token is not enough:
 | Route class | `Bearer <API>` | `Bearer <SYNC>` | wrong / none |
 |---|---|---|---|
 | General (all `/api/v1/routeware/*`, snapshot list reads, `GET /api/v1/shadow/health`) | ✓ | ✓ | 401 outer gate |
-| Privileged (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` — 16 routes) | 401 inner check | ✓ | 401 outer gate |
+| Privileged (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`, `DELETE` erasure, `data-snapshot/orphans`, `snapshots/` readback — 19 routes) | 401 inner check | ✓ | 401 outer gate |
 | Public (`GET /api/v1/health`) | n/a | n/a | 200, no token |
 
 Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
@@ -167,9 +169,11 @@ bodies).
 `SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
 reads. It passes the outer gate on GET requests only: a GET with the read
 token returns 200 on a general route, while any non-GET request with it 401s
-at the outer gate, and every privileged route (sync/import, GET exports,
-`/api/v1/data/*` reads) 401s at the inner sync-secret check — no privileged
-route accepts the read token. Unset or blank means unconfigured: the role
+at the outer gate. Among privileged routes, non-GET requests (sync/import,
+POST `/api/v1/data/*`, `DELETE` erasure) 401 at the outer gate, and only
+privileged GETs (exports, `/api/v1/data/*` reads, `data-snapshot/orphans`,
+`snapshots/` readback) pass that gate to 401 at the inner sync-secret
+check — no privileged route accepts the read token. Unset or blank means unconfigured: the role
 fails closed. Use a distinct random value — if it ever equals the full token
 it inherits full access.
 
@@ -311,12 +315,20 @@ and init scripts, and interactive login-page sniffing. Successful passthrough
 validation preserves the original response bytes and headers.
 
 Intentionally untouched: raw report CSV downloads and CSV-to-D1/R2 consumption
-(including the archive's whole-CSV buffer) have **no total-body deadline**.
-Report-download login sniffing retains its existing unbounded behavior for
-nonstandard content types; it explicitly opts out so a legitimate long CSV
-served as text/plain is not cut off. The sessionless login-page probe only
-forwards a stream and remains header-bounded. Chained same-Worker sync response
-reads are not Routeware responses and are outside this fix.
+have **no total-body deadline** — a large export that keeps flowing is never
+cut off for its size or total time. They do have an **idle (stall) bound**:
+every streamed read must yield bytes within `REPORT_STREAM_STALL_TIMEOUT_MS`
+(default 30s; absent/invalid falls back to the default); a longer gap with no
+bytes cancels the read and fails the sync/readback as a 502 `UpstreamTimeoutError`
+before any reconcile or delete, while each completed read resets the window so
+slow-but-progressing streams complete. The bound covers the R2 archive drain,
+the D1 `streamCsvLines` consumption, and both archive-readback passes.
+Operator `...-snapshot/import` uploads stay unbounded (a client disconnect
+aborts them). Report-download login sniffing retains its existing unbounded
+behavior for nonstandard content types; it explicitly opts out so a legitimate
+long CSV served as text/plain is not cut off. The sessionless login-page probe
+only forwards a stream and remains header-bounded. Chained same-Worker sync
+response reads are not Routeware responses and are outside this fix.
 
 Per-step **header** budgets (single-retry max, so headers cost at most 2x one
 attempt; buffered consumers additionally get the body budget described above):
@@ -374,6 +386,9 @@ Tuning guidance (all overrides are optional per-deploy bindings — no
   Keep worst case (2x) well under the 300s CPU limit.
 - `UPSTREAM_REPORT_TIMEOUT_MS`: raise only if report *headers* are slow — the
   streaming body is not counted, so large-but-fast-starting CSVs need no bump.
+- `REPORT_STREAM_STALL_TIMEOUT_MS`: raise if 502s cluster on an upstream that
+  legitimately pauses mid-export longer than 30s between bytes; lower to fail
+  faster on hung streams. Total export time is never counted — only idle gaps.
 - `REPORT_QUERY_POLL_INTERVAL_MS` / `REPORT_QUERY_POLL_MAX_ATTEMPTS`: raise
   max attempts for slow async query builds; note the poll and the download
   share one Worker invocation.
