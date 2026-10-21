@@ -366,12 +366,13 @@ secret currently surfaces as the 401 (pinned in
 `test/dataSnapshotRoutes.test.ts`), not its own 503. The per-call-site `detail` wording was unified in
 the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and
-`instance`). `test/authGateResweep.test.ts` pins the 17 sync/import/export/data/snapshots
-routes from the live router, so a new route in those classes without
+`instance`). `test/authGateResweep.test.ts` pins all 19 privileged routes
+from the live router, so a new route in those classes without
 `requireSnapshotAuth` fails there instead of slipping past the outer gate on
-the general API token; the `DELETE` erasure and `orphans` routes match no
-resweep class and are pinned only by `GUARDED_ROUTES` in
-`test/snapshotAuth.test.ts`.
+the general API token; the `DELETE` erasure route matches method-qualified
+(`GET` on the same path is the outer-gate-only single-customer read) and the
+`orphans` route by exact match, while `GUARDED_ROUTES` in
+`test/snapshotAuth.test.ts` pins the canonical inner 401 on each of the 19.
 
 ### `src/app.ts` and the `src/routes/` module rules
 
