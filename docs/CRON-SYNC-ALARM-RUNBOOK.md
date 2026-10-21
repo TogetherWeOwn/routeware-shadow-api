@@ -44,7 +44,7 @@ not reflect the run even if its rows moved, so check ground truth (§2).
 |---|---|---|
 | `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
 | `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
-| `failed` (`data-snapshot-sync failed`, level `error`) | The sync threw. The allowlisted `table` names the failed step (e.g. `customer`, `address` — absent when unknown); `status` is the HTTP status of a failed chained subrequest (only with `kind` `ChainedHttpError`); `kind` is the class of the root cause (`ChainedHttpError`, `ChainedTimeoutError`, `ChainedInvalidJsonError`, or the local error's class). Exception text never reaches the log, except the R2 archive `reason` under `tables`. Tables that finished before the failure keep their counts; the failing table and tables never attempted are `null`. `summary` is `sync threw before any table result was recorded` when nothing ran (for example, the missing-secret check before any table runs); otherwise it lists all three tables, with `; failed: <table>` appended only when the failing table is known. | Triage per §4. |
+| `failed` (`data-snapshot-sync failed`, level `error`) | The sync threw. The allowlisted `table` names the failed step (e.g. `customer`, `address` — absent when unknown); `status` is the HTTP status of a failed chained subrequest (only with `kind` `ChainedHttpError`); `kind` is the class of the root cause (chained classes in §4.1, or the local error's class). Chained boundary refusals carry `next_action: inspect_table_sync_before_resubmitting`. Chained wire R2 reasons are fixed classifications, never exception text; the single-invocation fallback retains its local R2 driver reason. Tables that finished before the failure keep their counts; the failing table and tables never attempted are `null`. `summary` is `sync threw before any table result was recorded` when nothing ran (for example, the missing-secret check before any table runs); otherwise it lists all three tables, with `; failed: <table>` appended only when the failing table is known. | Triage per §4. |
 | `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (the overlap guard). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no primary record)* | The platform never invoked `scheduled()`, the invocation died before logging, or the log was dropped. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. The record is written after the readiness write, so rows can move with no record. | Treat as **failed**. Verify with ground truth (§2): fresh `synced_at` means the rows moved and only the record is missing. Then check trigger state. |
 
@@ -144,6 +144,48 @@ Until a log-based alerting tier exists, the manual fallback is this loop, run on
    - Upstream HTML-200 failures (session lost, login page) surface as the failed table per `docs/CONVENTIONS.md` fact 1 — verify Routeware credentials, not Worker config.
    - No primary record with fresh `synced_at` — the rows moved, but the Worker died before logging or the log was dropped (the record is written after the readiness write). Note it and watch the next run; an overlapping firing is not this case, since it logs `skipped-overlap`. No primary record with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
 5. Record the disposition where the team looks (issue comment or ops log): date, outcome, tables, action taken. Silence is how the next miss goes unnoticed.
+
+### 4.1 Chained response boundary
+
+Each per-table sync POST has a **single 180,000ms deadline** by default, overridable
+with `CHAINED_SYNC_TIMEOUT_MS` (absent/invalid → default), covering both headers and
+body. Headers consume that budget; body consumption gets only the remainder.
+Responses are limited to **65,536 actual UTF-8 bytes, inclusive**, irrespective of
+Content-Length. A non-2xx response is cancelled immediately without draining.
+Timeout and oversize abort the fetch and request stream cancellation; cancellation
+promises are never awaited. No automatic retry or redirect replay occurs.
+
+| Fixed `kind` | Meaning / inspection |
+|---|---|
+| `ChainedTimeoutError` | Headers or body did not finish inside the one-table deadline; inspect the table invocation and report-export progress. |
+| `ChainedResponseTooLargeError` | Actual JSON body crossed 64 KiB; inspect the per-table producer's summary contract, not response bytes. |
+| `ChainedInvalidJsonError` | JSON is invalid or required counts / present `deleted` are not nonnegative safe integers; fix the producer without coercion. |
+| `ChainedResponseReadError` | The body source failed; inspect invocation/platform health, not the raw exception. |
+| `ChainedHttpError` | Non-2xx response; use the sanitized numeric `status` to inspect the per-table route. |
+| `ChainedNetworkError` | Fetch failed before headers; inspect connectivity/configuration without logging its raw error or URL. |
+
+The chained boundary refusal kinds above carry **`next_action: inspect_table_sync_before_resubmitting`**.
+Preflight/configuration and unrelated local errors retain their existing fields.
+Later tables are not attempted; completed tables keep their counts. Remote D1/R2
+work may already have completed even if observing its response failed. Inspect the
+failed table's invocation and persisted state **before** deciding to resubmit; a
+cancellation request is not a rollback. The combined HTTP route's normal
+`{upserted,rowCount}|null` contract, dry-run forwarding and correlation IDs remain
+unchanged. Optional `deleted` is validated like required counts unless skipped.
+
+Wire R2 metadata keeps `stored|disabled|failed`, never arbitrary properties,
+nested data, keys or free text. Disabled reasons are exactly `SNAPSHOTS binding
+unbound` / `SNAPSHOTS_R2_ENABLED=false`. Known publication stages (`daily alias`,
+`history manifest`, `daily manifest`, `latest pointer`) retain only a fixed
+`R2 publication unavailable` classification; `R2 outcome unreported` is also fixed.
+Unknown reasons are omitted, not treated as a successful archive. This projection
+is for HTTP wire results; local single-invocation driver reporting is unchanged.
+
+Hermetic focused check (synthetic streams, deny-by-default fetch; no live sync/replay):
+
+```sh
+CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
+```
 
 ## 5. Local missed-run drill (no deploy, no token, no tenant)
 
