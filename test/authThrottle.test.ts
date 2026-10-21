@@ -261,6 +261,24 @@ describe("throttle DO endpoints", () => {
     expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
   });
 
+  it("reports the stored block on check after failures accumulate", async () => {
+    // Arrange — enough failures to trip the block, all inside one window.
+    const session = sessionWith();
+    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+      await throttleCall(session, "/throttle/failure");
+    }
+
+    // Act
+    const verdict = await (await throttleCall(session, "/throttle/check")).json();
+
+    // Assert — the check reads the stored state (blocked), not a fresh empty one.
+    expect(verdict).toEqual({
+      blocked: true,
+      retryAfterSec: 60,
+      resetAtSec: expect.any(Number)
+    });
+  });
+
   it("treats a corrupt stored value as empty instead of throwing", async () => {
     // Arrange — a foreign value under the throttle key (e.g. a past key bug).
     const session = sessionWith({ throttle: { failures: "many" } });

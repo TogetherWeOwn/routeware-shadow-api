@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthSession } from "../src/authSession.do";
+import { AuthSession, TAKEOVER_WINDOW_MS } from "../src/authSession.do";
 import { sessionExpiryMs } from "../src/lib/sessionState";
 import { authSessionTestState } from "./authSessionTestState";
 
@@ -239,6 +239,24 @@ describe("AuthSession Durable Object", () => {
 
       // Act
       const response = await call(session, "/set", body);
+
+      // Assert — rejected, and nothing was persisted
+      expect(response.status).toBe(400);
+      expect(await readState(session)).toEqual({
+        cookieHeader: null,
+        expiresAtMs: null,
+        refreshing: false
+      });
+    });
+
+    it("rejects an unparseable /set body with 400 instead of storing it", async () => {
+      // Arrange
+      const session = await makeSession();
+
+      // Act — truncated JSON: req.json() rejects, so raw is null, never partial
+      const response = await session.fetch(
+        new Request("https://do.local/set", { method: "POST", body: "{invalid" })
+      );
 
       // Assert — rejected, and nothing was persisted
       expect(response.status).toBe(400);
@@ -541,6 +559,21 @@ describe("AuthSession Durable Object", () => {
       expect((await readState(session)).refreshing).toBe(true);
     });
 
+    it("stays ineligible on cold storage and writes nothing on 409", async () => {
+      // Arrange — virgin DO: no lock, session, or episode keys were ever set,
+      // so `refreshing` reads undefined rather than an explicit false.
+      const { session, values } = await makeInspectableSession();
+      const before = [...values.keys()];
+
+      // Act
+      const takeover = await call(session, "/takeover", {});
+
+      // Assert — 409, and the route changed no state: no claim, no anchor.
+      expect(takeover.status).toBe(409);
+      expect([...values.keys()]).toEqual(before);
+      expect((await readState(session)).refreshing).toBe(false);
+    });
+
     it("keeps a takeover lock against a stale holder's late publish and release", async () => {
       // Arrange — A explicitly fails and releases; B wins the bounded takeover.
       const session = await makeSession();
@@ -688,6 +721,52 @@ describe("AuthSession Durable Object", () => {
       expect(
         (await session.fetch(new Request("https://do.local/takeover", { method: "POST" }))).status
       ).toBe(423);
+    });
+
+    it("keeps the original anchor when a second holder fails inside the window", async () => {
+      // Arrange — A fails and anchors the episode; B takes a normal /lock
+      // mid-episode (not a takeover) and fails 1s later, inside the window.
+      const { session, values } = await makeInspectableSession();
+      const tokenA = await acquireToken(session);
+      expect((await call(session, "/unlock", { lockToken: tokenA })).status).toBe(200);
+      const anchor = values.get("failedReleaseAtMs");
+      expect(typeof anchor).toBe("number");
+      vi.setSystemTime(new Date(Date.now() + 1000));
+      const tokenB = await acquireToken(session);
+
+      // Act — B's login fails too.
+      const response = await call(session, "/unlock", { lockToken: tokenB });
+
+      // Assert — no fresh episode: the anchor and the unspent budget survive,
+      // so the window still closes on the original anchor and a waiter may
+      // still take over once.
+      expect(response.status).toBe(200);
+      expect(values.get("failedReleaseAtMs")).toBe(anchor);
+      expect(values.has("takeoverAtMs")).toBe(false);
+      expect((await readState(session)).refreshing).toBe(false);
+      expect((await call(session, "/takeover", {})).status).toBe(200);
+    });
+
+    it("opens a fresh episode when a holder fails after the window closed", async () => {
+      // Arrange — A fails and anchors an episode nobody claims; the window passes.
+      const { session, values } = await makeInspectableSession();
+      const tokenA = await acquireToken(session);
+      expect((await call(session, "/unlock", { lockToken: tokenA })).status).toBe(200);
+      const staleAnchor = values.get("failedReleaseAtMs");
+      expect(typeof staleAnchor).toBe("number");
+      vi.setSystemTime(new Date(Date.now() + TAKEOVER_WINDOW_MS + 1));
+      const tokenB = await acquireToken(session);
+
+      // Act — B's login fails after the window closed.
+      const response = await call(session, "/unlock", { lockToken: tokenB });
+
+      // Assert — the stale anchor is replaced by B's failure time and the
+      // budget is reset, so the new episode admits one takeover.
+      expect(response.status).toBe(200);
+      expect(values.get("failedReleaseAtMs")).toBe(Date.now());
+      expect(values.get("failedReleaseAtMs")).not.toBe(staleAnchor);
+      expect(values.has("takeoverAtMs")).toBe(false);
+      expect((await readState(session)).refreshing).toBe(false);
     });
   });
 
