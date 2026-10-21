@@ -297,11 +297,27 @@ describe("archive route stall wiring", () => {
   const ctx = { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext;
 
   async function getArchive(bucket: R2Bucket): Promise<Response> {
+    // The app awaits a throttle DO reset before reaching R2. Its cold-start
+    // scheduling is unrelated to the stream's 50ms bound and can consume the
+    // 500ms watchdog before a read starts. Keep auth real but give this fixture
+    // its own immediate reset transport; the archive and stall timers stay real.
     return app.fetch(
       new Request("http://test.local/api/v1/snapshots/customer/2026-10-21", {
         headers: { authorization: "Bearer test-sync-secret" }
       }),
-      { ...env, SNAPSHOTS: bucket, REPORT_STREAM_STALL_TIMEOUT_MS: "50" } as unknown as Env,
+      {
+        ...env,
+        AUTH_SESSION: {
+          idFromName: (name: string) => env.AUTH_SESSION.idFromName(name),
+          get: () => ({
+            async fetch() {
+              return new Response(null, { status: 204 });
+            }
+          })
+        },
+        SNAPSHOTS: bucket,
+        REPORT_STREAM_STALL_TIMEOUT_MS: "50"
+      } as unknown as Env,
       ctx
     );
   }
@@ -319,6 +335,7 @@ describe("archive route stall wiring", () => {
       expect(problem.detail).toContain("50ms");
       expect(JSON.stringify(problem)).not.toContain("SyntheticMustNotLeak");
       expect(src.cancel).toHaveBeenCalledTimes(1);
+      expect(src.cancel.mock.calls[0]?.[0]).toBeInstanceOf(UpstreamTimeoutError);
       expect(get).toHaveBeenCalledTimes(1);
     } finally {
       src.close();

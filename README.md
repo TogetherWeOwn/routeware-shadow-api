@@ -128,6 +128,56 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
+### Local fixture plans and results
+
+`npm run db:seed -- --help` describes the local-only seed contract. No flags
+still writes ordinary local dev state; `--persist-to=<dir>` selects a scratch
+state directory for **every** apply/verify call. Empty/whitespace-only values,
+repeated targets, control characters and flag-looking paths are rejected (use
+`./-name` for a leading-dash directory). Unknown flags, SQL/file/database overrides
+and `--remote` are rejected, never forwarded. Wrangler always receives `--local`.
+
+```sh
+# Intent only; safe before local migrations, no Wrangler, credentials or state writes:
+npm run --silent db:seed -- --dry-run --json --persist-to=./scratch/d1
+# Real local application: migrate the SAME scratch target first, then seed:
+npm run db:migrate:local -- --persist-to=./scratch/d1
+npm run --silent db:seed -- --json --persist-to=./scratch/d1
+```
+
+Use npm's `--silent` to avoid its script banner when consuming JSON. Without
+`--json`, execution retains the human PASS summary; `--dry-run` prints a plan,
+not a success claim. Dry-run checks neither migrations nor current row availability.
+It does not apply migrations. Fixture IDs, ordered UPSERT SQL and verification
+queries remain defined once in `scripts/lib/dbSeed.mjs`.
+
+JSON v1 always has `schemaVersion: 1`, `mode: "local"`,
+`database: "routeware-customer-snapshot"`, `target: {"persistTo": null}` (default,
+otherwise the supplied directory), `stage`, `outcome`, and `counts` keyed by
+verified table. A plan has `stage: "plan"`, `outcome: "planned"`, empty counts,
+`fixtureIds`, ordered `effects` (`id: "upsert:<table>"`, `table`, `operation`, `sql`)
+and `checks` (`id: "count:<table>"`, `table`, `expected: 1`, `sql`), plus limitations
+`migrations_not_checked` and `row_availability_not_checked`.
+
+Successful execution ends with `stage: "complete"`, `outcome: "success"`, and
+`counts: {"customer_snapshot": 1, "address_snapshot": 1, "container_snapshot": 1}`.
+Failures have `outcome: "error"` and
+`error: {"code": "DB_SEED_…", "retryable": false, "next_action": "…"}`; counts
+contain only completed numeric observations, including a mismatching count.
+No child output, SQL error text, environment dump or exception message is echoed.
+A failure after apply does not imply rollback; UPSERTs are safe to re-run after correction.
+
+| Stage | Fixed error code | Exit |
+|---|---|---|
+| `arguments` | `DB_SEED_INVALID_TARGET`, `DB_SEED_DUPLICATE_TARGET`, `DB_SEED_REMOTE_FORBIDDEN`, `DB_SEED_UNKNOWN_ARGUMENT` | 2 |
+| `apply` | `DB_SEED_APPLY_FAILED` | 1 |
+| `verify` | `DB_SEED_VERIFY_FAILED`, `DB_SEED_COUNT_MISMATCH` | 1 |
+| `apply` or `verify` | `DB_SEED_INVALID_RESULT` (malformed/failed envelope or invalid count shape) | 1 |
+
+Help, plans and verified success exit 0. Each error includes a fixed correction
+action, not an automatic retry instruction. `--help`/`-h` takes precedence and
+exits without execution even alongside other flags.
+
 ## Deploy
 
 [`.github/workflows/ci.yml`](./.github/workflows/ci.yml) always keeps PR verification separate from

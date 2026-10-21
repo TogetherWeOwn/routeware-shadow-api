@@ -180,12 +180,22 @@ function entryList(indexes) {
  * `"METHOD /path"` strings (OpenAPI `{param}` segments match exactly one
  * concrete segment); without it the mounted-operation check reports
  * `skipped` instead of `pass`.
+ *
+ * `options.onlyChecks` is an optional subset of check ids to enforce. It
+ * exists for consumers whose input domain is wider than the executable
+ * contract: export-curl-examples.mjs renders non-executable documentation
+ * for any method/path, so it enforces only the structural checks (shape,
+ * duplicate-upstream, conflicting-shadow) and leaves method/path-shape to
+ * the CLI. Skipped checks report `skipped` and pass their entries through
+ * to the later checks, so a skipped rejection never hides an ambiguity.
  */
 export function validateRouteMap(routeMap, options = {}) {
   const findings = [];
   const push = (finding) => {
     findings.push({ severity: "error", ...finding });
   };
+  const onlyChecks = options?.onlyChecks;
+  const run = (checkId) => !Array.isArray(onlyChecks) || onlyChecks.includes(checkId);
 
   if (!Array.isArray(routeMap)) {
     push({
@@ -212,7 +222,8 @@ export function validateRouteMap(routeMap, options = {}) {
       shapeGroups.set(reason.canon, group);
     }
   }
-  for (const { reason, indexes } of shapeGroups.values()) {
+  const shapeFindings = run("route-map.shape") ? [...shapeGroups.values()] : [];
+  for (const { reason, indexes } of shapeFindings) {
     push({
       checkId: "route-map.shape",
       code: "ENTRY_FIELD_INVALID",
@@ -227,7 +238,7 @@ export function validateRouteMap(routeMap, options = {}) {
   const methodGroups = new Map();
   for (const i of shapeOk) {
     const method = routeMap[i].method;
-    if (SUPPORTED_METHODS.includes(method)) {
+    if (!run("route-map.method") || SUPPORTED_METHODS.includes(method)) {
       methodOk.push(i);
     } else {
       const group = methodGroups.get(method) ?? { indexes: [] };
@@ -252,7 +263,7 @@ export function validateRouteMap(routeMap, options = {}) {
   const upstreamGroups = new Map();
   for (const i of methodOk) {
     const upstreamPath = routeMap[i].upstreamPath;
-    if (pathShapeReason(upstreamPath) === null) {
+    if (!run("route-map.upstream-path") || pathShapeReason(upstreamPath) === null) {
       upstreamOk.push(i);
     } else {
       const group = upstreamGroups.get(upstreamPath) ?? { indexes: [] };
@@ -276,7 +287,7 @@ export function validateRouteMap(routeMap, options = {}) {
   const shadowGroups = new Map();
   for (const i of upstreamOk) {
     const shadowPath = routeMap[i].shadowPath;
-    if (pathShapeReason(shadowPath) === null) {
+    if (!run("route-map.shadow-path") || pathShapeReason(shadowPath) === null) {
       shadowOk.push(i);
     } else {
       const group = shadowGroups.get(shadowPath) ?? { indexes: [] };
@@ -304,7 +315,7 @@ export function validateRouteMap(routeMap, options = {}) {
     group.indexes.push(i);
     upstreamGroups2.set(key, group);
   }
-  for (const [key, { indexes }] of upstreamGroups2) {
+  for (const [key, { indexes }] of run("route-map.duplicate-upstream") ? upstreamGroups2 : []) {
     if (indexes.length < 2) {
       continue;
     }
@@ -331,7 +342,7 @@ export function validateRouteMap(routeMap, options = {}) {
     group.indexes.push(i);
     shadowGroups2.set(key, group);
   }
-  for (const [key, { indexes }] of shadowGroups2) {
+  for (const [key, { indexes }] of run("route-map.conflicting-shadow") ? shadowGroups2 : []) {
     if (indexes.length < 2) {
       continue;
     }
@@ -356,7 +367,7 @@ export function validateRouteMap(routeMap, options = {}) {
 
   // Mounted operations: every surviving shadow method+path must resolve.
   const mountedOperations = options?.mountedOperations;
-  if (Array.isArray(mountedOperations)) {
+  if (run("route-map.mounted-operation") && Array.isArray(mountedOperations)) {
     const matchers = mountedOperations
       .filter((text) => typeof text === "string")
       .map(parseMountedOperation);
@@ -417,9 +428,18 @@ function buildResult(entries, findings, options) {
 
   const failed = new Set(findings.map((finding) => finding.checkId));
   const mountedSupplied = Array.isArray(options?.mountedOperations);
+  const only = options?.onlyChecks;
+  const ran = (id) => !Array.isArray(only) || only.includes(id);
   const checks = CHECK_IDS.map((id) => ({
     id,
-    status: id === "route-map.mounted-operation" && !mountedSupplied ? "skipped" : failed.has(id) ? "fail" : "pass",
+    status:
+      id === "route-map.mounted-operation" && !mountedSupplied
+        ? "skipped"
+        : !ran(id)
+          ? "skipped"
+          : failed.has(id)
+            ? "fail"
+            : "pass",
   }));
 
   return {

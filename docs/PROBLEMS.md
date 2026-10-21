@@ -16,6 +16,7 @@ section below.
 | `unsupported-media-type` | 415 | <a name="unsupported-media-type"></a>A snapshot import does not declare a supported CSV media type. See below. |
 | `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
+| `snapshot-export-query-budget` | 503 | The snapshot export cannot fit its reserved D1 query allowance. See the page-sizing remedy below. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
@@ -327,8 +328,19 @@ Operator `...-snapshot/import` uploads stay unbounded (a client disconnect
 aborts them). Report-download login sniffing retains its existing unbounded
 behavior for nonstandard content types; it explicitly opts out so a legitimate
 long CSV served as text/plain is not cut off. The sessionless login-page probe
-only forwards a stream and remains header-bounded. Chained same-Worker sync
-response reads are not Routeware responses and are outside this fix.
+only forwards a stream and remains header-bounded.
+
+Chained same-Worker sync responses use a different contract: **one per-table
+180s deadline** (`CHAINED_SYNC_TIMEOUT_MS`, absent/invalid → default), spanning
+headers and body together, with an inclusive **65,536-byte** actual-body cap.
+Non-2xx bodies are cancelled, not drained. Timeout, oversize, source-read and
+invalid JSON/count metadata refusals use fixed chained error kinds; cron keeps
+completed-table counts and the combined HTTP route retains its existing generic
+500 `internal` problem (no new partial-progress API). No POST retry or redirect
+replay occurs. Cancellation is best-effort and never awaited: remote work may
+already have completed. Inspect the failed table before resubmitting, as the
+fixed cron `next_action` directs. See [the chained response boundary and focused
+check](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary).
 
 Per-step **header** budgets (single-retry max, so headers cost at most 2x one
 attempt; buffered consumers additionally get the body budget described above):
@@ -362,7 +374,7 @@ its budget source; all flow through `fetchWithUpstreamTimeout` via
 | POST /api/v1/data/customer, /data/address, /data/container | Save forwards + GetCustomerDetailFull D1 refresh | `forwardWithSessionRetry` + `fetchGetCustomerDetailFull` (direct, override-honoring) | 15s interactive |
 | POST /api/v1/customer-snapshot/sync, /address-snapshot/sync, /container-snapshot/sync, /data-snapshot/sync | report export path or QueryExecuteDownload (+ QueryRequestIsComplete poll) | `fetchReportCsvForPath` / `fetchReportCsvByQueryId` | 60s report (`UPSTREAM_REPORT_TIMEOUT_MS`) |
 | (internal) login: login-page GET, Ext.NET init GET, login POST | LOGIN_URL + ext.axd | `httpAuth.httpLogin` direct `fetchWithUpstreamTimeout` | 15s interactive per fetch |
-| (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` bare `fetch` | no upstream budget — same-Worker subrequest, excluded |
+| (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` `fetchWithUpstreamTimeout` (`redirect: "manual"`) + `readUpstreamText` (65,536-byte cap) | 180s per table across headers+body (`CHAINED_SYNC_TIMEOUT_MS`), never retried |
 
 Fixes: four direct `forwardToUpstream` callers (login-page probe,
 `fetchGetCustomerDetailFull`, customer modal direct path, address/container
@@ -392,6 +404,40 @@ Tuning guidance (all overrides are optional per-deploy bindings — no
 - `REPORT_QUERY_POLL_INTERVAL_MS` / `REPORT_QUERY_POLL_MAX_ATTEMPTS`: raise
   max attempts for slow async query builds; note the poll and the download
   share one Worker invocation.
+
+<a name="snapshot-export-query-budget"></a>
+
+## Snapshot export query budget (`snapshot-export-query-budget`)
+
+The three `GET /api/v1/{customer,address,container}-snapshot/export` routes
+return 503 `application/problem+json` before constructing a CSV stream when the
+bounded ETag prepass cannot establish that a complete download fits the query
+allowance. No CSV disposition or ETag is sent, including for conditional requests.
+The diagnostic is fixed, without row data, configuration values or D1 error text:
+
+```
+Export cannot fit the query budget. Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing before downloading again.
+```
+
+The pure calculation in `src/lib/snapshot/exportBudget.ts` is
+`2 * (ceil(N / pageSize) + 1)`: two passes, each including a terminal empty
+read. The existing 1000-query Paid contract has 50 queries of safety headroom,
+leaving a 950-query export allowance. The prepass stops within 475 reads rather
+than walking an oversized table to completion. For a synthetic 388,735-row table,
+1000-row pages cost 780 queries; 500-row pages cost 1,558 and are rejected.
+
+Operator action: review the existing `SNAPSHOT_EXPORT_PAGE_SIZE` binding using
+[CUSTOMER_SNAPSHOT.md § CSV export page sizing](../CUSTOMER_SNAPSHOT.md#csv-export-page-sizing).
+Use larger pages within the supported 1–5000 range only when row-width memory
+allows; the default is 1000. This is not a client query parameter, and retrying
+unchanged sizing does not fix the budget refusal. No platform limit is raised.
+If even the supported maximum cannot fit, this endpoint cannot supply that full
+CSV within the contract. Admission is not transactional consistency: concurrent
+table changes or unpredictable D1 failures can still error an admitted stream.
+D1 exceptions are not reclassified as this predictable-budget diagnostic.
+
+Hermetic focused check: `npm test -- test/snapshotExportBudget.test.ts`. No live
+tenant, production measurement, remote Wrangler command or migration is needed.
 
 ## Oversized snapshot import (`payload-too-large`)
 

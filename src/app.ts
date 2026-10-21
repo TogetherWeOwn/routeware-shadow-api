@@ -66,7 +66,24 @@ const openApiDocumentConfig = {
         "D1 aggregate reads (customer + address + container) and writes through Routeware with local snapshot sync"
     }
   ],
-  security: [{ bearerAuth: [] }]
+  security: [{ bearerAuth: [] }],
+  // Compact discovery legend; operation metadata lives with each route definition.
+  "x-agent-metadata": {
+    access: {
+      public: "No bearer required (health probe only).",
+      read: "GET: SHADOW_API_READ_TOKEN, SHADOW_API_TOKEN or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate.",
+      full: "SHADOW_API_TOKEN or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate; the read token cannot authorize non-GET requests.",
+      "sync-secret": "CUSTOMER_SNAPSHOT_SYNC_SECRET only: the same bearer must pass both the outer and inner privileged gates, including on GET."
+    },
+    effect: {
+      none: "No application data access (liveness or unsupported-operation response).",
+      "local-read": "Reads local D1, R2 or configuration; no upstream data request.",
+      "upstream-read": "Reads Routeware, including POST reads; may establish or renew the upstream session.",
+      "local-write": "Writes local D1 state without writing Routeware; imports may also archive to R2.",
+      "upstream-read-local-sync": "Reads Routeware reports and synchronizes local D1 state; may archive to R2.",
+      "upstream-write-local-refresh": "Writes Routeware and attempts a best-effort local D1/cache refresh; not an atomic or guaranteed refresh."
+    }
+  }
 };
 
 const app = new OpenAPIHono<AppEnv>();
@@ -75,7 +92,7 @@ app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
   type: "http",
   scheme: "bearer",
   description:
-    "SHADOW_API_TOKEN (falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET) as a bearer token. Required on all /api/v1/* routes except GET /api/v1/health."
+    "Use one Authorization: Bearer <token> header. SHADOW_API_TOKEN (falling back to CUSTOMER_SNAPSHOT_SYNC_SECRET) or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate. SHADOW_API_READ_TOKEN passes that gate on GET only. Privileged operations, including privileged GETs, also require the same bearer to match CUSTOMER_SNAPSHOT_SYNC_SECRET at the inner gate; a distinct API or read token cannot pass it. See each operation's x-access class; only GET /api/v1/health is public."
 });
 
 function openapiDocsEnabled(env: Env): boolean {
