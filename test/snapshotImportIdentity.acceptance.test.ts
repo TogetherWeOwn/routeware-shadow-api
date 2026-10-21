@@ -39,7 +39,6 @@ const BAD_CELL = `123${MARKER}`;
 const PARENT = 700;
 const SENTINEL = 900;
 const FIRST_ID = 10001;
-const BATCH_SIZE = 80; // Public streaming behavior pinned by snapshotImportForeignKey.test.ts.
 const MODES = [false, true];
 
 type Identity = { header: string; field: string; index: number };
@@ -47,18 +46,20 @@ type Spec = {
   name: string;
   table: string;
   primary: string;
+  batchSize: number;
   headers: string[];
   identities: Identity[];
 };
 
+// Existing import defaults: customer/address flush 80 rows; container flushes 40.
 const SPECS: Spec[] = [
   {
-    name: "customer", table: "customer_snapshot", primary: "customer_id",
+    name: "customer", table: "customer_snapshot", primary: "customer_id", batchSize: 80,
     headers: ["CustomerID", "CompanyName"],
     identities: [{ header: "CustomerID", field: "customer_id", index: 0 }]
   },
   {
-    name: "address", table: "address_snapshot", primary: "pickup_address_id",
+    name: "address", table: "address_snapshot", primary: "pickup_address_id", batchSize: 80,
     headers: ["PickupAddressID", "CustomerID", "Address"],
     identities: [
       { header: "PickupAddressID", field: "pickup_address_id", index: 0 },
@@ -66,7 +67,7 @@ const SPECS: Spec[] = [
     ]
   },
   {
-    name: "container", table: "container_snapshot", primary: "container_id",
+    name: "container", table: "container_snapshot", primary: "container_id", batchSize: 40,
     headers: ["ContainerID", "PickupAddressID", "ContainerNote"],
     identities: [
       { header: "ContainerID", field: "container_id", index: 0 },
@@ -259,19 +260,19 @@ describe.each(SPECS)("$name operator identity contract", (spec) => {
   });
 
   it.each(spec.identities)("validates $field in the whole first batch before writing any of it", async (identity) => {
-    const rows = Array.from({ length: BATCH_SIZE - 1 }, (_, i) => cells(spec, String(FIRST_ID + i)));
+    const rows = Array.from({ length: spec.batchSize - 1 }, (_, i) => cells(spec, String(FIRST_ID + i)));
     const bad = cells(spec, "20000");
     bad[identity.index] = BAD_CELL;
     const before = await stored(spec);
     const res = await request(spec, csv(spec, [...rows, bad]), false);
     // Assert state independently of the error status: no prefix rows may land.
     expect(await stored(spec)).toEqual(before);
-    await problem(res, spec, identity.field, BATCH_SIZE + 1);
+    await problem(res, spec, identity.field, spec.batchSize + 1);
   });
 
   it.each(spec.identities.flatMap((identity) => MODES.map((dryRun) => ({ identity, dryRun }))))(
     "rejects late $identity.field without deleting old rows or writing rejected/tail records (dryRun=$dryRun)", async ({ identity, dryRun }) => {
-      const rows = Array.from({ length: BATCH_SIZE }, (_, i) => cells(spec, String(FIRST_ID + i)));
+      const rows = Array.from({ length: spec.batchSize }, (_, i) => cells(spec, String(FIRST_ID + i)));
       const before = await stored(spec);
       const bad = cells(spec, "20000");
       bad[identity.index] = BAD_CELL;
@@ -279,8 +280,8 @@ describe.each(SPECS)("$name operator identity contract", (spec) => {
       const after = await stored(spec);
       for (const original of before) expect(after).toContainEqual(original);
       const added = after.filter((row) => !before.some((old) => old[spec.primary] === row[spec.primary]));
-      expect(added.map((row) => row[spec.primary])).toEqual(dryRun ? [] : Array.from({ length: 80 }, (_, i) => 10001 + i));
-      await problem(res, spec, identity.field, 82);
+      expect(added.map((row) => row[spec.primary])).toEqual(dryRun ? [] : Array.from({ length: spec.batchSize }, (_, i) => FIRST_ID + i));
+      await problem(res, spec, identity.field, spec.batchSize + 2);
     }
   );
 
