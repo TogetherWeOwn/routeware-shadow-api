@@ -10,6 +10,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   existing outputs; missing and empty harvests retain their distinct behavior.
   Both commands provide bounded `--json` diagnostics and `--help`; aggregation
   adds a read-only `--dry-run`. Synthetic contract checks run in discovery/probe.
+- #327: Detail-full write-through refreshes now refuse malformed/conflicting identity
+  aliases, duplicate children and wrong enclosing parents before any D1 mutation
+  or graph cache publication. Confirmed upstream saves remain successful with
+  the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
+  stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
+
 - #328: Fixed customer changes feed pagination to normalize equivalent UTC timestamps
   with up to 3 fractional-second digits to milliseconds, reject timestamps with
   more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and

@@ -49,6 +49,7 @@
     "test:watch": "vitest",
     "test:coverage": "npm run test:probe && vitest run --coverage",
     "test:contracts": "vitest run test/shadowContract.test.ts test/shadowNegativePath.test.ts",
+    "test:detail-full": "vitest run test/detailFullIdentity.acceptance.test.ts test/detailFullReconciliation.test.ts",
     "discovery:setup": "npm --prefix tools/api-discovery install && npm run setup --prefix tools/api-discovery",
     "discovery:process": "npm run process --prefix tools/api-discovery",
     "discovery:record": "npm run record --prefix tools/api-discovery",
