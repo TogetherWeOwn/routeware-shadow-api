@@ -226,10 +226,11 @@ describe("published OpenAPI document", () => {
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
   });
 
-  it("documents 400 on snapshot imports, lists and the orphan audit", async () => {
+  it("documents 400 on snapshot imports, lists, changes and the orphan audit", async () => {
     // Arrange — imports return 400 on an empty body and lists
     // return 400 on out-of-range query params, but neither branch was in the
-    // document, so generated clients never surfaced them.
+    // document, so generated clients never surfaced them. The changes feed
+    // returns 400 on an invalid composite cursor before any D1 read.
     const doc = await fetchOpenApiDocument();
 
     // Act
@@ -238,6 +239,7 @@ describe("published OpenAPI document", () => {
       "POST /api/v1/address-snapshot/import",
       "POST /api/v1/container-snapshot/import",
       "GET /api/v1/customer-snapshot",
+      "GET /api/v1/customer-snapshot/changes",
       "GET /api/v1/address-snapshot",
       "GET /api/v1/container-snapshot",
       "GET /api/v1/data-snapshot/orphans"
@@ -255,6 +257,52 @@ describe("published OpenAPI document", () => {
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
     expect(missing).toEqual([]);
+  });
+
+  it("pins the changes feed's UTC millisecond and decimal cursor schema", async () => {
+    // Arrange — the changes feed validates its composite cursor losslessly:
+    // `since` accepts only UTC Z with seconds or 1–3 fractional digits
+    // (normalized to milliseconds, never rounded), and `since_id` accepts only
+    // exact unpadded ASCII decimal safe-integers. Both patterns must be visible
+    // so generated clients offer the same spelling.
+    const doc = await fetchOpenApiDocument();
+
+    // Act
+    const get = doc.paths["/api/v1/customer-snapshot/changes"]?.["get"] as
+      | {
+          parameters?: Array<{
+            in?: string;
+            name?: string;
+            description?: string;
+            schema?: Record<string, unknown>;
+          }>;
+        }
+      | undefined;
+    const byName = Object.fromEntries(
+      (get?.parameters ?? [])
+        .filter((p) => p.in === "query")
+        .map((p) => [p.name ?? "", p])
+    );
+    const since = byName["since"];
+    const sinceId = byName["since_id"];
+
+    // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
+    // re-record a regression away.
+    expect(since?.schema).toMatchObject({
+      type: "string",
+      pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,3})?)?Z$",
+      example: "2025-12-31T00:00:00.000Z"
+    });
+    expect(since?.schema).not.toHaveProperty("format");
+    expect(since?.description).toContain("UTC");
+    expect(since?.description).toContain("millisecond");
+    expect(sinceId?.schema).toMatchObject({
+      type: "string",
+      pattern: "^(0|[1-9][0-9]*)$",
+      example: "345733"
+    });
+    expect(sinceId?.description).toContain("decimal");
+    expect(sinceId?.description).toContain("unpadded");
   });
 
   it("publishes the orphan audit's invalid-sampleLimit problem+json schema", async () => {
