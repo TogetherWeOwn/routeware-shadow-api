@@ -7,7 +7,10 @@
 
 export const CHECK_NAME = "shadow-api-v1";
 export const SKIP_REASON = "operator:cloudflare-creds";
-export const OPERATOR_TODO = "TOG-135";
+// Public-safe by design: CI logs on a public repo are world-readable, so this
+// carries plain words, never an internal tracker id.
+export const OPERATOR_TODO =
+  "provide the operator Cloudflare credential (CF_TOKEN) before unskipping — see docs/HANDOVER.md § 0";
 
 /**
  * Checks intentionally skipped by the workflow until the operator credential
@@ -38,6 +41,6 @@ export function formatSkipLog({ reason, todo } = {}) {
   return [
     `${CHECK_NAME}: SKIPPED`,
     `reason: ${skipReason}`,
-    `TODO: ${operatorTodo} — provide the operator Cloudflare credential before unskipping`,
+    `TODO: ${operatorTodo}`,
   ].join("\n");
 }

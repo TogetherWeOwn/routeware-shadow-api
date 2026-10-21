@@ -76,6 +76,10 @@ production readiness from successful runs; keep production deploys disabled unti
 - **Environment:** `production` still exists (created 2026-09-21), with `protection_rules: []`
   and no deployment branch policy. It has no environment-required reviewers; its existence and
   successful CI do not authorize enabling deploys or prove production credentials/resources are ready.
+- **Public flip (2026-10-17):** this repository is now public (0 forks, verified 2026-10-21).
+  Both pinned run links above return HTTP 200 anonymously (re-verified 2026-10-21), as does
+  the default problem `type` base (`.../PROBLEMS.md#`, §4). The historical `rick7c2/...`
+  example URL in §4 returns 404.
 
 ### Phase 1 — verify credential-free PR checks after a transfer
 
@@ -332,10 +336,12 @@ Two things to know before you start:
 
 - Tests pin these strings **verbatim**, deliberately (see [`TEST-INVARIANTS.md`](TEST-INVARIANTS.md)):
   `test/snapshotAuth.test.ts` asserts `UNAUTHORIZED_TYPE` exactly. Update tests with the source.
-- The URLs are only dereferenceable if the repo is **public**. It is private today, so they resolve
-  to a 404 for every client already. GitHub redirects a transferred path, but that redirect breaks
-  the moment anyone creates a new repo at the old `rick7c2/routeware-shadow-api` path — at which
-  point these URIs silently point at a stranger's repository. Fix them at transfer time.
+- The `type` URIs are dereferenceable because the repo is **public** (flipped 2026-10-17).
+  Verified 2026-10-21: the default `TogetherWeOwn/.../PROBLEMS.md#` base returns HTTP 200,
+  including with an anchor (`#not-found`); the old `rick7c2/routeware-shadow-api` example path
+  above returns 404. GitHub redirects a transferred path, but that redirect breaks the moment
+  anyone creates a new repo at the old path — at which point stale URIs silently point at a
+  stranger's repository. Keep `PROBLEM_TYPE_BASE` pointed at the live repo.
 
 Old clone URLs also appear in prose in `README.md` and
 [`SECURITY-REMEDIATION.md`](SECURITY-REMEDIATION.md); those are documentation, not contract.
