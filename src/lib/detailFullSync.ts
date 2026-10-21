@@ -148,9 +148,12 @@ function graphIdentity(
 
 /** Validate raw identities before the read-only mapper can discard ambiguity. */
 function validateDetailFullGraph(full: unknown, customerId: number): void {
-  if (!isRecord(full) || !isRecord(full.currentCustomer)) {
-    invalidGraph("customer.currentCustomer");
+  if (!isRecord(full)) invalidGraph("customer.graph");
+  if (!full.currentCustomer) {
+    // Preserve the established safe missing-customer diagnostic for callers.
+    throw new Error("GetCustomerDetailFull missing currentCustomer");
   }
+  if (!isRecord(full.currentCustomer)) invalidGraph("customer.currentCustomer");
   const customerAliases = ["CustomerID", "customerID"] as const;
   const addressAliases = ["PickupAddressID", "pickupAddressID"] as const;
   const containerAliases = ["ContainerID", "containerID"] as const;

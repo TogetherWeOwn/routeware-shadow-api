@@ -41,9 +41,11 @@ retain their tolerant conversions.
   semantics.
 
 Refusal performs no upserts, stale-child deletes or graph cache publication;
-seeded rows and `synced_at` remain untouched. Diagnostics identify only fixed
-field/graph kinds and the fixed next action `skipping D1 refresh`, never raw graph
-values. A confirmed upstream save remains successful; the data-tier response
+seeded rows and `synced_at` remain untouched. Identity refusal diagnostics name
+only fixed field/graph kinds and the fixed next action `skipping D1 refresh`,
+never raw graph values; the established `missing currentCustomer` diagnostic is
+retained. Save handlers expose only the fixed code/error kind, not exception
+text. A confirmed upstream save remains successful; the data-tier response
 reports `localSync: { "done": false, "code": "sync_failed" }` and retains existing
 best-effort single-entity cache eviction. **Do not retry the save** to repair a
 local refresh failure, or claim that the upstream operation was rolled back.
