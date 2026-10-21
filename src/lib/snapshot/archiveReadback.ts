@@ -109,6 +109,9 @@ export function spreadsheetSafeCsvStream(
       } else {
         controller.enqueue(value);
       }
+    },
+    cancel(reason) {
+      return upstream.cancel(reason);
     }
   });
   const batches = encodedBatches(source, options);
