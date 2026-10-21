@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
  * R2 gap G14 — shadow sync → export round-trip, hermetic end to end.
@@ -246,7 +247,7 @@ describe("shadow sync → export round-trip", () => {
         });
       }
       // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

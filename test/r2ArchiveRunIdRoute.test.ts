@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
  * Per-run correlation id on the R2 archive leg of real per-table syncs.
@@ -125,7 +126,7 @@ describe("per-table sync routes stamp the x-run-id on every R2 archive line", ()
           headers: { "content-type": "text/csv" }
         });
       }
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

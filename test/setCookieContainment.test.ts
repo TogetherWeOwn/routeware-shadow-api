@@ -4,6 +4,7 @@ import app from "../src/app";
 import { forwardWithSessionRetry } from "../src/lib/forwardWithSessionRetry";
 import { forwardToUpstream } from "../src/lib/upstreamForward";
 import type { SessionState } from "../src/lib/sessionState";
+import { isUpstreamUrl } from "./upstreamHost";
 
 const API_TOKEN = "test-api-token";
 const SYNC_SECRET = "test-sync-secret";
@@ -260,7 +261,7 @@ describe("routeware passthrough Set-Cookie sweep", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes("killeen.routeware.com")) {
+      if (!isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in Set-Cookie sweep: ${url}`);
       }
       // Save routes: loud upstream failure passes the response through

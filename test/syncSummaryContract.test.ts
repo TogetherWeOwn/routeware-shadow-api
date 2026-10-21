@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
  * Sync-summary response contract, hermetic end-to-end.
@@ -182,7 +183,7 @@ describe("sync summary contract", () => {
         });
       }
       // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);
