@@ -11,6 +11,12 @@
  * the host component and lowercases it (CodeQL
  * `js/incomplete-url-substring-sanitization`).
  *
+ * A trailing dot is the same DNS name (FQDN root label), and the parser
+ * keeps it — including for the %2e-encoded form — so both sides are
+ * canonicalized before comparing; otherwise the tripwire would miss the
+ * fetch and stubs that fall through to `originalFetch` would hit the
+ * live tenant.
+ *
  * Returns false when `url` does not parse, so unparseable input falls
  * through to the stub's loud `Unexpected upstream fetch` failure instead
  * of throwing a bare TypeError.
@@ -24,5 +30,6 @@ export function isUpstreamUrl(url: string, host: string = UPSTREAM_HOST): boolea
   } catch {
     return false;
   }
-  return hostname.toLowerCase() === host.toLowerCase();
+  const canon = (h: string): string => h.toLowerCase().replace(/\.$/, "");
+  return canon(hostname) === canon(host);
 }

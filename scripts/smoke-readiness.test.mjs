@@ -67,6 +67,16 @@ function run(args = [], env = {}, timeoutMs = 1000) {
   return { status: result.status, output: result.stdout + result.stderr };
 }
 
+test("escapeRegExp escapes every RegExp metacharacter", () => {
+  // Pins the full escape directly: the probe assertions below only ever
+  // escape BASE (whose sole metacharacter is ".") through an unanchored
+  // match, so without this a dots-only revert would stay green.
+  assert.equal(
+    escapeRegExp(".*+?^${}()|[]\\"),
+    "\\.\\*\\+\\?\\^\\$\\{\\}\\(\\)\\|\\[\\]\\\\",
+  );
+});
+
 test("--help works without env and makes no requests", () => {
   const result = run(["--help"]);
   assert.equal(result.status, 0, result.output);

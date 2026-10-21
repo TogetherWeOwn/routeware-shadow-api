@@ -21,6 +21,16 @@ describe("isUpstreamUrl", () => {
     expect(isUpstreamUrl("https://KILLEEN.ROUTEWARE.COM/WebRW/Home/Index")).toBe(true);
   });
 
+  it("matches the trailing-dot FQDN form of the upstream host", () => {
+    // A trailing dot is the same DNS name (FQDN root label); the URL parser
+    // keeps it — including for the %2e-encoded form — so the tripwire must
+    // canonicalize it away instead of missing the fetch.
+    expect(isUpstreamUrl(`https://${UPSTREAM_HOST}./WebRW/Home/Index`)).toBe(true);
+    expect(isUpstreamUrl(`https://${UPSTREAM_HOST}%2e/WebRW/Home/Index`)).toBe(true);
+    expect(isUpstreamUrl(`https://${UPSTREAM_HOST}%2E/WebRW/Home/Index`)).toBe(true);
+    expect(isUpstreamUrl(`https://${UPSTREAM_HOST}/WebRW/Home/Index`, `${UPSTREAM_HOST}.`)).toBe(true);
+  });
+
   it("returns false for unparseable input instead of throwing", () => {
     expect(isUpstreamUrl("not a url")).toBe(false);
     expect(isUpstreamUrl("")).toBe(false);
