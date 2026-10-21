@@ -34,6 +34,9 @@ export const customerRoutes = createRouteModule();
 const customersReadRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/customers-read",
+  operationId: "readRoutewareCustomers",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "CustomersRead (harvested SPA traffic)",
   description:
@@ -97,6 +100,9 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
 const customerDetailFullRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/detail-full",
+  operationId: "getRoutewareCustomerDetail",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "GetCustomerDetailFull",
   description:
@@ -148,6 +154,9 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
 const customerTypesReadRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/customer-types-read",
+  operationId: "readRoutewareCustomerTypes",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "CustomerTypesRead",
   description:
@@ -198,6 +207,9 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
 const customerSaveLongFormRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/save-long-form",
+  operationId: "saveRoutewareCustomer",
+  "x-access": "full",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["customer"],
   summary: "SaveCustomerLongForm (create or update)",
   description:
@@ -309,6 +321,9 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
 const customerAddNewLongRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/customer/add-new-long",
+  operationId: "getRoutewareNewCustomerForm",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "AddNewLong (new customer form shell)",
   description:
@@ -346,6 +361,9 @@ export const LOAD_LONG_MODAL_PARAMS = ["customerID"] as const;
 const customerLoadLongModalRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/customer/load-long-modal",
+  operationId: "getRoutewareCustomerForm",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "LoadLongCustomerModal (allowlisted query params forwarded upstream)",
   description:
@@ -396,6 +414,9 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
 const customerDeleteNotSupportedRoute = createRoute({
   method: "delete",
   path: "/api/v1/routeware/customer",
+  operationId: "deleteRoutewareCustomer",
+  "x-access": "full",
+  "x-effect": "none",
   tags: ["customer"],
   summary: "Delete customer (not supported upstream)",
   description:

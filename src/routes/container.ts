@@ -20,6 +20,9 @@ export const containerRoutes = createRouteModule();
 const containerSaveContainerFormRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/container/save-container-form",
+  operationId: "saveRoutewareContainer",
+  "x-access": "full",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["container"],
   summary: "SaveContainerForm (create or update)",
   description:
