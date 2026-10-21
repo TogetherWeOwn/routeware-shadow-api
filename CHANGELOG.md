@@ -10,6 +10,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   existing outputs; missing and empty harvests retain their distinct behavior.
   Both commands provide bounded `--json` diagnostics and `--help`; aggregation
   adds a read-only `--dry-run`. Synthetic contract checks run in discovery/probe.
+- Daily R2 verification now binds real calendar dates and exact object keys,
+  rejects empty/ambiguous comparisons and supports explicit `--expect` table
+  coverage. Default success is labeled listed-only (partial), never a full-chain
+  claim. `--json` provides bounded versioned findings/actions; `--dry-run` plans
+  without children, object reads or artifacts. Remote credential fences and archive
+  writes are unchanged. Run `npm run check:r2-manifest` for hermetic acceptance.
 - #325: Chained snapshot sync now bounds each table's full header+body observation
   to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
   UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
