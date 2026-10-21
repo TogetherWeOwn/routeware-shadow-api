@@ -50,6 +50,7 @@ import {
   formatFailureLog,
   formatPassLog,
 } from "./lib/depsAuditCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 /** Lockfile scopes the gate evaluates, in log order. */
 const SCOPES = [
@@ -82,12 +83,25 @@ function usage() {
   return [
     "Usage: node scripts/check-deps-audit.mjs [--audit-json=<path>] [--discovery-audit-json=<path>]",
     "",
+    "Prod dependency audit gate: fails on any high/critical advisory not explicitly allowlisted.",
+    "",
     ...SCOPES.flatMap((scope) => [
       `  --${scope.key}=<path>  ${scope.auditHelp}`,
       "                       running npm (offline debugging; CI always runs npm).",
     ]),
+    "  -h, --help      Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  No blocking advisories.",
+    "  1  Blocking high/critical advisory found.",
+    "  2  An audit itself could not run, or unknown flag.",
+    "",
+    "Example:",
+    "  node scripts/check-deps-audit.mjs --audit-json=/tmp/root-audit.json",
   ].join("\n");
 }
+
+handleHelpFlag(argv.slice(2), usage());
 
 for (const arg of argv.slice(2)) {
   if (!SCOPES.some((scope) => arg.startsWith(`--${scope.key}=`))) {

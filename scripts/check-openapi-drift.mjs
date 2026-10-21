@@ -32,6 +32,29 @@ import {
   parseModuleExports,
   runDriftCheck,
 } from "./lib/openapiDriftCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-openapi-drift.mjs [--app=<path> --routes-dir=<path>]",
+    "",
+    "OpenAPI drift check: every route declared in mounted modules must reach /openapi.json.",
+    "",
+    "  --app=<path>         App wiring (default src/app.ts).",
+    "  --routes-dir=<path>  Mounted route modules live here (default src/routes).",
+    "  -h, --help           Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every declared op is published.",
+    "  1  Names each dropped op or module with its cause.",
+    "  2  An input is missing or unreadable.",
+    "",
+    "Example:",
+    "  node scripts/check-openapi-drift.mjs --app=src/app.ts --routes-dir=src/routes",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 

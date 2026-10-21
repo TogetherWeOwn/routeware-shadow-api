@@ -59,6 +59,7 @@ import {
   sha256HexBytes,
   verifyManifestHashes,
 } from "./lib/r2ManifestVerify.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 // Same bucket the Worker's `SNAPSHOTS` binding targets (see wrangler.toml
 // `[[r2_buckets]]`). Read-only here: local runs read a scratch persist dir,
@@ -71,21 +72,28 @@ function usage() {
   return [
     `Usage: node scripts/verify-r2-manifest.mjs [--date=YYYY-MM-DD] [--bucket=<name>] [--persist-to=<dir>] [--remote]`,
     ``,
+    `R2 snapshot-manifest verifier: re-downloads one date's archived CSVs, re-hashes bytes, and compares to the sidecar manifest.`,
+    ``,
     `  --date=<YYYY-MM-DD>  archive date (default: today, UTC).`,
     `  --bucket=<name>      R2 bucket (default ${DEFAULT_BUCKET}).`,
     `  --persist-to=<dir>   local Miniflare persist dir (local mode only).`,
     `  --remote             read remote R2 (needs CLOUDFLARE_API_TOKEN in env);`,
     `                       default is --local (credential-free).`,
-    `  --help               print this usage and exit 0.`,
+    `  -h, --help           print this usage and exit 0.`,
     ``,
     `  Value flags accept either spelling: --persist-to=<dir> or --persist-to <dir>.`,
+    ``,
+    `Exit codes:`,
+    `  0  Every manifest entry verifies.`,
+    `  1  Mismatch, missing object, or unreadable manifest.`,
+    `  2  Flag or usage error.`,
+    ``,
+    `Example:`,
+    `  node scripts/verify-r2-manifest.mjs --date=2026-09-28 --persist-to=/tmp/r2fix/persist`,
   ].join("\n");
 }
 
-if (argv.includes("--help")) {
-  console.log(usage());
-  exit(0);
-}
+handleHelpFlag(argv.slice(2), usage());
 
 // Value flags accept `--name=value` and `--name value` alike (the reviewer
 // path in the header comment uses the space form; `=` keeps wrangler-style

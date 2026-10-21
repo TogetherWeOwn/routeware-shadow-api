@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CHANGELOG gate (TOG-8385, gap G9). Fails when consumer-visible contract
+ * CHANGELOG gate (PR #171). Fails when consumer-visible contract
  * paths changed without a referencing bullet (`#123`, or a legacy
  * `TOG-1234`) under `## [Unreleased]`.
  *
@@ -27,6 +27,7 @@ import {
   formatFailureLog,
   formatPassLog,
 } from "./lib/changelogCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 
@@ -49,11 +50,24 @@ function usage() {
   return [
     "Usage: node scripts/check-changelog.mjs [--base=<ref> --card=<#123|TOG-1234> --files=<a,b>]",
     "",
+    "CHANGELOG gate: fails when consumer-visible contract paths changed without a referencing bullet under ## [Unreleased].",
+    "",
     "  --base=<ref>    Diff base for changed paths (default origin/main).",
     "  --card=<ref>    Reference claimed for this change, e.g. #123 (repeatable).",
     "  --files=<a,b>   Changed paths (default: git diff --name-only --no-renames <base>...HEAD).",
+    "  -h, --help      Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Gate passes (or no contract paths changed).",
+    "  1  Contract paths changed without a referencing bullet.",
+    "  2  Cannot diff base, cannot read CHANGELOG.md, or unknown flag.",
+    "",
+    "Example:",
+    "  node scripts/check-changelog.mjs --base=origin/main --card=#123",
   ].join("\n");
 }
+
+handleHelpFlag(argv.slice(2), usage());
 
 for (const arg of argv.slice(2)) {
   if (!arg.startsWith("--base=") && !arg.startsWith("--card=") && !arg.startsWith("--files=")) {

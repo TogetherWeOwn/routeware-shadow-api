@@ -8,6 +8,27 @@ import {
   formatSkipLog,
   requireToken,
 } from "./lib/shadowApiV1Gate.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-shadow-api-v1.mjs [--unskip]",
+    "",
+    "Shadow API v1 gate: READY when CF_TOKEN is present, otherwise skipped until the operator credential card completes.",
+    "",
+    "  --unskip    Require CF_TOKEN now instead of skipping; fail when absent.",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  READY or skipped with a logged reason.",
+    "  1  --unskip with a missing CF_TOKEN.",
+    "",
+    "Example:",
+    "  node scripts/check-shadow-api-v1.mjs --unskip",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const unskip = argv.includes("--unskip");
 

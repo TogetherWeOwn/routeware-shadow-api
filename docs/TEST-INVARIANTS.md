@@ -72,21 +72,27 @@ The 2026-08-22 figures above remain a historical baseline, not the current main 
 
 ### Known weaknesses in the ratchet itself
 
-- **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
-  with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
-  it matters more after a downward re-baseline, because a global floor that has just been lowered is
-  exactly where a localized regression hides.
+- **The thresholds are global-only — closed by the per-file gate.** A new module with no
+  tests used to hide behind well-covered ones and never trip any global floor. The `build` job now
+  runs `npm run check:per-file-coverage` on every build, which fails when any `src` file in
+  `coverage/coverage-summary.json` has zero covered statements. Native `perFile: true` was rejected:
+  the installed Vitest only supports boolean `perFile`, which would force every file against the
+  global 97/94/98/98 floors that the known-gap files (csv parsers ~33–39%, `r2SnapshotArchive.ts`
+  62.3% statements) cannot meet. The allowlist (`scripts/per-file-coverage-allowlist.json`) starts
+  empty — `browserAuth.ts` graduated to direct tests — and the gate also fails on graduated or stale
+  entries so the list cannot rot. Low-but-nonzero files stay the global ratchet's job, not this check's.
 - **"Raise them whenever the number goes up" is enforced on pull requests.** The `build` job
   runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
   against the configured floors and fails when a metric climbs a full point above its
   floor without raising it. The step runs only on pull requests
   (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
-  main-branch build red or skip a deploy; Vitest thresholds remain the only main-branch gate.
+  main-branch build red or skip a deploy; Vitest thresholds plus the per-file gate remain the
+  main-branch gates.
 
 - **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` applies the
   migrations to the local test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the
   customer → address → container sync path with local fixtures. The 2026-10-16 recorded run measured
-  93.93% branches (2418/2574), above the current 93% global floor. **Do not recover coverage by
+  93.93% branches (2418/2574), above the 93% global floor in effect at that recording. **Do not recover coverage by
   allowing tests to reach the network.**
 
 - The three `csv*Snapshot.ts` parsers — 33–39% statements, 33% functions. The per-row
@@ -212,6 +218,12 @@ non-idempotent POST. Budgets: 15s interactive / 60s report CSV (overridable via
 `UPSTREAM_TIMEOUT_MS` / `UPSTREAM_REPORT_TIMEOUT_MS`). A caller abort with the
 timer unfired rethrows verbatim so a client disconnect is never misreported as
 a 502. `app.onError` is the backstop for direct `forwardToUpstream` callers.
+Streamed consumption adds an idle stall bound on top (`REPORT_STREAM_STALL_TIMEOUT_MS`,
+default 30s): `test/streamedReportStallBound.test.ts` (13 tests) pins that a
+byte-prefix-then-stall stream fails as a top-level `UpstreamTimeoutError` on
+all three sync paths and both archive-readback passes while slow-drip streams
+complete, and `test/reportStreamStall.test.ts` pins cancel-on-stall,
+window-reset near the bound, and the env reader's default/override/fallback.
 
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
@@ -395,7 +407,10 @@ but is **not** a test-only change.
 Every test runs against stubs. `test/integration.test.ts` sets the house pattern: replace
 `globalThis.fetch` in `beforeEach`, restore it in `afterEach`, and **throw** on any upstream URL the
 test did not anticipate, so a leak fails loudly instead of silently calling
-`killeen.routeware.com`.
+`killeen.routeware.com`. Detect upstream URLs with `test/upstreamHost.ts`
+(`isUpstreamUrl`, exact parsed-hostname comparison) — never `url.includes(host)`,
+which both false-trips on crafted URLs and misses case variants (CodeQL
+`js/incomplete-url-substring-sanitization`).
 
 **`test/snapshotAuth.test.ts` must keep its stub.** Fifteen of its sixteen tests are rejected at the
 auth gate and never reach a handler body, which is why the file had no stub for a long time. The

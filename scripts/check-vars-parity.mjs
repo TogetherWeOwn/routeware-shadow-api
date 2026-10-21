@@ -32,6 +32,7 @@ import {
   parseExampleCommentedKeys,
 } from "./lib/varsParityCheck.mjs";
 import { parseDevVarsText, parseWranglerVarsSection } from "./lib/devVarsCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 
@@ -45,10 +46,23 @@ function usage() {
   return [
     "Usage: node scripts/check-vars-parity.mjs [--wrangler=<path> --example=<path>]",
     "",
+    "Parity gate: fails when wrangler.toml [vars] keys diverge from .dev.vars.example in either direction.",
+    "",
     "  --wrangler=<path>  wrangler.toml path (default <repo>/wrangler.toml).",
     "  --example=<path>   .dev.vars.example path (default <repo>/.dev.vars.example).",
+    "  -h, --help         Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Keys match in both directions.",
+    "  1  Keys diverge.",
+    "  2  Cannot read an input, or unknown flag.",
+    "",
+    "Example:",
+    "  node scripts/check-vars-parity.mjs --wrangler=wrangler.toml --example=.dev.vars.example",
   ].join("\n");
 }
+
+handleHelpFlag(argv.slice(2), usage());
 
 for (const arg of argv.slice(2)) {
   if (!arg.startsWith("--wrangler=") && !arg.startsWith("--example=")) {

@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { exit } from "node:process";
+import { argv, exit } from "node:process";
 
 import {
   CHECK_NAME,
@@ -28,6 +28,27 @@ import {
   formatReport,
   parseGitignore,
 } from "./lib/docsLinks.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-docs-links.mjs",
+    "",
+    "Docs link check: every relative link in tracked *.md files must resolve to a tracked file with a matching anchor.",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  All relative links resolve.",
+    "  1  Findings, listed as file: link (reason).",
+    "  2  An input cannot be read.",
+    "",
+    "Example:",
+    "  node scripts/check-docs-links.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 

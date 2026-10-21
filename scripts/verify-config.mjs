@@ -15,9 +15,29 @@
  */
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { exit } from "node:process";
+import { argv, exit } from "node:process";
 
 import { CHECKS, CHECK_NAME, formatSummary, summarizeResults } from "./lib/verifyConfig.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/verify-config.mjs",
+    "",
+    "One-command config preflight: chains check:devvars + check:vars-parity + check:d1-drift (local-only) with one summary.",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every leg passes.",
+    "  1  Any leg fails.",
+    "",
+    "Example:",
+    "  node scripts/verify-config.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 

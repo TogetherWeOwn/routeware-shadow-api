@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Per-PR group (TOG-23109): a new push to a PR cancels that PR's
+  # Per-PR group (PR #265): a new push to a PR cancels that PR's
   # superseded runs, but concurrent PRs never cancel each other.
   # cancel-in-progress is true ONLY for pull_request events. Non-PR runs
   # (push-to-main, schedule) each get their own group via run_id, so a
@@ -85,9 +85,11 @@ jobs:
             echo "probe=false" >> "$GITHUB_OUTPUT"
           fi
           # infra: the filter itself, workflow config, the .nvmrc Node pin,
-          # shared entry, discovery manifests. Any infra change means
+          # shared entry, discovery manifests, and the per-file coverage
+          # gate's own files (build runs its step and its tests, so a
+          # gate-only PR must not skip build). Any infra change means
           # EVERYTHING runs (rule 4).
-          if echo "$files" | grep -qE '^(\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          if echo "$files" | grep -qE '^(\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|scripts/check-per-file-coverage\.mjs$|scripts/lib/perFileCoverage\.mjs$|scripts/per-file-coverage-allowlist\.json$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "infra=true" >> "$GITHUB_OUTPUT"
           else
             echo "infra=false" >> "$GITHUB_OUTPUT"
@@ -95,7 +97,7 @@ jobs:
           # full: root dep manifests also run EVERYTHING (rule 4), so a
           # package.json/lock bump runs build AND probe.
           # Non-PR already exited above; on PRs full = infra OR root dep change.
-          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
+          if echo "$files" | grep -qE '^(package\.json$|package-lock\.json$|\.github/|\.nvmrc$|scripts/check-ci-workflow\.mjs$|scripts/lib/ciWorkflowCheck\.mjs$|scripts/check-per-file-coverage\.mjs$|scripts/lib/perFileCoverage\.mjs$|scripts/per-file-coverage-allowlist\.json$|src/worker\.ts$|tools/api-discovery/package.*\.json$)'; then
             echo "full=true" >> "$GITHUB_OUTPUT"
           else
             echo "full=false" >> "$GITHUB_OUTPUT"
@@ -131,10 +133,17 @@ jobs:
         # Thresholds in vitest.config.ts are pinned just under current coverage so
         # it can never regress. Raise them as coverage climbs toward the ECC 80%.
         run: npm run test:coverage
+      - name: Per-file coverage gate — no untested modules
+        # Always-run regression gate, like the Vitest thresholds: global floors
+        # guard the aggregates, but a new module with zero tests passes every
+        # global floor behind well-covered files. This fails on any src file
+        # with 0 covered statements unless allowlisted in
+        # scripts/per-file-coverage-allowlist.json.
+        run: npm run check:per-file-coverage
       - name: Coverage ratchet — raise floors when the number goes up
         # PR-only: a coverage gain must fail the PR author, never the
-        # main-branch build that deploy needs. Vitest thresholds remain the
-        # only main-branch gate.
+        # main-branch build that deploy needs. Vitest thresholds plus the
+        # per-file gate remain the main-branch gates.
         if: github.event_name == 'pull_request'
         # Vitest thresholds fail the run on REGRESSION; this step fails when a
         # metric climbs a full point above its floor without raising it, and

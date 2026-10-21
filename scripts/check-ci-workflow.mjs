@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
+import { argv } from "node:process";
 import {
   assertEveryJobHasTimeout,
   assertFirstPartyActionsPinned,
@@ -7,6 +8,26 @@ import {
   assertNoPrTriggerSkips,
   parseNvmrcMajor,
 } from "./lib/ciWorkflowCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-ci-workflow.mjs",
+    "",
+    "CI workflow guard: pins ci.yml invariants (timeouts, pinned actions, change gating, deploy order).",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every invariant holds.",
+    "  1  An invariant fails (assertion names the job and key).",
+    "",
+    "Example:",
+    "  node scripts/check-ci-workflow.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const workflow = await readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
 
@@ -93,6 +114,70 @@ assert.match(
   /^        if: github\.event_name == 'pull_request'$/m,
   "the coverage ratchet must run only on pull requests so a coverage gain never blocks main deploys",
 );
+// A global floor can be masked by well-covered files, so a new module with
+// zero tests still passes every aggregate number. Pin the per-file gate
+// present so no untested module can hide behind the globals. The match
+// anchors on the real `run:` line (a bare substring would also match a
+// commented-out step or an `echo` impersonator). Unlike the ratchet, this
+// is a regression gate like the Vitest thresholds: it runs on every build
+// and must never soft-fail. Slice the whole step block (its header through
+// the next step) and reject ANY `continue-on-error` and ANY step-level
+// `if:` inside it, regardless of key order, dash-line first-key placement, or
+// YAML key quoting (GitHub honours `"if":` / `'continue-on-error':`, and the
+// first key of a step may sit on the `- ` line) — adjacency regexes let
+// `continue-on-error` above the run line, below it with a comment between,
+// or a PR-only `if:` with another key between slip through.
+const perFileRun = /^        run: npm run check:per-file-coverage$/m.exec(buildGated);
+assert.ok(perFileRun, "build must run the per-file coverage gate");
+const perFileStepStart = buildGated.lastIndexOf("\n      - ", perFileRun.index);
+assert.ok(perFileStepStart >= 0, "the per-file coverage gate run line must sit inside a build step");
+const perFileStepEnd = buildGated.indexOf("\n      - ", perFileRun.index);
+const perFileStep = buildGated.slice(
+  perFileStepStart + 1,
+  perFileStepEnd === -1 ? undefined : perFileStepEnd,
+);
+assert.doesNotMatch(
+  perFileStep,
+  /^ +(?:- )?["']?continue-on-error["']?\s*:/m,
+  "the per-file coverage gate must not soft-fail",
+);
+assert.doesNotMatch(
+  perFileStep,
+  /^ +(?:- )?["']?if["']?\s*:/m,
+  "the per-file coverage gate must run on every build, not only on pull requests",
+);
+// The gate's own files must route to build: a PR touching only the gate
+// script, its lib, or its allowlist would otherwise get code/infra/full
+// all false, skip build, and merge without its tests or step ever running.
+// Pin each path inside the quoted pattern of both the infra and full
+// grep lines (the grep line immediately preceding each
+// `echo "<area>=true"`), so a trailing comment naming the path can never
+// satisfy the pin.
+const changesLines = changesJob.split("\n");
+function changesGrepPattern(area) {
+  const at = changesLines.findIndex(
+    (line, index) =>
+      line.includes("grep -qE") && (changesLines[index + 1] ?? "").includes(`echo "${area}=true"`),
+  );
+  assert.ok(at >= 0, `changes must have a grep pattern routing to ${area}=true`);
+  const quoted = changesLines[at].match(/grep -qE '([^']+)'/);
+  assert.ok(quoted, `changes ${area} routing must use a single-quoted grep -qE pattern`);
+  return quoted[1];
+}
+for (const gatePath of [
+  "scripts/check-per-file-coverage\\.mjs$",
+  "scripts/lib/perFileCoverage\\.mjs$",
+  "scripts/per-file-coverage-allowlist\\.json$",
+]) {
+  assert.ok(
+    changesGrepPattern("infra").includes(gatePath),
+    `changes must route ${gatePath} to infra so a gate-only PR runs build`,
+  );
+  assert.ok(
+    changesGrepPattern("full").includes(gatePath),
+    `changes must route ${gatePath} to full so a gate-only PR runs build`,
+  );
+}
 assert.match(buildGated, /needs: \[changes\]/, "build must wait for the changes job");
 assert.match(
   buildGated,
