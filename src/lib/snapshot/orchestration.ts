@@ -1,13 +1,15 @@
 import { logEvent } from "../logger";
 import {
   archiveReportCsvToR2AfterD1,
-  isR2ArchiveDetail,
+  projectR2ArchiveDetail,
   type R2ArchiveDetail,
   type SnapshotArchiveTable
 } from "../r2SnapshotArchive";
 import { fetchReportCsvByQueryId } from "../routewareQueryReportCsv";
 import { readReportQueryDates } from "../reportQueryDates";
+import { readUpstreamText, UpstreamBodyTooLargeError } from "../upstreamBody";
 import {
+  abortUpstreamResponse,
   fetchWithUpstreamTimeout,
   isUpstreamTimeout,
   readChainedSyncTimeoutMs,
@@ -397,19 +399,16 @@ function syncJsonToResult(j: unknown): SnapshotTableResult {
   ) {
     throw new Error("Invalid sync response: upserted and rowCount must be non-negative safe integers");
   }
-  const base =
-    fields.deleted === undefined
-      ? { upserted, rowCount }
-      : { upserted, rowCount, deleted: fields.deleted as number };
-  // Extra count fields are dropped on the chained path by precedent (the
-  // explicit pick is pinned: subrequest JSON crosses a trust boundary, so row
-  // data must not ride it into the cron line); the R2 outcome is the
-  // exception — without it a failed archive hides behind a D1
-  // `outcome:success`. Guarded: only a well-formed detail travels (status
-  // discriminant only; `reason`/`key` are log strings, never row data).
-  return isR2ArchiveDetail(fields.r2)
-    ? { ...base, r2: fields.r2 }
-    : base;
+  const { deleted } = fields;
+  if (deleted !== undefined && (
+    typeof deleted !== "number" || !Number.isSafeInteger(deleted) || deleted < 0
+  )) {
+    throw new Error("Invalid sync response: deleted must be a non-negative safe integer");
+  }
+  const base = deleted === undefined ? { upserted, rowCount } : { upserted, rowCount, deleted };
+  // A valid status does not make arbitrary wire properties safe for cron logs.
+  const r2 = projectR2ArchiveDetail(fields.r2);
+  return r2 ? { ...base, r2 } : base;
 }
 
 /**
@@ -446,14 +445,11 @@ export async function runDataSnapshotSyncChainedHttp(
     address: null,
     container: null
   };
-  // Bounded per-table budget: a hung subrequest threw nothing
-  // before, holding the cron invocation to the platform timeout and starving
-  // the tables behind it. The timer covers time-to-headers (the `fetch`
-  // promise) — the per-table route sends no headers until its report
-  // download + D1 import + R2 archive finish — and the small JSON body that
-  // follows needs no separate bound. A non-abort-aware stubbed hang is still
-  // bounded: the helper races the timer, not just the abort.
+  // One per-table deadline spans headers AND body; headers spend this budget,
+  // never reset it. 64 KiB inclusive is ample for a small sync-summary JSON.
+  // Neither a never-ending producer nor hanging cancellation can hold the cron.
   const timeoutMs = readChainedSyncTimeoutMs(env);
+  const maxResponseBytes = 65_536;
 
   // A combined dry run must dry-run every table — a real write
   // hiding behind one subrequest would defeat the no-write guarantee.
@@ -461,36 +457,62 @@ export async function runDataSnapshotSyncChainedHttp(
   async function post(
     path: string,
     step: string
-  ): Promise<unknown> {
+  ): Promise<SnapshotTableResult> {
     const u = `${base}${path}${drySuffix}`;
+    const deadline = Date.now() + timeoutMs;
+    const timeoutError = () => new ChainedSubrequestError(
+      "ChainedTimeoutError",
+      `[chained ${step}] POST ${path} timed out after ${timeoutMs}ms`
+    );
     let resp: Response;
     try {
-      resp = await fetchWithUpstreamTimeout(u, { method: "POST", headers: h }, timeoutMs);
+      // Redirects must not replay a sync POST or forward its credentials.
+      resp = await fetchWithUpstreamTimeout(u, {
+        method: "POST", headers: h, redirect: "manual"
+      }, timeoutMs);
     } catch (e) {
-      if (isUpstreamTimeout(e)) {
-        throw new ChainedSubrequestError(
-          "ChainedTimeoutError",
-          `[chained ${step}] POST ${path} timed out after ${e.timeoutMs}ms`
-        );
-      }
-      throw e;
+      if (isUpstreamTimeout(e)) throw timeoutError();
+      // Fetch errors may contain URLs/credentials. Keep the network class, not text.
+      throw new ChainedSubrequestError("ChainedNetworkError", `[chained ${step}] fetch failed`);
     }
-    // Consumed then discarded: drains the body so the connection can be
-    // reused, but zero upstream bytes ever reach the thrown error below
-    // (these messages reach logs, so they carry
-    // table/step/status only).
-    const text = await resp.text();
+    const discard = () => {
+      abortUpstreamResponse(resp);
+      void resp.body?.cancel().catch(() => {});
+    };
     if (!resp.ok) {
+      // Never drain a discarded error body: even cancellation may never settle.
+      discard();
       throw new ChainedSubrequestError(
         "ChainedHttpError",
         `[chained ${step}] POST ${path} → ${resp.status}`,
         resp.status
       );
     }
-    // Parse failures must not surface either: V8's SyntaxError message
-    // quotes the offending input bytes, which would ride the same log lines.
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      discard();
+      throw timeoutError();
+    }
+    let text: string;
     try {
-      return JSON.parse(text) as unknown;
+      text = await readUpstreamText(resp, remainingMs, false, maxResponseBytes);
+    } catch (e) {
+      if (isUpstreamTimeout(e)) throw timeoutError();
+      if (e instanceof UpstreamBodyTooLargeError) {
+        throw new ChainedSubrequestError(
+          "ChainedResponseTooLargeError",
+          `[chained ${step}] POST ${path}: response exceeds ${maxResponseBytes} bytes`
+        );
+      }
+      discard();
+      throw new ChainedSubrequestError(
+        "ChainedResponseReadError", `[chained ${step}] POST ${path}: response body unavailable`
+      );
+    }
+    // Neither parser exceptions (which quote input) nor invalid wire metadata
+    // may reach the cause chain or masquerade as a completed table.
+    try {
+      return syncJsonToResult(JSON.parse(text) as unknown);
     } catch {
       throw new ChainedSubrequestError(
         "ChainedInvalidJsonError",
@@ -501,9 +523,7 @@ export async function runDataSnapshotSyncChainedHttp(
 
   if (plan.runCustomer) {
     try {
-      out.customer = syncJsonToResult(
-        await post("/api/v1/customer-snapshot/sync", "customer")
-      );
+      out.customer = await post("/api/v1/customer-snapshot/sync", "customer");
     } catch (e) {
       rethrowWithSnapshotContext("chained customer", "customer", e, out);
     }
@@ -518,9 +538,7 @@ export async function runDataSnapshotSyncChainedHttp(
   }
   if (plan.runAddress) {
     try {
-      out.address = syncJsonToResult(
-        await post("/api/v1/address-snapshot/sync", "address")
-      );
+      out.address = await post("/api/v1/address-snapshot/sync", "address");
     } catch (e) {
       rethrowWithSnapshotContext("chained address", "address", e, out);
     }
@@ -546,9 +564,7 @@ export async function runDataSnapshotSyncChainedHttp(
   }
   if (plan.runContainer) {
     try {
-      out.container = syncJsonToResult(
-        await post("/api/v1/container-snapshot/sync", "container")
-      );
+      out.container = await post("/api/v1/container-snapshot/sync", "container");
     } catch (e) {
       rethrowWithSnapshotContext("chained container", "container", e, out);
     }
