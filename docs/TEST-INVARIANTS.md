@@ -352,15 +352,20 @@ change; removing them is a separate decision.
 
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
-routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
-body every route shares. The per-call-site `detail` wording was unified in
+`requireSnapshotAuth()` guards all 19 privileged
+routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads, plus `DELETE` erasure, `GET /api/v1/data-snapshot/orphans`, and `GET /api/v1/snapshots/:table/:date`), and `test/snapshotAuth.test.ts` pins the canonical inner 401
+body every route shares. `requireSnapshotSecret()` additionally checks the
+secret is configured on the 4 sync routes, behind the auth guard, so an unset
+secret currently surfaces as the 401 (pinned in
+`test/dataSnapshotRoutes.test.ts`), not its own 503. The per-call-site `detail` wording was unified in
 the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and
-`instance`). `test/authGateResweep.test.ts` pins the privileged
-inventory itself from the live router, so a new sync/import/export/data route
-without `requireSnapshotAuth` fails there instead of slipping past the outer
-gate on the general API token.
+`instance`). `test/authGateResweep.test.ts` pins the 17 sync/import/export/data/snapshots
+routes from the live router, so a new route in those classes without
+`requireSnapshotAuth` fails there instead of slipping past the outer gate on
+the general API token; the `DELETE` erasure and `orphans` routes match no
+resweep class and are pinned only by `GUARDED_ROUTES` in
+`test/snapshotAuth.test.ts`.
 
 ### `src/app.ts` and the `src/routes/` module rules
 

@@ -45,8 +45,10 @@ upstream-backed routes; dummy values work for everything else. See the
 This is a public repo. External contributors work from a fork:
 
 1. Fork the repo, clone your fork, and create a `type/short-slug` branch.
-2. Follow Dev setup and the Verification loop below — everything there runs
-   credential-free.
+2. Follow Dev setup and the Verification loop below — local setup and checks
+   run without real upstream credentials, but still require non-empty
+   `LOGIN_USERNAME`/`LOGIN_PASSWORD` placeholder values (upstream-backed
+   routes still need real credentials).
 3. Open the PR from your fork against `upstream` `main` using the PR template.
    CI runs the same credential-free checks on fork PRs (`build`, `hygiene`,
    `pr-lint`); the `shadow-api-v1` contract step skips without `CF_TOKEN`,
@@ -55,8 +57,9 @@ This is a public repo. External contributors work from a fork:
    (the default for public repos). If checks do not start, comment on the PR
    to ask a maintainer to approve them.
 5. Keep internal tracker ids, internal hosts and internal links out of the
-   title, body, branch name and commits — link public GitHub issues instead
-   (flagged by `pr-lint`).
+   title, body, branch name and commits — link a public GitHub issue when
+   one exists, otherwise describe the problem (`pr-lint` warns on internal
+   references and missing template content).
 
 ## Verification loop (PR checks)
 
@@ -132,7 +135,8 @@ this repo. The existing `pr-lint` check enforces them
   tracker references in the title, body or branch name warn
   (`PR_STANDARDS_MODE: "warn"`). This is a public repo: keep internal
   tracker ids, internal hosts and internal links out of every title, body,
-  branch name and commit message — link public GitHub issues instead.
+  branch name and commit message — link a public GitHub issue when one
+  exists, otherwise describe the problem.
 
 ## PR process
 

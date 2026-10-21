@@ -121,7 +121,9 @@ Authorization: Bearer <SHADOW_API_TOKEN>
 `SHADOW_API_TOKEN` gates general access. When it is unset, the Worker falls back to
 `CUSTOMER_SNAPSHOT_SYNC_SECRET`. The privileged snapshot/data routes
 (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`,
-`/api/v1/data-snapshot/sync`) additionally require
+`/api/v1/data-snapshot/sync`, the `DELETE` customer erasure route,
+`GET /api/v1/data-snapshot/orphans`, `GET /api/v1/snapshots/:table/:date`
+readback) additionally require
 `CUSTOMER_SNAPSHOT_SYNC_SECRET` specifically.
 
 ### Dual-secret matrix
@@ -155,7 +157,7 @@ passing the outer gate with the API token is not enough:
 | Route class | `Bearer <API>` | `Bearer <SYNC>` | wrong / none |
 |---|---|---|---|
 | General (all `/api/v1/routeware/*`, snapshot list reads, `GET /api/v1/shadow/health`) | ✓ | ✓ | 401 outer gate |
-| Privileged (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync` — 16 routes) | 401 inner check | ✓ | 401 outer gate |
+| Privileged (`.../sync`, `.../import`, `.../export`, `/api/v1/data/*`, `/api/v1/data-snapshot/sync`, `DELETE` erasure, `data-snapshot/orphans`, `snapshots/` readback — 19 routes) | 401 inner check | ✓ | 401 outer gate |
 | Public (`GET /api/v1/health`) | n/a | n/a | 200, no token |
 
 Pinned by `test/dualSecretMatrix.test.ts` (outer-gate unit matrix + HTTP
@@ -167,9 +169,11 @@ bodies).
 `SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
 reads. It passes the outer gate on GET requests only: a GET with the read
 token returns 200 on a general route, while any non-GET request with it 401s
-at the outer gate, and every privileged route (sync/import, GET exports,
-`/api/v1/data/*` reads) 401s at the inner sync-secret check — no privileged
-route accepts the read token. Unset or blank means unconfigured: the role
+at the outer gate. Among privileged routes, non-GET requests (sync/import,
+POST `/api/v1/data/*`, `DELETE` erasure) 401 at the outer gate, and only
+privileged GETs (exports, `/api/v1/data/*` reads, `data-snapshot/orphans`,
+`snapshots/` readback) pass that gate to 401 at the inner sync-secret
+check — no privileged route accepts the read token. Unset or blank means unconfigured: the role
 fails closed. Use a distinct random value — if it ever equals the full token
 it inherits full access.
 
