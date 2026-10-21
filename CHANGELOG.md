@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Detail-full write-through refreshes now refuse malformed/conflicting identity
+  aliases, duplicate children and wrong enclosing parents before any D1 mutation
+  or graph cache publication. Confirmed upstream saves remain successful with
+  the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
+  stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
+
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged

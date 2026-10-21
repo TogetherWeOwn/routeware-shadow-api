@@ -123,6 +123,7 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
 | `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run after any `wrangler.toml` binding/key change; `npm run typecheck` runs it automatically) |
 | `npm run typecheck` | Generate Wrangler declarations, then run `tsc --noEmit` |
+| `npm run test:detail-full` | Hermetic detail-full identity and reconciliation acceptance; see the [write-through contract](./CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract) |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
 | `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
