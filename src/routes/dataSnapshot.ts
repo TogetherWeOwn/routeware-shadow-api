@@ -35,6 +35,9 @@ const dataSnapshotResultSchema = z
 const dataSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/data-snapshot/sync",
+  operationId: "syncDataSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-read-local-sync",
   tags: ["data-snapshot"],
   summary: "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
   description:
@@ -111,6 +114,9 @@ const snapshotOrphanReportSchema = z
 const dataSnapshotOrphansRoute = createRoute({
   method: "get",
   path: "/api/v1/data-snapshot/orphans",
+  operationId: "getDataSnapshotOrphans",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-snapshot"],
   summary: "Report orphan rows on the snapshot FK chain (D1)",
   description:

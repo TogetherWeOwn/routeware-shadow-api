@@ -53,6 +53,9 @@ function parseHydratedReadId(rawId: string | undefined, rawAlias: string | undef
 const dataCustomerGetRoute = createRoute({
   method: "get",
   path: "/api/v1/data/customer",
+  operationId: "getDataCustomer",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-entity"],
   summary: "Get customer (D1) with addresses and containers",
   description:
@@ -98,6 +101,9 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
 const dataAddressGetRoute = createRoute({
   method: "get",
   path: "/api/v1/data/address",
+  operationId: "getDataAddress",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
@@ -140,6 +146,9 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
 const dataContainerGetRoute = createRoute({
   method: "get",
   path: "/api/v1/data/container",
+  operationId: "getDataContainer",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
@@ -202,6 +211,9 @@ const localSyncExample = {
 const dataCustomerPostRoute = createRoute({
   method: "post",
   path: "/api/v1/data/customer",
+  operationId: "saveDataCustomer",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
@@ -255,6 +267,9 @@ dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
 const dataAddressPostRoute = createRoute({
   method: "post",
   path: "/api/v1/data/address",
+  operationId: "saveDataAddress",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["data-entity"],
   summary: "Create/update address in Routeware + sync D1",
   description:
@@ -299,6 +314,9 @@ dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
 const dataContainerPostRoute = createRoute({
   method: "post",
   path: "/api/v1/data/container",
+  operationId: "saveDataContainer",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["data-entity"],
   summary: "Create/update container in Routeware + sync D1",
   description:
