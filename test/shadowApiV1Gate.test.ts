@@ -29,6 +29,13 @@ describe("shadow-api-v1 credential gate", () => {
     expect(formatSkipLog(result)).toContain(`TODO: ${OPERATOR_TODO}`);
   });
 
+  it("keeps the skip log public-safe (no internal tracker ids)", () => {
+    const log = formatSkipLog(evaluateGate(""));
+
+    expect(log).not.toMatch(/\b(?:TOG|PAP|PAPA)-\d+\b/);
+    expect(log).toContain("TODO: provide the operator Cloudflare credential");
+  });
+
   it("is ready only when CF_TOKEN is present", () => {
     expect(evaluateGate("staging-token")).toEqual({
       status: "ready",
