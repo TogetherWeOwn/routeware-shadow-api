@@ -11,6 +11,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
   stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
 
+- #319: CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
+  503 `application/problem+json` (`snapshot-export-query-budget`) before CSV
+  starts. The ETag prepass is bounded; both passes and their terminal empty
+  reads must fit a 950-query allowance within the existing 1000-query Paid
+  contract, reserving 50 queries of safety headroom. Review the existing
+  `SNAPSHOT_EXPORT_PAGE_SIZE` guidance rather than retrying unchanged sizing.
+  Admissible CSV bytes, ETags and 304 responses stay unchanged; unpredictable
+  D1 faults and concurrent changes remain outside this admission guarantee.
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged
