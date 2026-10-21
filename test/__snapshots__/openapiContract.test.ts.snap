@@ -660,6 +660,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "401": {
             "description": "Unauthorized",
           },
+          "503": {
+            "description": "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing.",
+          },
         },
         "summary": "Download address snapshot as CSV",
         "tags": [
@@ -1066,6 +1069,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "503": {
+            "description": "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing.",
           },
         },
         "summary": "Download container snapshot as CSV",
@@ -1531,6 +1537,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "401": {
             "description": "Unauthorized",
+          },
+          "503": {
+            "description": "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing.",
           },
         },
         "summary": "Download customer snapshot as CSV",
