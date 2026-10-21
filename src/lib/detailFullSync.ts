@@ -113,6 +113,80 @@ function n(v: unknown): number | null {
   return Number.isFinite(x) ? x : null;
 }
 
+function invalidGraph(field: string): never {
+  // Only fixed graph/field names reach this diagnostic, never upstream values.
+  throw new Error(`GetCustomerDetailFull invalid ${field}; skipping D1 refresh`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function graphIdentity(
+  item: Record<string, unknown>,
+  aliases: readonly [string, string],
+  field: string,
+  inherited?: number
+): number {
+  let identity: number | undefined;
+  for (const alias of aliases) {
+    if (!Object.hasOwn(item, alias)) continue;
+    const value = item[alias];
+    // Do not use the tolerant mapper's n(): every supplied alias must be a
+    // complete decimal identity, including aliases shadowed by another spelling.
+    const parsed = typeof value === "number" ? value :
+      typeof value === "string" && value.length > 0 && !/[^0-9]/.test(value)
+        ? Number(value) : NaN;
+    if (!Number.isSafeInteger(parsed) || parsed <= 0 ||
+        (identity !== undefined && identity !== parsed)) {
+      invalidGraph(field);
+    }
+    identity = parsed;
+  }
+  return identity ?? inherited ?? invalidGraph(field);
+}
+
+/** Validate raw identities before the read-only mapper can discard ambiguity. */
+function validateDetailFullGraph(full: unknown, customerId: number): void {
+  if (!isRecord(full)) invalidGraph("customer.graph");
+  if (!full.currentCustomer) {
+    // Preserve the established safe missing-customer diagnostic for callers.
+    throw new Error("GetCustomerDetailFull missing currentCustomer");
+  }
+  if (!isRecord(full.currentCustomer)) invalidGraph("customer.currentCustomer");
+  const customerAliases = ["CustomerID", "customerID"] as const;
+  const addressAliases = ["PickupAddressID", "pickupAddressID"] as const;
+  const containerAliases = ["ContainerID", "containerID"] as const;
+  if (graphIdentity(full.currentCustomer, customerAliases, "customer.CustomerID") !== customerId) {
+    invalidGraph("customer.CustomerID");
+  }
+  if (!Array.isArray(full.data)) invalidGraph("address.data");
+  const addressIds = new Set<number>();
+  const containerIds = new Set<number>();
+  for (const address of full.data) {
+    if (!isRecord(address)) invalidGraph("address.item");
+    const addressId = graphIdentity(address, addressAliases, "address.PickupAddressID");
+    if (addressIds.has(addressId)) invalidGraph("address.duplicate");
+    addressIds.add(addressId);
+    if (graphIdentity(address, customerAliases, "address.CustomerID") !== customerId) {
+      invalidGraph("address.CustomerID");
+    }
+    // An absent collection retains the existing empty-child behavior, but a
+    // supplied malformed collection (including null) cannot prove deletion.
+    if (!Object.hasOwn(address, "Containers")) continue;
+    if (!Array.isArray(address.Containers)) invalidGraph("container.Containers");
+    for (const container of address.Containers) {
+      if (!isRecord(container)) invalidGraph("container.item");
+      const containerId = graphIdentity(container, containerAliases, "container.ContainerID");
+      if (containerIds.has(containerId)) invalidGraph("container.duplicate");
+      containerIds.add(containerId);
+      if (graphIdentity(container, addressAliases, "container.PickupAddressID", addressId) !== addressId) {
+        invalidGraph("container.PickupAddressID");
+      }
+    }
+  }
+}
+
 function s(v: unknown): string | null {
   if (v === null || v === undefined) {
     return null;
@@ -356,25 +430,9 @@ export async function syncCustomerDetailFullToD1(
 ): Promise<{ addressIds: number[]; containerIds: number[] }> {
   const syncedAt = new Date().toISOString();
   const full = await fetchGetCustomerDetailFull(env, sessionStub, customerId, true);
+  validateDetailFullGraph(full, customerId);
   const { customer, addresses, containers } = mapDetailFullToRows(full);
-  // A missing/malformed collection is not proof of deletion. The mapper is
-  // deliberately tolerant for read-only callers; reconciliation must fail closed.
-  if (!Array.isArray(full.data) || full.data.some((raw) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
-    const children = (raw as Record<string, unknown>).Containers;
-    return children != null && (!Array.isArray(children) || children.some(
-      (c) => !c || typeof c !== "object" || Array.isArray(c)
-    ));
-  })) {
-    throw new Error("GetCustomerDetailFull has an invalid child collection");
-  }
   const addressIds = addresses.map((a) => a.pickupAddressId);
-  const addressIdSet = new Set(addressIds);
-  if (customer.customerId !== customerId ||
-      addresses.some((a) => a.customerId !== customerId) ||
-      containers.some((c) => !addressIdSet.has(c.pickupAddressId))) {
-    throw new Error("GetCustomerDetailFull has mismatched graph ids");
-  }
   const ops = detailFullD1Ops(addresses.length, containers.length);
   if (ops > DETAIL_FULL_MAX_D1_OPS) {
     throw new Error(

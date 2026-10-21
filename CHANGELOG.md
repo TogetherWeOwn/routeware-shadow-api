@@ -11,6 +11,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   with table, row, field and correction/retry guidance. Earlier flushed valid
   batches may remain; the rejected batch is not written. Upstream report
   parsing and optional non-identity numbers are unchanged.
+- #327: Detail-full write-through refreshes now refuse malformed/conflicting identity
+  aliases, duplicate children and wrong enclosing parents before any D1 mutation
+  or graph cache publication. Confirmed upstream saves remain successful with
+  the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
+  stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
+
 - #328: Fixed customer changes feed pagination to normalize equivalent UTC timestamps
   with up to 3 fractional-second digits to milliseconds, reject timestamps with
   more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
