@@ -43,6 +43,9 @@ export const containerSnapshotRoutes = createRouteModule();
 const containerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/container-snapshot",
+  operationId: "listContainerSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
@@ -166,6 +169,9 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
 const containerSnapshotExportRoute = createRoute({
   method: "get",
   path: "/api/v1/container-snapshot/export",
+  operationId: "exportContainerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["container-snapshot"],
   summary: "Download container snapshot as CSV",
   description:
@@ -197,6 +203,9 @@ containerSnapshotRoutes.openapi(containerSnapshotExportRoute, async (c) => {
 const containerSnapshotByIdRoute = createRoute({
   method: "get",
   path: "/api/v1/container-snapshot/{containerId}",
+  operationId: "getContainerSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["container-snapshot"],
   summary: "Get one container snapshot row",
   description:
@@ -259,6 +268,9 @@ containerSnapshotRoutes.openapi(containerSnapshotByIdRoute, async (c) => {
 const containerSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/container-snapshot/sync",
+  operationId: "syncContainerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-read-local-sync",
   tags: ["container-snapshot"],
   summary: "Fetch container report CSV and upsert D1",
   description:
@@ -326,6 +338,9 @@ containerSnapshotRoutes.openapi(containerSnapshotSyncRoute, async (c) => {
 const containerSnapshotImportRoute = createRoute({
   method: "post",
   path: "/api/v1/container-snapshot/import",
+  operationId: "importContainerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-write",
   tags: ["container-snapshot"],
   summary: "Import container CSV into D1",
   description: "Raw CSV; `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret. Import or sync **addresses** (and **customers**) first for `pickup_address_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",

@@ -103,6 +103,33 @@ const EXPECTED_TAGS = [
   "data-entity"
 ];
 
+/**
+ * Projection of the document without the agent-metadata layer pinned in
+ * `test/openapiAgentMetadata.test.ts`. Everything else stays frozen.
+ */
+function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
+  for (const key of Object.keys(copy)) {
+    if (key.startsWith("x-")) delete copy[key];
+  }
+  for (const item of Object.values(copy.paths)) {
+    for (const [method, operation] of Object.entries(item)) {
+      if (!HTTP_METHODS.includes(method.toLowerCase())) continue;
+      const op = operation as Record<string, unknown>;
+      delete op["operationId"];
+      for (const key of Object.keys(op)) {
+        if (key.startsWith("x-")) delete op[key];
+      }
+      if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
+    }
+  }
+  const bearer = copy.components?.securitySchemes?.["bearerAuth"] as
+    | Record<string, unknown>
+    | undefined;
+  if (bearer) delete bearer["description"];
+  return copy;
+}
+
 async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
   const res = await exports.default.fetch("http://test.local/openapi.json");
   expect(res.status).toBe(200);
@@ -313,7 +340,11 @@ describe("published OpenAPI document", () => {
     // wording of the includeTotal prose is pinned by hand-written assertions in
     // `test/snapshotCountFreePagination.test.ts`; only its structure (name,
     // location, enum, default, nullable total) is frozen here.
-    expect(withoutIncludeTotalProse(doc)).toMatchSnapshot();
+    // The agent-metadata layer (operationId, x-* extensions, the empty `security`
+    // on the public probe, the bearer role description) is owned by
+    // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
+    // enriching it never re-records this frozen document.
+    expect(withoutIncludeTotalProse(withoutAgentMetadata(doc))).toMatchSnapshot();
   });
 });
 

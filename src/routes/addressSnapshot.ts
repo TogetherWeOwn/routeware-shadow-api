@@ -43,6 +43,9 @@ export const addressSnapshotRoutes = createRouteModule();
 const addressSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/address-snapshot",
+  operationId: "listAddressSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
@@ -152,6 +155,9 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
 const addressSnapshotExportRoute = createRoute({
   method: "get",
   path: "/api/v1/address-snapshot/export",
+  operationId: "exportAddressSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["address-snapshot"],
   summary: "Download address snapshot as CSV",
   description:
@@ -183,6 +189,9 @@ addressSnapshotRoutes.openapi(addressSnapshotExportRoute, async (c) => {
 const addressSnapshotByIdRoute = createRoute({
   method: "get",
   path: "/api/v1/address-snapshot/{pickupAddressId}",
+  operationId: "getAddressSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["address-snapshot"],
   summary: "Get one address snapshot row",
   description:
@@ -243,6 +252,9 @@ addressSnapshotRoutes.openapi(addressSnapshotByIdRoute, async (c) => {
 const addressSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/address-snapshot/sync",
+  operationId: "syncAddressSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-read-local-sync",
   tags: ["address-snapshot"],
   summary: "Fetch address report CSV and upsert D1",
   description:
@@ -310,6 +322,9 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
 const addressSnapshotImportRoute = createRoute({
   method: "post",
   path: "/api/v1/address-snapshot/import",
+  operationId: "importAddressSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-write",
   tags: ["address-snapshot"],
   summary: "Import address CSV body into D1",
   description: "Raw CSV (Routeware Address Details custom report); `Content-Type: text/csv` or `application/octet-stream`. Bear the same secret; import **customers** first to satisfy `customer_id` foreign keys. Pass `?dryRun=true` to validate and return the would-be counts without writing D1.",
