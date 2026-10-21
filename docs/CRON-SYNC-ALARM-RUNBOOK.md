@@ -192,7 +192,7 @@ curl -s http://localhost:18789/__scheduled
 ```
 
 Apply migrations first (`npm run db:migrate:local`), then re-run the §2 queries
-with `--local` (empty tables return `last_sync: NULL, rows: 0` — the missed-run
+with `--local` (empty tables return `last_sync: NULL` — the missed-run
 verdict). Two local quirks, both
 expected: `cron` is `""` (the `/__scheduled` test trigger sends no cron field;
 production sends `0 7 * * *`), and `wrangler dev` parents orphan `workerd`
