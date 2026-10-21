@@ -67,10 +67,10 @@ export default defineConfig({
      * Two projects: the whole suite runs in workerd, except the
      * node-only tests, which run in the node forks pool instead: the R2
      * lifecycle proposal guard test reads the committed JSON file from disk
-     * (`node:fs`) — stubbed out in the workers pool — and the deps-audit and
-     * coverage-ratchet wrapper tests spawn their `scripts/check-*.mjs` as a
-     * child process (`node:child_process`), which workerd cannot do. Each
-     * project spreads
+     * (`node:fs`) — stubbed out in the workers pool — and the deps-audit,
+     * coverage-ratchet, and per-file-coverage wrapper tests spawn their
+     * `scripts/check-*.mjs` as a child process (`node:child_process`),
+     * which workerd cannot do. Each project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
      *
@@ -95,11 +95,13 @@ export default defineConfig({
           // snapshotExportMemory runs separately under vitest.memory.config.ts
           // (32 MiB heap ceiling with --expose-gc); it must stay out
           // of the default suite, alongside the node-pool R2 proposal guard
-          // and the node-pool wrapper tests (deps-audit, coverage-ratchet).
+          // and the node-pool wrapper tests (deps-audit, coverage-ratchet,
+          // per-file-coverage).
           exclude: [
             "test/r2LifecycleProposalCheck.test.ts",
             "test/checkDepsAudit.test.ts",
             "test/checkCoverageRatchet.test.ts",
+            "test/checkPerFileCoverage.test.ts",
             "test/snapshotExportMemory.test.ts",
           ],
         },
@@ -111,6 +113,7 @@ export default defineConfig({
             "test/r2LifecycleProposalCheck.test.ts",
             "test/checkDepsAudit.test.ts",
             "test/checkCoverageRatchet.test.ts",
+            "test/checkPerFileCoverage.test.ts",
           ],
         },
       },
