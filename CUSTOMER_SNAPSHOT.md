@@ -210,6 +210,53 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
 
+### Customer changes cursor
+
+`GET /api/v1/customer-snapshot/changes` is an **upsert feed**, not deletion CDC
+or a point-in-time snapshot. It reads only local D1. Omit `since` (or send it
+empty) **without** `since_id` for the initial page. A bare `since` returns only
+strictly later timestamps, so it replays later sync runs whole, not the
+remaining rows of the boundary run.
+
+Timestamp comparison uses canonical UTC milliseconds: seconds-only and
+one-, two- or three-fraction-digit timestamps are normalized before SQL.
+For example, `2026-09-01T00:00:00.1Z`, `.10Z` and `.100Z` describe the same
+boundary. More than three fraction digits is a 400 even if the extra digits
+are zero; no rounding or truncation. Offsets, local datetimes and date-only
+inputs are not accepted in place of the existing UTC `Z` datetime format.
+
+Resume a page with **both** fields from `nextCursor`. `since_id` requires a
+nonempty valid `since` and must be an exact unpadded ASCII decimal integer
+from `0` through `9007199254740991`; `0` remains the boundary sentinel.
+Whitespace, signs, prefixes, exponents, decimal points and repeated cursor
+keys are invalid. The value-free anchored 400 names only fields; see
+[query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+
+Synthetic example: rows `(8402, 2026-09-01T00:00:00.100Z)` and
+`(8407, 2026-09-01T00:00:00.100Z)` share a timestamp. A `limit=1` page ending
+at `8402` returns:
+
+```json
+{"nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
+```
+
+The next request's query is
+`since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=1`; it includes
+`8407` instead of skipping the millisecond tie. Order stays
+`(synced_at, customer_id)`, page limit stays `1..500` (default `50`), and
+`total` counts only the returned rows. Every full page emits a cursor,
+including the final full page; continue until `nextCursor` is `null`.
+Cursor timestamps are always emitted with three fraction digits.
+
+Hermetic regression check, also listed by `npm run help`:
+
+```bash
+npm run check:customer-changes-cursor
+```
+
+This uses synthetic local D1 rows only; no credentials, upstream requests,
+production replay or deployment.
+
 ### Customer-row erasure scope
 
 `DELETE /api/v1/customer-snapshot/{customerId}` is local cache suppression,
