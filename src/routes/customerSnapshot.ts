@@ -45,6 +45,8 @@ const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
   operationId: "listCustomerSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
@@ -164,6 +166,9 @@ const customerSnapshotChangesResponse = z
 const customerSnapshotChangesRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot/changes",
+  operationId: "listCustomerSnapshotChanges",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows changed since a cursor (D1)",
   description:
@@ -243,6 +248,9 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
 const customerSnapshotExportRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot/export",
+  operationId: "exportCustomerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["customer-snapshot"],
   summary: "Download customer snapshot as CSV",
   description:
@@ -278,6 +286,9 @@ customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
 const customerSnapshotByIdRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot/{customerId}",
+  operationId: "getCustomerSnapshot",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["customer-snapshot"],
   summary: "Get one customer snapshot row",
   description:
@@ -338,6 +349,9 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
 const customerSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/customer-snapshot/sync",
+  operationId: "syncCustomerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-read-local-sync",
   tags: ["customer-snapshot"],
   summary: "Fetch Routeware report CSV and upsert D1",
   description:
@@ -400,6 +414,9 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
 const customerSnapshotImportRoute = createRoute({
   method: "post",
   path: "/api/v1/customer-snapshot/import",
+  operationId: "importCustomerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-write",
   tags: ["customer-snapshot"],
   summary: "Import CSV body into D1",
   description:
@@ -527,6 +544,9 @@ customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
 const customerSnapshotDeleteRoute = createRoute({
   method: "delete",
   path: "/api/v1/customer-snapshot/{customerId}",
+  operationId: "eraseCustomerSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "local-write",
   tags: ["customer-snapshot"],
   summary: "Delete one customer snapshot row",
   description:

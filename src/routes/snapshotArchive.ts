@@ -27,6 +27,9 @@ export const snapshotArchiveRoutes = createRouteModule();
 const snapshotArchiveRoute = createRoute({
   method: "get",
   path: "/api/v1/snapshots/{table}/{date}",
+  operationId: "getSnapshotArchive",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-snapshot"],
   summary: "Download an archived snapshot CSV from R2",
   description:

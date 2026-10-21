@@ -26,6 +26,8 @@ const healthRoute = createRoute({
   method: "get",
   path: "/api/v1/health",
   operationId: "health",
+  "x-access": "public",
+  "x-effect": "none",
   tags: ["meta"],
   summary: "Liveness probe (public, no bearer)",
   description:
@@ -112,6 +114,9 @@ export const readinessResponseSchema = z
 const readinessRoute = createRoute({
   method: "get",
   path: "/api/v1/readiness",
+  operationId: "getReadiness",
+  "x-access": "read",
+  "x-effect": "local-read",
   tags: ["meta"],
   summary: "Deep readiness probe (D1, R2, report config)",
   description:
