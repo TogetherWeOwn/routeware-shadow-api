@@ -315,12 +315,20 @@ and init scripts, and interactive login-page sniffing. Successful passthrough
 validation preserves the original response bytes and headers.
 
 Intentionally untouched: raw report CSV downloads and CSV-to-D1/R2 consumption
-(including the archive's whole-CSV buffer) have **no total-body deadline**.
-Report-download login sniffing retains its existing unbounded behavior for
-nonstandard content types; it explicitly opts out so a legitimate long CSV
-served as text/plain is not cut off. The sessionless login-page probe only
-forwards a stream and remains header-bounded. Chained same-Worker sync response
-reads are not Routeware responses and are outside this fix.
+have **no total-body deadline** — a large export that keeps flowing is never
+cut off for its size or total time. They do have an **idle (stall) bound**:
+every streamed read must yield bytes within `REPORT_STREAM_STALL_TIMEOUT_MS`
+(default 30s; absent/invalid falls back to the default); a longer gap with no
+bytes cancels the read and fails the sync/readback as a 502 `UpstreamTimeoutError`
+before any reconcile or delete, while each completed read resets the window so
+slow-but-progressing streams complete. The bound covers the R2 archive drain,
+the D1 `streamCsvLines` consumption, and both archive-readback passes.
+Operator `...-snapshot/import` uploads stay unbounded (a client disconnect
+aborts them). Report-download login sniffing retains its existing unbounded
+behavior for nonstandard content types; it explicitly opts out so a legitimate
+long CSV served as text/plain is not cut off. The sessionless login-page probe
+only forwards a stream and remains header-bounded. Chained same-Worker sync
+response reads are not Routeware responses and are outside this fix.
 
 Per-step **header** budgets (single-retry max, so headers cost at most 2x one
 attempt; buffered consumers additionally get the body budget described above):
@@ -378,6 +386,9 @@ Tuning guidance (all overrides are optional per-deploy bindings — no
   Keep worst case (2x) well under the 300s CPU limit.
 - `UPSTREAM_REPORT_TIMEOUT_MS`: raise only if report *headers* are slow — the
   streaming body is not counted, so large-but-fast-starting CSVs need no bump.
+- `REPORT_STREAM_STALL_TIMEOUT_MS`: raise if 502s cluster on an upstream that
+  legitimately pauses mid-export longer than 30s between bytes; lower to fail
+  faster on hung streams. Total export time is never counted — only idle gaps.
 - `REPORT_QUERY_POLL_INTERVAL_MS` / `REPORT_QUERY_POLL_MAX_ATTEMPTS`: raise
   max attempts for slow async query builds; note the poll and the download
   share one Worker invocation.

@@ -107,9 +107,13 @@ async function* cappedLines(
   options: StreamSyncOptions
 ): AsyncGenerator<string, void, undefined> {
   let rowNumber = 0;
-  for await (const line of streamCsvLines(
-    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes)
-  )) {
+  const source =
+    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes);
+  const stalled =
+    options.stallTimeoutMs === undefined
+      ? undefined
+      : { stallTimeoutMs: options.stallTimeoutMs };
+  for await (const line of streamCsvLines(source, stalled)) {
     rowNumber += 1;
     if (options.rejectControlCharacters) {
       assertCsvControlCharacters(line, rowNumber);

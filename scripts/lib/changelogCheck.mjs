@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the CHANGELOG gate (TOG-8385, gap G9).
+ * Pure helpers for the CHANGELOG gate (PR #171).
  *
  * Gap: `[Unreleased]` sits empty with no enforcement, so consumer-visible
  * contract changes land without a changelog entry and the release notes lag

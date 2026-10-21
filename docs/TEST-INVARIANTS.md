@@ -212,6 +212,12 @@ non-idempotent POST. Budgets: 15s interactive / 60s report CSV (overridable via
 `UPSTREAM_TIMEOUT_MS` / `UPSTREAM_REPORT_TIMEOUT_MS`). A caller abort with the
 timer unfired rethrows verbatim so a client disconnect is never misreported as
 a 502. `app.onError` is the backstop for direct `forwardToUpstream` callers.
+Streamed consumption adds an idle stall bound on top (`REPORT_STREAM_STALL_TIMEOUT_MS`,
+default 30s): `test/streamedReportStallBound.test.ts` (13 tests) pins that a
+byte-prefix-then-stall stream fails as a top-level `UpstreamTimeoutError` on
+all three sync paths and both archive-readback passes while slow-drip streams
+complete, and `test/reportStreamStall.test.ts` pins cancel-on-stall,
+window-reset near the bound, and the env reader's default/override/fallback.
 
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
