@@ -27,6 +27,23 @@ import { problemJsonResponse, problemType } from "./problem";
 export const DEFAULT_UPSTREAM_TIMEOUT_MS = 15_000;
 export const REPORT_UPSTREAM_TIMEOUT_MS = 60_000;
 
+/**
+ * Idle (stall) budget for streamed report-CSV consumption, in ms. Each
+ * `reader.read()` on the report body must yield bytes within this window; a
+ * longer gap with no bytes rejects with `UpstreamTimeoutError` and cancels
+ * the read, so a hung upstream mid-stream cannot hold the Worker toward the
+ * 300s CPU limit. Every completed read resets the window, so a large or slow
+ * export that keeps flowing is never cut off for its total size or time —
+ * there is still no total-body deadline. Overridable per deploy via optional
+ * `REPORT_STREAM_STALL_TIMEOUT_MS` (absent/invalid → default), same pattern
+ * as the fetch bindings above. Covers the R2 archive drain, the D1
+ * `streamCsvLines` consumption, and the archive readback measure/stream
+ * passes; operator `...-snapshot/import` uploads stay unbounded (a client
+ * disconnect aborts them) and report-download login sniffing keeps its
+ * existing unbounded opt-out for nonstandard content types.
+ */
+export const DEFAULT_REPORT_STREAM_STALL_TIMEOUT_MS = 30_000;
+
 function readPositiveMs(value: unknown): number | null {
   const n = typeof value === "string" || typeof value === "number" ? Number(value) : Number.NaN;
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -50,6 +67,17 @@ export function readReportTimeoutMs(env?: Env): number {
           (env as unknown as Record<string, unknown>).UPSTREAM_REPORT_TIMEOUT_MS
         );
   return override ?? REPORT_UPSTREAM_TIMEOUT_MS;
+}
+
+/** Streamed-consumption stall budget, honoring `REPORT_STREAM_STALL_TIMEOUT_MS`. */
+export function readReportStreamStallTimeoutMs(env?: Env): number {
+  const override =
+    env === undefined
+      ? null
+      : readPositiveMs(
+          (env as unknown as Record<string, unknown>).REPORT_STREAM_STALL_TIMEOUT_MS
+        );
+  return override ?? DEFAULT_REPORT_STREAM_STALL_TIMEOUT_MS;
 }
 
 /**
@@ -84,6 +112,47 @@ export class UpstreamTimeoutError extends Error {
 
 export function isUpstreamTimeout(err: unknown): err is UpstreamTimeoutError {
   return err instanceof UpstreamTimeoutError;
+}
+
+/**
+ * One stall-bounded `reader.read()`: resolves with whatever the read yields,
+ * or rejects with `UpstreamTimeoutError(stallTimeoutMs)` when no bytes arrive
+ * within the window. The timer covers a single pending read — callers race
+ * each read, so every completed read resets the window and slow-but-flowing
+ * streams complete. On stall the reader is cancelled (not awaited: a hung
+ * source's cancellation may itself hang) and the timeout is thrown verbatim,
+ * never wrapped, so `app.onError` maps it to 502. A non-abort-aware hung
+ * stream is still bounded: the race fires even when `cancel` never settles.
+ */
+export async function readWithStallTimeout(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  stallTimeoutMs: number
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      const error = new UpstreamTimeoutError(stallTimeoutMs);
+      // Reject first: cancellation may reject the pending read with an
+      // AbortError, or finish a partial body. Neither is a successful read.
+      reject(error);
+      void reader.cancel(error).catch(() => {});
+    }, stallTimeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+  });
+  try {
+    return await Promise.race([reader.read(), timeout]);
+  } catch (err) {
+    if (timedOut) {
+      throw new UpstreamTimeoutError(stallTimeoutMs);
+    }
+    throw err;
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 const upstreamControllers = new WeakMap<Response, AbortController>();

@@ -4,6 +4,7 @@ import {
   measureSpreadsheetSafeCsv,
   spreadsheetSafeCsvStream
 } from "../lib/snapshot/archiveReadback";
+import { readReportStreamStallTimeoutMs } from "../lib/upstreamTimeout";
 import { matchesSnapshotIfNoneMatch } from "../lib/snapshot/export";
 import { createRouteModule, requireSnapshotAuth } from "./shared";
 
@@ -108,7 +109,10 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   // Content-Length and the ETag describe the re-encoded bytes, so the first
   // pass measures them. The second read is conditional on the stored ETag, so
   // a replaced archive cannot be streamed against the first pass's length.
-  const { length, etag } = await measureSpreadsheetSafeCsv(obj.body);
+  // Both passes share the report-stream stall bound: a hung R2 read fails as
+  // a 502 timeout instead of holding the Worker.
+  const stallTimeoutMs = readReportStreamStallTimeoutMs(c.env);
+  const { length, etag } = await measureSpreadsheetSafeCsv(obj.body, { stallTimeoutMs });
   if (matchesSnapshotIfNoneMatch(c.req.header("if-none-match"), etag)) {
     return new Response(null, { status: 304, headers: { etag } });
   }
@@ -139,7 +143,7 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   headers.set("etag", etag);
   const { readable, writable } = new FixedLengthStream(length);
   c.executionCtx.waitUntil(
-    spreadsheetSafeCsvStream(again.body)
+    spreadsheetSafeCsvStream(again.body, { stallTimeoutMs })
       .pipeTo(writable)
       .catch(() => undefined)
   );
