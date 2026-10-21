@@ -374,7 +374,7 @@ its budget source; all flow through `fetchWithUpstreamTimeout` via
 | POST /api/v1/data/customer, /data/address, /data/container | Save forwards + GetCustomerDetailFull D1 refresh | `forwardWithSessionRetry` + `fetchGetCustomerDetailFull` (direct, override-honoring) | 15s interactive |
 | POST /api/v1/customer-snapshot/sync, /address-snapshot/sync, /container-snapshot/sync, /data-snapshot/sync | report export path or QueryExecuteDownload (+ QueryRequestIsComplete poll) | `fetchReportCsvForPath` / `fetchReportCsvByQueryId` | 60s report (`UPSTREAM_REPORT_TIMEOUT_MS`) |
 | (internal) login: login-page GET, Ext.NET init GET, login POST | LOGIN_URL + ext.axd | `httpAuth.httpLogin` direct `fetchWithUpstreamTimeout` | 15s interactive per fetch |
-| (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` bare `fetch` | no upstream budget — same-Worker subrequest, excluded |
+| (internal, NOT Routeware) chained self-fetch to own public URL | own /api/v1/*-snapshot/sync | `snapshot/orchestration.ts` `fetchWithUpstreamTimeout` (`redirect: "manual"`) + `readUpstreamText` (65,536-byte cap) | 180s per table across headers+body (`CHAINED_SYNC_TIMEOUT_MS`), never retried |
 
 Fixes: four direct `forwardToUpstream` callers (login-page probe,
 `fetchGetCustomerDetailFull`, customer modal direct path, address/container
