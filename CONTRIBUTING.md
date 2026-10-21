@@ -88,6 +88,11 @@ npm run lint
 npm test
 ```
 
+For the detail-full write-through boundary, run `npm run test:detail-full`
+without credentials. It uses synthetic graphs, local test D1 and throwing network
+stubs to check identity refusal before any write, reconciliation or graph cache
+publication. See the [detail-full contract](./CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract).
+
 Run `npm run test:coverage` before pushing — coverage is a ratchet
 (`vitest.config.ts` pins thresholds just under current levels; raise them when
 your change moves the number up). If Actions is enabled, CI additionally runs
