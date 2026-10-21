@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #318: Every mounted API operation now has a stable `operationId`, `x-access`
+  bearer-role classification and `x-effect` data-effect classification. The
+  mounted OpenAPI document includes an `x-agent-metadata` legend; privileged
+  GETs are explicitly sync-secret-only and upstream POST reads are not
+  advertised as writes. Authorization behavior and the docs-enabled gate
+  are unchanged. Run `npm run check:openapi-agent-metadata` without credentials
+  to check completeness against the mounted router and existing auth gates.
+
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and
