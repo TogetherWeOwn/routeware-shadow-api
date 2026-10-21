@@ -46,6 +46,7 @@ const { isLoginPageUnavailableError } = await import("../src/lib/loginPageError"
 const ORIGIN = "https://killeen.routeware.com";
 const LOGIN_URL = `${ORIGIN}/WebRW/Account/Login`;
 const UPSTREAM = `${ORIGIN}/WebRW/Home/Index`;
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 const PII_BODY =
   `<html><body>WAF block — customer "Jane Example" phone 555-0199 ` +
@@ -317,7 +318,10 @@ describe("app 502 on blocked login page", () => {
     }) as unknown as typeof fetch;
     const env = blockedAppEnv(fetchImpl);
     const req = new Request("http://test.local/api/v1/routeware/home/index", {
-      headers: { authorization: "Bearer test-api-token" }
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
     });
 
     // Act
@@ -327,6 +331,16 @@ describe("app 502 on blocked login page", () => {
     // exactly 2 upstream calls (forward + login-page GET), zero browser.
     expect(res.status).toBe(502);
     expect(res.headers.get("content-type")).toContain("problem+json");
+    // onError branch (login-page unavailable, src/app.ts) must carry the API
+    // posture via withCors — otherwise a browser sees a CORS error instead
+    // of the real 502.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
     const body = (await res.json()) as {
       type: string;
       title: string;
