@@ -12,6 +12,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   instead of raw dependency exception text. Timeout does not cancel underlying
   D1 work; late completion cannot replace a newer cached observation. See
   `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
+- `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
+  unknown arguments and remote requests before executing anything. `--dry-run`
+  reports deterministic local fixture intent without subprocesses or state changes;
+  composable `--json` emits one versioned plan/result with stable operation/check
+  IDs, stage/count fields and fixed, sanitized errors with correction actions.
+  No-flag local execution and idempotent fixture ordering are unchanged.
 - #319: CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
   503 `application/problem+json` (`snapshot-export-query-budget`) before CSV
   starts. The ETag prepass is bounded; both passes and their terminal empty

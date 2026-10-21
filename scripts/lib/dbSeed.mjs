@@ -100,6 +100,32 @@ export const VERIFY_QUERIES = [
   },
 ];
 
+/** Intent only: no I/O, migration check, or assertion about current rows. */
+export function buildSeedPlan(persistTo = null) {
+  const statements = buildSeedStatements();
+  return {
+    schemaVersion: 1,
+    mode: "local",
+    database: DATABASE,
+    target: { persistTo },
+    stage: "plan",
+    outcome: "planned",
+    counts: {},
+    fixtureIds: {
+      customer_id: SEED_CUSTOMER_ID,
+      pickup_address_id: SEED_PICKUP_ADDRESS_ID,
+      container_id: SEED_CONTAINER_ID,
+    },
+    effects: VERIFY_QUERIES.map(({ table }, index) => ({
+      id: `upsert:${table}`, table, operation: "upsert", sql: statements[index],
+    })),
+    checks: VERIFY_QUERIES.map(({ table, sql }) => ({
+      id: `count:${table}`, table, expected: 1, sql,
+    })),
+    limitations: ["migrations_not_checked", "row_availability_not_checked"],
+  };
+}
+
 /**
  * Flatten `wrangler d1 execute --json` stdout to its result rows. Accepts the
  * envelope wrangler prints (an array with `{ results }`, or a bare object).
@@ -115,7 +141,7 @@ export function parseWranglerRows(stdout) {
   const rows = [];
   for (const batch of batches) {
     const results = batch?.results;
-    if (!Array.isArray(results)) {
+    if (!Array.isArray(results) || batch.success === false) {
       throw new Error(`${CHECK_NAME}: unexpected wrangler JSON shape`);
     }
     rows.push(...results);
