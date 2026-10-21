@@ -36,15 +36,30 @@ import {
   formatSeedReport,
   parseWranglerRows,
 } from "./lib/dbSeed.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 
-if (argv.includes("--help") || argv.includes("-h")) {
-  console.log(
-    "Usage: npm run db:seed [-- --persist-to=<dir>]   (local D1 only, idempotent synthetic fixture)",
-  );
-  exit(0);
+function usage() {
+  return [
+    "Usage: node scripts/db-seed.mjs [--persist-to=<dir>]",
+    "",
+    "Local D1 seed: loads a minimal synthetic customer fixture into local Miniflare D1 (idempotent UPSERTs).",
+    "",
+    "  --persist-to=<dir>  Scratch persist dir; keeps verification runs off local dev state.",
+    "  -h, --help          Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Fixture applied and every row verified.",
+    "  1  Wrangler fails or a row count mismatches.",
+    "  2  Unknown flag.",
+    "",
+    "Example:",
+    "  node scripts/db-seed.mjs --persist-to=/tmp/d1-verify",
+  ].join("\n");
 }
+
+handleHelpFlag(argv.slice(2), usage());
 
 // Scratch-dir support (same pattern as check-d1-drift): `--persist-to` keeps
 // verification runs off local dev state. Unknown flags are rejected loudly.

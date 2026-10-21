@@ -6,7 +6,28 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-r2-deploy-config.mjs",
+    "",
+    "Credential-free regression: preflight and Wrangler must deploy the same R2 config (offline fixtures).",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Preflight and deploy agree; shell overrides cannot bypass the lookup.",
+    "  1  An assertion fails.",
+    "",
+    "Example:",
+    "  node scripts/check-r2-deploy-config.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const scratch = mkdtempSync(join(process.env.PAPERCLIP_RUN_SCRATCH_DIR ?? process.env.PAPERCLIP_SCRATCH_DIR ?? tmpdir(), "r2-deploy-config-"));
