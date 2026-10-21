@@ -647,6 +647,25 @@ test("cli: a bare positional argument is rejected like an unknown flag", (t) => 
   assert.equal(oneObject(res).findings[0].code, "UNKNOWN_FLAG");
 });
 
+test("cli: unknown flag before --json still yields one JSON object, exit 2, and does not echo the flag value", (t) => {
+  const dir = sandbox(t);
+  const res = cli(dir, `--bogus=${SENTINEL}`, "--json");
+  assert.equal(res.status, 2);
+  const out = oneObject(res);
+  assert.equal(out.schemaVersion, 1);
+  assert.equal(out.ok, false);
+  assert.equal(out.findings[0].code, "UNKNOWN_FLAG");
+  assert.equal(out.findings[0].checkId, "cli.arguments");
+  assert.ok(!res.stdout.includes(SENTINEL));
+});
+
+test("cli: positional argument before --json is rejected like an unknown flag", (t) => {
+  const dir = sandbox(t);
+  const res = cli(dir, "route-map.json", "--json");
+  assert.equal(res.status, 2);
+  assert.equal(oneObject(res).findings[0].code, "UNKNOWN_FLAG");
+});
+
 test("cli: unknown flag without --json exits 2 and reports on stderr", (t) => {
   const dir = sandbox(t);
   const res = cli(dir, `--bogus=${SENTINEL}`);
