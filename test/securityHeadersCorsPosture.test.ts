@@ -2,6 +2,10 @@ import { exports } from "cloudflare:workers";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { AUTH_THROTTLE_MAX_FAILURES } from "../src/lib/authThrottle";
+import { InvalidAuthModeError } from "../src/lib/establishSession";
+import { LoginPageUnavailableError } from "../src/lib/loginPageError";
+import { MissingSetCookieCapabilityError } from "../src/lib/setCookieCapabilityError";
+import { UpstreamTimeoutError } from "../src/lib/upstreamTimeout";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -90,7 +94,12 @@ function expectCorsGrant(res: Response, origin = FOREIGN_ORIGIN): void {
  * throttle 429 headers (the delta since the 09-28 audit).
  */
 function expectExposedHeaders(res: Response): void {
-  const exposed = res.headers.get("access-control-expose-headers") ?? "";
+  const tokens = new Set(
+    (res.headers.get("access-control-expose-headers") ?? "")
+      .split(",")
+      .map((h) => h.trim().toLowerCase())
+      .filter((h) => h.length > 0)
+  );
   for (const h of [
     "etag",
     "retry-after",
@@ -99,7 +108,7 @@ function expectExposedHeaders(res: Response): void {
     "x-ratelimit-remaining",
     "x-ratelimit-reset"
   ]) {
-    expect(exposed.toLowerCase()).toContain(h);
+    expect(tokens.has(h)).toBe(true);
   }
 }
 
@@ -425,5 +434,93 @@ describe("security-header + CORS posture acceptance (R9-08)", () => {
         expect(res.headers.get("cache-control")).toBeNull();
       }
     }
+  });
+
+  describe("onError branch withCors pins (direct errorHandler, no middleware)", () => {
+    // The /api/v1/* middleware wraps every downstream response (including
+    // onError results) with withCors, so app.fetch header asserts alone stay
+    // green when an onError branch drops its own withCors. These direct
+    // errorHandler probes isolate each named branch: removing its withCors
+    // turns the matching test red. Each constructs the branch's exact error
+    // type so the probe provably reaches the named if-branch.
+    function mockContext(path: string): unknown {
+      const url = `http://test.local${path}`;
+      return {
+        req: {
+          raw: new Request(url, { headers: { Origin: FOREIGN_ORIGIN } }),
+          url,
+          method: "GET"
+        },
+        env: {}
+      };
+    }
+
+    async function onErrorRes(err: unknown, path: string): Promise<Response> {
+      const handler = (app as unknown as { errorHandler: (e: unknown, c: unknown) => Response | Promise<Response> }).errorHandler;
+      return await handler(err, mockContext(path));
+    }
+
+    function expectOnErrorPosture(res: Response): void {
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expectHardened(res);
+      expectCorsGrant(res);
+      expectExposedHeaders(res);
+    }
+
+    it("missing getSetCookie 503 carries posture via its own withCors", async () => {
+      const res = await onErrorRes(
+        new MissingSetCookieCapabilityError(),
+        "/api/v1/routeware/home/index"
+      );
+      expect(res.status).toBe(503);
+      expectOnErrorPosture(res);
+      const body = (await res.json()) as { type: string; title: string; status: number; detail?: string };
+      expect(body.type).toContain("misconfigured");
+      expect(body.title).toBe("Service Unavailable");
+      expect(body.status).toBe(503);
+      expect(body.detail).toContain("getSetCookie");
+    });
+
+    it("invalid AUTH_MODE 503 carries posture via its own withCors", async () => {
+      const res = await onErrorRes(
+        new InvalidAuthModeError("browserr"),
+        "/api/v1/routeware/home/index"
+      );
+      expect(res.status).toBe(503);
+      expectOnErrorPosture(res);
+      const body = (await res.json()) as { type: string; title: string; status: number; detail?: string };
+      expect(body.type).toContain("misconfigured");
+      expect(body.title).toBe("Service Unavailable");
+      expect(body.status).toBe(503);
+      expect(body.detail).toContain("browserr");
+    });
+
+    it("upstream timeout 502 carries posture via its own withCors", async () => {
+      const res = await onErrorRes(
+        new UpstreamTimeoutError(50),
+        "/api/v1/routeware/account/login-page"
+      );
+      expect(res.status).toBe(502);
+      expectOnErrorPosture(res);
+      const body = (await res.json()) as { type: string; title: string; status: number; detail?: string };
+      expect(body.type).toContain("bad-gateway");
+      expect(body.title).toBe("Upstream timed out");
+      expect(body.status).toBe(502);
+      expect(body.detail).toContain("50ms");
+    });
+
+    it("login-page 502 carries posture via its own withCors", async () => {
+      const res = await onErrorRes(
+        new LoginPageUnavailableError(403, "login page"),
+        "/api/v1/routeware/home/index"
+      );
+      expect(res.status).toBe(502);
+      expectOnErrorPosture(res);
+      const body = (await res.json()) as { type: string; title: string; status: number; detail?: string };
+      expect(body.type).toContain("bad-gateway");
+      expect(body.title).toBe("Upstream login unavailable");
+      expect(body.status).toBe(502);
+      expect(body.detail).toContain("403");
+    });
   });
 });
