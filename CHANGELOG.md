@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer, address and container operator CSV imports, including dry runs,
+- #323: Customer, address and container operator CSV imports, including dry runs,
   now require unambiguous identity headers and positive safe whole-decimal
   primary/relationship identities. Invalid identities return a value-free 400
   with table, row, field and correction/retry guidance. Earlier flushed valid
