@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Readiness now bounds concurrent D1 ping and advisory cron response waits at
+  15 seconds, while retaining its non-sliding 20-second single-flight cache.
+  Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
+  Failed/timed-out observations return fixed `code` and `next_action` fields
+  instead of raw dependency exception text. Timeout does not cancel underlying
+  D1 work; late completion cannot replace a newer cached observation. See
+  `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and
