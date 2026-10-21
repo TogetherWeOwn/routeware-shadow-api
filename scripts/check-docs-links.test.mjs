@@ -7,7 +7,10 @@
  * silently unscans the file. The `-z`/NUL pair is the fix — and reverting to
  * a newline split keeps every other suite green (no non-ASCII markdown
  * exists in the tree today, and the skip is silent), so this suite pins the
- * framing directly on the wrapper source.
+ * framing directly on the wrapper source. A final behavioral test runs the
+ * real wrapper against a newline-named fixture (broken link, alternate
+ * `GIT_INDEX_FILE`), so a wrapper change that silently unscans the file
+ * fails there too, not just in the source pins.
  *
  * Runs under `node --test` (wired into `npm run test:probe`, which CI's
  * always-run hygiene job executes on every PR), not vitest: it spawns the
@@ -44,41 +47,66 @@ test("the enforced wrapper passes on the real tree", () => {
   assert.match(output, /^docs-links: OK — \d+ markdown files, all relative links resolve\n$/);
 });
 
-test("NUL framing keeps a newline-containing .md filename intact (alternate index)", () => {
-  // Hermetic scratch repo: the alternate GIT_INDEX_FILE proves the exact
-  // `git ls-files -z` + NUL-split pipeline the wrapper uses survives a
-  // newline in the filename, where a newline split fragments it.
-  const dir = mkdtempSync(path.join(tmpdir(), "docs-links-nul-"));
-  try {
-    execFileSync("git", ["init"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+test(
+  "the wrapper scans a newline-containing .md filename (alternate index)",
+  {
+    skip:
+      process.platform === "win32"
+        ? "POSIX-only: Windows cannot create newline filenames (repo CI is ubuntu-latest)"
+        : false,
+  },
+  () => {
+    // Behavioral bind on the real wrapper: stage ONLY a newline-named .md
+    // fixture carrying a broken relative link into an alternate
+    // GIT_INDEX_FILE, then spawn the wrapper with that env (it inherits env
+    // into its `git ls-files` call). Exit 1 naming the missing target proves
+    // the fixture was scanned as one entry; the failure modes this guards
+    // against exit differently (a newline split fragments the name, so the
+    // markdown read fails at exit 2; a newline-dropping filter exits 0 with
+    // nothing scanned). The real index is untouched — the fixture is never
+    // staged there — so concurrent suites keep seeing the real tree.
+    const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
     const newlineName = "probe-newline-\n-file.md";
-    writeFileSync(path.join(dir, newlineName), "# Probe\n\nNo links.\n", "utf8");
-    const altIndex = path.join(dir, "alt.index");
-    const env = { ...process.env, GIT_INDEX_FILE: altIndex };
-    execFileSync("git", ["add", newlineName], {
-      cwd: dir,
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const raw = execFileSync("git", ["ls-files", "-z"], {
-      cwd: dir,
-      env,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const entries = raw
-      .split("\0")
-      .map((line) => line.replace(/\\/g, "/"))
-      .filter((line) => line !== "");
-    assert.deepStrictEqual(entries, [newlineName]);
-    // The wrapper's `.md` suffix filter must still see it as one markdown file.
-    assert.deepStrictEqual(
-      entries.filter((p) => p.endsWith(".md")),
-      [newlineName],
-    );
-    // A newline split would fragment it — proving this case is adversarial.
-    assert.ok(raw.split("\n").length > 1);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+    const fixturePath = path.join(repoRoot, newlineName);
+    const scratchDir = mkdtempSync(path.join(tmpdir(), "docs-links-nul-"));
+    const env = {
+      ...process.env,
+      GIT_INDEX_FILE: path.join(scratchDir, "alt.index"),
+    };
+    try {
+      writeFileSync(fixturePath, "# Probe\n\n[broken](./does-not-exist-probe.md)\n", "utf8");
+      execFileSync("git", ["add", newlineName], {
+        cwd: repoRoot,
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let failure = null;
+      try {
+        execFileSync(process.execPath, [wrapperPath], {
+          cwd: repoRoot,
+          env,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert.ok(failure, "expected the wrapper to exit nonzero on the broken link");
+      assert.equal(
+        failure.status,
+        1,
+        `expected wrapper exit 1, got ${failure.status}: ${failure.stderr ?? failure.message}`,
+      );
+      const stderr = String(failure.stderr ?? "");
+      assert.match(stderr, /^docs-links: FAIL/m);
+      assert.match(stderr, /missing file: does-not-exist-probe\.md/);
+      assert.ok(
+        stderr.includes("probe-newline-"),
+        "expected the finding to name the newline fixture",
+      );
+    } finally {
+      rmSync(fixturePath, { force: true });
+      rmSync(scratchDir, { recursive: true, force: true });
+    }
+  },
+);
