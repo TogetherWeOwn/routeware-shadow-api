@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #321: the customer/address/container snapshot lists accept
+  `includeTotal=false` to skip the `COUNT(*)` query and answer
+  `total: null` (deliberately not computed, not zero) with the same
+  rows, `nextCursor` and page SQL. The default response is unchanged;
+  any other value is a value-free 400 before D1 access. Documented in
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and
+  `docs/CONSUMER-QUICKSTART.md`; pinned by
+  `test/snapshotCountFreePagination.test.ts`.
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and
