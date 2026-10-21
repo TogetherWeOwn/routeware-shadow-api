@@ -27,7 +27,6 @@ import {
   isDryRunRequested,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  rejectRepeatedIncludeTotal,
   snapshotListResponse,
   parsePositiveIdParam,
   snapshotWriteResultExample
@@ -90,8 +89,6 @@ const addressSnapshotListRoute = createRoute({
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
-  const repeated = rejectRepeatedIncludeTotal(c);
-  if (repeated) return repeated;
   const p = c.req.valid("query");
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];
