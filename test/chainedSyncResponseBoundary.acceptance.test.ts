@@ -21,7 +21,7 @@ const config = {
 
 let responses: Map<Table, () => Response | Promise<Response>>;
 let attempted: Table[];
-let requests: { table: Table; url: URL; headers: Headers; signal: AbortSignal }[];
+let requests: { table: Table; url: URL; headers: Headers; signal: AbortSignal; redirect: RequestRedirect }[];
 let unexpected: string[];
 let records: Record<string, unknown>[];
 let cleanups: (() => void)[];
@@ -66,7 +66,7 @@ beforeEach(() => {
       throw new Error("Unexpected network request in chained response acceptance suite");
     }
     attempted.push(table);
-    requests.push({ table, url, headers: request.headers, signal: request.signal });
+    requests.push({ table, url, headers: request.headers, signal: request.signal, redirect: request.redirect });
     return responses.get(table)?.() ?? Response.json(counts);
   });
 });
@@ -385,6 +385,18 @@ describe("R2 wire projection before cron reporting", () => {
     expect(result.customer).toEqual({ ...counts, r2: { status, reason } });
   });
 
+  it.each([
+    ["failed", `daily alias: ${marker}`, "daily alias: R2 publication unavailable"],
+    ["stored", `manifest: history manifest: ${marker}`, "manifest: history manifest: R2 publication unavailable"],
+    ["stored", `manifest: daily manifest: ${marker}`, "manifest: daily manifest: R2 publication unavailable"],
+    ["stored", `manifest: latest pointer: ${marker}`, "manifest: latest pointer: R2 publication unavailable"]
+  ] as const)("scrubs a marker-suffixed stage reason to its fixed classification: %s / %s", async (status, reason, expected) => {
+    reply("customer", { ...counts, r2: { status, reason } });
+    const result = await runDataSnapshotSyncChainedHttp(base, config);
+    expect(result.customer).toEqual({ ...counts, r2: { status, reason: expected } });
+    expect(JSON.stringify(result)).not.toContain(marker);
+  });
+
   it.each([null, [], marker, { status: "unknown", private: marker }])("ignores malformed R2 metadata without inventing a successful archive: %j", async (r2) => {
     reply("customer", { ...counts, r2 });
     const result = await runDataSnapshotSyncChainedHttp(base, config);
@@ -416,6 +428,20 @@ describe("R2 wire projection before cron reporting", () => {
   });
 });
 
+describe("chained network failure sanitization", () => {
+  it("scrubs a marker-bearing fetch rejection to a classified network refusal", async () => {
+    const credential = "sync-pass-9f3b2c";
+    responses.set("customer", () => {
+      throw new TypeError(`fetch failed for https://sync-user:${credential}@routeware.invalid/sync?token=${marker}`);
+    });
+    const error = await runDataSnapshotSyncChainedHttp(base, config).catch((e: unknown) => e);
+    const result = failure(error, "customer");
+    expect(result.message).toBe("[chained customer] fetch failed");
+    expect(result.cause).toMatchObject({ name: "ChainedNetworkError" });
+    expect(JSON.stringify([result.message, result.cause, ...records])).not.toContain(credential);
+  });
+});
+
 describe("combined HTTP and cron compatibility", () => {
   it("preserves exact combined counts/null, dry-run forwarding, authentication and correlation IDs", async () => {
     const runId = "12345678-1234-4234-8234-123456789abc";
@@ -432,6 +458,15 @@ describe("combined HTTP and cron compatibility", () => {
       expect(request.url.searchParams.get("dryRun")).toBe("true");
       expect(request.headers.get("x-run-id")).toBe(runId);
       expect(request.headers.get("authorization")).toBe("Bearer test-sync-secret");
+    }
+  });
+
+  it("sends every chained table request with manual redirect", async () => {
+    await runDataSnapshotSyncChainedHttp(base, config);
+    expect(attempted).toEqual(tables);
+    expect(requests).toHaveLength(tables.length);
+    for (const request of requests) {
+      expect(request.redirect).toBe("manual");
     }
   });
 
@@ -479,6 +514,49 @@ describe("combined HTTP and cron compatibility", () => {
     });
     expect(stream.cancels()).toBe(1);
     expect(JSON.stringify(records)).not.toContain(marker);
+    expect(attempted).toEqual(["customer", "address"]);
+  });
+
+  it("cron exposes a fixed HTTP classification and next action, preserving completed tables", async () => {
+    responses.set("address", () => new Response(`{"private":"${marker}"}`, { status: 500 }));
+    await runCron();
+    const line = cronRecord("failed");
+    expect(line).toMatchObject({ kind: "ChainedHttpError", status: 500, next_action: nextAction, table: "address", tables: {
+      customer: counts, address: null, container: null
+    } });
+    expect(line).not.toHaveProperty("error");
+    expect(JSON.stringify(records)).not.toContain(marker);
+    expect(JSON.stringify(records)).not.toContain(secret);
+    expect(attempted).toEqual(["customer", "address"]);
+  });
+
+  it("cron exposes a fixed network classification and next action, preserving completed tables", async () => {
+    responses.set("address", () => {
+      throw new TypeError(`fetch failed for https://sync-user:sync-pass-9f3@routeware.invalid/sync ${marker}`);
+    });
+    await runCron();
+    const line = cronRecord("failed");
+    expect(line).toMatchObject({ kind: "ChainedNetworkError", next_action: nextAction, table: "address", tables: {
+      customer: counts, address: null, container: null
+    } });
+    expect(line).not.toHaveProperty("error");
+    expect(JSON.stringify(records)).not.toContain(marker);
+    expect(JSON.stringify(records)).not.toContain(secret);
+    expect(attempted).toEqual(["customer", "address"]);
+  });
+
+  it("cron exposes a fixed read classification and next action, preserving completed tables", async () => {
+    const stream = controlledBody();
+    responses.set("address", () => stream.response);
+    stream.fail();
+    await runCron();
+    const line = cronRecord("failed");
+    expect(line).toMatchObject({ kind: "ChainedResponseReadError", next_action: nextAction, table: "address", tables: {
+      customer: counts, address: null, container: null
+    } });
+    expect(line).not.toHaveProperty("error");
+    expect(JSON.stringify(records)).not.toContain(marker);
+    expect(JSON.stringify(records)).not.toContain(secret);
     expect(attempted).toEqual(["customer", "address"]);
   });
 });

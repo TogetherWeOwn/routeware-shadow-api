@@ -714,10 +714,12 @@ describe("runDataSnapshotSyncChainedHttp", () => {
       })
     ).catch((e: unknown) => e)) as InstanceType<typeof PartialDataSnapshotSyncError>;
 
-    // Assert — rethrown verbatim out of `post()`, tagged by the outer handler.
+    // Assert — classified as a network refusal out of `post()` (never the raw
+    // fetch text), tagged by the outer handler.
     expect(error).toBeInstanceOf(PartialDataSnapshotSyncError);
     expect(error.failedTable).toBe("customer");
     expect(error.message).toBe("[chained customer] fetch failed");
+    expect(error.cause).toMatchObject({ name: "ChainedNetworkError" });
   });
 });
 
