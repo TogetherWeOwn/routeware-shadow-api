@@ -174,7 +174,17 @@ does nothing. Two invariants before touching that file:
 
 Mutation-verified six ways, including both casing swaps.
 
-### `detailFullSync.ts` — two test files, split by what they need
+### `detailFullSync.ts` — mapping, fetch and write-through boundaries
+
+- `test/detailFullIdentity.acceptance.test.ts` parameterizes malformed primary/FK
+  aliases, normalized duplicates and wrong enclosing parents against real local
+  test D1 and cache invalidation through a confirmed save. Refusal must preserve
+  rows/timestamps with zero mutation attempts or graph cache publication, keep
+  `ok: true` with fixed `localSync.code: sync_failed`, and leak no fixture values.
+  Positive controls pin decimal string/numeric IDs, inherited parents, empty
+  deletion, fresh/deleted IDs, erasure suppression and tolerant read-only mapping.
+  `npm run test:detail-full` runs it with `test/detailFullReconciliation.test.ts`;
+  see the [identity contract](../CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract).
 
 - `test/detailFullSyncMapping.test.ts` (pure, no mocks) pins the field mapping: the
   Routeware→snapshot renames (`NameFirst`→`firstName` and friends) and the absent-key defaults, where
