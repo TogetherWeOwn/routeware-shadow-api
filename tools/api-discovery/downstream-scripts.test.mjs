@@ -20,10 +20,10 @@
  * what vitest's workers pool cannot: exit codes and files on disk,
  * including missing-input behavior.
  *
- * Expected on current main: all green — the PUT entry renders `-X PUT`
- * and the remaining pins are regression armor for the extraction.
- * Render-script changes must update the pins through new script behavior,
- * not by weakening these assertions.
+ * Safety acceptance amendments intentionally fail before the paired repair:
+ * non-GET examples are documentation, and complete payload bytes are preserved.
+ * Runtime selection, loopback refusal and fake-curl argv assertions live in
+ * curl-safety.acceptance.test.mjs; all other extraction controls remain.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -175,17 +175,14 @@ test("export-curl: shared world renders curls per Content-Type with body files",
   assert.match(sh, /-H "Content-Type: application\/x-www-form-urlencoded; charset=UTF-8" \\/);
   assert.equal(read(dir, "out/bodies/POST_WebRW_Customer_CustomerTypesRead.body"), "EnabledOnly=true");
 
-  // Form POST from example file (no harvest row): trimmed example content.
+  // Complete example content retains its trailing newline (payload bytes).
   assert.equal(
     read(dir, "out/bodies/POST_WebRW_Customer_SaveCustomerLongForm.body"),
-    "CustomerID=42&Name=Ada+Lovelace"
+    "CustomerID=42&Name=Ada+Lovelace\n"
   );
 
   // GET: harvest query (999) beats exampleQuery (111); query is URL-encoded.
-  assert.match(
-    sh,
-    /curl -sS "\$BASE\/api\/v1\/routeware\/customer\/load-long-modal\?customerID=999&tab=a\+b"/
-  );
+  assert.match(sh, /load-long-modal\?customerID=999&tab=a\+b/);
   // GET without harvest row falls back to exampleQuery.
   assert.match(sh, /query-request-is-complete\?requestID=REPLACE_WITH_UUID/);
 
@@ -201,17 +198,16 @@ test("export-curl: shared world renders curls per Content-Type with body files",
   ]);
 });
 
-test("export-curl: a PUT entry renders -X PUT, not -X POST", () => {
+test("export-curl: PUT documentation preserves its method but is not executable", () => {
   const dir = sandbox();
   layFixtures(dir);
   const result = run(dir, "export-curl-examples.mjs");
   assert.equal(result.status, 0, result.output);
   const sh = read(dir, "out/curl-examples.sh");
-  assert.match(
-    sh,
-    /curl -sS -X PUT "\$BASE\/api\/v1\/routeware\/customer\/update-thing" \\/,
-    "generated curl must call the route-map method"
-  );
+  const putLine = sh.split("\n").find((line) => line.includes("-X PUT"));
+  assert.ok(putLine, "retain the route-map method in non-executable material");
+  assert.match(putLine, /^\s*#/, "PUT curl is documentation, not shell code");
+  assert.match(sh, /non-executable|documentation.only|disabled/i);
 });
 
 test("export-curl: missing harvest.ndjson warns and uses example files only", () => {
@@ -225,7 +221,7 @@ test("export-curl: missing harvest.ndjson warns and uses example files only", ()
   // Example-file entry still renders; harvest-only entries become no-body.
   assert.equal(
     read(dir, "out/bodies/POST_WebRW_Customer_SaveCustomerLongForm.body"),
-    "CustomerID=42&Name=Ada+Lovelace"
+    "CustomerID=42&Name=Ada+Lovelace\n"
   );
   assert.match(sh, /# POST \/WebRW\/Customer\/CustomersRead → [^\n]+\n# \(no body:/);
   // GET falls back to exampleQuery without a harvest row.

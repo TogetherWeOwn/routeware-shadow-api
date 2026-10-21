@@ -10,7 +10,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
   require a valid `since` when `since_id` is supplied; tuple-based paging is
   preserved. The focused local check is `npm run check:customer-changes-cursor`.
-
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
 - `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
   unknown arguments and remote requests before executing anything. `--dry-run`
   reports deterministic local fixture intent without subprocesses or state changes;
