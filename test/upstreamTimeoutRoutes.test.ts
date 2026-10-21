@@ -1,12 +1,14 @@
 /// <reference types="vite/client" />
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import app from "../src/app";
 import { fetchGetCustomerDetailFull } from "../src/lib/detailFullSync";
 import {
   clearAntiForgeryTokenCache,
   resolveSaveCustomerLongFormToken
 } from "../src/lib/customerSaveAutoToken";
 import { prepareSaveAddressFormBody } from "../src/lib/addressContainerSaveForm";
+import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 import type { SessionState } from "../src/lib/sessionState";
 import { UpstreamTimeoutError } from "../src/lib/upstreamTimeout";
 import { routewareRoutes } from "../src/routes/routeware";
@@ -44,6 +46,7 @@ import { routewareRoutes } from "../src/routes/routeware";
 const ORIGIN = "https://killeen.example.test";
 const BASE = "/WebRW";
 const LOGIN_URL = `${ORIGIN}${BASE}/Account/Login`;
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 const ctx = {
   waitUntil() {},
@@ -193,6 +196,90 @@ describe("fixed paths honor UPSTREAM_TIMEOUT_MS on a hang", () => {
     expect((error as UpstreamTimeoutError).timeoutMs).toBe(55);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(Date.now() - start).toBeLessThan(5_000);
+  });
+});
+
+/**
+ * Synthetic env for direct `app.fetch` calls to the sessionless login-page
+ * probe: drives the full route → direct forward → onError path with a hung
+ * upstream. The probe never touches the session lock; the AUTH_SESSION stub
+ * only serves the bearer gate's throttle-clear and the middleware's
+ * sessionStub placeholder.
+ */
+function timeoutAppEnv(): Env {
+  const stub = {
+    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+      const path = new URL(typeof input === "string" ? input : String(input)).pathname;
+      if (path === "/throttle/clear" || path === "/throttle/failure") {
+        return Response.json({ blocked: false, retryAfterSec: 0 });
+      }
+      if (path === "/get") {
+        return Response.json({ cookieHeader: null, expiresAtMs: null, refreshing: false });
+      }
+      return new Response("Not Found", { status: 404 });
+    }
+  };
+  const AUTH_SESSION = {
+    idFromName: (name: string) => name,
+    get: (_id: string) => stub
+  };
+  return {
+    LOGIN_URL,
+    UPSTREAM_TIMEOUT_MS: "50",
+    TARGET_ORIGIN: ORIGIN,
+    TARGET_BASE_PATH: BASE,
+    SHADOW_API_TOKEN: "test-api-token",
+    AUTH_SESSION
+  } as unknown as Env;
+}
+
+describe("app onError 502 on login-page timeout (direct-forwarder backstop)", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("maps a hung login-page probe to 502 with API posture via withCors", async () => {
+    // Arrange — hung upstream, 50ms override (default would take 15s).
+    hangForever();
+    const req = new Request("http://test.local/api/v1/routeware/account/login-page", {
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
+    });
+
+    // Act — via app.fetch so app.onError (not Hono's default) maps the
+    // UpstreamTimeoutError throw from the direct forwardToUpstream caller.
+    const start = Date.now();
+    const res = await app.fetch(req, timeoutAppEnv(), ctx);
+    const elapsed = Date.now() - start;
+
+    // Assert — 502 problem+json naming the override budget (branch proof),
+    // plus the full API posture via the onError withCors branch — otherwise
+    // a browser sees a CORS error instead of the real 502.
+    expect(res.status).toBe(502);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
+    const body = (await res.json()) as {
+      type: string;
+      title: string;
+      status: number;
+      detail?: string;
+    };
+    expect(body.type).toBe(`${PROBLEM_TYPE_BASE}bad-gateway`);
+    expect(body.title).toBe("Upstream timed out");
+    expect(body.status).toBe(502);
+    expect(body.detail).toContain("50ms");
+    expect(elapsed).toBeLessThan(5_000);
   });
 });
 
