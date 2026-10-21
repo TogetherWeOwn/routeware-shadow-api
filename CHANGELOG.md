@@ -14,6 +14,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Every supplied spelling is validated, including an unused alias; when both
   are valid, `id` still wins even if their values differ. Valid unknown IDs
   remain 404; hydrated rows, ETags, auth ordering and save handlers are unchanged.
+- #327: Detail-full write-through refreshes now refuse malformed/conflicting identity
+  aliases, duplicate children and wrong enclosing parents before any D1 mutation
+  or graph cache publication. Confirmed upstream saves remain successful with
+  the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
+  stays tolerant. Run `npm run test:detail-full` for hermetic acceptance checks.
+
 - #328: Fixed customer changes feed pagination to normalize equivalent UTC timestamps
   with up to 3 fractional-second digits to milliseconds, reject timestamps with
   more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
