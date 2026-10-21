@@ -53,6 +53,44 @@ For recovery without control sanitization, use the integrity-verified in-code
 report restore in [R2 restore runbook §6](R2-RESTORE-RUNBOOK.md#6-readback-route-handoff-and-programmatic-recovery).
 Export → HTTP import is lossless only for import-compatible business cells.
 
+## Snapshot import identities (`bad-request`)
+
+Operator `...-snapshot/import` routes (including dry-run) reject missing or
+ambiguous normalized identity headers and malformed required primary/relationship
+cells with 400 `application/problem+json`. Required columns are customer
+`CustomerID`; address `PickupAddressID` + `CustomerID`; container `ContainerID` +
+`PickupAddressID`. Header case, BOM, trimming and CSV quoting still work; each
+identity column must occur exactly once, even when duplicated cells agree.
+
+Identities must be positive safe integers written entirely as ASCII decimal digits
+(value 1 through 9007199254740991). Existing spreadsheet-marker decoding, trimmed
+whitespace and leading zeroes are supported. Empty/missing cells, numeric prefixes,
+signs, fractions, exponents, hex, non-ASCII digits and unsafe values are invalid.
+Optional non-identity numbers/defaults and tolerant upstream report parsing are
+unchanged; this is not full-column validation or a different CSV dialect.
+
+For example, synthetic address CSV `PickupAddressID,CustomerID` / `42,123junk`
+fails with this fixed detail, never echoing the cell, customer data or a D1 error:
+
+```
+Invalid identity in address_snapshot at row 2, field customer_id. Provide each required identity header exactly once and use positive safe whole-decimal integers, then retry. See docs/PROBLEMS.md#bad-request.
+```
+
+Table/field identifiers are fixed schema names. Row 1 denotes the header;
+subsequent rows count logical CSV records as in the control-character policy
+above, not physical newlines inside quoted cells. Correct the named header or
+identity cell and retry. A missing database parent is a separate dangling-reference
+error below; dry-run still skips parent-existence checks but validates identical
+identity syntax with zero writes.
+
+A header or first-batch identity error writes nothing. The pending batch and tail
+are not written after a later error, but earlier flushed valid batches may remain
+committed (80 customer/address rows or 40 container rows per default batch).
+There is **no whole-upload rollback**. The rejected record is never written and
+parse failure never triggers end-of-import reconciliation; imports never delete.
+See the [strict import contract](../CUSTOMER_SNAPSHOT.md#strict-identities-on-operator-csv-imports)
+for the synthetic example and focused hermetic regression command.
+
 ## Dangling snapshot references (`bad-request`)
 
 D1 enforces the snapshot FK chain (`address.customer_id` →

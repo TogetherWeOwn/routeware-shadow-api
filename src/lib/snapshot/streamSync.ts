@@ -6,6 +6,10 @@ import { parseCustomerSnapshotRow } from "../csvCustomerSnapshot";
 import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
 import { assertCsvControlCharacters, mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
+import {
+  assertSnapshotRecordIdentities,
+  validateSnapshotIdentityHeaders
+} from "./importIdentity";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
   countWouldDeleteStale,
@@ -104,9 +108,11 @@ function firstHeaderCell(line: string): string {
 /** Imports validate raw records before trimming/D1; reports keep legacy parsing. */
 async function* cappedLines(
   body: ReadableStream<Uint8Array>,
-  options: StreamSyncOptions
+  options: StreamSyncOptions,
+  table: "customer_snapshot" | "address_snapshot" | "container_snapshot"
 ): AsyncGenerator<string, void, undefined> {
   let rowNumber = 0;
+  let identityCols: Record<string, number> | null = null;
   const source =
     options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes);
   const stalled =
@@ -117,6 +123,14 @@ async function* cappedLines(
     rowNumber += 1;
     if (options.rejectControlCharacters) {
       assertCsvControlCharacters(line, rowNumber);
+    }
+    if (options.strictImportIdentities) {
+      if (identityCols === null) {
+        identityCols = validateSnapshotIdentityHeaders(table, line);
+      } else {
+        // Throw before the consumer can parse, enqueue, flush or reconcile.
+        assertSnapshotRecordIdentities(table, identityCols, line, rowNumber);
+      }
     }
     yield line;
   }
@@ -164,7 +178,7 @@ export async function syncCustomerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "customer_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
@@ -259,7 +273,7 @@ export async function syncAddressSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "address_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
@@ -354,7 +368,7 @@ export async function syncContainerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "container_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(

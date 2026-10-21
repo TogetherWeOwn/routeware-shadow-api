@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Customer, address and container operator CSV imports, including dry runs,
+  now require unambiguous identity headers and positive safe whole-decimal
+  primary/relationship identities. Invalid identities return a value-free 400
+  with table, row, field and correction/retry guidance. Earlier flushed valid
+  batches may remain; the rejected batch is not written. Upstream report
+  parsing and optional non-identity numbers are unchanged.
+
 - The supported Node runtime moves from 22 (Maintenance LTS, security
   fixes until 2027-04-30) to 24 (Active LTS until 2026-10-20, maintenance
   until 2028-04-30): `.nvmrc` is `24`, `engines.node` is `>=24`, and

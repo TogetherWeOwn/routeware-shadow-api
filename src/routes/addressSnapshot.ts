@@ -328,7 +328,7 @@ const addressSnapshotImportRoute = createRoute({
     415: { description: "Unsupported Content-Type (application/problem+json)" },
     400: {
       description:
-        "Empty body (application/problem+json). Returned when the POST has no request body; post the CSV as raw body."
+        "Invalid CSV or empty body (application/problem+json). Required identity headers must be unambiguous and primary/relationship cells must be positive safe whole-decimal integers, including dryRun. Identity errors identify table, logical row and field without submitted values; correct the CSV and retry. Earlier valid flushed batches may remain committed."
     }
   }
 });
@@ -365,6 +365,7 @@ addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
     const r = await syncAddressSnapshotFromStream(c.env.CUSTOMER_DB, body, undefined, {
       requireDataRows: true,
       rejectControlCharacters: true,
+      strictImportIdentities: true,
       maxBytes: SNAPSHOT_IMPORT_MAX_BYTES,
       // `?dryRun=true` validates and counts without writing D1.
       dryRun: isDryRunRequested(c.req.valid("query"))

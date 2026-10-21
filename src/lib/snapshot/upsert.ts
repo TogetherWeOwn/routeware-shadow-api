@@ -297,6 +297,8 @@ export type StreamSyncOptions = {
   requireDataRows?: boolean;
   /** Reject controls before trimming/binding on imports, not upstream reports. */
   rejectControlCharacters?: boolean;
+  /** Strict required identity headers/cells on operator imports, including dry runs. */
+  strictImportIdentities?: boolean;
   /**
    * Cap on request body bytes, enforced by a streaming counter so a huge
    * actual body is rejected with `SnapshotTooLargeError` without buffering.
