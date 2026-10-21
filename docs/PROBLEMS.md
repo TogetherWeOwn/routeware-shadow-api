@@ -21,6 +21,22 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Customer changes cursor (`bad-request`)
+
+For `GET /api/v1/customer-snapshot/changes`, send a valid UTC `Z` datetime
+with at most three fractional-second digits; extra digits are rejected even
+when zero. If sending `since_id`, pair it with nonempty valid `since` and
+use an unpadded ASCII decimal integer from `0` through `9007199254740991`.
+Do not use signs, spaces, exponents, prefixes, fractions or repeated cursor
+keys. Omit both cursor fields for the initial page, or replay both fields
+from the previous `nextCursor` for tie-safe continuation. See
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+
+Validation happens before D1 and returns fixed, value-free guidance:
+`Invalid request query (since_id). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `since` (or multiple invalid fields); no
+submitted timestamp or id is echoed. Authentication still precedes validation.
+
 ## CSV control characters (`bad-request`)
 
 All three snapshot `.../import` routes reject NUL, vertical tab, other C0
