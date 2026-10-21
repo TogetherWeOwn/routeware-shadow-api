@@ -11,15 +11,15 @@ import { problemType } from "../src/lib/problem";
  * registered route with no/wrong tokens at the OUTER gate, and
  * `test/snapshotAuth.test.ts` pins the inner 401 body per privileged route —
  * both green. What neither pins is the privileged SET itself: a new
- * sync/import/export/data route that forgot `requireSnapshotAuth` would still
+ * privileged route that forgot `requireSnapshotAuth` would still
  * 401 without a token (outer gate) while wrongly accepting the general API
  * token.
  *
  * This file closes that gap:
  * - the privileged inventory is derived from the live router (`app.routes`)
- *   and must equal the pinned 17 below — adding a matching route fails here
+ *   and must equal the pinned 19 below — adding a matching route fails here
  *   until its inner gate is verified;
- * - every one of the 17 is re-probed: no token → outer 401, API token →
+ * - every one of the 19 is re-probed: no token → outer 401, API token →
  *   inner 401 (wrong-token cells ride on `authGateSweep`, which sweeps all
  *   38 routes with no and bad tokens).
  *
@@ -57,19 +57,27 @@ function isPrivilegedRoute(method: string, path: string): boolean {
     path.endsWith("/export") ||
     path.startsWith("/api/v1/data/") ||
     // R2 archive readback carries the same sync-secret inner gate.
-    path.startsWith("/api/v1/snapshots/")
+    path.startsWith("/api/v1/snapshots/") ||
+    // D1 integrity audit: same inner gate, but no /sync|/import|/export
+    // suffix, so it needs an exact match.
+    (method === "GET" && path === "/api/v1/data-snapshot/orphans") ||
+    // Customer-row erasure. Method-qualified: GET on the same path is the
+    // outer-gate-only single-customer read; only DELETE carries the inner gate.
+    (method === "DELETE" && path === "/api/v1/customer-snapshot/:customerId")
   );
 }
 
 /**
- * Pinned privileged set, `METHOD path` sorted. Any new sync/import/export/data
- * route must land here (and carry `requireSnapshotAuth`) or the inventory
- * test below fails.
+ * Pinned privileged set, `METHOD path` sorted. Any new route matching
+ * `isPrivilegedRoute` must land here (and carry `requireSnapshotAuth`) or the
+ * inventory test below fails.
  */
 const PINNED_PRIVILEGED: string[] = [
+  "DELETE /api/v1/customer-snapshot/:customerId",
   "GET /api/v1/address-snapshot/export",
   "GET /api/v1/container-snapshot/export",
   "GET /api/v1/customer-snapshot/export",
+  "GET /api/v1/data-snapshot/orphans",
   "GET /api/v1/data/address",
   "GET /api/v1/data/container",
   "GET /api/v1/data/customer",
@@ -125,12 +133,17 @@ type ProblemBody = {
 //
 // Same for `GET /api/v1/snapshots/:table/:date`: the enum/date
 // validators reject the literal `:table`/`:date` placeholders, so the probe
-// carries concrete values. `expectedInstance` is the pathname the 401 echoes
-// (probe path minus query) — identical to the pinned string for every other
-// entry.
+// carries concrete values. And the erasure route's literal `:customerId`
+// 400s at param validation before the gates, so it probes with a concrete id
+// (same as `test/snapshotAuth.test.ts`). `expectedInstance` is the pathname
+// the 401 echoes (probe path minus query) — identical to the pinned string
+// for every other entry.
 function probePath(path: string): string {
   if (path.includes(":table")) {
     return path.replace(":table", "customer").replace(":date", "2026-09-27");
+  }
+  if (path.includes(":customerId")) {
+    return path.replace(":customerId", "1");
   }
   return path.startsWith("/api/v1/data/") && !path.includes("?") ? `${path}?id=1` : path;
 }
@@ -153,7 +166,7 @@ describe("auth-gate re-sweep on newest routes", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("privileged inventory from the live router equals the pinned 17", () => {
+  it("privileged inventory from the live router equals the pinned 19", () => {
     expect(livePrivilegedRoutes()).toEqual(PINNED_PRIVILEGED);
   });
 
