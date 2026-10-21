@@ -10,7 +10,35 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   existing outputs; missing and empty harvests retain their distinct behavior.
   Both commands provide bounded `--json` diagnostics and `--help`; aggregation
   adds a read-only `--dry-run`. Synthetic contract checks run in discovery/probe.
-
+- #325: Chained snapshot sync now bounds each table's full header+body observation
+  to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
+  UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
+  for cancellation. Failures never replay a POST, stop later tables and retain
+  completed-table counts. Cron records carry fixed refusal kinds and
+  `next_action: inspect_table_sync_before_resubmitting`; optional `deleted`
+  is validated without coercion and R2 wire metadata excludes keys, arbitrary
+  properties and free text while retaining archive status/fixed stage reasons.
+  Combined HTTP success counts/null, dry runs and correlation IDs are unchanged.
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
+- `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
+  unknown arguments and remote requests before executing anything. `--dry-run`
+  reports deterministic local fixture intent without subprocesses or state changes;
+  composable `--json` emits one versioned plan/result with stable operation/check
+  IDs, stage/count fields and fixed, sanitized errors with correction actions.
+  No-flag local execution and idempotent fixture ordering are unchanged.
+- #319: CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
+  503 `application/problem+json` (`snapshot-export-query-budget`) before CSV
+  starts. The ETag prepass is bounded; both passes and their terminal empty
+  reads must fit a 950-query allowance within the existing 1000-query Paid
+  contract, reserving 50 queries of safety headroom. Review the existing
+  `SNAPSHOT_EXPORT_PAGE_SIZE` guidance rather than retrying unchanged sizing.
+  Admissible CSV bytes, ETags and 304 responses stay unchanged; unpredictable
+  D1 faults and concurrent changes remain outside this admission guarantee.
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged

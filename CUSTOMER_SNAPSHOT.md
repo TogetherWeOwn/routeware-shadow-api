@@ -25,6 +25,7 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 | `REPORT_QUERY_START_DATE` / `REPORT_QUERY_END_DATE` | Passed to `QueryExecuteDownload` as `startDate` / `endDate` (`yyyy-MM-dd`). Use `1900-01-01` when the modal has **no** date pickers (the WebRW script defaults to that). For reports with Kendo date pickers, set these to the same range you would choose in the UI. |
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Bearer for `.../import`, `.../sync`, and `data-snapshot/sync` |
 | `SHADOW_API_PUBLIC_BASE` | Optional. Your Worker’s public origin (e.g. `https://name.workers.dev`, no path). **Required** for the **daily cron** to use chained per-table syncs and avoid D1’s per-invocation limit. `POST /data-snapshot/sync` from a client does **not** use this (it uses the request URL host). |
+| `CHAINED_SYNC_TIMEOUT_MS` | Optional finite positive per-table header+body deadline for chained sync (default `180000`ms; absent/invalid → default). Summary JSON is additionally limited to 65,536 actual bytes inclusive. Failure never automatically retries a POST; inspect the affected table before resubmitting. See [boundary guidance and focused check](docs/CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary). |
 | `SNAPSHOTS_R2_ENABLED` | Set to `"false"` to disable uploading snapshot CSVs to R2. Default is on when the R2 binding is configured. |
 | R2 `SNAPSHOTS` | Binding to an R2 bucket. After successful D1 sync, the **same** CSV bytes are archived at a new <code>snapshot-history/<i>UTC-date</i>/<i>timestamp-UUID</i>/{customer\|address\|container}.csv</code> key with a per-run integrity manifest. The last fully published run is referenced by <code>snapshot-latest/<i>table</i>.json</code>. The existing <code>snapshots/<i>UTC-date</i>/<i>table</i>.csv</code> keys remain mutable daily aliases for read/restore compatibility. See [history and proposed retention policy](docs/R2-RETENTION.md); no deletion rule is enabled by the writer. |
 | `LOGIN_USERNAME` / `LOGIN_PASSWORD` | **Required in production** for any flow that fetches from Routeware with a **browser** session: report `QueryExecuteDownload` / `*_REPORT_EXPORT_PATH` sync, etc. In **deployed** Workers, use `wrangler secret put LOGIN_USERNAME` and `wrangler secret put LOGIN_PASSWORD` (`.dev.vars` is not uploaded with deploy). The Worker’s Browser Rendering login must set cookies `.WebRW`, `RCCApi`, and `RCCApiRefresh` on the Routeware host. If sync fails with *Authentication failed: RouteWare session cookies missing…*, the login did not complete — verify credentials, MFA, or whether the WebRW login page markup still matches the selectors in `src/lib/browserAuth.ts`. |
@@ -265,7 +266,7 @@ rather than treat spreadsheet-escaped values as raw business data.
 Size: the marker adds 21 header bytes and 2 bytes per row. An escaped cell adds one
 apostrophe, and two quote bytes when it was not already quoted; a cell that contains
 a semicolon or tab adds two quote bytes. The export
-itself is not capped, but a direct HTTP re-import is limited to the unchanged
+has no byte-size cap (query-budget admission is described below), but a direct HTTP re-import is limited to the unchanged
 **52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
 that margin of the limit can therefore fail re-import even though it was admissible
 before this encoding. No automated split-and-import path exists yet.
@@ -333,23 +334,49 @@ ordering, quoting, filenames or authorization.
   maximum about 20 MB. Each page is held as row objects, a joined string and an
   encoded chunk at once, so peak memory is a multiple of that size plus row-object
   overhead; keep overrides for wide tables near the default.
-- **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
-  D1 reads (including the final empty read). Every export also runs a content-hash
-  ETag prepass over the same pages before the body, so a `200` download
-  costs **twice** that number and a conditional `304` costs one pass. Leave room for
-  other queries/subrequests under
-  [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
-  (**1000 Paid / 50 Free**). Smaller pages can exhaust this budget even though
-  memory remains bounded. At the measured 388,735 container rows (see
-  § batch sizing), the 1000 default needs **390 reads per pass (780 for both
-  passes)**, inside the cap with headroom to about 499,000 rows; 500 would need
-  **779 per pass (1,558 both)** and the body would truncate mid-stream after the
-  200 is sent, while 50 needs **7,776 per pass**: use 50 only for smaller
-  tables/test fixtures, not that full production table. Larger pages reduce reads
-  at a memory cost; choose against the largest/widest table since this variable
-  applies to all three.
+- **Query budget:** the pure cost formula (`src/lib/snapshot/exportBudget.ts`)
+  for a `200` download is `2 * (ceil(N / pageSize) + 1)`: ETag and body passes,
+  each including the terminal empty-page read, even for exact page multiples.
+  An empty table costs two reads. The existing
+  [D1 per-invocation contract](https://developers.cloudflare.com/d1/platform/limits/)
+  is **1000 Paid / 50 Free**; this deployment targets Paid, not Free. We reserve
+  **50 queries of safety headroom** within the 1000 limit, leaving a fixed
+  **950-query export allowance** (no platform-limit increase). Thus the largest
+  admitted table is `(floor(950 / 2) - 1) * pageSize`, or **474,000 rows at the
+  default**. A conditional `304` still uses only one pass, but admission reserves
+  a full `200` before checking `If-None-Match`.
+- **Pre-body refusal:** the ETag prepass itself stops within **475 D1 reads**;
+  an oversized export returns **503 `application/problem+json`** with type
+  [`snapshot-export-query-budget`](docs/PROBLEMS.md#snapshot-export-query-budget),
+  a fixed detail pointing here, no CSV disposition or ETag, and no body pass.
+  The read cap also bounds work if concurrent changes yield short nonempty pages.
+  For a synthetic **388,735-row** table, the 1000 default costs **390 reads per
+  pass (780 both)** and fits; 500 costs **779 per pass (1,558 both)** and is
+  refused before CSV starts. At page size 50 it would need **7,776 per pass**:
+  use 50 only for smaller tables/test fixtures, not that full-size example.
+- **Remedy:** review the existing `SNAPSHOT_EXPORT_PAGE_SIZE` Worker binding;
+  larger pages reduce reads at a memory cost, within the supported **1–5000**
+  range. Choose against the largest/widest table since the setting applies to
+  all three. It is not a client query parameter. Retrying unchanged sizing
+  cannot fix this refusal; if the maximum still cannot fit, this endpoint
+  cannot provide that full CSV within its contract. No new mutation or flag is
+  introduced. The guard does **not** provide transactional consistency across
+  passes or eliminate unpredictable mid-stream faults: concurrent growth and
+  later D1 failures can still error an admitted stream. D1 exceptions retain
+  their existing handling, not the budget diagnostic.
 
-Acceptance/regression:
+Focused admission check (synthetic fixtures only, also discovered by `npm test`):
+
+```sh
+npm test -- test/snapshotExportBudget.test.ts
+```
+
+This pins empty tables, exact page multiples, both sides of the boundary, capped
+prepass work, no CSV stream on predictable refusal, all three routes, unchanged
+admissible bytes/ETags/304, and controlled D1 failures. No live tenant or remote
+Wrangler command is needed.
+
+Encoding/page-size regression:
 
 ```sh
 npm test -- test/snapshotCsvExport.test.ts test/snapshotExportRoundTrip.test.ts test/shadowSyncExportRoundTrip.test.ts

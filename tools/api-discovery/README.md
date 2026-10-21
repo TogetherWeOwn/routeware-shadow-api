@@ -1,6 +1,6 @@
 # Routeware API discovery (local)
 
-Headed Playwright session that logs **every `/WebRW` request and response** to NDJSON, then tooling aggregates that into **documentation, curl replay files, route gaps, and suggested Worker routes**.
+Headed Playwright session that logs **every `/WebRW` request and response** to NDJSON, then tooling aggregates that into **documentation, inert local curl examples, route gaps, and suggested Worker routes**.
 
 ## Setup
 
@@ -140,7 +140,7 @@ This runs, in order:
 2. **`aggregate.mjs`** — **`out/discovered-operations.json`** (counts, resource types, up to 3 diverse samples per operation with query keys, header names, body/response previews, JSON top-level keys).
 3. **`generate-harvest-docs.mjs`** — **`out/HARVEST_API.md`** (human-readable tables + expandable samples).
 4. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest). The report step never fails the chain; the gate (`route-gap.mjs --check`, last in `process`) exits 1 when harvested ops lack shadow routes. Stale map entries are warnings by default — re-run with `--strict` after an exhaustive session to fail on them. No aggregate yet, or an aggregate with zero operations, exits 0 (nothing to compare); a truncated aggregate fails loudly.
-5. **`export-curl-examples.mjs`** — **`out/curl-examples.sh`** + **`out/bodies/*.json`** (replay against `BASE`, e.g. `wrangler dev`).
+5. **`export-curl-examples.mjs`** — **`out/curl-examples.sh`** + complete documentation bodies under **`out/bodies/`**. No selection means no network; only explicitly selected GET examples can execute against a loopback `BASE`.
 6. **`suggest-routes.mjs`** — **`out/suggested-routes.stub.ts`** (commented checklist for `src/app.ts`).
 
 ### Validate + test (CI / agent)
@@ -243,6 +243,85 @@ remain unchanged apart from the existing generated timestamp.
 | `npm run gap:check` | Re-checks `route-gaps.json` without recomputing (the `process` gate) |
 | `npm run export:curls` | `curl-examples.sh` + `out/bodies/` |
 | `npm run suggest:routes` | `suggested-routes.stub.ts` (after gaps exist) |
+
+## Safe local curl examples
+
+From the repo root (Node.js 24+, Bash and curl):
+
+```bash
+# Validate and inspect without network or changing any existing out/ artifacts:
+node tools/api-discovery/export-curl-examples.mjs --dry-run
+node tools/api-discovery/export-curl-examples.mjs --json
+
+# Generate deterministically after validation. This does not execute requests.
+node tools/api-discovery/export-curl-examples.mjs
+bash tools/api-discovery/out/curl-examples.sh          # list only; zero curl calls
+bash tools/api-discovery/out/curl-examples.sh --help
+bash tools/api-discovery/out/curl-examples.sh --list
+bash tools/api-discovery/out/curl-examples.sh --json
+
+# Copy an exact METHOD + upstreamPath identity from --list (not a numeric index).
+# Planning remains inert, even when a selection is supplied:
+bash tools/api-discovery/out/curl-examples.sh \
+  --operation 'GET /WebRW/Reports/QueryRequestIsComplete' --dry-run
+
+# Execute exactly that GET, and only against your local service:
+BASE=http://127.0.0.1:8787 bash tools/api-discovery/out/curl-examples.sh \
+  --operation 'GET /WebRW/Reports/QueryRequestIsComplete'
+```
+
+`--json` implies a non-executing plan in both tools; generator `--dry-run`
+validates every input it needs without creating, removing or rewriting artifacts.
+Unknown/duplicate flags, missing/unknown selectors and duplicate method/path
+identities fail before execution or generation writes. Validation failure leaves
+existing artifacts intact. Normal generation replaces generated bodies and script,
+never the source harvest or other discovery reports.
+
+The generated shell file is self-contained and uses Node to validate and dispatch
+an argv array, not shell evaluation. `BASE` defaults to `http://localhost:8787`;
+only HTTP(S) origins with `localhost`, `127.0.0.1` or `[::1]` and an optional port
+are accepted. Credentials, non-root paths, queries and fragments are refused.
+Requests pin `localhost` resolution to loopback and disable curl configuration,
+proxies, globbing and redirects; each GET
+has a 5-second connect timeout, a 30-second total timeout and HTTP-error failure
+behavior. Transport/HTTP failures exit nonzero with no retries. Harvested GET
+query parameters (including repeated keys) intentionally override `exampleQuery`.
+Treat that local service and its upstream configuration as your responsibility:
+this guard is not a sandbox for a local service that itself forwards remotely.
+No credentials are looked up or injected. No flag enables nonlocal requests or
+POST/save/sync/write replay. Non-GET examples remain commented, non-executable
+reference material, even when a complete body file exists.
+
+Plans have `schemaVersion: 1` and `operations` (all entries, or the selected entry
+for shell `--operation ... --json`). Each operation carries `id`, `method`,
+`upstreamPath`, `shadowPath`, `executable`, `urlPath` (including intentional GET
+query forwarding), and `body`. `executable` indicates GET eligibility, not an
+authorization grant or a network request. `body.source` is:
+
+- `none`: GET; no payload is ever sent or emitted.
+- `harvest`: complete latest matching request preview (legacy captures may omit
+  the truncation flag). Bytes are preserved, not trimmed.
+- `synthetic`: complete repository `exampleFile`, using `exampleContentType`, not
+  metadata from a discarded truncated preview. Bytes are preserved exactly.
+- `unavailable`: no complete body; `code` is `BODY_TRUNCATED` or
+  `BODY_UNAVAILABLE`, with a fixed `next_action` to add a complete repository
+  example. An unavailable body has no artifact.
+
+Available non-GET bodies name their relative artifact in `body.file` (under
+`bodies/`). Plans and diagnostics never include body payload values. Truncated
+previews are not copied to generated artifacts, and an older row is never used
+to silently replace the latest truncated row. The source harvest is untouched.
+Repository example files must resolve inside this tooling tree, outside `out/`.
+
+Hermetic safety check (synthetic copied fixtures and fake curl only; no live origin):
+
+```bash
+node --test tools/api-discovery/curl-safety.acceptance.test.mjs \
+  tools/api-discovery/downstream-scripts.test.mjs \
+  tools/api-discovery/downstream-escapes.test.mjs
+```
+
+This also runs through `npm run test:probe` and `npm test`; no workflow changes.
 
 ## Building new shadow routes after a recording
 

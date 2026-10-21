@@ -69,9 +69,16 @@ export type CronSyncLog = {
   scheduledTime: string;
   /** Present only when outcome is "failed" and the table is known. Allowlisted table name only — never exception text. */
   table?: "customer" | "address" | "container";
+  /** Failed chained observations are not safe to replay without inspecting remote effects. */
+  next_action?: "inspect_table_sync_before_resubmitting";
 };
 
 type TableResult = DataSnapshotResult["customer"];
+
+const CHAINED_REFUSAL_KINDS = new Set([
+  "ChainedTimeoutError", "ChainedResponseTooLargeError", "ChainedInvalidJsonError",
+  "ChainedResponseReadError", "ChainedHttpError", "ChainedNetworkError"
+]);
 
 /**
  * Validates `SHADOW_API_PUBLIC_BASE` for chained-HTTP use.
@@ -397,6 +404,9 @@ export async function scheduled(
           durationMs: endedAt - start,
           kind: errorKind(e),
           status: failedSubrequestStatus(e),
+          ...(base.mode === "chained-http" && CHAINED_REFUSAL_KINDS.has(errorKind(e))
+            ? { next_action: "inspect_table_sync_before_resubmitting" as const }
+            : {}),
           ...(failed ? { table: failed } : {})
         });
       } finally {
