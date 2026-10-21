@@ -21,7 +21,7 @@ drill](CRON-SYNC-ALARM-RUNBOOK.md#5-local-missed-run-drill-no-deploy-no-token-no
 
 | Key | Drill result | Evidence |
 |---|---|---|
-| *(no line)* / missed run | **PASS** — empty local D1 returns `last_sync: NULL, rows: 0` on all three tables, which under §2 triages as **failed** | `wrangler d1 execute … --local` × 3, §2 queries verbatim (after `npm run db:migrate:local`) |
+| *(no line)* / missed run | **PASS** — empty local D1 returns `last_sync: NULL` on all three tables, which under §2 triages as **failed** | `wrangler d1 execute … --local` × 3, §2 queries verbatim (after `npm run db:migrate:local`) |
 | `unconfigured` | **PASS** — exactly one primary record: `outcome "unconfigured"`, all tables `null`, `mode "single-invocation"`, `configSource "fallback-single-invocation"`, `d1LimitRisk: true`, `cron ""`; plus the single-invocation fallback `warn`, same `runId` | Live `GET /__scheduled` on port 18788 against blanked `--var`s, runbook §5 recipe verbatim |
 | `failed` | **PASS** — exactly one primary record: `outcome "failed"`, `mode "chained-http"`, `configSource "SHADOW_API_PUBLIC_BASE"`, all tables `null`, `summary "sync threw before any table result was recorded"`, `kind "Error"`, no `table` field, no exception text | Live `GET /__scheduled` on port 18789 in chained mode with the sync secret blanked |
 | `success` | **PASS (unit + hermetic E2E)** — 46/46 across `test/scheduled.test.ts` and `test/snapshotSyncE2E.test.ts` | `npx vitest run test/scheduled.test.ts test/snapshotSyncE2E.test.ts`; live `success` needs the tenant (real report fetch) |
@@ -69,6 +69,6 @@ and `failed` expectations above; each should reproduce verbatim except
   `npm run db:migrate:local`):
   `npx wrangler d1 execute routeware-customer-snapshot --local --json --command "SELECT MAX(synced_at) AS last_sync FROM customer_snapshot"`
   (repeat for `address_snapshot` / `container_snapshot`; expect
-  `last_sync: NULL, rows: 0`).
+  `last_sync: NULL`).
 - `npx vitest run test/scheduled.test.ts test/snapshotSyncE2E.test.ts`
   (46 green on the drilled head).

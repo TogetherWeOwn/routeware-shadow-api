@@ -346,8 +346,8 @@ change; removing them is a separate decision.
 
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
-routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
+`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 19 privileged
+routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads, plus `DELETE` erasure, `GET /api/v1/data-snapshot/orphans`, and `GET /api/v1/snapshots/:table/:date`), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
 body every route shares. The per-call-site `detail` wording was unified in
 the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and

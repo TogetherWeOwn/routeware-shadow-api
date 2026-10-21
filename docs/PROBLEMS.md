@@ -169,10 +169,11 @@ bodies).
 `SHADOW_API_READ_TOKEN` (optional) grants GET-only access to non-privileged
 reads. It passes the outer gate on GET requests only: a GET with the read
 token returns 200 on a general route, while any non-GET request with it 401s
-at the outer gate, and every privileged route (sync/import, GET exports,
-`/api/v1/data/*` reads, `DELETE` erasure, `data-snapshot/orphans`,
-`snapshots/` readback) 401s at the inner sync-secret check — no privileged
-route accepts the read token. Unset or blank means unconfigured: the role
+at the outer gate. Among privileged routes, non-GET requests (sync/import,
+POST `/api/v1/data/*`, `DELETE` erasure) 401 at the outer gate, and only
+privileged GETs (exports, `/api/v1/data/*` reads, `data-snapshot/orphans`,
+`snapshots/` readback) pass that gate to 401 at the inner sync-secret
+check — no privileged route accepts the read token. Unset or blank means unconfigured: the role
 fails closed. Use a distinct random value — if it ever equals the full token
 it inherits full access.
 
