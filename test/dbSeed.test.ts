@@ -92,6 +92,15 @@ describe("db:seed verify + report", () => {
     );
   });
 
+  it("rejects success:false envelopes from wrangler (array and bare shapes)", () => {
+    expect(() => parseWranglerRows(JSON.stringify([{ results: [{ n: 1 }], success: false }]))).toThrow(
+      `${CHECK_NAME}: unexpected wrangler JSON shape`,
+    );
+    expect(() => parseWranglerRows(JSON.stringify({ results: [{ n: 1 }], success: false }))).toThrow(
+      `${CHECK_NAME}: unexpected wrangler JSON shape`,
+    );
+  });
+
   it("summarizes counts only, never row contents", () => {
     const report = formatSeedReport({
       customer_snapshot: 1,
