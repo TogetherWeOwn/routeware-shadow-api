@@ -97,7 +97,7 @@ export function verifyManifestHashes(manifestFiles, actual, missing = []) {
       !Array.isArray(actual) || !Array.isArray(missing)) return invalid();
   if (manifestFiles.some((f) => !validFileIdentity(f) || !validDigestAndSize(f)) ||
       new Set(manifestFiles.map((f) => f.name)).size !== manifestFiles.length ||
-      new Set(manifestFiles.map((f) => f.key.slice(9, 19))).size !== 1) return invalid();
+      new Set(manifestFiles.map((f) => f.key.split("/")[1])).size !== 1) return invalid();
   const expectedNames = new Set(manifestFiles.map((f) => f.name));
   if (actual.some((f) => !expectedNames.has(f?.name) || typeof f.key !== "string" || !validDigestAndSize(f)) ||
       new Set(actual.map((f) => f.name)).size !== actual.length ||
