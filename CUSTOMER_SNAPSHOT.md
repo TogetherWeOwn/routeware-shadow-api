@@ -25,6 +25,7 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 | `REPORT_QUERY_START_DATE` / `REPORT_QUERY_END_DATE` | Passed to `QueryExecuteDownload` as `startDate` / `endDate` (`yyyy-MM-dd`). Use `1900-01-01` when the modal has **no** date pickers (the WebRW script defaults to that). For reports with Kendo date pickers, set these to the same range you would choose in the UI. |
 | `CUSTOMER_SNAPSHOT_SYNC_SECRET` | Bearer for `.../import`, `.../sync`, and `data-snapshot/sync` |
 | `SHADOW_API_PUBLIC_BASE` | Optional. Your Worker’s public origin (e.g. `https://name.workers.dev`, no path). **Required** for the **daily cron** to use chained per-table syncs and avoid D1’s per-invocation limit. `POST /data-snapshot/sync` from a client does **not** use this (it uses the request URL host). |
+| `CHAINED_SYNC_TIMEOUT_MS` | Optional finite positive per-table header+body deadline for chained sync (default `180000`ms; absent/invalid → default). Summary JSON is additionally limited to 65,536 actual bytes inclusive. Failure never automatically retries a POST; inspect the affected table before resubmitting. See [boundary guidance and focused check](docs/CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary). |
 | `SNAPSHOTS_R2_ENABLED` | Set to `"false"` to disable uploading snapshot CSVs to R2. Default is on when the R2 binding is configured. |
 | R2 `SNAPSHOTS` | Binding to an R2 bucket. After successful D1 sync, the **same** CSV bytes are archived at a new <code>snapshot-history/<i>UTC-date</i>/<i>timestamp-UUID</i>/{customer\|address\|container}.csv</code> key with a per-run integrity manifest. The last fully published run is referenced by <code>snapshot-latest/<i>table</i>.json</code>. The existing <code>snapshots/<i>UTC-date</i>/<i>table</i>.csv</code> keys remain mutable daily aliases for read/restore compatibility. See [history and proposed retention policy](docs/R2-RETENTION.md); no deletion rule is enabled by the writer. |
 | `LOGIN_USERNAME` / `LOGIN_PASSWORD` | **Required in production** for any flow that fetches from Routeware with a **browser** session: report `QueryExecuteDownload` / `*_REPORT_EXPORT_PATH` sync, etc. In **deployed** Workers, use `wrangler secret put LOGIN_USERNAME` and `wrangler secret put LOGIN_PASSWORD` (`.dev.vars` is not uploaded with deploy). The Worker’s Browser Rendering login must set cookies `.WebRW`, `RCCApi`, and `RCCApiRefresh` on the Routeware host. If sync fails with *Authentication failed: RouteWare session cookies missing…*, the login did not complete — verify credentials, MFA, or whether the WebRW login page markup still matches the selectors in `src/lib/browserAuth.ts`. |
@@ -117,26 +118,29 @@ npx wrangler d1 execute routeware-customer-snapshot --remote --json \
 Each successful archive also upserts one entry per CSV into a sidecar
 `snapshots/<UTC-date>.manifest.json` — a sibling of the date's CSV "directory",
 carrying `{ version, date, files: { "<table>.csv": { key, sha256, bytes } } }`
-(`src/lib/r2SnapshotArchive.ts`). Hashes and keys only, never row data, so the
-manifest is safe to log and print. A failed CSV put writes no entry; a corrupt
-existing sidecar is replaced (warned), and verify then reports the other tables
-as missing, loudly.
+(`src/lib/r2SnapshotArchive.ts`). The writer emits hashes and keys, never row
+data; never print an unvalidated downloaded manifest. A failed CSV put writes
+no entry. A corrupt existing sidecar is replaced (warned), potentially omitting
+other tables; explicit expectations are needed to detect that coverage gap.
 
-Check one date's archive without credentials (local Miniflare R2 under a
-`--persist-to` dir) or read-only against remote (needs `CLOUDFLARE_API_TOKEN` in
-the environment, never a flag):
+Check full-chain identity and byte coverage without credentials (local Miniflare
+R2 under an approved `--persist-to` directory):
 
 ```bash
-npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir>
+npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir> --expect=customer,address,container --json
 ```
 
-Exit 0 when every entry verifies; exit 1 on any mismatch, missing object, or
-unreadable manifest; exit 2 on flag/usage errors. A tampered CSV fails by name
-with both hashes, e.g. `FAIL customer.csv (snapshots/2026-09-28/customer.csv):
-sha256 mismatch (manifest <old>, r2 <new>; ...)`. Reviewer acceptance path —
-fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
-the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
-lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
+Without `--expect`, success is **listed-only (partial)**, not proof that all tables
+exist. The verifier validates the requested date and exact daily keys before CSV
+reads. Add `--dry-run` for a zero-execution plan. Remote execution is read-only but
+requires already-authorized `CLOUDFLARE_API_TOKEN` environment injection; use
+`--remote` instead of `--persist-to`, never a token flag. No new grant is implied.
+
+Exit 0 = verified coverage or valid dry-run; 1 = verification/credential failure;
+2 = invalid flags. JSON has a bounded versioned schema, stable codes/IDs and next
+actions. See [verifier contract and recovery guidance](docs/R2-MANIFEST-VERIFY.md).
+Run `npm run check:r2-manifest` for pure and hermetic fake-reader acceptance tests
+(no Wrangler/R2 access); the wrapper suite also runs in `npm run test:probe`.
 
 ## Dry-run sync and import
 
@@ -206,6 +210,53 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
 
+### Customer changes cursor
+
+`GET /api/v1/customer-snapshot/changes` is an **upsert feed**, not deletion CDC
+or a point-in-time snapshot. It reads only local D1. Omit `since` (or send it
+empty) **without** `since_id` for the initial page. A bare `since` returns only
+strictly later timestamps, so it replays later sync runs whole, not the
+remaining rows of the boundary run.
+
+Timestamp comparison uses canonical UTC milliseconds: seconds-only and
+one-, two- or three-fraction-digit timestamps are normalized before SQL.
+For example, `2026-09-01T00:00:00.1Z`, `.10Z` and `.100Z` describe the same
+boundary. More than three fraction digits is a 400 even if the extra digits
+are zero; no rounding or truncation. Offsets, local datetimes and date-only
+inputs are not accepted in place of the existing UTC `Z` datetime format.
+
+Resume a page with **both** fields from `nextCursor`. `since_id` requires a
+nonempty valid `since` and must be an exact unpadded ASCII decimal integer
+from `0` through `9007199254740991`; `0` remains the boundary sentinel.
+Whitespace, signs, prefixes, exponents, decimal points and repeated cursor
+keys are invalid. The value-free anchored 400 names only fields; see
+[query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+
+Synthetic example: rows `(8402, 2026-09-01T00:00:00.100Z)` and
+`(8407, 2026-09-01T00:00:00.100Z)` share a timestamp. A `limit=1` page ending
+at `8402` returns:
+
+```json
+{"nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
+```
+
+The next request's query is
+`since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=1`; it includes
+`8407` instead of skipping the millisecond tie. Order stays
+`(synced_at, customer_id)`, page limit stays `1..500` (default `50`), and
+`total` counts only the returned rows. Every full page emits a cursor,
+including the final full page; continue until `nextCursor` is `null`.
+Cursor timestamps are always emitted with three fraction digits.
+
+Hermetic regression check, also listed by `npm run help`:
+
+```bash
+npm run check:customer-changes-cursor
+```
+
+This uses synthetic local D1 rows only; no credentials, upstream requests,
+production replay or deployment.
+
 ### Customer-row erasure scope
 
 `DELETE /api/v1/customer-snapshot/{customerId}` is local cache suppression,
@@ -265,7 +316,7 @@ rather than treat spreadsheet-escaped values as raw business data.
 Size: the marker adds 21 header bytes and 2 bytes per row. An escaped cell adds one
 apostrophe, and two quote bytes when it was not already quoted; a cell that contains
 a semicolon or tab adds two quote bytes. The export
-itself is not capped, but a direct HTTP re-import is limited to the unchanged
+has no byte-size cap (query-budget admission is described below), but a direct HTTP re-import is limited to the unchanged
 **52,428,800-byte (50 MiB)** body limit and returns 413 above it. An export within
 that margin of the limit can therefore fail re-import even though it was admissible
 before this encoding. No automated split-and-import path exists yet.
@@ -333,23 +384,49 @@ ordering, quoting, filenames or authorization.
   maximum about 20 MB. Each page is held as row objects, a joined string and an
   encoded chunk at once, so peak memory is a multiple of that size plus row-object
   overhead; keep overrides for wide tables near the default.
-- **Query budget:** the streamed body of `N` rows uses `ceil(N / pageSize) + 1`
-  D1 reads (including the final empty read). Every export also runs a content-hash
-  ETag prepass over the same pages before the body, so a `200` download
-  costs **twice** that number and a conditional `304` costs one pass. Leave room for
-  other queries/subrequests under
-  [D1's per-invocation limits](https://developers.cloudflare.com/d1/platform/limits/)
-  (**1000 Paid / 50 Free**). Smaller pages can exhaust this budget even though
-  memory remains bounded. At the measured 388,735 container rows (see
-  § batch sizing), the 1000 default needs **390 reads per pass (780 for both
-  passes)**, inside the cap with headroom to about 499,000 rows; 500 would need
-  **779 per pass (1,558 both)** and the body would truncate mid-stream after the
-  200 is sent, while 50 needs **7,776 per pass**: use 50 only for smaller
-  tables/test fixtures, not that full production table. Larger pages reduce reads
-  at a memory cost; choose against the largest/widest table since this variable
-  applies to all three.
+- **Query budget:** the pure cost formula (`src/lib/snapshot/exportBudget.ts`)
+  for a `200` download is `2 * (ceil(N / pageSize) + 1)`: ETag and body passes,
+  each including the terminal empty-page read, even for exact page multiples.
+  An empty table costs two reads. The existing
+  [D1 per-invocation contract](https://developers.cloudflare.com/d1/platform/limits/)
+  is **1000 Paid / 50 Free**; this deployment targets Paid, not Free. We reserve
+  **50 queries of safety headroom** within the 1000 limit, leaving a fixed
+  **950-query export allowance** (no platform-limit increase). Thus the largest
+  admitted table is `(floor(950 / 2) - 1) * pageSize`, or **474,000 rows at the
+  default**. A conditional `304` still uses only one pass, but admission reserves
+  a full `200` before checking `If-None-Match`.
+- **Pre-body refusal:** the ETag prepass itself stops within **475 D1 reads**;
+  an oversized export returns **503 `application/problem+json`** with type
+  [`snapshot-export-query-budget`](docs/PROBLEMS.md#snapshot-export-query-budget),
+  a fixed detail pointing here, no CSV disposition or ETag, and no body pass.
+  The read cap also bounds work if concurrent changes yield short nonempty pages.
+  For a synthetic **388,735-row** table, the 1000 default costs **390 reads per
+  pass (780 both)** and fits; 500 costs **779 per pass (1,558 both)** and is
+  refused before CSV starts. At page size 50 it would need **7,776 per pass**:
+  use 50 only for smaller tables/test fixtures, not that full-size example.
+- **Remedy:** review the existing `SNAPSHOT_EXPORT_PAGE_SIZE` Worker binding;
+  larger pages reduce reads at a memory cost, within the supported **1–5000**
+  range. Choose against the largest/widest table since the setting applies to
+  all three. It is not a client query parameter. Retrying unchanged sizing
+  cannot fix this refusal; if the maximum still cannot fit, this endpoint
+  cannot provide that full CSV within its contract. No new mutation or flag is
+  introduced. The guard does **not** provide transactional consistency across
+  passes or eliminate unpredictable mid-stream faults: concurrent growth and
+  later D1 failures can still error an admitted stream. D1 exceptions retain
+  their existing handling, not the budget diagnostic.
 
-Acceptance/regression:
+Focused admission check (synthetic fixtures only, also discovered by `npm test`):
+
+```sh
+npm test -- test/snapshotExportBudget.test.ts
+```
+
+This pins empty tables, exact page multiples, both sides of the boundary, capped
+prepass work, no CSV stream on predictable refusal, all three routes, unchanged
+admissible bytes/ETags/304, and controlled D1 failures. No live tenant or remote
+Wrangler command is needed.
+
+Encoding/page-size regression:
 
 ```sh
 npm test -- test/snapshotCsvExport.test.ts test/snapshotExportRoundTrip.test.ts test/shadowSyncExportRoundTrip.test.ts

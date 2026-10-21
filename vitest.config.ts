@@ -68,8 +68,8 @@ export default defineConfig({
      * node-only tests, which run in the node forks pool instead: the R2
      * lifecycle proposal guard test reads the committed JSON file from disk
      * (`node:fs`) — stubbed out in the workers pool — and the deps-audit,
-     * coverage-ratchet, and per-file-coverage wrapper tests spawn their
-     * `scripts/check-*.mjs` as a child process (`node:child_process`),
+     * coverage-ratchet, per-file-coverage and db-seed CLI tests spawn their
+     * wrappers as child processes (`node:child_process`),
      * which workerd cannot do. Each project spreads
      * `sharedTestOptions` above; coverage below still applies to the merged
      * run.
@@ -102,6 +102,8 @@ export default defineConfig({
             "test/checkDepsAudit.test.ts",
             "test/checkCoverageRatchet.test.ts",
             "test/checkPerFileCoverage.test.ts",
+            "test/dbSeedCliContract.acceptance.test.ts",
+            "test/dbSeedTargetShape.test.ts",
             "test/snapshotExportMemory.test.ts",
           ],
         },
@@ -114,6 +116,8 @@ export default defineConfig({
             "test/checkDepsAudit.test.ts",
             "test/checkCoverageRatchet.test.ts",
             "test/checkPerFileCoverage.test.ts",
+            "test/dbSeedCliContract.acceptance.test.ts",
+            "test/dbSeedTargetShape.test.ts",
           ],
         },
       },

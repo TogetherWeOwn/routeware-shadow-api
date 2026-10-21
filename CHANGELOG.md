@@ -14,6 +14,46 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Every supplied spelling is validated, including an unused alias; when both
   are valid, `id` still wins even if their values differ. Valid unknown IDs
   remain 404; hydrated rows, ETags, auth ordering and save handlers are unchanged.
+- #328: Fixed customer changes feed pagination to normalize equivalent UTC timestamps
+  with up to 3 fractional-second digits to milliseconds, reject timestamps with
+  more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
+  require a valid `since` when `since_id` is supplied; tuple-based paging is
+  preserved. The focused local check is `npm run check:customer-changes-cursor`.
+- Daily R2 verification now binds real calendar dates and exact object keys,
+  rejects empty/ambiguous comparisons and supports explicit `--expect` table
+  coverage. Default success is labeled listed-only (partial), never a full-chain
+  claim. `--json` provides bounded versioned findings/actions; `--dry-run` plans
+  without children, object reads or artifacts. Remote credential fences and archive
+  writes are unchanged. Run `npm run check:r2-manifest` for hermetic acceptance.
+- #325: Chained snapshot sync now bounds each table's full header+body observation
+  to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
+  UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
+  for cancellation. Failures never replay a POST, stop later tables and retain
+  completed-table counts. Cron records carry fixed refusal kinds and
+  `next_action: inspect_table_sync_before_resubmitting`; optional `deleted`
+  is validated without coercion and R2 wire metadata excludes keys, arbitrary
+  properties and free text while retaining archive status/fixed stage reasons.
+  Combined HTTP success counts/null, dry runs and correlation IDs are unchanged.
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
+- `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
+  unknown arguments and remote requests before executing anything. `--dry-run`
+  reports deterministic local fixture intent without subprocesses or state changes;
+  composable `--json` emits one versioned plan/result with stable operation/check
+  IDs, stage/count fields and fixed, sanitized errors with correction actions.
+  No-flag local execution and idempotent fixture ordering are unchanged.
+- #319: CSV snapshot exports now refuse predictable D1 query-budget exhaustion with
+  503 `application/problem+json` (`snapshot-export-query-budget`) before CSV
+  starts. The ETag prepass is bounded; both passes and their terminal empty
+  reads must fit a 950-query allowance within the existing 1000-query Paid
+  contract, reserving 50 queries of safety headroom. Review the existing
+  `SNAPSHOT_EXPORT_PAGE_SIZE` guidance rather than retrying unchanged sizing.
+  Admissible CSV bytes, ETags and 304 responses stay unchanged; unpredictable
+  D1 faults and concurrent changes remain outside this admission guarantee.
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged

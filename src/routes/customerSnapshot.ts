@@ -178,19 +178,33 @@ const customerSnapshotChangesRoute = createRoute({
       since: z
         .preprocess(
           (v) => (v === "" || v === undefined ? undefined : v),
-          z.string().datetime().optional()
+          z.string().datetime()
+            .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/)
+            // `Date` rolls calendar-invalid days (Feb 30 → Mar 1) instead of
+            // failing: reject before the transform so normalization never
+            // alters the instant it was given. The hook answers with the
+            // fixed value-free 400; the handler never runs.
+            .refine((v) => {
+              const date = new Date(v);
+              return !Number.isNaN(date.getTime()) &&
+                date.toISOString().slice(0, 10) === v.slice(0, 10);
+            })
+            // Stored synced_at uses toISOString(): lexical comparisons must use
+            // the same milliseconds, never raw .1Z/seconds or rounded precision.
+            .transform((v) => new Date(v).toISOString())
+            .optional()
         )
-        .describe("ISO-8601 cursor; only rows with synced_at after it are returned (plus the since_id tiebreak when paging). Omit for the first page.")
+        .describe("UTC Z datetime cursor with seconds or 1–3 fractional digits, normalized to milliseconds before comparison. More than 3 digits is rejected, never rounded/truncated. Only later synced_at values qualify (plus the since_id tiebreak). Omit or leave empty for the first page without since_id.")
         .openapi({ example: "2025-12-31T00:00:00.000Z" }),
-      since_id: z.coerce
-        .number()
-        .int()
-        .min(0)
+      since_id: z.string()
+        .regex(/^(0|[1-9][0-9]*)$/)
+        .refine((v) => Number.isSafeInteger(Number(v)))
+        .transform(Number)
         .optional()
-        .describe("Tiebreak half of the composite cursor: the last row's customer_id from the previous page's nextCursor. Omit for the first page and for whole-run replays with a bare `since`.")
-        .openapi({ example: 345733 }),
+        .describe("Tiebreak half of the composite cursor; requires a nonempty valid since. Exact unpadded ASCII decimal integer from 0 through 9007199254740991 (0 is the boundary sentinel); no signs, whitespace, exponent, fractions or prefixes. Omit for first pages and bare-since whole-run replays.")
+        .openapi({ example: "345733" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 })
-    })
+    }).refine((p) => p.since_id === undefined || p.since !== undefined, { path: ["since_id"] })
   },
   responses: {
     200: {
@@ -201,6 +215,10 @@ const customerSnapshotChangesRoute = createRoute({
           example: { rows: [customerRowExample], total: 1, nextCursor: null }
         }
       }
+    },
+    400: {
+      description:
+        "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -261,7 +279,10 @@ const customerSnapshotExportRoute = createRoute({
       content: { "text/csv": { schema: z.string(), example: customerExportExample } }
     },
     304: { description: "Not modified (If-None-Match carries the current ETag)" },
-    401: { description: "Unauthorized" }
+    401: { description: "Unauthorized" },
+    503: {
+      description: "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing."
+    }
   }
 });
 
@@ -275,7 +296,8 @@ customerSnapshotRoutes.openapi(customerSnapshotExportRoute, async (c) => {
     c.env.CUSTOMER_DB,
     CUSTOMER_SNAPSHOT_EXPORT,
     c.req.header("if-none-match"),
-    readSnapshotExportPageSize(c.env)
+    readSnapshotExportPageSize(c.env),
+    c.env
   );
 });
 

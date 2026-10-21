@@ -24,6 +24,32 @@ is tested whenever present; the other three list routes are mandatory.
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
 
+## Customer changes cursor validation
+
+`GET /api/v1/customer-snapshot/changes` validates the cursor before D1:
+
+- `since` keeps the UTC `Z` datetime contract. Seconds and 1–3 fraction digits
+  normalize to the stored millisecond representation; more than three digits
+  is invalid, including trailing zero digits. No rounding, truncation or
+  timezone-offset conversion is accepted.
+- `since_id` requires nonempty valid `since` and canonical ASCII decimal text:
+  `0` or an unpadded positive integer through `9007199254740991`. No signs,
+  whitespace, fractions, exponent or prefix coercion. Repeated `since` or
+  `since_id` keys are invalid rather than selecting an arbitrary value.
+- Omitted/empty `since` without `since_id` retains initial-page behavior.
+  Bare `since` is strict-greater-than whole-run replay; both cursor fields
+  resume a page in `(synced_at, customer_id)` order without dropping ties.
+
+Invalid known values/pairs return the existing value-free anchored
+400 `application/problem+json`, after read-role authentication and before any
+D1 work. See [bad-request correction guidance](PROBLEMS.md#bad-request).
+Unknown parameter names remain ignored; no ordinary-list policy changes.
+The [snapshot guidance](../CUSTOMER_SNAPSHOT.md#customer-changes-cursor)
+contains a synthetic tie-resume example and response conventions.
+
+Run `npm run check:customer-changes-cursor` for the focused synthetic-local-D1
+precision, pair, multi-page, auth and header regressions. No live replay.
+
 ## Coverage boundary and non-list classifications
 
 `test/snapshotListUnknownParams.test.ts` discovers GET routes from the mounted

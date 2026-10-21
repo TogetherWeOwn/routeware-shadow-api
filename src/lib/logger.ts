@@ -67,6 +67,7 @@ export type LogEventInput = {
   dependency?: string;
   fallback?: string;
   kind?: string;
+  next_action?: "inspect_table_sync_before_resubmitting";
   customerId?: number;
   addressCount?: number;
   containerCount?: number;
@@ -104,6 +105,7 @@ const allowedContextFields = new Set([
   "dependency",
   "fallback",
   "kind",
+  "next_action",
   "customerId",
   "addressCount",
   "containerCount",
@@ -195,6 +197,8 @@ export function logEvent(event: LogEventInput): void {
     if (key === "tables") {
       const tables = safeTableCounts(value);
       if (tables !== undefined) record.tables = tables;
+    } else if (key === "next_action") {
+      if (value === "inspect_table_sync_before_resubmitting") record[key] = value;
     } else if (UTILIZATION_COUNT_FIELDS.has(key)) {
       if (!isSafeCount(value) || !Number.isInteger(value)) continue;
       record[key] = value;

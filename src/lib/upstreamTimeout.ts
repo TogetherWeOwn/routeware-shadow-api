@@ -86,8 +86,10 @@ export function readReportStreamStallTimeoutMs(env?: Env): number {
  * archive), so its budget must clear the 60s report budget with headroom.
  * 180s bounds a hung table well below the 300s platform CPU limit while
  * leaving the observed ~41s jobs (runbook §0) ~4x headroom. Overridable per
- * deploy via optional `CHAINED_SYNC_TIMEOUT_MS` (absent/invalid → default),
- * same pattern as the upstream bindings above. The caller tags the timeout
+ * deploy via optional `CHAINED_SYNC_TIMEOUT_MS` (absent/invalid → default).
+ * Unlike CSV streaming, this is one deadline for headers AND the small JSON
+ * body: the chained caller passes only the remaining budget to its body reader.
+ * The caller tags the timeout
  * `[chained <table>]`; the error itself carries only the budget (PII-free).
  */
 export const DEFAULT_CHAINED_SYNC_TIMEOUT_MS = 180_000;
