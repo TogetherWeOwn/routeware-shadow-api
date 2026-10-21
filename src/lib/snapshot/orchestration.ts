@@ -10,7 +10,8 @@ import { readReportQueryDates } from "../reportQueryDates";
 import {
   fetchWithUpstreamTimeout,
   isUpstreamTimeout,
-  readChainedSyncTimeoutMs
+  readChainedSyncTimeoutMs,
+  readReportStreamStallTimeoutMs
 } from "../upstreamTimeout";
 import { fetchReportCsvForPath } from "./reportFetch";
 import type { SnapshotSyncCounts } from "./upsert";
@@ -131,6 +132,7 @@ export async function runCustomerSnapshotSync(
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
   const dryRun = opts.dryRun === true;
+  const stallTimeoutMs = readReportStreamStallTimeoutMs(env);
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -148,14 +150,16 @@ export async function runCustomerSnapshotSync(
     return syncCustomerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CUST, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     });
   }
   return syncTableWithR2(env, "customer", resp.body, (s) =>
     syncCustomerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CUST, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     }),
     opts.runId
   );
@@ -180,6 +184,7 @@ export async function runAddressSnapshotSync(
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
   const dryRun = opts.dryRun === true;
+  const stallTimeoutMs = readReportStreamStallTimeoutMs(env);
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -197,14 +202,16 @@ export async function runAddressSnapshotSync(
     return syncAddressSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_ADDR, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     });
   }
   return syncTableWithR2(env, "address", resp.body, (s) =>
     syncAddressSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_ADDR, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     }),
     opts.runId
   );
@@ -229,6 +236,7 @@ export async function runContainerSnapshotSync(
   // A POST may refresh D1 while the upstream export is still being generated.
   const syncedAt = new Date().toISOString();
   const dryRun = opts.dryRun === true;
+  const stallTimeoutMs = readReportStreamStallTimeoutMs(env);
   const resp = queryId
     ? await fetchReportCsvByQueryId(env, queryId)
     : await fetchReportCsvForPath(env, path!);
@@ -246,14 +254,16 @@ export async function runContainerSnapshotSync(
     return syncContainerSnapshotFromStream(env.CUSTOMER_DB, resp.body, STREAM_BATCH_CONT, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     });
   }
   return syncTableWithR2(env, "container", resp.body, (s) =>
     syncContainerSnapshotFromStream(env.CUSTOMER_DB, s, STREAM_BATCH_CONT, {
       reconcile: true,
       syncedAt,
-      dryRun
+      dryRun,
+      stallTimeoutMs
     }),
     opts.runId
   );

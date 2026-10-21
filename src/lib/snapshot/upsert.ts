@@ -304,6 +304,15 @@ export type StreamSyncOptions = {
    * means no cap — upstream report size is the operator's own config.
    */
   maxBytes?: number;
+  /**
+   * Idle stall bound in ms for streamed consumption: a `reader.read()`
+   * pending with no bytes for this long rejects with a top-level
+   * `UpstreamTimeoutError` (502 via `app.onError`) before any reconcile or
+   * delete. Each completed read resets the window, so slow-but-progressing
+   * reports complete. Set by the report `sync` path from
+   * `REPORT_STREAM_STALL_TIMEOUT_MS`; unset leaves the stream unbounded.
+   */
+  stallTimeoutMs?: number;
 };
 
 export async function upsertCustomerSnapshotRows(
