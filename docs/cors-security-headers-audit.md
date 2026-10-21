@@ -53,11 +53,16 @@ covering the window since the 2026-09-28 audit (`2766afb`, #125).
   `src/lib/upstreamForward.ts` and client-auth change in the window, checked
   for header/CORS effect (verdicts per policy line below).
 - **Dynamic probes:** the R9-08 acceptance suite
-  (`test/securityHeadersCorsPosture.test.ts`, 54 tests, passing unmodified)
+  (`test/securityHeadersCorsPosture.test.ts`, 58 tests, passing unmodified)
   issues synthetic requests through the app's fetch surface: an unauthenticated
   sweep of all 42 routes, authenticated 200/304 reads, the 400/404/405/415/429/
   500/503 error paths, preflight across four routes, and both docs surfaces
-  with the docs gate enabled and disabled.
+  with the docs gate enabled and disabled. Four direct `errorHandler` probes
+  isolate the named `onError` branches (missing-`getSetCookie` 503,
+  invalid-`AUTH_MODE` 503, upstream-timeout 502, login-page 502) past the
+  `/api/v1/*` middleware wrap, with companion `app.fetch` posture asserts in
+  the per-branch suites; the exposed-header pin asserts exact token membership
+  after comma-splitting.
 
 ### Verdict per policy line
 
@@ -103,7 +108,11 @@ covering the window since the 2026-09-28 audit (`2766afb`, #125).
 ### Gaps
 
 None in runtime: every new route and error path carries the posture (proven by
-the 42-route sweep and the error-path probes). The only gap was documentary —
+the 42-route sweep, the error-path probes, the four direct `onError` branch
+probes and the per-branch `app.fetch` asserts). The two test-integrity gaps
+the 4/5 review proved with mutants (unasserted `onError` 503/502 branches,
+substring-based expose check) are closed by test pins with mutant-red proof —
+no runtime change was needed. The only remaining gap was documentary —
 the recorded Exposed-headers line still listed the pre-#216 trio — fixed by
 updating that line above in this same change. No follow-up card: nothing
 larger was found.
