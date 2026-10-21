@@ -23,6 +23,12 @@
  */
 
 import { logEvent } from "../logger";
+import { problemJsonResponse, problemType } from "../problem";
+import {
+  snapshotExportFitsBudget,
+  snapshotExportMaxRows,
+  snapshotExportQueryCost
+} from "./exportBudget";
 
 /**
  * Conditional reads: every export also answers `If-None-Match`
@@ -77,10 +83,10 @@ export type SnapshotExportSpec = {
 
 /**
  * Rows per D1 read. A full-table 200 download costs `2 * (ceil(N / pageSize) + 1)`
- * reads (the ETag prepass plus the body pass) against the ~1000-query
- * per-invocation budget: the 388,735-row container table needs 780 reads at
- * 1000 rows per read but 1,558 at 500, where the body truncates after the 200
- * is sent (see CUSTOMER_SNAPSHOT.md § CSV export page sizing).
+ * reads (the ETag prepass plus the body pass). exportBudget.ts reserves explicit
+ * headroom within the 1000-query contract: 388,735 rows need 780 reads at 1000
+ * per page, but 1,558 at 500, refused before CSV starts (see CUSTOMER_SNAPSHOT.md
+ * § CSV export page sizing).
  */
 export const SNAPSHOT_EXPORT_PAGE_SIZE = 1000;
 export const SNAPSHOT_EXPORT_MAX_PAGE_SIZE = 5000;
@@ -331,6 +337,9 @@ function createFnv1a64() {
 
 const snapshotEtagEncoder = new TextEncoder();
 
+/** Only a local admission refusal, never a translated D1 exception. */
+class SnapshotExportBudgetError extends Error {}
+
 /**
  * Content-hash ETag for an export: FNV-1a 64 over the exact
  * response bytes (header line plus one line per row), Tag'd so the form is
@@ -339,26 +348,33 @@ const snapshotEtagEncoder = new TextEncoder();
  *
  * One keyset-paged pass (one page in memory at a time); row encoding is the
  * same `encodeSnapshotRow` the streaming body uses, so the hash is over
- * byte-identical lines.
+ * byte-identical lines. The pass reserves enough reads for a complete 200,
+ * including both terminal empty pages, even for conditional requests. A hard
+ * read cap also bounds work if concurrent changes yield short nonempty pages.
+ * This is admission, not a transaction or protection from later D1 failures.
  */
 export async function snapshotExportEtag(
   db: D1Database,
   spec: SnapshotExportSpec,
   pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
 ): Promise<string> {
+  const maxReads = snapshotExportQueryCost(snapshotExportMaxRows(pageSize), pageSize) / 2;
   const hasher = createFnv1a64();
   const feed = (s: string) => hasher.feed(snapshotEtagEncoder.encode(s));
   feed(`${snapshotExportHeaderLine(spec)}\n`);
   let after: number | null = null;
-  for (;;) {
+  let rows = 0;
+  for (let reads = 0; reads < maxReads; reads += 1) {
     const page = await readSnapshotExportPage(db, spec, after, pageSize);
-    if (page.rows.length === 0) break;
+    if (page.rows.length === 0) return `"fnv64-${hasher.hex()}"`;
+    rows += page.rows.length;
+    if (!snapshotExportFitsBudget(rows, pageSize)) break;
     after = page.last;
     for (const row of page.rows) {
       feed(`${encodeSnapshotRow(spec, row)}\n`);
     }
   }
-  return `"fnv64-${hasher.hex()}"`;
+  throw new SnapshotExportBudgetError();
 }
 
 /**
@@ -393,9 +409,22 @@ export async function snapshotCsvResponse(
   db: D1Database,
   spec: SnapshotExportSpec,
   ifNoneMatch?: string | null,
-  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE
+  pageSize: number = SNAPSHOT_EXPORT_PAGE_SIZE,
+  env?: Env
 ): Promise<Response> {
-  const etag = await snapshotExportEtag(db, spec, pageSize);
+  let etag: string;
+  try {
+    etag = await snapshotExportEtag(db, spec, pageSize);
+  } catch (error) {
+    if (!(error instanceof SnapshotExportBudgetError)) throw error;
+    return problemJsonResponse({
+      type: problemType("snapshot-export-query-budget", env),
+      title: "Snapshot export query budget exceeded",
+      status: 503,
+      detail:
+        "Export cannot fit the query budget. Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing before downloading again."
+    });
+  }
   const headers = {
     "content-type": "text/csv; charset=utf-8",
     "content-disposition": `attachment; filename="${spec.filename}"`,

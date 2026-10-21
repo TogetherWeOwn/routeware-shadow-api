@@ -23,6 +23,9 @@ export const shadowRoutes = createRouteModule();
 const shadowHealthRoute = createRoute({
   method: "get",
   path: "/api/v1/shadow/health",
+  operationId: "getShadowHealth",
+  "x-access": "read",
+  "x-effect": "none",
   tags: ["shadow"],
   summary: "Shadow API liveness probe (versioned, staging slice)",
   description:

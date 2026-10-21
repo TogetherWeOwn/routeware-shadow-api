@@ -20,6 +20,9 @@ export const addressRoutes = createRouteModule();
 const addressSaveAddressFormRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/address/save-address-form",
+  operationId: "saveRoutewareAddress",
+  "x-access": "full",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["address"],
   summary: "SaveAddressForm (create or update)",
   description:

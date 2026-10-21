@@ -103,6 +103,33 @@ const EXPECTED_TAGS = [
   "data-entity"
 ];
 
+/**
+ * Projection of the document without the agent-metadata layer pinned in
+ * `test/openapiAgentMetadata.test.ts`. Everything else stays frozen.
+ */
+function withoutAgentMetadata(doc: OpenApiDocument): unknown {
+  const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
+  for (const key of Object.keys(copy)) {
+    if (key.startsWith("x-")) delete copy[key];
+  }
+  for (const item of Object.values(copy.paths)) {
+    for (const [method, operation] of Object.entries(item)) {
+      if (!HTTP_METHODS.includes(method.toLowerCase())) continue;
+      const op = operation as Record<string, unknown>;
+      delete op["operationId"];
+      for (const key of Object.keys(op)) {
+        if (key.startsWith("x-")) delete op[key];
+      }
+      if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
+    }
+  }
+  const bearer = copy.components?.securitySchemes?.["bearerAuth"] as
+    | Record<string, unknown>
+    | undefined;
+  if (bearer) delete bearer["description"];
+  return copy;
+}
+
 async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
   const res = await exports.default.fetch("http://test.local/openapi.json");
   expect(res.status).toBe(200);
@@ -274,13 +301,34 @@ describe("published OpenAPI document", () => {
     expect(problems).toEqual([]);
   });
 
+  it.each(["customer", "address", "container"])(
+    "documents the pre-CSV query-budget 503 on the %s snapshot export",
+    async (table) => {
+      const doc = await fetchOpenApiDocument();
+      const operation = doc.paths[`/api/v1/${table}-snapshot/export`]?.get as {
+        responses: Record<string, { description?: string }>;
+      };
+
+      // Keep the refusal and its remedy visible to clients even if someone
+      // updates the full-document snapshot after dropping a response entry.
+      expect(operation.responses["503"]).toEqual({
+        description:
+          "Snapshot export query budget exceeded before CSV starts (application/problem+json, snapshot-export-query-budget). Review SNAPSHOT_EXPORT_PAGE_SIZE using CUSTOMER_SNAPSHOT.md#csv-export-page-sizing."
+      });
+    }
+  );
+
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
     const doc = await fetchOpenApiDocument();
 
     // Assert — full-document freeze: descriptions, parameters, response
-    // schemas and per-operation tags all have to survive the refactor.
-    expect(doc).toMatchSnapshot();
+    // schemas and per-operation tags all have to survive the refactor. The
+    // agent-metadata layer (operationId, x-* extensions, the empty `security`
+    // on the public probe, the bearer role description) is owned by
+    // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
+    // enriching it never re-records this frozen document.
+    expect(withoutAgentMetadata(doc)).toMatchSnapshot();
   });
 });
 
