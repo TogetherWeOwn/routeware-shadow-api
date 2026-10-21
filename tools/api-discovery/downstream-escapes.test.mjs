@@ -34,23 +34,28 @@ test("Content-Type escape covers quote, backslash, $ and backtick", () => {
   const headerLine = out.lines.find((l) => l.includes("Content-Type:"));
   assert.ok(headerLine, "expected a Content-Type header line");
   assert.equal(
-    headerLine,
+    headerLine.replace(/^\s*# ?/, ""),
     '  -H "Content-Type: application/json; x=\\"a\\\\b\\" \\$(echo PWNED >&2) \\`echo PWNED2 >&2\\`" \\'
   );
 });
 
-test("generated curl line does not execute a hostile Content-Type", () => {
+test("documented curl preserves a hostile Content-Type as literal argv", () => {
   const evil = "application/json; x=$(echo PWNED >&2)";
   const out = curlExampleForEntry(
     entry("/WebRW/Customer/CustomersRead"),
     { requestContentType: evil },
     '{"page":1}'
   );
+  // Only in this fake-only escaping control, uncomment the documentation.
+  // The independent shell suite proves no flag can activate non-GET material.
+  const material = out.lines.map((line) => line.replace(/^\s*# ?/, ""));
+  const curlAt = material.findIndex((line) => /^curl\b/.test(line.trimStart()));
+  assert.notEqual(curlAt, -1, "retain a curl example as non-executable documentation");
   const script = [
     'curl() { printf "%s\\n" "$@"; }',
-    "BASE=http://example.invalid",
+    "BASE=http://127.0.0.1:8787",
     "DIR=/nonexistent",
-    ...out.lines.filter((l) => l && !l.startsWith("#")),
+    ...material.slice(curlAt),
   ].join("\n");
   const run = spawnSync("bash", ["-c", script], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
@@ -70,7 +75,7 @@ test("GET entry with a body preview emits no body file or data flag", () => {
   assert.ok(!out.lines.some((l) => l.includes("--data-binary")));
 });
 
-test("POST entry with a body preview emits a body file and data flag", () => {
+test("POST entry retains a body file and data flag only in commented documentation", () => {
   const out = curlExampleForEntry(
     entry("/WebRW/Customer/CustomersRead"),
     { requestContentType: "application/json" },
@@ -79,7 +84,8 @@ test("POST entry with a body preview emits a body file and data flag", () => {
   assert.ok(out.bodyFile, "POST with a body preview must emit a body file");
   assert.equal(out.bodyFile.fileName, "POST_WebRW_Customer_CustomersRead.json");
   assert.equal(out.bodyFile.text, '{"x":1}');
-  assert.ok(out.lines.some((l) => l.includes("--data-binary")), "POST curl must reference the body file");
+  assert.ok(out.lines.some((l) => l.includes("--data-binary")), "POST documentation must reference the body file");
+  assert.ok(out.lines.every((line) => !line.trim() || line.trimStart().startsWith("#")), "non-GET renderer output must be non-executable");
 });
 
 test("pathWithQuery backslash escape is literal in the code span (pinned)", () => {
