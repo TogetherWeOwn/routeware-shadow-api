@@ -40,6 +40,24 @@ at the first failing step. `npm run help` lists every script, grouped by namespa
 upstream-backed routes; dummy values work for everything else. See the
 [README](./README.md#quick-start-local) for the full walkthrough.
 
+## Forks (external contributors)
+
+This is a public repo. External contributors work from a fork:
+
+1. Fork the repo, clone your fork, and create a `type/short-slug` branch.
+2. Follow Dev setup and the Verification loop below — everything there runs
+   credential-free.
+3. Open the PR from your fork against `upstream` `main` using the PR template.
+   CI runs the same credential-free checks on fork PRs (`build`, `hygiene`,
+   `pr-lint`); the `shadow-api-v1` contract step skips without `CF_TOKEN`,
+   which is expected. Secrets are never available to fork PRs.
+4. First-time contributors: GitHub may hold your CI run for maintainer approval
+   (the default for public repos). If checks do not start, comment on the PR
+   to ask a maintainer to approve them.
+5. Keep internal tracker ids, internal hosts and internal links out of the
+   title, body, branch name and commits — link public GitHub issues instead
+   (flagged by `pr-lint`).
+
 ## Verification loop (PR checks)
 
 Every PR must pass, in this order:
