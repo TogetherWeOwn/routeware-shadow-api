@@ -12,6 +12,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -20,6 +21,29 @@ import {
   formatPassLog,
   formatViolationLine,
 } from "./lib/consoleUsageCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-console-usage.mjs",
+    "",
+    "Console lint: rejects direct console method access in src/; logging must go through the structured helper.",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Env:",
+    "  CONSOLE_USAGE_ROOT  Override the repo root under test (fixture trees).",
+    "",
+    "Exit codes:",
+    "  0  No violations.",
+    "  1  Violations found, or cannot read src/.",
+    "",
+    "Example:",
+    "  node scripts/check-console-usage.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = process.env.CONSOLE_USAGE_ROOT
   ? path.resolve(process.env.CONSOLE_USAGE_ROOT)

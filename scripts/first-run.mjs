@@ -18,6 +18,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
 
 import { parseDevVarsText } from "./lib/devVarsCheck.mjs";
@@ -31,6 +32,27 @@ import {
   summarizeFirstRun,
   wranglerDevArgs,
 } from "./lib/firstRun.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/first-run.mjs",
+    "",
+    "One-command first run on a fresh clone: check:devvars, db:migrate:local, db:seed, then smoke, stopping at the first failure.",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0    Every step passes.",
+    "  1    A step fails.",
+    "  130  Interrupted; the dev server was stopped.",
+    "",
+    "Example:",
+    "  node scripts/first-run.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const HEALTH_TIMEOUT_MS = 90_000;

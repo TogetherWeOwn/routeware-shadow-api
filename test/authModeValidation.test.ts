@@ -49,6 +49,7 @@ const {
 } = await import("../src/lib/establishSession");
 
 const LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login";
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 function envWith(mode: unknown): Env {
   return {
@@ -233,7 +234,10 @@ describe("app 503 on typo'd AUTH_MODE", () => {
   it("returns a fast 503 misconfigured naming the valid values, never launching the browser", async () => {
     // Arrange — authorized request under a typo'd AUTH_MODE
     const req = new Request("http://test.local/api/v1/routeware/home/index", {
-      headers: { authorization: "Bearer test-api-token" }
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
     });
 
     // Act
@@ -243,6 +247,16 @@ describe("app 503 on typo'd AUTH_MODE", () => {
     // received typo and every valid value; neither login strategy ran.
     expect(res.status).toBe(503);
     expect(res.headers.get("content-type")).toContain("problem+json");
+    // onError branch (invalid AUTH_MODE, src/app.ts) must carry the API
+    // posture via withCors — otherwise a browser sees a CORS error instead
+    // of the real 503.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
     const body = (await res.json()) as {
       type: string;
       title: string;

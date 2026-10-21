@@ -28,11 +28,22 @@ import {
 const OUTPUT_BATCH_CHARS = 64 * 1024;
 const utf8 = new TextEncoder();
 
+/** Options for `measureSpreadsheetSafeCsv` / `spreadsheetSafeCsvStream`. */
+export type ArchiveReadbackOptions = {
+  /**
+   * Idle stall bound in ms, threaded to `streamCsvLines`: a read pending with
+   * no bytes for this long rejects with a top-level `UpstreamTimeoutError`
+   * (502 via `app.onError`). Each completed read resets the window.
+   */
+  stallTimeoutMs?: number;
+};
+
 async function* encodedRows(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  options?: ArchiveReadbackOptions
 ): AsyncGenerator<string, void, undefined> {
   let headerWidth: number | null = null;
-  for await (const line of streamCsvLines(body)) {
+  for await (const line of streamCsvLines(body, options)) {
     if (!line.trim()) {
       continue;
     }
@@ -51,10 +62,11 @@ async function* encodedRows(
 }
 
 async function* encodedBatches(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  options?: ArchiveReadbackOptions
 ): AsyncGenerator<Uint8Array, void, undefined> {
   let batch = "";
-  for await (const row of encodedRows(body)) {
+  for await (const row of encodedRows(body, options)) {
     batch += row;
     if (batch.length >= OUTPUT_BATCH_CHARS) {
       yield utf8.encode(batch);
@@ -67,11 +79,12 @@ async function* encodedBatches(
 }
 
 export async function measureSpreadsheetSafeCsv(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  options?: ArchiveReadbackOptions
 ): Promise<{ length: number; etag: string }> {
   const hash = createFnv1a64();
   let length = 0;
-  for await (const bytes of encodedBatches(body)) {
+  for await (const bytes of encodedBatches(body, options)) {
     length += bytes.byteLength;
     hash.feed(bytes);
   }
@@ -84,7 +97,8 @@ export async function measureSpreadsheetSafeCsv(
  * reach the body even while a read is pending.
  */
 export function spreadsheetSafeCsvStream(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  options?: ArchiveReadbackOptions
 ): ReadableStream<Uint8Array> {
   const upstream = body.getReader();
   const source = new ReadableStream<Uint8Array>({
@@ -95,9 +109,12 @@ export function spreadsheetSafeCsvStream(
       } else {
         controller.enqueue(value);
       }
+    },
+    cancel(reason) {
+      return upstream.cancel(reason);
     }
   });
-  const batches = encodedBatches(source);
+  const batches = encodedBatches(source, options);
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       const next = await batches.next();

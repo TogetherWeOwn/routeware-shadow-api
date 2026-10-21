@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
  * Mocked-upstream proof of how `customers-read` and `detail-full`
@@ -114,7 +115,7 @@ beforeEach(() => {
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes("killeen.routeware.com") || !url.includes("/WebRW/")) {
+      if (!isUpstreamUrl(url) || !url.includes("/WebRW/")) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       const req: UpstreamRequest = {

@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Per-PR group (TOG-23109): a new push to a PR cancels that PR's
+  # Per-PR group (PR #265): a new push to a PR cancels that PR's
   # superseded runs, but concurrent PRs never cancel each other.
   # cancel-in-progress is true ONLY for pull_request events. Non-PR runs
   # (push-to-main, schedule) each get their own group via run_id, so a

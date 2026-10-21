@@ -218,6 +218,12 @@ non-idempotent POST. Budgets: 15s interactive / 60s report CSV (overridable via
 `UPSTREAM_TIMEOUT_MS` / `UPSTREAM_REPORT_TIMEOUT_MS`). A caller abort with the
 timer unfired rethrows verbatim so a client disconnect is never misreported as
 a 502. `app.onError` is the backstop for direct `forwardToUpstream` callers.
+Streamed consumption adds an idle stall bound on top (`REPORT_STREAM_STALL_TIMEOUT_MS`,
+default 30s): `test/streamedReportStallBound.test.ts` (13 tests) pins that a
+byte-prefix-then-stall stream fails as a top-level `UpstreamTimeoutError` on
+all three sync paths and both archive-readback passes while slow-drip streams
+complete, and `test/reportStreamStall.test.ts` pins cancel-on-stall,
+window-reset near the bound, and the env reader's default/override/fallback.
 
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
@@ -352,15 +358,20 @@ change; removing them is a separate decision.
 
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
-routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
-body every route shares. The per-call-site `detail` wording was unified in
+`requireSnapshotAuth()` guards all 19 privileged
+routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads, plus `DELETE` erasure, `GET /api/v1/data-snapshot/orphans`, and `GET /api/v1/snapshots/:table/:date`), and `test/snapshotAuth.test.ts` pins the canonical inner 401
+body every route shares. `requireSnapshotSecret()` additionally checks the
+secret is configured on the 4 sync routes, behind the auth guard, so an unset
+secret currently surfaces as the 401 (pinned in
+`test/dataSnapshotRoutes.test.ts`), not its own 503. The per-call-site `detail` wording was unified in
 the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and
-`instance`). `test/authGateResweep.test.ts` pins the privileged
-inventory itself from the live router, so a new sync/import/export/data route
-without `requireSnapshotAuth` fails there instead of slipping past the outer
-gate on the general API token.
+`instance`). `test/authGateResweep.test.ts` pins the 17 sync/import/export/data/snapshots
+routes from the live router, so a new route in those classes without
+`requireSnapshotAuth` fails there instead of slipping past the outer gate on
+the general API token; the `DELETE` erasure and `orphans` routes match no
+resweep class and are pinned only by `GUARDED_ROUTES` in
+`test/snapshotAuth.test.ts`.
 
 ### `src/app.ts` and the `src/routes/` module rules
 
@@ -396,7 +407,10 @@ but is **not** a test-only change.
 Every test runs against stubs. `test/integration.test.ts` sets the house pattern: replace
 `globalThis.fetch` in `beforeEach`, restore it in `afterEach`, and **throw** on any upstream URL the
 test did not anticipate, so a leak fails loudly instead of silently calling
-`killeen.routeware.com`.
+`killeen.routeware.com`. Detect upstream URLs with `test/upstreamHost.ts`
+(`isUpstreamUrl`, exact parsed-hostname comparison) — never `url.includes(host)`,
+which both false-trips on crafted URLs and misses case variants (CodeQL
+`js/incomplete-url-substring-sanitization`).
 
 **`test/snapshotAuth.test.ts` must keep its stub.** Fifteen of its sixteen tests are rejected at the
 auth gate and never reach a handler body, which is why the file had no stub for a long time. The

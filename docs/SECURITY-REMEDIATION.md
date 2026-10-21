@@ -23,9 +23,11 @@ retrievable today by anyone with read access via `git show`:
 Commit `405fad7` ("secret/PII purge") removed these from the working tree but **did not
 rewrite history**, so every blob is still reachable from `main`.
 
-Current exposure is limited — the repo is **private**, has **0 forks**, **no open PRs**, and
-**one collaborator** (`Rick7C2`) — but the values have left the trust boundary and must be
-treated as compromised.
+At the time of the incident the exposure was limited — the original repo was **private**,
+had **0 forks**, **no open PRs**, and **one collaborator** (`Rick7C2`) — but the values have
+left the trust boundary and must be treated as compromised. (Historical note: this clean
+replacement repo has been public since 2026-10-17 with 0 forks, verified 2026-10-21; the
+exposed blobs live in the original repo's `refs/pull/*`, not here.)
 
 > **That containment reasoning expires on transfer.** Moving this repository to an organization gives
 > every org member — and any org-wide access policy — read access to the whole history, including

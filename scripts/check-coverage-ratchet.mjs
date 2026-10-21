@@ -30,6 +30,29 @@ import path from "node:path";
 import { argv, exit } from "node:process";
 
 import { CHECK_NAME, runRatchet } from "./lib/coverageRatchet.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-coverage-ratchet.mjs [--summary=<path> --config=<path>]",
+    "",
+    "Coverage ratchet: fails when coverage improves a full point above a floor without raising it.",
+    "",
+    "  --summary=<path>  Coverage summary (default coverage/coverage-summary.json).",
+    "  --config=<path>   Vitest config (default vitest.config.ts).",
+    "  -h, --help        Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Every floor matches its measurement.",
+    "  1  A measurement implies a higher floor, or sits below it.",
+    "  2  An input is missing or unparseable.",
+    "",
+    "Example:",
+    "  node scripts/check-coverage-ratchet.mjs --summary=coverage/coverage-summary.json --config=vitest.config.ts",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
 

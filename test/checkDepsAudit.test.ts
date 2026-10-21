@@ -1,5 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,11 +104,15 @@ function runWithFixtures(rootReport: unknown, discoveryReport: unknown) {
 }
 
 /**
- * Fake `npm` shim: records each invocation's cwd + argv to `$FAKE_NPM_LOG`,
- * then replays canned audit JSON per scope (`$FAKE_NPM_ROOT_JSON` /
- * `$FAKE_NPM_DISCOVERY_JSON`) and exits per scope
- * (`$FAKE_NPM_ROOT_EXIT` / `$FAKE_NPM_DISCOVERY_EXIT`, default 0).
+ * Fake `npm` shim: records each invocation as one JSON line
+ * (`{ tag, cwd, args }`) in `$FAKE_NPM_LOG`, then replays canned audit JSON
+ * per scope (`$FAKE_NPM_ROOT_JSON` / `$FAKE_NPM_DISCOVERY_JSON`) and exits
+ * per scope (`$FAKE_NPM_ROOT_EXIT` / `$FAKE_NPM_DISCOVERY_EXIT`, default 0).
  * `$FAKE_NPM_MODE=no-stdout` exits 1 with no output (npm itself failed).
+ * Scope classifies by exact resolved directory against
+ * `$FAKE_NPM_DISCOVERY_DIR` (never a path-suffix match: a checkout whose
+ * own path ends with `tools/api-discovery` would otherwise misclassify the
+ * root scope). JSON lines keep checkouts containing spaces intact.
  * Written with string concatenation (no `${}`) so the outer template
  * literal needs no escapes.
  */
@@ -109,14 +120,22 @@ const FAKE_NPM_SCRIPT = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
 const log = process.env.FAKE_NPM_LOG;
-const discoveryTail = ["tools", "api-discovery"].join(path.sep);
-const isDiscovery = process.cwd().endsWith(discoveryTail);
+function resolved(p) { try { return fs.realpathSync(p); } catch (err) { return path.resolve(p); } }
+const cwd = resolved(process.cwd());
+const discoveryDir = resolved(process.env.FAKE_NPM_DISCOVERY_DIR || ["tools", "api-discovery"].join(path.sep));
+const isDiscovery = cwd === discoveryDir;
 const tag = isDiscovery ? "DISCOVERY" : "ROOT";
-fs.appendFileSync(log, tag + " cwd=" + process.cwd() + " args=" + process.argv.slice(2).join(" ") + "\\n");
+fs.appendFileSync(log, JSON.stringify({ tag: tag, cwd: process.cwd(), args: process.argv.slice(2).join(" ") }) + "\\n");
 if (process.env.FAKE_NPM_MODE === "no-stdout") process.exit(1);
 process.stdout.write(process.env[isDiscovery ? "FAKE_NPM_DISCOVERY_JSON" : "FAKE_NPM_ROOT_JSON"]);
 process.exit(Number(process.env[isDiscovery ? "FAKE_NPM_DISCOVERY_EXIT" : "FAKE_NPM_ROOT_EXIT"] || 0));
 `;
+
+interface FakeNpmInvocation {
+  tag: string;
+  cwd: string;
+  args: string;
+}
 
 /**
  * Run the wrapper with NO fixture flags against the fake npm above: the
@@ -140,11 +159,37 @@ function runWithFakeNpm(extraEnv: Record<string, string>) {
       // dial an unroutable registry — the suite never reaches the network.
       npm_config_registry: "http://127.0.0.1:1/",
       FAKE_NPM_LOG: logFile,
+      FAKE_NPM_ROOT_DIR: REPO_ROOT,
+      FAKE_NPM_DISCOVERY_DIR: path.join(REPO_ROOT, "tools", "api-discovery"),
       ...extraEnv,
     },
   });
   const logged = readFileSync(logFile, "utf8").trim();
-  return { run, invocations: logged ? logged.split("\n") : [] };
+  const invocations: FakeNpmInvocation[] = logged
+    ? logged.split("\n").map((line) => JSON.parse(line) as FakeNpmInvocation)
+    : [];
+  return { run, invocations };
+}
+
+/** Spawn the fake-npm shim directly in `cwd` and return its one JSON log line. */
+function runShimOnce(cwd: string, extraEnv: Record<string, string>): FakeNpmInvocation {
+  const binDir = mkdtempSync(path.join(fixtureDir, "fake-npm-direct-"));
+  const shimPath = path.join(binDir, "npm");
+  writeFileSync(shimPath, FAKE_NPM_SCRIPT, { mode: 0o755 });
+  const logFile = path.join(binDir, "invocations.log");
+  writeFileSync(logFile, "");
+  spawnSync(process.execPath, [shimPath, "audit", "--json"], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      FAKE_NPM_LOG: logFile,
+      FAKE_NPM_ROOT_JSON: "{}",
+      FAKE_NPM_DISCOVERY_JSON: "{}",
+      ...extraEnv,
+    },
+  });
+  return JSON.parse(readFileSync(logFile, "utf8").trim()) as FakeNpmInvocation;
 }
 
 describe("check-deps-audit wrapper", () => {
@@ -306,13 +351,18 @@ describe("check-deps-audit npm invocation (offline fake npm)", () => {
       "scope: GHSA-synt-heti-cdis reported by tools/api-discovery/package-lock.json",
     );
     expect(invocations).toHaveLength(2);
-    expect(invocations[0]).toMatch(/^ROOT cwd=\S+ args=audit --omit=dev --json$/);
-    expect(invocations[0]).not.toContain("api-discovery");
-    expect(invocations[1]).toMatch(/^DISCOVERY cwd=\S+ args=audit --include=dev --json$/);
+    expect(invocations[0].tag).toBe("ROOT");
+    expect(invocations[0].args).toBe("audit --omit=dev --json");
+    expect(realpathSync(invocations[0].cwd)).toBe(realpathSync(REPO_ROOT));
+    expect(invocations[1].tag).toBe("DISCOVERY");
+    expect(invocations[1].args).toBe("audit --include=dev --json");
+    expect(realpathSync(invocations[1].cwd)).toBe(
+      realpathSync(path.join(REPO_ROOT, "tools", "api-discovery")),
+    );
     // The regression pin: without the explicit --include=dev, ambient
     // NODE_ENV=production / npm_config_omit=dev empties the discovery tree
     // (that package ships only devDependencies) and the gate passes vacuously.
-    expect(invocations[1]).not.toContain("--omit=dev");
+    expect(invocations[1].args).not.toContain("--omit=dev");
   });
 
   it("treats an npm run with no JSON on stdout as an infrastructure failure (exit 2)", () => {
@@ -323,5 +373,36 @@ describe("check-deps-audit npm invocation (offline fake npm)", () => {
     expect(run.stdout).not.toContain("PASS");
     // Fail-fast at the root scope: discovery npm never runs.
     expect(invocations).toHaveLength(1);
+  });
+});
+
+describe("fake-npm adversarial paths", () => {
+  it("classifies by exact directory when the checkout path itself ends with tools/api-discovery", () => {
+    // Old suffix matching (`cwd.endsWith("tools/api-discovery")`) tagged
+    // this root cwd as DISCOVERY. Exact comparison keeps it ROOT.
+    const fakeRoot = path.join(fixtureDir, "checkout-tail", "tools", "api-discovery");
+    const fakeDiscovery = path.join(fakeRoot, "tools", "api-discovery");
+    mkdirSync(fakeRoot, { recursive: true });
+    mkdirSync(fakeDiscovery, { recursive: true });
+    const env = {
+      FAKE_NPM_ROOT_DIR: fakeRoot,
+      FAKE_NPM_DISCOVERY_DIR: fakeDiscovery,
+    };
+    expect(runShimOnce(fakeRoot, env).tag).toBe("ROOT");
+    expect(runShimOnce(fakeDiscovery, env).tag).toBe("DISCOVERY");
+  });
+
+  it("keeps a cwd containing spaces intact via the JSON log line", () => {
+    const spaced = path.join(fixtureDir, "dir with space");
+    mkdirSync(spaced, { recursive: true });
+    const other = path.join(fixtureDir, "other-scope");
+    mkdirSync(other, { recursive: true });
+    const invocation = runShimOnce(spaced, {
+      FAKE_NPM_ROOT_DIR: spaced,
+      FAKE_NPM_DISCOVERY_DIR: other,
+    });
+    expect(invocation.tag).toBe("ROOT");
+    expect(realpathSync(invocation.cwd)).toBe(realpathSync(spaced));
+    expect(invocation.args).toBe("audit --json");
   });
 });
