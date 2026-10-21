@@ -16,7 +16,9 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -40,4 +42,43 @@ test("the enforced wrapper passes on the real tree", () => {
     stdio: ["ignore", "pipe", "pipe"],
   });
   assert.match(output, /^docs-links: OK — \d+ markdown files, all relative links resolve\n$/);
+});
+
+test("NUL framing keeps a newline-containing .md filename intact (alternate index)", () => {
+  // Hermetic scratch repo: the alternate GIT_INDEX_FILE proves the exact
+  // `git ls-files -z` + NUL-split pipeline the wrapper uses survives a
+  // newline in the filename, where a newline split fragments it.
+  const dir = mkdtempSync(path.join(tmpdir(), "docs-links-nul-"));
+  try {
+    execFileSync("git", ["init"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+    const newlineName = "probe-newline-\n-file.md";
+    writeFileSync(path.join(dir, newlineName), "# Probe\n\nNo links.\n", "utf8");
+    const altIndex = path.join(dir, "alt.index");
+    const env = { ...process.env, GIT_INDEX_FILE: altIndex };
+    execFileSync("git", ["add", newlineName], {
+      cwd: dir,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const raw = execFileSync("git", ["ls-files", "-z"], {
+      cwd: dir,
+      env,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const entries = raw
+      .split("\0")
+      .map((line) => line.replace(/\\/g, "/"))
+      .filter((line) => line !== "");
+    assert.deepStrictEqual(entries, [newlineName]);
+    // The wrapper's `.md` suffix filter must still see it as one markdown file.
+    assert.deepStrictEqual(
+      entries.filter((p) => p.endsWith(".md")),
+      [newlineName],
+    );
+    // A newline split would fragment it — proving this case is adversarial.
+    assert.ok(raw.split("\n").length > 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
