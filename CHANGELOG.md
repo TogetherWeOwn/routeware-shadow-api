@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Detail-full write-through refreshes now refuse malformed/conflicting identity
+- #327: Detail-full write-through refreshes now refuse malformed/conflicting identity
   aliases, duplicate children and wrong enclosing parents before any D1 mutation
   or graph cache publication. Confirmed upstream saves remain successful with
   the existing `localSync.code=sync_failed` on refresh refusal; read-only mapping
