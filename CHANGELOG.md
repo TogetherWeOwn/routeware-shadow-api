@@ -7,7 +7,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 - #328: Fixed customer changes feed pagination to normalize equivalent UTC timestamps
   with up to 3 fractional-second digits to milliseconds, reject timestamps with
-  more than 3 digits and unsafe or noncanonical decimal `since_id` values, and
+  more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
   require a valid `since` when `since_id` is supplied; tuple-based paging is
   preserved. The focused local check is `npm run check:customer-changes-cursor`.
 

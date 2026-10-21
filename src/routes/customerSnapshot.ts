@@ -180,6 +180,15 @@ const customerSnapshotChangesRoute = createRoute({
           (v) => (v === "" || v === undefined ? undefined : v),
           z.string().datetime()
             .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/)
+            // `Date` rolls calendar-invalid days (Feb 30 → Mar 1) instead of
+            // failing: reject before the transform so normalization never
+            // alters the instant it was given. The hook answers with the
+            // fixed value-free 400; the handler never runs.
+            .refine((v) => {
+              const date = new Date(v);
+              return !Number.isNaN(date.getTime()) &&
+                date.toISOString().slice(0, 10) === v.slice(0, 10);
+            })
             // Stored synced_at uses toISOString(): lexical comparisons must use
             // the same milliseconds, never raw .1Z/seconds or rounded precision.
             .transform((v) => new Date(v).toISOString())
