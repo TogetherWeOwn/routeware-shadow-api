@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Local harvest validation and aggregation now share a fail-closed NDJSON record
+  contract. Invalid records and read failures stop processing without replacing
+  existing outputs; missing and empty harvests retain their distinct behavior.
+  Both commands provide bounded `--json` diagnostics and `--help`; aggregation
+  adds a read-only `--dry-run`. Synthetic contract checks run in discovery/probe.
+
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged

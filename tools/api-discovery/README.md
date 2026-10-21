@@ -136,7 +136,7 @@ npm run process
 
 This runs, in order:
 
-1. **`validate-harvest.mjs`** — every line is valid JSON with `ts`, `method`, `pathname`.
+1. **`validate-harvest.mjs`** — every nonblank line satisfies the shared record contract below. Invalid input stops the process chain before any aggregate or downstream artifact is published.
 2. **`aggregate.mjs`** — **`out/discovered-operations.json`** (counts, resource types, up to 3 diverse samples per operation with query keys, header names, body/response previews, JSON top-level keys).
 3. **`generate-harvest-docs.mjs`** — **`out/HARVEST_API.md`** (human-readable tables + expandable samples).
 4. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest). The report step never fails the chain; the gate (`route-gap.mjs --check`, last in `process`) exits 1 when harvested ops lack shadow routes. Stale map entries are warnings by default — re-run with `--strict` after an exhaustive session to fail on them. No aggregate yet, or an aggregate with zero operations, exits 0 (nothing to compare); a truncated aggregate fails loudly.
@@ -152,6 +152,81 @@ npm run discovery:verify
 ```
 
 Runs **`discovery:process`** then **`npm test`** (includes **route-map contract tests** that hit the Worker with mocked upstream).
+
+### Shared harvest record contract (v1)
+
+`lib/harvestContract.mjs` is the pure validator used by validation and all sync,
+stream-accumulator and CLI aggregation entry points. Each nonblank physical line
+must be a nonarray JSON object with:
+
+- `ts`: a real UTC ISO calendar timestamp (`YYYY-MM-DDTHH:mm:ss[.SSS]Z`,
+  optional 1–3 fractional digits; impossible dates and normalized times fail).
+- `method`: a nonempty uppercase HTTP token (standard methods and extension
+  tokens are accepted; whitespace is not).
+- `pathname`: an absolute path starting with one `/`, without whitespace,
+  controls, backslashes, query/fragment or invalid percent escapes. A full URL
+  is not a pathname. No route-map membership requirement is added.
+
+Consumed optional fields are checked without adding captured fields or changing
+redaction: previews, content types, `resourceType`, `pathWithQuery`, `queryString`
+and `frameUrl` are strings when nonnull; absent/null string metadata remains
+unavailable. Truncation flags, when present, must be booleans. `query` is an
+object of strings or string arrays; request/response headers are objects of
+strings. Null/absent query/header containers retain their empty defaults.
+`responseStatus` is absent/null or an integer from 100 through 599. Unknown
+fields are not copied into aggregate samples. Header values are never added to
+aggregate output; existing sample (3) and preview (12,000 characters plus the
+truncation notice) caps are unchanged. A valid partial capture remains valid;
+this check does not require coverage of all routes.
+
+```bash
+# No recording, browser, credentials or live requests needed for these checks:
+node tools/api-discovery/validate-harvest.mjs --help
+node tools/api-discovery/validate-harvest.mjs --json
+node tools/api-discovery/aggregate.mjs --json --dry-run
+node --test tools/api-discovery/harvest-contract.acceptance.test.mjs tools/api-discovery/validate-harvest.test.mjs
+npm run test:discovery
+npm run test:probe
+```
+
+Both commands accept `--help` and `--json`; aggregation also accepts `--dry-run`.
+Unknown arguments are rejected **before** input/output work, even with `--help`.
+Dry-run validates everything and reports `output`, `lineCount`, `operationCount`
+and `dryRun: true` without attempting mkdir/write/remove. Validation is always
+read-only. Machine mode emits exactly one JSON document (no captured values or
+raw parser/filesystem errors), with `schemaVersion: 1`, `ok`, `code`,
+`next_action` and `findings`. Results contain at most 100 findings (under 64 KiB);
+invalid-record results also give total `findingCount` and `findingsTruncated`.
+Each finding has a fixed `code`, 1-based physical `line`, known top-level `field`
+(or `$` for record/JSON shape), and a correction `next_action`.
+
+| Code | Meaning / correction |
+| --- | --- |
+| `HARVEST_INVALID_JSON` | Correct the JSON object on the indicated line. |
+| `HARVEST_RECORD_TYPE` | Replace a primitive/array/null with a record object. |
+| `HARVEST_TIMESTAMP_INVALID` | Correct `ts` using the UTC syntax above. |
+| `HARVEST_METHOD_INVALID` | Correct the uppercase method token. |
+| `HARVEST_PATH_INVALID` | Supply an absolute pathname, not a URL/query. |
+| `HARVEST_FIELD_INVALID` | Correct the optional field type above. |
+| `HARVEST_INVALID_RECORDS` | Summary failure; fix the attached findings. |
+| `HARVEST_UNKNOWN_FLAG` | Consult `--help`; no file work was attempted. |
+| `HARVEST_READ_FAILED` | Check local input access/readability, then retry. |
+| `HARVEST_WRITE_FAILED` | Check local output access/space, then retry. |
+| `HARVEST_OK` | Valid input; continue local processing. |
+| `HARVEST_MISSING` | Only stat `ENOENT`: validator skips; aggregate writes the existing fresh-checkout empty document. |
+| `HARVEST_EMPTY` | Zero-byte file: explicit empty result/document, distinct from missing. |
+
+Failures exit 1; successful/missing/empty results exit 0. Blank lines are ignored
+for aggregate `lineCount` but still occupy diagnostic line positions; nonempty
+blank-only input has no missing/empty note. Permission, I/O, non-directory and
+asynchronous stream failures are not treated as missing. Any corrupt/mixed
+input or read failure refuses the whole aggregate **before output publication**,
+leaving previous aggregate and downstream files intact. The process command
+stops on validation failure rather than regenerating documents from a valid
+subset. Pure aggregation throws a `HarvestValidationError` with the same bounded
+`findings` and total `findingCount`; a poisoned accumulator cannot finish even
+if the caller catches a refusal. Deterministic valid content/operation identities
+remain unchanged apart from the existing generated timestamp.
 
 ## Individual scripts
 
