@@ -55,7 +55,7 @@
     "discovery:verify": "npm run discovery:process && npm test",
     "secret:login-username": "wrangler secret put LOGIN_USERNAME",
     "secret:login-password": "wrangler secret put LOGIN_PASSWORD",
-    "test:probe": "node --test scripts/post-deploy-probe.test.mjs scripts/check-r2-deploy-config.test.mjs scripts/check-r2-lifecycle-proposal.test.mjs scripts/smoke-readiness.test.mjs scripts/check-docs-links.test.mjs scripts/check-source-file-size.test.mjs scripts/wrapper-help.test.mjs scripts/verify-config-json.test.mjs scripts/verify-config-npm.test.mjs tools/api-discovery/curl-safety.acceptance.test.mjs tools/api-discovery/downstream-scripts.test.mjs tools/api-discovery/downstream-escapes.test.mjs",
+    "test:probe": "node --test scripts/post-deploy-probe.test.mjs scripts/check-r2-deploy-config.test.mjs scripts/check-r2-lifecycle-proposal.test.mjs scripts/smoke-readiness.test.mjs scripts/check-docs-links.test.mjs scripts/check-source-file-size.test.mjs scripts/wrapper-help.test.mjs scripts/verify-config-json.test.mjs scripts/verify-config-npm.test.mjs tools/api-discovery/curl-safety.acceptance.test.mjs tools/api-discovery/curl-argv-hardening.test.mjs tools/api-discovery/downstream-scripts.test.mjs tools/api-discovery/downstream-escapes.test.mjs",
     "test:discovery": "node --test tools/api-discovery/route-gap.test.mjs tools/api-discovery/route-gap-pipeline.test.mjs tools/api-discovery/validate-harvest.test.mjs",
     "test:console-usage": "node --test scripts/check-console-usage.test.mjs"
   },

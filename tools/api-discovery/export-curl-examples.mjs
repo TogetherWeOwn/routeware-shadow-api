@@ -7,6 +7,11 @@ import { curlExampleForEntry, exampleSearch, findHarvestRow } from "./lib/curlEx
 import { renderCurlScript } from "./lib/curlRuntime.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
+// `file` below comes from realpath(), so the root it is compared against
+// must be resolved too; otherwise a symlinked checkout path rejects valid
+// repository examples. Resolved once and shared by all map entries.
+let realRootPromise = null;
+const realRoot = () => (realRootPromise ??= realpath(root));
 const outDir = join(root, "out");
 const bodiesDir = join(outDir, "bodies");
 const outSh = join(outDir, "curl-examples.sh");
@@ -40,7 +45,8 @@ async function resolveBody(entry, row) {
     // A fallback is a known repository file, not an arbitrary path supplied by
     // the recording. Resolve symlinks too; fail before replacing any artifacts.
     const file = await realpath(resolve(root, entry.exampleFile));
-    if (!file.startsWith(root + sep) || file.startsWith(outDir + sep)) throw new Error("INVALID_EXAMPLE_FILE: use a repository example outside out/");
+    const resolvedRoot = await realRoot();
+    if (!file.startsWith(resolvedRoot + sep) || file.startsWith(join(resolvedRoot, "out") + sep)) throw new Error("INVALID_EXAMPLE_FILE: use a repository example outside out/");
     const bytes = await readFile(file);
     const text = bytes.toString("utf8");
     if (!Buffer.from(text).equals(bytes)) throw new Error("INVALID_EXAMPLE_ENCODING: use a complete UTF-8 example");
