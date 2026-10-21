@@ -15,7 +15,7 @@ automated-alarm firing.
 
 | Layer | Schedule | Source (all `origin/main`) |
 |---|---|---|
-| Daily cron | `0 7 * * *` UTC daily | `wrangler.toml:95` `[triggers]` `crons = ["0 7 * * *"]`, handler `src/scheduled.ts`, persists per-table rows to `cron_sync_state` (`recordCronRun` at `src/scheduled.ts:220` and `:270`, `migrations/d1/0004_cron_sync_state.sql`) |
+| Daily cron | `0 7 * * *` UTC daily | `wrangler.toml:95` `[triggers]` `crons = ["0 7 * * *"]`, handler `src/scheduled.ts`, persists per-table rows to `cron_sync_state` (`recordCronRun` at `src/scheduled.ts:317` and `:371`, `migrations/d1/0004_cron_sync_state.sql`) |
 | Daily automated alarm | `30 7 * * *` UTC daily, after the cron settles | `.github/workflows/post-deploy-probe.yml:11`, probe 3b `evalCronFreshness` (`scripts/post-deploy-probe.mjs:275-291`) against `GET /api/v1/readiness` → `checks.cron.stale`, server threshold `CRON_STALE_AFTER_MS` 48h (`src/lib/readiness.ts:79`); red job = two consecutive misses |
 | Manual fallback | Once daily after 07:30 UTC, disposition recorded | `docs/CRON-SYNC-ALARM-RUNBOOK.md` §4 steps 1–5 (step 5: record date, outcome, tables, action — silence is how the next miss goes unnoticed) |
 | Local drill | On demand, after any runbook/`scheduled.ts` change | Runbook §5 two-server recipe (`/__scheduled` + `--local` D1 `NULL` check); reviewer re-run in [cron-alarm drill report](cron-alarm-drill-report.md) § Reviewer re-run |

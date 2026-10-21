@@ -59,7 +59,16 @@ no PII was fetched, logged, or committed.
 
 ## Reviewer re-run
 
-Follow runbook §5 top to bottom; every expectation above should reproduce
-verbatim except `scheduledTime`/`durationMs`/`runId`. Reviewer check:
-`npx vitest run test/scheduled.test.ts test/snapshotSyncE2E.test.ts`
-(46 green on the drilled head).
+Tenant-free checks only — live `success` needs the tenant (real report
+fetch) and is covered by unit + hermetic E2E instead, so it is excluded
+here. Run runbook §5 top to bottom for the missed-run, `unconfigured`,
+and `failed` expectations above; each should reproduce verbatim except
+`scheduledTime`/`durationMs`/`runId`. Reviewer checks, separately:
+
+- Empty-D1 triage (§2 queries verbatim with `--local`, after
+  `npm run db:migrate:local`):
+  `npx wrangler d1 execute routeware-customer-snapshot --local --json --command "SELECT MAX(synced_at) AS last_sync FROM customer_snapshot"`
+  (repeat for `address_snapshot` / `container_snapshot`; expect
+  `last_sync: NULL, rows: 0`).
+- `npx vitest run test/scheduled.test.ts test/snapshotSyncE2E.test.ts`
+  (46 green on the drilled head).
