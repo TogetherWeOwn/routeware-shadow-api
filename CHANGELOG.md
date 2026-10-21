@@ -12,6 +12,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   instead of raw dependency exception text. Timeout does not cancel underlying
   D1 work; late completion cannot replace a newer cached observation. See
   `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
+- Discovery curl examples are inert by default: choose a stable method/path
+  identity to execute a single local-only GET. Non-GET material is commented
+  documentation; truncated previews are replaced by complete repository examples
+  or marked unavailable. Complete body whitespace is preserved. Generator and
+  shell plans (`--dry-run`, `--json`) do not modify artifacts or use the network;
+  selected GETs have bounded timeouts, HTTP-error exits and no retries.
 - `npm run db:seed` now rejects empty, repeated or unsafe local persist targets,
   unknown arguments and remote requests before executing anything. `--dry-run`
   reports deterministic local fixture intent without subprocesses or state changes;
