@@ -263,20 +263,29 @@ describe("throttle DO endpoints", () => {
 
   it("reports the stored block on check after failures accumulate", async () => {
     // Arrange — enough failures to trip the block, all inside one window.
-    const session = sessionWith();
-    for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
-      await throttleCall(session, "/throttle/failure");
+    // Date.now is frozen across the failures and the check: the retry interval
+    // is ceil((blockedUntil - now) / 1000), so a wall-clock second elapsing
+    // before the check would report 59 instead of 60 on a slow run.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const session = sessionWith();
+      for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+        await throttleCall(session, "/throttle/failure");
+      }
+
+      // Act
+      const verdict = await (await throttleCall(session, "/throttle/check")).json();
+
+      // Assert — the check reads the stored state (blocked), not a fresh empty one.
+      expect(verdict).toEqual({
+        blocked: true,
+        retryAfterSec: 60,
+        resetAtSec: expect.any(Number)
+      });
+    } finally {
+      clock.mockRestore();
     }
-
-    // Act
-    const verdict = await (await throttleCall(session, "/throttle/check")).json();
-
-    // Assert — the check reads the stored state (blocked), not a fresh empty one.
-    expect(verdict).toEqual({
-      blocked: true,
-      retryAfterSec: 60,
-      resetAtSec: expect.any(Number)
-    });
   });
 
   it("treats a corrupt stored value as empty instead of throwing", async () => {

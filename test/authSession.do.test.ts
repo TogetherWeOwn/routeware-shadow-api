@@ -748,25 +748,39 @@ describe("AuthSession Durable Object", () => {
     });
 
     it("opens a fresh episode when a holder fails after the window closed", async () => {
-      // Arrange — A fails and anchors an episode nobody claims; the window passes.
+      // Arrange — A fails and anchors an episode; B claims the one takeover
+      // and fails (the lockedAt===takeoverAtMs guard keeps the spent claim);
+      // C takes a normal lock, then the window closes on the original anchor.
       const { session, values } = await makeInspectableSession();
+      const t0 = Date.now();
       const tokenA = await acquireToken(session);
       expect((await call(session, "/unlock", { lockToken: tokenA })).status).toBe(200);
       const staleAnchor = values.get("failedReleaseAtMs");
-      expect(typeof staleAnchor).toBe("number");
-      vi.setSystemTime(new Date(Date.now() + TAKEOVER_WINDOW_MS + 1));
-      const tokenB = await acquireToken(session);
+      expect(staleAnchor).toBe(t0);
+      vi.setSystemTime(new Date(t0 + 50_000));
+      const takeover = await call(session, "/takeover", {});
+      expect(takeover.status).toBe(200);
+      const { lockToken: tokenB } = (await takeover.json()) as { lockToken: string };
+      expect((await call(session, "/unlock", { lockToken: tokenB })).status).toBe(200);
+      expect(values.get("takeoverAtMs")).toBe(t0 + 50_000);
+      vi.setSystemTime(new Date(t0 + 51_000));
+      const tokenC = await acquireToken(session);
+      vi.setSystemTime(new Date(t0 + TAKEOVER_WINDOW_MS + 1));
+      // Sanity — the stale claim is still inside its own 60s budget window,
+      // so only the fresh-episode delete can re-admit a takeover.
+      expect(values.has("takeoverAtMs")).toBe(true);
 
-      // Act — B's login fails after the window closed.
-      const response = await call(session, "/unlock", { lockToken: tokenB });
+      // Act — C's login fails after the window closed.
+      const response = await call(session, "/unlock", { lockToken: tokenC });
 
-      // Assert — the stale anchor is replaced by B's failure time and the
-      // budget is reset, so the new episode admits one takeover.
+      // Assert — the stale anchor is replaced by C's failure time and the
+      // spent budget is reset, so the new episode admits one takeover.
       expect(response.status).toBe(200);
       expect(values.get("failedReleaseAtMs")).toBe(Date.now());
       expect(values.get("failedReleaseAtMs")).not.toBe(staleAnchor);
       expect(values.has("takeoverAtMs")).toBe(false);
       expect((await readState(session)).refreshing).toBe(false);
+      expect((await call(session, "/takeover", {})).status).toBe(200);
     });
   });
 
