@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Daily R2 verification now binds real calendar dates and exact object keys,
+  rejects empty/ambiguous comparisons and supports explicit `--expect` table
+  coverage. Default success is labeled listed-only (partial), never a full-chain
+  claim. `--json` provides bounded versioned findings/actions; `--dry-run` plans
+  without children, object reads or artifacts. Remote credential fences and archive
+  writes are unchanged. Run `npm run check:r2-manifest` for hermetic acceptance.
+
 - #318: Every mounted API operation now has a stable `operationId`, `x-access`
   bearer-role classification and `x-effect` data-effect classification. The
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged

@@ -117,26 +117,29 @@ npx wrangler d1 execute routeware-customer-snapshot --remote --json \
 Each successful archive also upserts one entry per CSV into a sidecar
 `snapshots/<UTC-date>.manifest.json` — a sibling of the date's CSV "directory",
 carrying `{ version, date, files: { "<table>.csv": { key, sha256, bytes } } }`
-(`src/lib/r2SnapshotArchive.ts`). Hashes and keys only, never row data, so the
-manifest is safe to log and print. A failed CSV put writes no entry; a corrupt
-existing sidecar is replaced (warned), and verify then reports the other tables
-as missing, loudly.
+(`src/lib/r2SnapshotArchive.ts`). The writer emits hashes and keys, never row
+data; never print an unvalidated downloaded manifest. A failed CSV put writes
+no entry. A corrupt existing sidecar is replaced (warned), potentially omitting
+other tables; explicit expectations are needed to detect that coverage gap.
 
-Check one date's archive without credentials (local Miniflare R2 under a
-`--persist-to` dir) or read-only against remote (needs `CLOUDFLARE_API_TOKEN` in
-the environment, never a flag):
+Check full-chain identity and byte coverage without credentials (local Miniflare
+R2 under an approved `--persist-to` directory):
 
 ```bash
-npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir>
+npm run verify:r2-manifest -- --date=2026-09-28 --persist-to=<dir> --expect=customer,address,container --json
 ```
 
-Exit 0 when every entry verifies; exit 1 on any mismatch, missing object, or
-unreadable manifest; exit 2 on flag/usage errors. A tampered CSV fails by name
-with both hashes, e.g. `FAIL customer.csv (snapshots/2026-09-28/customer.csv):
-sha256 mismatch (manifest <old>, r2 <new>; ...)`. Reviewer acceptance path —
-fixture, verify PASS, tamper one byte, verify FAIL — is worked end to end in
-the header comment of `scripts/verify-r2-manifest.mjs`; pure compare logic
-lives in `scripts/lib/r2ManifestVerify.mjs` (unit-tested, no Wrangler needed).
+Without `--expect`, success is **listed-only (partial)**, not proof that all tables
+exist. The verifier validates the requested date and exact daily keys before CSV
+reads. Add `--dry-run` for a zero-execution plan. Remote execution is read-only but
+requires already-authorized `CLOUDFLARE_API_TOKEN` environment injection; use
+`--remote` instead of `--persist-to`, never a token flag. No new grant is implied.
+
+Exit 0 = verified coverage or valid dry-run; 1 = verification/credential failure;
+2 = invalid flags. JSON has a bounded versioned schema, stable codes/IDs and next
+actions. See [verifier contract and recovery guidance](docs/R2-MANIFEST-VERIFY.md).
+Run `npm run check:r2-manifest` for pure and hermetic fake-reader acceptance tests
+(no Wrangler/R2 access); the wrapper suite also runs in `npm run test:probe`.
 
 ## Dry-run sync and import
 
