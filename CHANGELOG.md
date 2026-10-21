@@ -12,6 +12,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   instead of raw dependency exception text. Timeout does not cancel underlying
   D1 work; late completion cannot replace a newer cached observation. See
   `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
+- Daily R2 verification now binds real calendar dates and exact object keys,
+  rejects empty/ambiguous comparisons and supports explicit `--expect` table
+  coverage. Default success is labeled listed-only (partial), never a full-chain
+  claim. `--json` provides bounded versioned findings/actions; `--dry-run` plans
+  without children, object reads or artifacts. Remote credential fences and archive
+  writes are unchanged. Run `npm run check:r2-manifest` for hermetic acceptance.
 - #325: Chained snapshot sync now bounds each table's full header+body observation
   to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
   UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
