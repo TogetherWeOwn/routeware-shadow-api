@@ -53,7 +53,8 @@ export function isConcurrentRefreshTimeout(err: unknown): err is ConcurrentRefre
 export function concurrentRefreshTimeoutProblem(
   timeoutMs: number,
   instance?: string,
-  env?: Env
+  env?: Env,
+  requestId?: string
 ): Response {
   return problemJsonResponse({
     type: problemType("bad-gateway", env),
@@ -62,7 +63,8 @@ export function concurrentRefreshTimeoutProblem(
     detail:
       `Another request is refreshing the Routeware session and did not finish within ${timeoutMs}ms. ` +
       `Retry once; if it persists the upstream login is hung. See docs/PROBLEMS.md#bad-gateway.`,
-    instance
+    instance,
+    ...(requestId === undefined ? {} : { requestId })
   });
 }
 

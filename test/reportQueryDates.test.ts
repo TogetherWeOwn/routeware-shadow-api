@@ -149,7 +149,8 @@ describe("sync rejects invalid report query dates before side effects", () => {
       title: "Service Unavailable",
       status: 503,
       detail: `${MESSAGE} See docs/PROBLEMS.md#misconfigured.`,
-      instance: path
+      instance: path,
+      requestId: expect.any(String)
     });
     const logs = capturedLogs.join("\n");
     for (const value of Object.values(range)) {

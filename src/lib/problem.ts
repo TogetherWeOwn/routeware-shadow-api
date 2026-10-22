@@ -50,6 +50,7 @@ export type ProblemBody = {
   status: number;
   detail?: string;
   instance?: string;
+  requestId?: string;
 };
 
 export function problemJsonResponse(body: ProblemBody): Response {
@@ -61,12 +62,17 @@ export function problemJsonResponse(body: ProblemBody): Response {
   });
 }
 
-export function notFoundProblem(path: string, env?: Env): Response {
+export function notFoundProblem(
+  path: string,
+  env?: Env,
+  requestId?: string
+): Response {
   return problemJsonResponse({
     type: problemType("not-found", env),
     title: "Not Found",
     status: 404,
     detail: `No operation registered for ${path}. See docs/PROBLEMS.md#not-found.`,
-    instance: path
+    instance: path,
+    ...(requestId === undefined ? {} : { requestId })
   });
 }

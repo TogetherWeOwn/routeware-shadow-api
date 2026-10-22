@@ -8,6 +8,7 @@
 export type Variables = {
   bodyBuffer: ArrayBuffer | null;
   sessionStub: DurableObjectStub;
+  requestId: string;
 };
 
 /** Generic parameter shared by the root app and every mounted route module. */

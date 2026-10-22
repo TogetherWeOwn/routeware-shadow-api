@@ -22,6 +22,17 @@ Log stable summaries only. Do not pass exception objects, exception messages, re
 
 `npm run lint` parses TypeScript under `src/` and rejects direct `console.*` access. The severity dispatch in `src/lib/logger.ts` is the only permitted console call.
 
+## Request correlation (`requestId`)
+
+Every `app.onError` line carries `requestId`: the id the earliest
+`/api/v1/*` middleware adopted from the inbound `X-Request-Id` header (1–128
+chars of RFC 7230 token chars) or minted as a UUID when absent or invalid.
+The same id is echoed on the `X-Request-Id` response header and carried in
+the gate/notFound/onError problem bodies, so one value joins a client
+attempt (including retries, when the client reuses its id) to its server-side
+log line: search Workers Logs for the echoed `requestId`. Route-level log
+lines do not carry it (onError + gate only).
+
 ## Event catalogue
 
 One row per distinct `msg` emitted under `src/` — the operator's search list for Workers Logs: what can fire, at which level, under which `route`, and what to do about it. `test/loggingCatalogueCoverage.test.ts` pins this table: it fails when a string-literal `msg` in `src/` has no row here, when a row names a message `src/` no longer emits, and when a `logEvent` call site is neither a string literal nor a known computed call site. Add the row in the same PR as any new `logEvent` call; never edit message text, level, or fields here — change the call site instead.
