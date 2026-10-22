@@ -855,7 +855,7 @@ test("wiring: package scripts run validation first and expose it to agents", () 
   const root = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
   assert.equal(tools.scripts["validate:routes"], "node route-map-validation.mjs");
   assert.equal(String(tools.scripts.process).split("&&")[0].trim(), "node route-map-validation.mjs");
-  assert.equal(root.scripts["discovery:validate"], "npm run validate:routes --prefix tools/api-discovery");
+  assert.equal(root.scripts["discovery:validate"], "npm run validate:routes --prefix tools/api-discovery --");
   assert.match(root.scripts["test:discovery"], /tools\/api-discovery\/route-map-validation\.test\.mjs/);
 });
 
