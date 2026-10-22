@@ -277,13 +277,30 @@ text into a different row ID. Rejections use the anchored 400
 `application/problem+json` envelope with fixed field-only detail and no input
 values; see [bad-request guidance](PROBLEMS.md#bad-request).
 
+For detail hydration, all three reads also accept one comma-separated `ids`
+list of 1 to 50 canonical ids instead of N sequential GETs. Every entry uses
+the same canonical contract; any malformed or empty entry, mixing `ids` with
+`id`/alias, or more than 50 ids fails the whole request 400 before any read.
+The 200 body is `{entries}` in request order — found entries carry the same
+bundle a single GET returns, missing ids are exactly `{id, found: false}`
+(no 404-whole) — sent `no-store` with no ETag (`If-None-Match` is ignored
+on batch).
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/customer?ids=42,7,9"
+# {"entries":[{"id":42,"found":true,"customer":{...}}, ...]} in request order
+```
+
 Synthetic consumer examples (the acceptance fixture, not customer records):
 `/api/v1/data/customer?id=42` and `?customerId=42` return the same row and ETag;
 `?id=42&customerId=2` selects 42; `?id=42&customerId=042` returns 400.
+`?ids=42,7` returns two request-order entries; `?ids=42,042`,
+`?ids=42&id=7` and 51 ids return 400.
 Run the credential-free, network-denying local check instead of querying a tenant:
 
 ```bash
-npx vitest run test/hydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
+npx vitest run test/hydratedReadIds.acceptance.test.ts test/batchHydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
 ```
 
 ## 4. Saves: write through Routeware, then D1 refreshes

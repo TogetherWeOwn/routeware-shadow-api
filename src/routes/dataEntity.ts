@@ -11,6 +11,12 @@ import {
   handleGetDataCustomer
 } from "../lib/dataEntityHandlers";
 import {
+  BATCH_MAX_IDS,
+  handleGetDataAddressBatch,
+  handleGetDataContainerBatch,
+  handleGetDataCustomerBatch
+} from "../lib/dataEntityBatch";
+import {
   handlePostDataAddress,
   handlePostDataContainer,
   handlePostDataCustomer
@@ -43,11 +49,67 @@ const hydratedReadBadRequest = {
     "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json)."
 };
 
+// Batch `ids` is a single comma-separated string, never repeated `?ids=`
+// keys (repeated keys reach zod as an array and the shared validation hook
+// 400s before the handler) and never mixed with `id`/alias.
+const hydratedReadIdsQuery = z.string().optional().openapi({
+  description:
+    `Batch lookup as one comma-separated \`ids\` value: 1 to ${BATCH_MAX_IDS} canonical ` +
+    "positive decimal safe integers (1 to 9007199254740991) without leading zeros, " +
+    "whitespace, signs, fractions, exponents or hex. Every entry is validated before " +
+    `any read; any malformed or empty entry, mixing with \`id\`/alias, or more than ${BATCH_MAX_IDS} ` +
+    "ids fails the whole request 400 with zero partial reads. Batch 200s return " +
+    "`{entries}` in request order with `no-store` and no ETag.",
+  example: "1,2,3"
+});
+
+// Fixed, value-free batch rejection: one detail for malformed entries, shape
+// violations, `id`/alias mixing and over-max lists, so rejected input cannot
+// be told apart (or echoed back) by the response.
+const BATCH_IDS_BAD_REQUEST_DETAIL =
+  `Query \`ids\` must be one comma-separated list of 1 to ${BATCH_MAX_IDS} canonical ` +
+  "positive decimal safe integers without leading zeros, and cannot be combined " +
+  "with `id` or the alias. See docs/PROBLEMS.md#bad-request.";
+
 function parseHydratedReadId(rawId: string | undefined, rawAlias: string | undefined): number | null {
   const id = rawId === undefined ? undefined : parsePositiveIdParam(rawId);
   const alias = rawAlias === undefined ? undefined : parsePositiveIdParam(rawAlias);
   if (id === null || alias === null) return null;
   return id ?? alias ?? null;
+}
+
+/**
+ * Parse a batch `ids` value into canonical ids in request order. Returns
+ * `null` (→ the fixed value-free batch 400) when `id`/alias is also present,
+ * when the list is empty or longer than `BATCH_MAX_IDS`, or when any entry
+ * fails the canonical positive-safe-ID contract — before any read, so a
+ * malformed batch performs zero handler/cache/D1 work.
+ */
+function parseBatchIds(
+  rawIds: string,
+  rawId: string | undefined,
+  rawAlias: string | undefined
+): number[] | null {
+  if (rawId !== undefined || rawAlias !== undefined) return null;
+  const parts = rawIds.split(",");
+  if (parts.length > BATCH_MAX_IDS) return null;
+  const ids: number[] = [];
+  for (const part of parts) {
+    const id = parsePositiveIdParam(part);
+    if (id === null) return null;
+    ids.push(id);
+  }
+  return ids;
+}
+
+function batchBadRequest(c: { env: Env; req: { url: string } }): Response {
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail: BATCH_IDS_BAD_REQUEST_DETAIL,
+    instance: new URL(c.req.url).pathname
+  });
 }
 
 const dataCustomerGetRoute = createRoute({
@@ -59,11 +121,12 @@ const dataCustomerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get customer (D1) with addresses and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
-      customerId: hydratedReadIdQuery.openapi({ example: 345734 })
+      customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
+      ids: hydratedReadIdsQuery
     })
   },
   responses: {
@@ -81,6 +144,12 @@ const dataCustomerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const rawIds = c.req.query("ids");
+  if (rawIds !== undefined) {
+    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("customerId"));
+    if (batchIds === null) return batchBadRequest(c);
+    return handleGetDataCustomerBatch(c.env.CUSTOMER_DB, batchIds);
+  }
   const rawId = c.req.query("id");
   const rawAlias = c.req.query("customerId");
   const id = parseHydratedReadId(rawId, rawAlias);
@@ -107,11 +176,12 @@ const dataAddressGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
-      pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 })
+      pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
+      ids: hydratedReadIdsQuery
     })
   },
   responses: {
@@ -129,6 +199,12 @@ const dataAddressGetRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const rawIds = c.req.query("ids");
+  if (rawIds !== undefined) {
+    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("pickupAddressId"));
+    if (batchIds === null) return batchBadRequest(c);
+    return handleGetDataAddressBatch(c.env.CUSTOMER_DB, batchIds);
+  }
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("pickupAddressId"));
   if (id === null) {
     return problemJsonResponse({
@@ -152,11 +228,12 @@ const dataContainerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
-      containerId: hydratedReadIdQuery.openapi({ example: 100 })
+      containerId: hydratedReadIdQuery.openapi({ example: 100 }),
+      ids: hydratedReadIdsQuery
     })
   },
   responses: {
@@ -174,6 +251,12 @@ const dataContainerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const rawIds = c.req.query("ids");
+  if (rawIds !== undefined) {
+    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("containerId"));
+    if (batchIds === null) return batchBadRequest(c);
+    return handleGetDataContainerBatch(c.env.CUSTOMER_DB, batchIds);
+  }
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("containerId"));
   if (id === null) {
     return problemJsonResponse({
