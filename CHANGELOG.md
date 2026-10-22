@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #334: `POST /api/v1/data-snapshot/sync` accepts `?partialProgress=true` to
+  opt into sanitized partial progress on a table-step failure: HTTP 500
+  `application/json` `{customer, address, container, failure}` with per-table
+  `{upserted, rowCount}` (completed) or `null` and fixed `{table, code}` plus
+  the numeric `status` only for `ChainedHttpError`. `code` is one of the six
+  runbook §4.1 classifications, never upstream text; no `deleted`, `r2`, or
+  row data travels. Absent or `false` keeps the generic shapes byte-for-byte;
+  any other value is a value-free 400 before any table runs. Success is
+  identical with or without the flag. See `CUSTOMER_SNAPSHOT.md`.
 - #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
   15 seconds, while retaining its non-sliding 20-second single-flight cache.
   Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
