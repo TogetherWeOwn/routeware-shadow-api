@@ -20,6 +20,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { validateRouteMap } from "./lib/routeMapValidation.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const discoveredPath = join(__dirname, "out", "discovered-operations.json");
@@ -155,10 +156,24 @@ if (operations.length === 0) {
 
 let routeMap;
 try {
-  routeMap = requireArray(JSON.parse(await readFile(mapPath, "utf8")), "route-map", mapPath);
-  requireFields(routeMap, ["method", "upstreamPath", "shadowPath"], mapPath);
+  routeMap = JSON.parse(await readFile(mapPath, "utf8"));
 } catch (e) {
   console.error(`route-gap: invalid route map ${mapPath}:`, e?.message ?? e);
+  process.exit(1);
+}
+// A duplicate/conflicting mapping must not look "covered": validate the map
+// (same shared library as route-map-validation.mjs) before the report is
+// computed or written, even under --report-only.
+const mapValidation = validateRouteMap(routeMap);
+if (!mapValidation.ok) {
+  for (const finding of mapValidation.findings) {
+    console.error(
+      `${finding.code} [${finding.checkId}] entries ${finding.entryIndexes.join(",") || "—"}: ${finding.nextAction}`
+    );
+  }
+  console.error(
+    `route-gap: route map invalid (${mapValidation.findings.length} findings) — fix ${mapPath} before comparing.`
+  );
   process.exit(1);
 }
 const mapped = new Set(routeMap.map((e) => `${e.method} ${e.upstreamPath}`));
