@@ -148,8 +148,8 @@ for (const command of COMMANDS) {
     assert.equal(result.status, 1, `${command} must reject corrupt input`);
     const body = machine(result, false);
     assert.equal(body.code, 'HARVEST_INVALID_RECORDS');
-    assert.equal(typeof body.findingCount, 'number');
-    assert.equal(typeof body.findingsTruncated, 'boolean');
+    assert.equal(body.findingCount, 1);
+    assert.equal(body.findingsTruncated, false);
     assertFinding(body.findings, 'HARVEST_RECORD_TYPE', '$');
   });
 
