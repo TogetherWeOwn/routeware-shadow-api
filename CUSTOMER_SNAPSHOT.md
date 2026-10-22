@@ -12,6 +12,49 @@ Routeware **Customer / Address / Container** custom report exports are cached in
 
 **Foreign keys and reconciliation:** the FK columns are declared and D1 **enforces** them unconditionally in every transaction/batch — an orphan row is rejected (import/sync answers 400 `bad-request` naming the dangling key), so import order is enforced, not just convention. A streamed sync spans many batches rather than one transaction, so integrity relies on the import order above plus reconciliation as well as the database. A report **`sync`** (not `import`) deletes rows not present in the current run (`deleted` count in the response) so upstream deletions propagate; reconciliation is skipped when a run yields zero data rows, so a bad/empty export never wipes a table. **`import`** is treated as possibly-partial and never deletes.
 
+## Detail-full write-through identity contract
+
+Post-save refreshes validate the complete raw `GetCustomerDetailFull` graph before
+mapping or the first D1 write/reconciliation. This JSON boundary is separate from
+CSV import and public query-ID parsing; read-only mapping and non-identity fields
+retain their tolerant conversions.
+
+- Customer/address/container primary IDs and supplied ownership IDs must be
+  positive safe integer numbers or nonempty ASCII digit-only decimal strings
+  (`1` through `9007199254740991`, leading zeros allowed). Prefixes, fractions,
+  exponent/hex strings, whitespace, signs, nonpositive/unsafe values, nulls and
+  non-scalars are refused. JSON numeric values are checked as parsed numbers;
+  their original lexical spelling is not available after JSON parsing.
+- Recognized pairs are `CustomerID` / `customerID`, `PickupAddressID` /
+  `pickupAddressID`, and `ContainerID` / `containerID` where applicable. Every
+  supplied spelling must be valid and normalize to the same ID; a malformed or
+  conflicting alias cannot be shadowed by a valid one.
+- Customer and address ownership must match the requested customer. Address IDs
+  and container IDs must each be unique throughout the graph, including
+  numeric/string equivalents. An explicit container parent must match its
+  **enclosing address**, not merely another address in the graph. Only an absent
+  parent ID inherits its enclosing address.
+- `currentCustomer` must be an object and `data` an array of address objects.
+  Supplied `Containers` must be arrays of container objects; null/nonarray
+  collections and malformed members never prove deletion. Absent `Containers`
+  retains the existing empty-child behavior. Valid empty arrays retain deletion
+  semantics.
+
+Refusal performs no upserts, stale-child deletes or graph cache publication;
+seeded rows and `synced_at` remain untouched. Identity refusal diagnostics name
+only fixed field/graph kinds and the fixed next action `skipping D1 refresh`,
+never raw graph values; the established `missing currentCustomer` diagnostic is
+retained. Save handlers expose only the fixed code/error kind, not exception
+text. A confirmed upstream save remains successful; the data-tier response
+reports `localSync: { "done": false, "code": "sync_failed" }` and retains existing
+best-effort single-entity cache eviction. **Do not retry the save** to repair a
+local refresh failure, or claim that the upstream operation was rolled back.
+Size/D1/cache budgets, fresh-plus-deleted IDs and erasure suppression are unchanged.
+
+Run `npm run test:detail-full` for the parameterized synthetic-graph acceptance
+suite plus reconciliation regressions (local test D1 only, no credentials or live
+requests). The full `npm test` entry point includes these tests too.
+
 ## Environment
 
 | Variable | Role |
@@ -184,6 +227,55 @@ are not written, and no archive key is created. A combined dry-run returns per-t
 `{ "upserted", "rowCount" }` counts (no `deleted` field), or `null` for a skipped
 table; on a table failure the route returns an error and later tables do not run.
 On a successful response, `null` means that table was skipped.
+
+## Strict identities on operator CSV imports
+
+The three `POST /api/v1/{customer,address,container}-snapshot/import` routes,
+including `?dryRun=true`, require each identity header exactly once after
+case/BOM/whitespace normalization and CSV quote handling:
+
+| Import | Required identity headers | Error field identifiers |
+| --- | --- | --- |
+| Customer | `CustomerID` | `customer_id` |
+| Address | `PickupAddressID`, `CustomerID` | `pickup_address_id`, `customer_id` |
+| Container | `ContainerID`, `PickupAddressID` | `container_id`, `pickup_address_id` |
+
+The existing first-column requirement remains: `CustomerID`, `PickupAddressID`
+or `ContainerID`, respectively. Duplicate normalized identity headers are
+ambiguous even if their cells agree; unrelated duplicate columns are unchanged.
+Optional columns may still be omitted and blank records are still skipped.
+
+Required primary and relationship cells must contain **only ASCII decimal digits**
+after the existing spreadsheet-marker decoding and whitespace trimming, with a
+numeric value from **1 through 9007199254740991**. Leading zeroes are allowed.
+Missing cells, `123junk`, signs, fractions (even `123.0`), exponent/hex spellings,
+non-ASCII digits, zero, negatives and unsafe integers are rejected, not rounded,
+truncated or silently skipped. Optional non-identity numbers/defaults and upstream
+report-sync parsing stay tolerant. Export/import round trips remain supported for
+import-compatible cells. Dry-run validates the same headers and identity syntax
+but still skips parent-existence checks and performs no writes.
+
+For a synthetic address example, `PickupAddressID,CustomerID` followed by
+`42,123junk` returns 400 `application/problem+json`, not a write referencing
+customer 123. Its value-free detail identifies `address_snapshot`, row 2 and
+`customer_id`, with a fixed correction/retry action. Correct the relationship
+cell to the intended whole-decimal parent id and import that customer first.
+See [identity problems](docs/PROBLEMS.md#snapshot-import-identities-bad-request).
+
+**Streaming is not whole-upload rollback.** Identity headers are checked before
+any data batch, and each nonblank record is validated before entering a batch.
+An identity error in the first batch writes nothing. A later error discards the
+pending batch and remaining records, but earlier flushed valid batches may already
+be committed (current defaults: 80 customer/address rows, 40 container rows).
+The rejected record is never written; imports never reconcile/delete existing
+rows, and a thrown parse error cannot reach end-of-import reconciliation. A 400
+does not mean that the entire upload left D1 unchanged. Fix the file before retrying.
+
+Credential-free focused regression (synthetic fixtures and disposable local D1):
+
+```sh
+npx vitest run test/snapshotImportIdentity.acceptance.test.ts test/snapshotImportEdges.test.ts test/snapshotImportForeignKey.test.ts test/snapshotDryRun.test.ts
+```
 
 ## API quick reference (OpenAPI tags: `customer-snapshot`, `address-snapshot`, `container-snapshot`, `data-snapshot`)
 
