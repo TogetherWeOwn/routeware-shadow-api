@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #321: the customer/address/container snapshot lists accept
+  `includeTotal=false` to skip the `COUNT(*)` query and answer
+  `total: null` (deliberately not computed, not zero) with the same
+  rows, `nextCursor` and page SQL. The default response is unchanged;
+  any other value is a value-free 400 before D1 access. Documented in
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and
+  `docs/CONSUMER-QUICKSTART.md`; pinned by
+  `test/snapshotCountFreePagination.test.ts`.
 - #323: Customer, address and container operator CSV imports, including dry runs,
   now require unambiguous identity headers and positive safe whole-decimal
   primary/relationship identities. Invalid identities return a value-free 400
