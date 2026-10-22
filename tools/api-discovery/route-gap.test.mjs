@@ -33,6 +33,9 @@ function sandbox(t) {
   // Test the real implementation: copy the script under test into the sandbox
   // so its __dirname-relative reads (route-map.json, out/...) stay isolated.
   fs.copyFileSync(path.join(toolsDir, "route-gap.mjs"), path.join(dir, "route-gap.mjs"));
+  // route-gap.mjs imports the shared route-map validation library;
+  // copy lib/ whole so a future lib module cannot silently break the sandbox.
+  fs.cpSync(path.join(toolsDir, "lib"), path.join(dir, "lib"), { recursive: true });
   return dir;
 }
 

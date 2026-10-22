@@ -136,12 +136,91 @@ npm run process
 
 This runs, in order:
 
-1. **`validate-harvest.mjs`** — every nonblank line satisfies the shared record contract below. Invalid input stops the process chain before any aggregate or downstream artifact is published.
-2. **`aggregate.mjs`** — **`out/discovered-operations.json`** (counts, resource types, up to 3 diverse samples per operation with query keys, header names, body/response previews, JSON top-level keys).
-3. **`generate-harvest-docs.mjs`** — **`out/HARVEST_API.md`** (human-readable tables + expandable samples).
-4. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest). The report step never fails the chain; the gate (`route-gap.mjs --check`, last in `process`) exits 1 when harvested ops lack shadow routes. Stale map entries are warnings by default — re-run with `--strict` after an exhaustive session to fail on them. No aggregate yet, or an aggregate with zero operations, exits 0 (nothing to compare); a truncated aggregate fails loudly.
-5. **`export-curl-examples.mjs`** — **`out/curl-examples.sh`** + complete documentation bodies under **`out/bodies/`**. No selection means no network; only explicitly selected GET examples can execute against a loopback `BASE`.
-6. **`suggest-routes.mjs`** — **`out/suggested-routes.stub.ts`** (commented checklist for `src/app.ts`).
+1. **`route-map-validation.mjs`** — validates `route-map.json` before any artifact is built (see below).
+2. **`validate-harvest.mjs`** — every nonblank line satisfies the shared record contract below. Invalid input stops the process chain before any aggregate or downstream artifact is published.
+3. **`aggregate.mjs`** — **`out/discovered-operations.json`** (counts, resource types, up to 3 diverse samples per operation with query keys, header names, body/response previews, JSON top-level keys).
+4. **`generate-harvest-docs.mjs`** — **`out/HARVEST_API.md`** (human-readable tables + expandable samples).
+5. **`route-gap.mjs`** — **`out/route-gaps.json`** / **`out/route-gaps.txt`** (harvested ops missing from `route-map.json`, and map entries not seen in this harvest). The report step never fails the chain; the gate (`route-gap.mjs --check`, last in `process`) exits 1 when harvested ops lack shadow routes. Stale map entries are warnings by default — re-run with `--strict` after an exhaustive session to fail on them. No aggregate yet, or an aggregate with zero operations, exits 0 (nothing to compare); a truncated aggregate fails loudly.
+6. **`export-curl-examples.mjs`** — **`out/curl-examples.sh`** + complete documentation bodies under **`out/bodies/`**. No selection means no network; only explicitly selected GET examples can execute against a loopback `BASE`.
+7. **`suggest-routes.mjs`** — **`out/suggested-routes.stub.ts`** (commented checklist for `src/app.ts`).
+
+## Validate the route map
+
+`route-map.json` is the contract between the harvest and the shadow Worker:
+every entry maps one upstream operation (`method` + `upstreamPath`) to one
+shadow operation (`method` + `shadowPath`). `route-map-validation.mjs`
+checks that contract with the shared library `lib/routeMapValidation.mjs` —
+the same implementation `route-gap.mjs`, `export-curl-examples.mjs` and
+`suggest-routes.mjs` run before producing output, and the workerd contract
+tests run against the live `/openapi.json`.
+
+From the repo root:
+
+```bash
+npm run discovery:validate
+```
+
+Or inside `tools/api-discovery`:
+
+```bash
+npm run validate:routes              # text verdict, exit 0/1
+node route-map-validation.mjs --json # exactly one JSON object on stdout, stderr empty
+```
+
+Flags: `--json`, and `--mounted-operations=<file>` (a JSON array of
+`"METHOD /path"` strings; default: derive from the `createRoute`
+definitions in `src/routes/*.ts`). Any other flag or positional argument is
+rejected with `UNKNOWN_FLAG` (exit 2). Exit 0 = valid, 1 = findings.
+Validation is read-only: it never writes, and never prints harvest payloads,
+credentials, raw exceptions or recorded customer values.
+
+`--json` result shape (`schemaVersion` 1):
+
+```json
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "checks": [{ "id": "route-map.shape", "status": "pass" }],
+  "findings": [{
+    "id": "DUPLICATE_UPSTREAM_IDENTITY-9f2c4a1b7e30",
+    "checkId": "route-map.duplicate-upstream",
+    "code": "DUPLICATE_UPSTREAM_IDENTITY",
+    "severity": "error",
+    "entryIndexes": [0, 1],
+    "method": "POST",
+    "upstreamPath": "/WebRW/Customer/CustomersRead",
+    "nextAction": "Merge route-map entries 0, 1 into a single mapping for the duplicated upstream operation, or delete the stale one."
+  }],
+  "summary": { "entries": 5, "errors": 1 }
+}
+```
+
+Check statuses are `pass`, `fail`, or `skipped` (the mounted-operation
+check is `skipped` when no mounted-operations list is supplied). Finding ids
+are content-derived, stable, and independent of entry order.
+
+Checks and finding codes:
+
+| Check id | Code | Meaning |
+|----------|------|---------|
+| `route-map.shape` | `ROUTE_MAP_NOT_ARRAY` | the map is not an array |
+| `route-map.shape` | `ENTRY_FIELD_INVALID` | an entry is not an object, or a field is missing, empty or not a string |
+| `route-map.method` | `METHOD_UNSUPPORTED` | method is not GET, POST, PUT, PATCH or DELETE (exact, uppercase) |
+| `route-map.upstream-path` | `UPSTREAM_PATH_INVALID` | upstream path is not an absolute clean path (no query, fragment, whitespace, dot segments or trailing slash) |
+| `route-map.shadow-path` | `SHADOW_PATH_INVALID` | same shape rules for the shadow path |
+| `route-map.duplicate-upstream` | `DUPLICATE_UPSTREAM_IDENTITY` | two entries claim the same upstream method + (case-folded) path |
+| `route-map.conflicting-shadow` | `CONFLICTING_SHADOW_MAPPING` | two upstream operations map onto one shadow method + path |
+| `route-map.mounted-operation` | `SHADOW_OPERATION_NOT_MOUNTED` | the shadow method + path is not a mounted/documented operation (`{param}` matches exactly one segment) |
+| `route-map.shape` | `ROUTE_MAP_UNREADABLE` | CLI-only: `route-map.json` is missing or unparsable |
+| `route-map.mounted-operation` | `MOUNTED_OPERATIONS_UNAVAILABLE` | CLI-only: no `--mounted-operations` file and no repo source to derive from |
+| `cli.arguments` | `UNKNOWN_FLAG` | CLI-only: unknown flag or positional argument |
+
+`export-curl-examples.mjs` and `suggest-routes.mjs` accept `--dry-run`:
+validate the map, print the verdict, write nothing (exit 1 on findings).
+`export-curl-examples.mjs` enforces the structural checks only (shape,
+duplicate upstream identities, conflicting shadow mappings): it renders
+non-executable documentation for any method/path, so method and path-shape
+stay on the CLI side.
 
 ### Validate + test (CI / agent)
 
@@ -237,12 +316,13 @@ remain unchanged apart from the existing generated timestamp.
 | `npm run record:full` | Recording with all headers/values (`--full`) |
 | `npm run codegen` | Playwright codegen — records UI actions to a script |
 | `npm run validate:harvest` | Validates `harvest.ndjson` |
+| `npm run validate:routes` | Validates `route-map.json` (read-only; `--json` for one JSON object) |
 | `npm run aggregate` | `discovered-operations.json` only |
 | `npm run docs:harvest` | `HARVEST_API.md` only |
 | `npm run gap:routes` | `route-gaps.*` only (report; exits 1 on missing shadow routes, warns on stale entries unless `--strict`) |
 | `npm run gap:check` | Re-checks `route-gaps.json` without recomputing (the `process` gate) |
-| `npm run export:curls` | `curl-examples.sh` + `out/bodies/` |
-| `npm run suggest:routes` | `suggested-routes.stub.ts` (after gaps exist) |
+| `npm run export:curls` | `curl-examples.sh` + `out/bodies/` (supports `--dry-run`) |
+| `npm run suggest:routes` | `suggested-routes.stub.ts` (after gaps exist; supports `--dry-run`) |
 
 ## Safe local curl examples
 
