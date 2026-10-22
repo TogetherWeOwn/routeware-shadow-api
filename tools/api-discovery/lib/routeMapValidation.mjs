@@ -155,11 +155,13 @@ function shadowIdentity(method, shadowPath) {
 }
 
 function parseMountedOperation(text) {
-  const space = text.indexOf(" ");
-  if (space <= 0) {
+  // Parity with the CLI check (/^[A-Z]+\s+\/\S*$/): any whitespace run
+  // separates METHOD from path, so tab and multi-space mounts resolve.
+  const separator = text.search(/\s/);
+  if (separator <= 0) {
     return { method: text, template: "" };
   }
-  return { method: text.slice(0, space), template: text.slice(space + 1) };
+  return { method: text.slice(0, separator), template: text.slice(separator).replace(/^\s+/, "") };
 }
 
 function templateMatches(template, concretePath) {

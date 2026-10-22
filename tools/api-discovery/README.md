@@ -407,7 +407,7 @@ This also runs through `npm run test:probe` and `npm test`; no workflow changes.
 
 1. Open **`out/route-gaps.txt`** (or **`route-gaps.json`**) — high-count paths first.
 2. Add entries to **`route-map.json`** (`upstreamPath`, `shadowPath`, optional `exampleFile` / `exampleQuery`).
-3. Use **`out/suggested-routes.stub.ts`** as a naming hint; implement `createRoute` + handler in **`src/app.ts`** (same pattern as existing Routeware forwards).
+3. Use **`out/suggested-routes.stub.ts`** as a naming hint; define `createRoute` + handler under **`src/routes/*.ts`** and mount from **`src/app.ts`** (same pattern as existing Routeware forwards).
 4. Add example JSON under **`examples/`** if the exporter needs a body when the harvest has no preview for that path.
 5. Run **`npm run discovery:verify`** from the repo root.
 
