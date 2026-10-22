@@ -93,4 +93,4 @@ date.
   3. Publish the GitHub Release from the tag
      (`gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>`)
      with consumer-facing notes covering every consumer-visible change.
-- The first release cut this way was `v1.0.0`.
+- The first release to be cut this way will be `v1.0.0`.
