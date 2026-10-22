@@ -7,6 +7,7 @@
  */
 import { jsonTopLevelKeys, truncate } from "./harvestLib.mjs";
 import { normalizePath } from "./normalizePath.mjs";
+import { createHarvestValidation } from "./harvestContract.mjs";
 
 export const SOURCE_FILE = "out/harvest.ndjson";
 export const MISSING_HARVEST_NOTE =
@@ -47,22 +48,14 @@ export function buildSample(row) {
 }
 
 function createMergeState() {
-  return { byKey: new Map(), lineCount: 0 };
+  return { byKey: new Map(), validation: createHarvestValidation() };
 }
 
 function mergeLine(state, line) {
-  if (!line.trim()) {
-    return;
-  }
-  state.lineCount += 1;
-  let row;
-  try {
-    row = JSON.parse(line);
-  } catch {
-    return;
-  }
-  const method = row.method ?? "?";
-  const path = normalizePath(row.pathname ?? "");
+  const row = state.validation.addLine(line);
+  if (row === null) return;
+  const method = row.method;
+  const path = normalizePath(row.pathname);
   const key = `${method} ${path}`;
   const cur =
     state.byKey.get(key) ??
@@ -88,6 +81,7 @@ function mergeLine(state, line) {
 }
 
 function finishMerge(state) {
+  const { lineCount } = state.validation.finish();
   const operations = [...state.byKey.entries()]
     .map(([key, v]) => ({
       key,
@@ -99,7 +93,7 @@ function finishMerge(state) {
       samples: v.samples
     }))
     .sort((a, b) => b.count - a.count);
-  return { lineCount: state.lineCount, operations };
+  return { lineCount, operations };
 }
 
 /** Merge harvest lines from a sync iterable into { lineCount, operations }. */
