@@ -488,7 +488,13 @@ export const containerSaveFormDocs: RouteDocs = {
 export const snapshotListResponse = z
   .object({
     rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int(),
+    total: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "Exact row count for this page's filters. Pass includeTotal=false to skip the COUNT query: total is then null, meaning deliberately not computed rather than zero, with the same rows and nextCursor."
+      ),
     nextCursor: z.number().int().nullable()
   })
   .openapi("CustomerSnapshotList");

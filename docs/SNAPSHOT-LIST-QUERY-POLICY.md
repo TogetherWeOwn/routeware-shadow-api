@@ -11,13 +11,22 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
+
+The three ordinary lists also accept `includeTotal=true|false` (default
+`true`). With `includeTotal=false` the handler skips the `COUNT(*)` statement
+entirely and answers `total: null` — null means the count was deliberately
+not computed, not that the result set is empty. Rows, `nextCursor`, filters,
+joins, ordering and limits are identical to the default page; only the count
+query and the `total` value change. Any other `includeTotal` value (including
+a repeated key) is a value-free 400 before any D1 access. Pinned by
+`test/snapshotCountFreePagination.test.ts`.
 
 **Ignoring a name is not ignoring an invalid value.** A known key such as
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,

@@ -60,7 +60,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "type": "array",
           },
           "total": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null",
+            ],
           },
         },
         "required": [
@@ -591,6 +594,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "in": "query",
+            "name": "includeTotal",
+            "required": false,
+            "schema": {
+              "default": "true",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -986,6 +1002,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "integer",
                 "null",
               ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "includeTotal",
+            "required": false,
+            "schema": {
+              "default": "true",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
             },
           },
         ],
@@ -1385,6 +1414,19 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "integer",
                 "null",
               ],
+            },
+          },
+          {
+            "in": "query",
+            "name": "includeTotal",
+            "required": false,
+            "schema": {
+              "default": "true",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "type": "string",
             },
           },
         ],

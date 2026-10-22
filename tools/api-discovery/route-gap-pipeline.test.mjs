@@ -140,7 +140,9 @@ test("chain order matches the package process script", () => {
   // The sandbox drives the gating spine of this chain (validate -> aggregate
   // -> route-gap). Pin the full order so a reorder of `npm run process` fails
   // here instead of silently diverging from the pipeline tests above.
+  // Route-map validation runs first, before any artifact is built.
   assert.deepEqual(steps, [
+    "node route-map-validation.mjs",
     "node validate-harvest.mjs",
     "node aggregate.mjs",
     "node generate-harvest-docs.mjs",

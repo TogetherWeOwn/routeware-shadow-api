@@ -1,10 +1,18 @@
 #!/usr/bin/env node
-/** Generate inert local examples; validate the entire plan before touching out/. */
+/**
+ * Writes out/curl-examples.sh and out/bodies/* as inert local examples.
+ * Validates the entire plan before touching out/.
+ *
+ * Validates route-map.json with the shared library before producing output;
+ * an invalid map exits 1 and writes nothing. --dry-run validates, prints
+ * the verdict, and writes nothing.
+ */
 import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { curlExampleForEntry, exampleSearch, findHarvestRow } from "./lib/curlExamples.mjs";
 import { renderCurlScript } from "./lib/curlRuntime.mjs";
+import { validateRouteMap } from "./lib/routeMapValidation.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 // `file` below comes from realpath(), so the root it is compared against
@@ -71,7 +79,37 @@ async function main() {
     console.log("Usage: node export-curl-examples.mjs [--dry-run] [--json]\nPlans validate without network or changes to out/. With no flags, write inert curl-examples.sh and complete documentation bodies.");
     return;
   }
-  const map = JSON.parse(await readFile(join(root, "route-map.json"), "utf8"));
+  const mapPath = join(root, "route-map.json");
+  let map;
+  try {
+    map = JSON.parse(await readFile(mapPath, "utf8"));
+  } catch (e) {
+    console.error(`export-curl-examples: cannot read ${mapPath}:`, e?.message ?? e);
+    process.exit(1);
+  }
+  // Structural checks only: the exporter renders non-executable documentation
+  // for any method/path, so method and path-shape stay on the CLI side.
+  // Duplicate or conflicting mappings still fail fast before any write.
+  const mapValidation = validateRouteMap(map, {
+    onlyChecks: ["route-map.shape", "route-map.duplicate-upstream", "route-map.conflicting-shadow"],
+  });
+  if (!mapValidation.ok) {
+    for (const finding of mapValidation.findings) {
+      console.error(
+        `${finding.code} [${finding.checkId}] entries ${finding.entryIndexes.join(",") || "—"}: ${finding.nextAction}`
+      );
+    }
+    console.error(
+      `export-curl-examples: route map invalid (${mapValidation.findings.length} findings) — refusing to generate.`
+    );
+    process.exit(1);
+  }
+  if (args.includes("--dry-run") && !args.includes("--json")) {
+    console.log(
+      `dry-run: route map valid (${map.length} entries, no mapping findings); would write ${outSh} and ${bodiesDir}/ — no files written.`
+    );
+    process.exit(0);
+  }
   validateMap(map);
   let harvestLines = [];
   try {
