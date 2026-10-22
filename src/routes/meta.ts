@@ -58,7 +58,12 @@ export const readinessResponseSchema = z
     status: z.enum(["ok", "degraded"]),
     service: z.string(),
     checks: z.object({
-      d1: z.object({ ok: z.boolean(), detail: z.string().optional() }),
+      d1: z.object({
+        ok: z.boolean(),
+        detail: z.string().optional(),
+        code: z.enum(["d1_ping_timeout", "d1_ping_failed"]).optional(),
+        next_action: z.literal("retry_after_cache_ttl").optional()
+      }),
       r2: z.object({
         ok: z.boolean(),
         bound: z.boolean(),
@@ -105,7 +110,9 @@ export const readinessResponseSchema = z
             })
             .nullable()
         }),
-        detail: z.string().optional()
+        detail: z.string().optional(),
+        code: z.enum(["cron_state_timeout", "cron_state_failed"]).optional(),
+        next_action: z.literal("retry_after_cache_ttl").optional()
       })
     })
   })
@@ -120,7 +127,7 @@ const readinessRoute = createRoute({
   tags: ["meta"],
   summary: "Deep readiness probe (D1, R2, report config)",
   description:
-    "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). D1, R2, and cron observations are cached in memory for 20 seconds per Worker isolate; concurrent hits share a refresh, and binding changes invalidate the cache. Config and bearer checks are never cached. Returns 200 when every required check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
+    "Authenticated deploy check: pings D1, reports whether the SNAPSHOTS R2 binding is present, reports whether each snapshot report source is configured, and reports cron staleness (last persisted cron run per table from cron_sync_state; advisory — never flips the overall status). D1, R2, and cron observations are cached in memory for 20 seconds from refresh start per Worker isolate; concurrent hits share a refresh, and binding changes invalidate the cache. Ping and cron response waits run concurrently with a 15-second budget (not cancellation of underlying D1 work). Failed or timed-out observations return fixed code and next_action fields and remain cached until expiry. Config and bearer checks are never cached. Returns 200 when every required check passes, 503 with per-dependency status otherwise. Requires the same bearer as other /api/v1/* routes.",
   responses: {
     200: {
       description: "All dependencies ready",

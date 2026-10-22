@@ -686,3 +686,15 @@ rungs 4–5 401 → the loaded value does not match the server's (edited
 `.dev.vars` without restarting, or wrong shell); rung 5 503 → read
 `checks.{d1,r2,config}` for the culprit (`detail` names it, values never
 leak) — `checks.cron` staleness alone never 503s, it is advisory.
+
+Readiness waits up to 15 seconds for concurrent D1 ping and cron observations
+(`min(DEFAULT_UPSTREAM_TIMEOUT_MS, READINESS_CACHE_TTL_MS)`); a ping timeout
+returns 503, while a cron timeout leaves otherwise-healthy readiness at 200.
+Results, including failures/timeouts, are cached for 20 seconds from refresh
+start; hits never extend expiry. Failed checks add `code` (`d1_ping_timeout`,
+`d1_ping_failed`, `cron_state_timeout`, or `cron_state_failed`) and
+`next_action: "retry_after_cache_ttl"`. Wait 20 seconds before retrying rather
+than spinning on cached failures. Exception messages/stacks are never exposed.
+A response timeout does **not** cancel underlying D1 work. See
+[the cache and bounded-wait contract](READINESS-CACHE.md) for recovery and the
+credential-free focused acceptance command.

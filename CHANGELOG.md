@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
+  15 seconds, while retaining its non-sliding 20-second single-flight cache.
+  Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
+  Failed/timed-out observations return fixed `code` and `next_action` fields
+  instead of raw dependency exception text. Timeout does not cancel underlying
+  D1 work; late completion cannot replace a newer cached observation. See
+  `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
 - Local harvest validation and aggregation now share a fail-closed NDJSON record
   contract. Invalid records and read failures stop processing without replacing
   existing outputs; missing and empty harvests retain their distinct behavior.

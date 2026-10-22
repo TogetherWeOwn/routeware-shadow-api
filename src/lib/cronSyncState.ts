@@ -120,9 +120,9 @@ type CronStateSelectRow = {
 
 /**
  * Read back the persisted rows. Returns `null` when the table is unreadable
- * (migrations not applied, binding misconfigured) — the caller reports that
- * as never-ran rather than throwing, so readiness stays a probe, not a
- * crash site. Unknown `table_name` values are dropped, never trusted.
+ * (migrations not applied, binding misconfigured) — readiness reports a fixed
+ * failed-observation diagnostic rather than exception text. An empty array
+ * means no run is recorded. Unknown `table_name` values are dropped, never trusted.
  */
 export async function readCronState(
   db: D1Database | undefined
