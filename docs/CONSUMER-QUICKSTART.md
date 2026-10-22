@@ -259,9 +259,32 @@ curl -H "Authorization: Bearer $SYNC" \
   "http://localhost:8787/api/v1/data/container?id=100" # by container_id
 ```
 
-Unknown ids return 404 `not-found` ("import/sync first"). Passing the general
+Unknown valid ids return 404 `not-found` ("import/sync first"). Passing the general
 token here returns 401 even though it works for step 2 — that is the inner
 privileged gate, not a bad token.
+
+All three reads use the same ID contract. Supply `id` or the existing alias:
+`customerId` for customer, `pickupAddressId` for address, `containerId` for
+container. Each supplied value must be canonical positive decimal text
+(`^[1-9][0-9]*$`) in the safe-integer range `1`–`9007199254740991`.
+Both valid spellings may be supplied with different values: **`id` wins**.
+A malformed unused alias still returns 400, not a cached row or 304.
+
+This deliberately tightens numeric coercion: empty/whitespace, leading zeros,
+signs, fractions (even `42.0`), exponents, hex, nonpositive and unsafe values
+are rejected before handler/cache/D1 access. Do not normalize malformed caller
+text into a different row ID. Rejections use the anchored 400
+`application/problem+json` envelope with fixed field-only detail and no input
+values; see [bad-request guidance](PROBLEMS.md#bad-request).
+
+Synthetic consumer examples (the acceptance fixture, not customer records):
+`/api/v1/data/customer?id=42` and `?customerId=42` return the same row and ETag;
+`?id=42&customerId=2` selects 42; `?id=42&customerId=042` returns 400.
+Run the credential-free, network-denying local check instead of querying a tenant:
+
+```bash
+npx vitest run test/hydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
+```
 
 ## 4. Saves: write through Routeware, then D1 refreshes
 

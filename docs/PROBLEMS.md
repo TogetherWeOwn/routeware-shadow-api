@@ -21,6 +21,23 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Hydrated read IDs (`bad-request`)
+
+For `GET /api/v1/data/customer|address|container`, supply `id` or the route's
+existing `customerId` / `pickupAddressId` / `containerId` alias. Every supplied
+value must be canonical positive decimal text (`^[1-9][0-9]*$`) between `1`
+and `9007199254740991`. Correct the source producing whitespace, leading zeros,
+signs, fractions, exponent/hex notation or out-of-range values; do not silently
+coerce malformed user text into another row's ID. If both spellings are valid,
+`id` wins even if they differ; fix or omit a malformed unused alias too.
+
+A 400 names fields, never their submitted values. Legacy missing-ID and
+positive-integer detail strings are retained; this section supplies the full
+correction policy for those messages and for schema rejections. Rejections
+perform no data-handler, cache or D1 work. A valid but unknown ID remains 404.
+See the [synthetic consumer check](CONSUMER-QUICKSTART.md#3-nested-reads-apiv1data-sync-secret-only)
+for local, credential-free acceptance examples.
+
 ## Customer changes cursor (`bad-request`)
 
 For `GET /api/v1/customer-snapshot/changes`, send a valid UTC `Z` datetime
