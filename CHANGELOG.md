@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-22
+
+Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
+health, Routeware account/customer/report proxies, customer/address/container
+snapshots with sync and import, data-entity reads and writes, and the
+versioned OpenAPI document at `GET /openapi.json`.
+
+- `openapi.json` `info.version` is now wired to
+  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
+  `1.0.0`, so consumers can tell releases apart. Added
+  `docs/VERSIONING.md` (bump policy) and this changelog.
+
 - #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
   15 seconds, while retaining its non-sliding 20-second single-flight cache.
   Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
@@ -306,15 +318,3 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - OpenAPI now includes synthetic request and response examples for
   snapshot, data-entity, and general Routeware operations. Proxy bodies remain
   unvalidated and existing runtime schemas are unchanged.
-
-## [1.0.0] - 2026-09-27
-
-Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
-health, Routeware account/customer/report proxies, customer/address/container
-snapshots with sync and import, data-entity reads and writes, and the
-versioned OpenAPI document at `GET /openapi.json`.
-
-- `openapi.json` `info.version` is now wired to
-  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
-  `1.0.0`, so consumers can tell releases apart. Added
-  `docs/VERSIONING.md` (bump policy) and this changelog.

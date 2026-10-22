@@ -62,7 +62,7 @@ fields, new endpoints) need no new path version and arrive as minor releases.
 
 ### Current status
 
-As of `1.0.0` (2026-09-27): no endpoint or field is deprecated. When the
+As of `1.0.0` (2026-10-22): no endpoint or field is deprecated. When the
 first deprecation lands, it will appear here by name alongside its sunset
 date.
 
@@ -70,10 +70,27 @@ date.
 
 1. Bump `version` in `package.json` (`npm version patch|minor|major
    --no-git-tag-version` keeps the edit local without tagging).
-2. Add a `CHANGELOG.md` entry under a new `## [x.y.z]` heading describing
-   consumer-visible changes.
+2. Move the `CHANGELOG.md` `## [Unreleased]` consumer-visible bullets under
+   a new `## [x.y.z]` heading (dated), leaving an empty `## [Unreleased]`
+   section at the top.
 3. The OpenAPI contract test (`test/openapiContract.test.ts`) asserts
    `info.version` equals `package.json#version`, and the full-document
    snapshot records the new version — run `npm test` and update the snapshot
    with `vitest run test/openapiContract.test.ts -u` only after confirming
    the version change is the sole diff.
+4. Merge to `main` through the standard gates (CI green, review 5/5),
+   then cut the release from green `main` per the tag convention below.
+
+## Tag convention and release cut
+
+- Tags are annotated and named `vX.Y.Z`, exactly matching
+  `package.json#version` with a leading `v` (e.g. `v1.0.0`). No other
+  prefixes, suffixes, or lightweight tags.
+- Tag the exact green `main` head the version PR merged as — never an
+  older commit, never a PR branch:
+  1. `git tag -a vX.Y.Z -m "routeware-shadow-api vX.Y.Z" <main-sha>`
+  2. `git push origin vX.Y.Z` (a normal push; never force-push `main`).
+  3. Publish the GitHub Release from the tag
+     (`gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>`)
+     with consumer-facing notes covering every consumer-visible change.
+- The first release cut this way was `v1.0.0`.
