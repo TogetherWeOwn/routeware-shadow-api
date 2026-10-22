@@ -332,7 +332,8 @@ describe("published OpenAPI document", () => {
   it("documents the id alias on all three data-entity GETs", async () => {
     // Arrange — customer GET accepted `id|customerId` while address
     // and container accepted only `id`. The alias must be visible on all three
-    // so generated clients offer the same spelling.
+    // so generated clients offer the same spelling. The batch `ids` param
+    // rides the same query contract (see the batch acceptance suite).
     const doc = await fetchOpenApiDocument();
 
     // Act
@@ -347,9 +348,9 @@ describe("published OpenAPI document", () => {
 
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
-    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "id"]);
-    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["id", "pickupAddressId"]);
-    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "id"]);
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "id", "ids"]);
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["id", "ids", "pickupAddressId"]);
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "id", "ids"]);
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {

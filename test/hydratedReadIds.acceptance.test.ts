@@ -199,8 +199,14 @@ it("publishes aligned query constraints and 400 descriptions for all three hydra
   for (const spec of specs) {
     const operation = doc.paths[`/api/v1/data/${spec.kind}`].get;
     const parameters = operation.parameters.filter((parameter) => parameter.in === "query");
-    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(["id", spec.alias].sort());
-    for (const parameter of parameters) {
+    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(["id", spec.alias, "ids"].sort());
+    // Batch `ids` is a comma-separated string, not a coerced integer: it is
+    // pinned for presence and shape here while the single-ID spellings below
+    // keep their aligned integer constraints.
+    const ids = parameters.find((parameter) => parameter.name === "ids");
+    expect(ids?.required).not.toBe(true);
+    expect(ids?.schema).toMatchObject({ type: "string" });
+    for (const parameter of parameters.filter((candidate) => candidate.name !== "ids")) {
       expect(parameter.required).not.toBe(true);
       expect(parameter.schema).toBeDefined();
       constraints.push(Object.fromEntries(Object.entries(parameter.schema).filter(([key]) =>
