@@ -247,6 +247,20 @@ export async function fetchWithUpstreamTimeout(
   }
 }
 
+/**
+ * Fixed `Retry-After` (seconds) stamped on the `isUpstreamTimeout` onError
+ * backstop 502 only. Value: 5.
+ *
+ * Rationale: the timed-out request already cost the client its full budget
+ * (15s interactive, 60s report), so a short fixed backoff is enough to break
+ * tight retry loops during an upstream outage without parking clients for a
+ * full throttle window. Fixed — never per-request — so any HTTP client can
+ * honor it blindly. Only this hung-upstream backstop 502 carries it: HTML
+ * error-page 502s, concurrent-refresh 502s, login-unavailable 502s and every
+ * other status send no `Retry-After`.
+ */
+export const UPSTREAM_TIMEOUT_RETRY_AFTER_SEC = 5;
+
 /** 502 problem+json for a timed-out upstream step. No URL, no body, no PII. */
 export function upstreamTimeoutProblem(
   timeoutMs: number,

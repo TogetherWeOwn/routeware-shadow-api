@@ -114,12 +114,14 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   appendVary(headers, "Origin");
   // The data-entity GETs version with ETag; expose it so browser clients can
   // do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
-  // can honor the auth-throttle 429 backoff. Content-Disposition is
+  // can honor the auth-throttle 429 backoff; RateLimit/RateLimit-Policy are
+  // the standard equivalents stamped on that same 429 (Retry-After is also on
+  // the upstream-timeout backstop 502). Content-Disposition is
   // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
   // the attachment filename.
   headers.set(
     "Access-Control-Expose-Headers",
-    "ETag, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Content-Disposition"
+    "ETag, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, RateLimit, RateLimit-Policy, Content-Disposition"
   );
   applySecurityHeaders(headers);
 }

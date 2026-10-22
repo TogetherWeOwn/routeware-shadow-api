@@ -464,6 +464,7 @@ change the throttle configuration for this drill.
 # Content-Type: application/problem+json; Retry-After: 60
 # X-RateLimit-Limit: 19; X-RateLimit-Remaining: 0
 # X-RateLimit-Reset: <absolute Unix time in seconds when the block expires>
+# RateLimit: "auth-burst";r=0;t=60; RateLimit-Policy: "auth-burst";q=19;w=60
 ```
 
 ```json
@@ -490,7 +491,18 @@ an HTTP date. The same 429 also carries three `X-RateLimit-*` headers:
   `Retry-After` for the wait itself, since it needs no clock agreement
   with the server.
 
-CORS exposes `Retry-After` and all three `X-RateLimit-*` headers, so
+The same 429 also carries the standard equivalents (`draft-ietf-httpapi-ratelimit-headers`
+shape), computed from the same throttle verdict, so any HTTP client can parse
+them without knowing the `X-RateLimit-*` names:
+
+- `RateLimit: "auth-burst";r=0;t=<retryAfterSec>` — quota policy `auth-burst`
+  with `r` (remaining: always `0` here, matching `X-RateLimit-Remaining`) and
+  `t` (backoff in seconds, matching `Retry-After`).
+- `RateLimit-Policy: "auth-burst";q=19;w=60` — the policy itself: `q` (quota:
+  19 failed checks allowed per window) and `w` (window: 60 seconds).
+
+CORS exposes `Retry-After`, all three `X-RateLimit-*` headers, and the standard
+`RateLimit`/`RateLimit-Policy` fields, so
 browser clients can read them cross-origin. **Fix:** stop the invalid-auth
 loop and honor the returned delay before another unauthenticated attempt;
 repeated failures can renew the
@@ -515,7 +527,8 @@ npm test -- test/authThrottle.test.ts
 ```
 
 This recipe applies only when `type` ends in `#rate-limited`; a 429 ending in
-`#upstream-error` carries no `Retry-After` and no `X-RateLimit-*` headers
+`#upstream-error` carries no `Retry-After`, no `X-RateLimit-*` headers, and no
+`RateLimit`/`RateLimit-Policy` fields
 ([see below](#upstream-errors-keep-their-status)). Catalog:
 [`rate-limited`](./PROBLEMS.md#rate-limited).
 
@@ -556,8 +569,13 @@ npm test -- test/upstreamTimeout.test.ts \
 ```
 
 A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
-the `detail` names the configured timeout budget. **Fix:** for a read timeout,
-retry once after a short backoff. If it persists, ask the operator to check
+the `detail` names the configured timeout budget. It also carries a fixed
+`Retry-After: 5` (`UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in
+`src/lib/upstreamTimeout.ts`): a 5-second backoff so clients pause instead of
+hammering a hung upstream. Only this backstop timeout 502 carries it — the
+HTML error page above and every other status send no `Retry-After`.
+**Fix:** for a read timeout,
+retry once after the `Retry-After` delay. If it persists, ask the operator to check
 Routeware availability, the session, and the login path. Changing the client
 bearer or raising the timeout does not repair an upstream failure. For the
 HTML error above, have the operator inspect the upstream session/report
@@ -615,7 +633,7 @@ Catalog: [`upstream-error`](./PROBLEMS.md#upstream-error).
 | 401, 429 or any 400–599 on a `/routeware/*` route, `type` ends `#upstream-error` | Routeware's own error, relayed with its status. Your bearer was accepted; do not change it, and there is no `Retry-After`. For a save, verify the record before resubmitting, then ask the operator. See [upstream errors](#upstream-errors-keep-their-status). |
 | 200 with `"rows":[]` | Auth works; D1 has no snapshot data yet (operator runs the sync). |
 | 404 `not-found` on `/data/*` | That id is not in D1. |
-| 502 `bad-gateway` on a `/routeware/*` save | Routeware rejected the save with an HTTP 200 HTML error page, the upstream timed out, or anti-forgery preparation failed; see the problem+json `detail`. After a timeout the save may have completed, so verify the record before resubmitting. An explicit Routeware 4xx/5xx keeps its own status under `#upstream-error` (row above). |
+| 502 `bad-gateway` on a `/routeware/*` save | Routeware rejected the save with an HTTP 200 HTML error page, the upstream timed out (honor its `Retry-After: 5`), or anti-forgery preparation failed; see the problem+json `detail`. After a timeout the save may have completed, so verify the record before resubmitting. An explicit Routeware 4xx/5xx keeps its own status under `#upstream-error` (row above). |
 | `"ok":false` on a `/data/*` save (HTTP 200 or Routeware's status, no `type`) | Same upstream rejection, different envelope — check `routewareStatus` / `upstreamBytes`. If `routewareStatus` is 401 or 429 it is Routeware's own error: do not change the bearer, there is no `Retry-After`, verify the record before resubmitting, then ask the operator. For any other status, also verify the record before resubmitting, fix the form if that is the cause, then retry. |
 | 405 on `DELETE` | By design — disable via save (step 5). |
 
