@@ -276,8 +276,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
         checked++;
       }
     }
-    // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists.
-    expect(checked).toBe(49);
+    // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
+    // +1 for partialProgress on the combined sync.
+    expect(checked).toBe(50);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
