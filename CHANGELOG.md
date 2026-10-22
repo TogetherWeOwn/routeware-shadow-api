@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Consumer quickstart now documents the customer `changes` feed
+  (`GET /api/v1/customer-snapshot/changes`: composite `since` + `since_id`
+  cursor, lossless millisecond precision, upserts-only boundary) and the R2
+  snapshot archive readback (`GET /api/v1/snapshots/{table}/{date}`:
+  sync-secret gate, 404-vs-absent, ETag/304), plus address/container by-id
+  reads. A new `test/consumerQuickstartCoverage.test.ts` ratchet fails when a
+  registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
+  named in its reasoned allowlist (routeware passthroughs, orphan audit).
+  No Worker behavior change.
 - #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
   15 seconds, while retaining its non-sliding 20-second single-flight cache.
   Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
