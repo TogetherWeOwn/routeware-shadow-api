@@ -3,21 +3,14 @@
  * (`tools/api-discovery/aggregate.mjs`): the merge that folds
  * `out/harvest.ndjson` into `out/discovered-operations.json`.
  *
- * They pin the script's CURRENT semantics (aggregate.mjs at f6aabea) with
- * synthetic rows only — no live Routeware, no browser, no network, no real
- * PII. Behavior changes are separate cards; do not "fix" a pinned quirk
- * here (each quirk pin names the line it comes from).
+ * Synthetic rows only — no live Routeware, no browser, no network, no real
+ * PII. The shared harvest contract intentionally supersedes the historical
+ * fail-open malformed-JSON/missing-identity pins; valid merge behavior stays.
+ * Its full public refusal contract is in harvest-contract.acceptance.test.mjs.
  *
- * WHY THIS FILE IS RED ON MAIN TODAY
- * ----------------------------------
- * `aggregate.mjs` runs the whole merge at module import against hardcoded
- * `out/` paths and exports nothing, and this suite runs inside the workers
- * pool (no `node:fs`, no child processes). The build card makes
- * the suite pass WITHOUT editing this file, by extracting the pure merge
- * into `tools/api-discovery/lib/` per the contract below — the same
- * extraction `lib/normalizePath.mjs` and `lib/stubNaming.mjs` already
- * received — and reducing `aggregate.mjs` to a thin wrapper that feeds the
- * extracted functions from disk with NO behavior change.
+ * Historical extraction interfaces are recorded below. The strict harvest
+ * contract now rejects invalid records at every aggregation boundary. Only
+ * ENOENT denotes missing input; other filesystem errors fail closed.
  *
  * BUILD CONTRACT (exact — implement to these names/shapes)
  * ---------------------------------------------------------
@@ -35,8 +28,8 @@
  *       `operations: []`) for `null` and `""` — see tests for exact notes.
  *     `generatedAt` is `now.toISOString()`. `sourceFile` is the literal
  *     `"out/harvest.ndjson"`.
- *     The wrapper maps disk state to `content` exactly as today:
- *     `stat` throws -> `null`; `st.size === 0` -> `""`; otherwise the
+ *     The wrapper maps disk state to `content`:
+ *     `stat` ENOENT -> `null`; `st.size === 0` -> `""`; otherwise the
  *     file read as utf8 text. Line iteration therefore splits on `"\n"`;
  *     a trailing `"\r"` stays part of a line (JSON.parse tolerates it,
  *     `line.trim()` skips a bare-CR line) — same outcomes as today's
@@ -153,31 +146,24 @@ describe("aggregateHarvestLines: operation grouping and counts", () => {
     ).toEqual(["/WebRW/api/customers/{id}", "/WebRW/api/docs/{uuid}"]);
   });
 
-  it('keys a row with no method under "?"', () => {
+  it("rejects a row with no method instead of inventing an operation identity", () => {
     const noMethod = row();
     delete noMethod.method;
-    const { operations } = aggregateHarvestLines([JSON.stringify(noMethod)]);
-    expect(operations[0]).toMatchObject({
-      key: "? /WebRW/api/customers",
-      method: "?"
-    });
+    expect(() => aggregateHarvestLines([JSON.stringify(noMethod)])).toThrow();
   });
 
-  it('keys a row with no pathname under "" (key keeps its trailing space)', () => {
+  it("rejects a row with no pathname instead of merging an empty path", () => {
     const noPath = row();
     delete noPath.pathname;
-    const { operations } = aggregateHarvestLines([JSON.stringify(noPath)]);
-    expect(operations[0]).toMatchObject({ key: "GET ", pathname: "", method: "GET" });
+    expect(() => aggregateHarvestLines([JSON.stringify(noPath)])).toThrow();
   });
 
-  it("merges a row carrying only ts and method without throwing", () => {
-    const { operations } = aggregateHarvestLines([
-      JSON.stringify({ ts: "2026-10-15T00:00:00.000Z", method: "GET" })
-    ]);
+  it("merges a minimal valid record with only the three required fields", () => {
+    const { operations } = aggregateHarvestLines([line()]);
     expect(operations[0].samples[0]).toMatchObject({
       ts: "2026-10-15T00:00:00.000Z",
       resourceType: null,
-      pathWithQuery: "",
+      pathWithQuery: "/WebRW/api/customers",
       frameUrl: null,
       query: {},
       queryString: "",
@@ -285,14 +271,12 @@ describe("aggregateHarvestLines: sample diversity and cap", () => {
 });
 
 describe("aggregateHarvestLines: stale and malformed lines", () => {
-  it("counts a malformed JSON line in lineCount but merges no operation", () => {
-    const { lineCount, operations } = aggregateHarvestLines([
+  it("rejects mixed malformed JSON instead of publishing the valid subset", () => {
+    expect(() => aggregateHarvestLines([
       line(),
       "{not valid json",
       line()
-    ]);
-    expect(lineCount).toBe(3);
-    expect(operations).toHaveLength(1);
+    ])).toThrow();
   });
 
   it("skips blank and whitespace-only lines without counting them", () => {
@@ -306,9 +290,8 @@ describe("aggregateHarvestLines: stale and malformed lines", () => {
     expect(operations).toHaveLength(1);
   });
 
-  // Deliberately unpinned: a non-object JSON line ("null", "42") makes
-  // today's script throw (row.method on null). record.ts never writes one,
-  // so pinning either the crash or a guard belongs to a behavior card.
+  // Non-object JSON and fixed diagnostic codes are covered by the shared
+  // harvest-contract.acceptance.test.mjs suite, including the stream boundary.
 
   it("reprocesses from scratch: an operation absent from this run is dropped", () => {
     const previousRun = aggregateHarvestLines([

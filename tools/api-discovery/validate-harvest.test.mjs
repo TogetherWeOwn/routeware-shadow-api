@@ -27,7 +27,10 @@ import { test } from "node:test";
 const toolsDir = path.dirname(fileURLToPath(import.meta.url));
 
 function sandbox(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "validate-harvest-"));
+  const dir = fs.mkdtempSync(path.join(
+    process.env.PAPERCLIP_RUN_SCRATCH_DIR || process.env.PAPERCLIP_SCRATCH_DIR || os.tmpdir(),
+    "validate-harvest-"
+  ));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.mkdirSync(path.join(dir, "out"), { recursive: true });
   // Test the real implementation: copy the script under test into the sandbox
@@ -36,11 +39,12 @@ function sandbox(t) {
     path.join(toolsDir, "validate-harvest.mjs"),
     path.join(dir, "validate-harvest.mjs")
   );
+  fs.cpSync(path.join(toolsDir, "lib"), path.join(dir, "lib"), { recursive: true });
   return dir;
 }
 
-function run(dir) {
-  const result = spawnSync(process.execPath, [path.join(dir, "validate-harvest.mjs")], {
+function run(dir, flags = []) {
+  const result = spawnSync(process.execPath, [path.join(dir, "validate-harvest.mjs"), ...flags], {
     cwd: dir,
     // Minimal env: the script needs no tokens or .dev.vars; prove it.
     env: { PATH: process.env.PATH },
@@ -48,7 +52,7 @@ function run(dir) {
     timeout: 10_000,
   });
   assert.ifError(result.error);
-  return { status: result.status, output: `${result.stdout}${result.stderr}` };
+  return { status: result.status, stdout: result.stdout, output: `${result.stdout}${result.stderr}` };
 }
 
 function goodLine(pathname = "/WebRW/Customer/CustomersRead", method = "POST") {
@@ -63,9 +67,12 @@ test("fails on a malformed ndjson line", (t) => {
     "utf8"
   );
 
-  const result = run(dir);
+  const result = run(dir, ["--json"]);
   assert.equal(result.status, 1, `expected exit 1 on malformed line, got ${result.status}: ${result.output}`);
-  assert.match(result.output, /Line 2: invalid JSON/);
+  let body;
+  assert.doesNotThrow(() => { body = JSON.parse(result.stdout); }, "--json must emit structured diagnostics");
+  assert.equal(body.schemaVersion, 1);
+  assert.ok(body.findings.some((finding) => finding.code === "HARVEST_INVALID_JSON" && finding.line === 2 && finding.field === "$"));
 });
 
 test("fails when a line misses a required field", (t) => {
@@ -76,9 +83,12 @@ test("fails when a line misses a required field", (t) => {
     "utf8"
   );
 
-  const result = run(dir);
+  const result = run(dir, ["--json"]);
   assert.equal(result.status, 1, `expected exit 1 on missing field, got ${result.status}: ${result.output}`);
-  assert.match(result.output, /Line 1: missing "pathname"/);
+  let body;
+  assert.doesNotThrow(() => { body = JSON.parse(result.stdout); }, "--json must emit structured diagnostics");
+  assert.equal(body.schemaVersion, 1);
+  assert.ok(body.findings.some((finding) => finding.code === "HARVEST_PATH_INVALID" && finding.line === 1 && finding.field === "pathname"));
 });
 
 test("passes when the harvest file is missing", (t) => {

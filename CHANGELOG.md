@@ -12,6 +12,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   instead of raw dependency exception text. Timeout does not cancel underlying
   D1 work; late completion cannot replace a newer cached observation. See
   `docs/READINESS-CACHE.md` for recovery guidance and the local acceptance check.
+- Local harvest validation and aggregation now share a fail-closed NDJSON record
+  contract. Invalid records and read failures stop processing without replacing
+  existing outputs; missing and empty harvests retain their distinct behavior.
+  Both commands provide bounded `--json` diagnostics and `--help`; aggregation
+  adds a read-only `--dry-run`. Synthetic contract checks run in discovery/probe.
 - #324: Hydrated `GET /api/v1/data/customer|address|container` reads now require
   canonical positive decimal safe-integer IDs (`1`–`9007199254740991`) for
   both `id` and the existing `customerId` / `pickupAddressId` / `containerId`
