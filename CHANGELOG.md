@@ -5,6 +5,12 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #323: Customer, address and container operator CSV imports, including dry runs,
+  now require unambiguous identity headers and positive safe whole-decimal
+  primary/relationship identities. Invalid identities return a value-free 400
+  with table, row, field and correction/retry guidance. Earlier flushed valid
+  batches may remain; the rejected batch is not written. Upstream report
+  parsing and optional non-identity numbers are unchanged.
 - #327: Detail-full write-through refreshes now refuse malformed/conflicting identity
   aliases, duplicate children and wrong enclosing parents before any D1 mutation
   or graph cache publication. Confirmed upstream saves remain successful with
