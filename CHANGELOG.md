@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #324: Hydrated `GET /api/v1/data/customer|address|container` reads now require
+  canonical positive decimal safe-integer IDs (`1`–`9007199254740991`) for
+  both `id` and the existing `customerId` / `pickupAddressId` / `containerId`
+  aliases. Empty or whitespace text, leading zeros, signs, fractions,
+  exponents, hex, nonpositive and unsafe IDs return anchored 400 problems
+  before handler/cache/D1 access instead of being numerically coerced.
+  Every supplied spelling is validated, including an unused alias; when both
+  are valid, `id` still wins even if their values differ. Valid unknown IDs
+  remain 404; hydrated rows, ETags, auth ordering and save handlers are unchanged.
 - #321: the customer/address/container snapshot lists accept
   `includeTotal=false` to skip the `COUNT(*)` query and answer
   `total: null` (deliberately not computed, not zero) with the same
