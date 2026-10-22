@@ -64,7 +64,15 @@ const containerSnapshotListRoute = createRoute({
         .int()
         .optional()
         .describe("Last container_id from the previous page's nextCursor; takes precedence over offset")
-        .openapi({ example: 99 })
+        .openapi({ example: 99 }),
+      includeTotal: z
+        .enum(["true", "false"])
+        .optional()
+        .default("true")
+        .describe(
+          "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
+        )
+        .openapi({ example: "false" })
     })
   },
   responses: {
@@ -123,13 +131,20 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     binds.push(p.cursor);
   }
   const whereSql = where.join(" AND ");
-  const totalRow = await db
-    .prepare(
-      `SELECT COUNT(*) as n ${fromJoin} WHERE ${whereSql}`
-    )
-    .bind(...binds)
-    .first<{ n: number }>();
-  const total = totalRow?.n ?? 0;
+  // Count-free page: zero COUNT statements. `total: null` means the count was
+  // deliberately not computed, not that the page is empty.
+  let total: number | null;
+  if (p.includeTotal === "false") {
+    total = null;
+  } else {
+    const totalRow = await db
+      .prepare(
+        `SELECT COUNT(*) as n ${fromJoin} WHERE ${whereSql}`
+      )
+      .bind(...binds)
+      .first<{ n: number }>();
+    total = totalRow?.n ?? 0;
+  }
   const pageSql =
     p.cursor !== undefined
       ? "ORDER BY c.container_id LIMIT ?"

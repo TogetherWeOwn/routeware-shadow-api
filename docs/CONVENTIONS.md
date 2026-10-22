@@ -159,7 +159,8 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |
-| `npm run discovery:process` | Harvest → docs, gaps, curls, suggested stubs (artifacts always built; gate last — missing shadow routes fail, stale entries warn unless `--strict`). |
+| `npm run discovery:process` | Route-map validation first, then harvest → docs, gaps, curls, suggested stubs (artifacts always built; gate last — missing shadow routes fail, stale entries warn unless `--strict`). |
+| `npm run discovery:validate` | Validate `route-map.json` alone (read-only; `--json` for one machine-readable object). |
 | `npm run discovery:verify` | `discovery:process` + `npm test` — the full loop after a new recording. |
 
 ### Deploys are not yours to run
