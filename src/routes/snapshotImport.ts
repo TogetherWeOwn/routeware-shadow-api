@@ -1,5 +1,6 @@
 import { CsvControlCharacterError } from "../lib/csvParse";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { SnapshotImportIdentityError } from "../lib/snapshot/importIdentity";
 import { InvalidSnapshotCsvError } from "../lib/snapshot/streamSync";
 
 /**
@@ -75,7 +76,7 @@ export function rejectOversizedSnapshotImport(
 /**
  * Map a snapshot import failure to its problem+json response:
  * `SnapshotTooLargeError` (direct or `cause`-wrapped by `streamCsvLines`'s
- * read guard) → 413; `InvalidSnapshotCsvError` or `CsvControlCharacterError`
+ * read guard) → 413; CSV shape, control-character or strict identity errors
  * → 400. Only fixed strings and a numeric row are returned — no submitted bytes, so the
  * error body cannot leak PII. Returns `null` for anything else, which the
  * caller lets propagate to the global 500 handler.
@@ -94,6 +95,15 @@ export function mapSnapshotImportError(
       status: 413,
       detail:
         "Snapshot import body exceeds the size limit. See docs/PROBLEMS.md#payload-too-large.",
+      instance: new URL(url).pathname
+    });
+  }
+  if (e instanceof SnapshotImportIdentityError) {
+    return problemJsonResponse({
+      type: problemType("bad-request", env),
+      title: "Bad Request",
+      status: 400,
+      detail: `${e.message} See docs/PROBLEMS.md#bad-request.`,
       instance: new URL(url).pathname
     });
   }
