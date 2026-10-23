@@ -569,18 +569,27 @@ npm test -- test/upstreamTimeout.test.ts \
 ```
 
 A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
-the `detail` names the configured timeout budget. It also carries a fixed
-`Retry-After: 5` (`UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in
-`src/lib/upstreamTimeout.ts`): a 5-second backoff so clients pause instead of
-hammering a hung upstream. Among 502 responses, only this backstop timeout
-carries `Retry-After`; the HTML error page above does not. Auth-throttle 429
-responses retain their own `Retry-After` header.
-**Fix:** for a read timeout,
-retry once after the `Retry-After` delay. If it persists, ask the operator to check
-Routeware availability, the session, and the login path. Changing the client
-bearer or raising the timeout does not repair an upstream failure. For the
-HTML error above, have the operator inspect the upstream session/report
-request before retrying; the problem body never includes the raw HTML.
+the `detail` names the configured timeout budget. **Not every timeout 502
+carries `Retry-After`: the response path matters.**
+
+| Timeout response path | `Retry-After` |
+|---|---|
+| Direct-forwarder timeout reaching the `app.onError` backstop | Fixed `5` seconds, from `UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in `src/lib/upstreamTimeout.ts`. |
+| Timeout caught by `forwardWithSessionRetry`, on either the first forward or the post-login retry | Absent. This includes `GET /api/v1/routeware/home/index` and the customer, address and container read/save routes that use this helper. |
+
+Both paths return the same problem type, title and body shape; those fields do
+not tell clients whether a retry delay is supplied. Check the header itself.
+The HTML error page above, concurrent-refresh timeout and login-unavailable
+502s also send no `Retry-After`. Auth-throttle 429 responses retain their own
+`Retry-After` header.
+
+**Fix:** for a read timeout, honor `Retry-After` when present; if absent, wait
+5 seconds as a client-side fallback before retrying once. Do not retry in a
+tight loop. If it persists, ask the operator to check Routeware availability,
+the session, and the login path. Changing the client bearer or raising the
+timeout does not repair an upstream failure. For the HTML error above, have
+the operator inspect the upstream session/report request before retrying;
+the problem body never includes the raw HTML.
 
 For saves, **do not blindly replay the write**: verify the outcome first.
 The `/routeware/*` silent-save failures described in step 4 use 502
