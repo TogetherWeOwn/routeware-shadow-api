@@ -74,6 +74,10 @@ const SECRET = "synthetic-batch-read-secret";
 const MAX_ID = 9007199254740991;
 const BATCH_MAX = 50;
 const BAD_REQUEST = "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request";
+const INTERNAL = "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#internal";
+// Distinctive rejection text: assertions prove it never leaks into the HTTP body.
+const D1_FAILURE_MARKER = "SYNTHETIC-D1-FAILURE-MARKER";
+type DbFailure = (table: string, method: "first" | "all", binds: unknown[]) => boolean;
 const specs = [
   { kind: "customer", alias: "customerId", key: "customer_id", field: "company_name" },
   { kind: "address", alias: "pickupAddressId", key: "pickup_address_id", field: "city" },
@@ -103,8 +107,13 @@ const primaryKey = {
  * Serves both the single-id hydration shapes (`= ?` by primary or foreign
  * key, `IN (...)` by foreign key for container chunks) and batch primary-key
  * `IN (...)` lookups: the WHERE column decides which key the binds match.
+ *
+ * `shouldFail` injects D1 rejections for a selected table/method/binds tuple
+ * (finding 1): when it returns true, `first()`/`all()` throw with the marker
+ * instead of resolving. Omitted in all pre-existing cases, so their behavior
+ * is unchanged.
  */
-function fakeDb(): D1Database {
+function fakeDb(shouldFail?: DbFailure): D1Database {
   return {
     prepare(sql: string) {
       work.dbReads += 1;
@@ -122,9 +131,15 @@ function fakeDb(): D1Database {
         bind(...ids: unknown[]) {
           return {
             async first() {
+              if (shouldFail?.(table, "first", ids)) {
+                throw new Error(`${D1_FAILURE_MARKER} first ${table} ${String(ids[0])}`);
+              }
               return rows.find((row) => row[pk] === ids[0]) ?? null;
             },
             async all() {
+              if (shouldFail?.(table, "all", ids)) {
+                throw new Error(`${D1_FAILURE_MARKER} all ${table} ${ids.join(",")}`);
+              }
               // Foreign-key lookup (single-bundle hydration path); otherwise
               // the binds are primary keys (batch IN or single =).
               const key = whereCol && whereCol !== pk ? whereCol : pk;
@@ -158,7 +173,7 @@ afterEach(() => {
   expect(network).not.toHaveBeenCalled();
 });
 
-function appEnv(): Env {
+function appEnv(shouldFail?: DbFailure): Env {
   const stub = {
     async fetch(input: RequestInfo | URL) {
       const url = new URL(input instanceof Request ? input.url : String(input));
@@ -172,17 +187,22 @@ function appEnv(): Env {
     SHADOW_API_TOKEN: "synthetic-api-token",
     SHADOW_API_READ_TOKEN: "synthetic-read-token",
     OPENAPI_DOCS_ENABLED: "true",
-    CUSTOMER_DB: fakeDb(),
+    CUSTOMER_DB: fakeDb(shouldFail),
     AUTH_SESSION: { idFromName: (name: string) => name, get: () => stub }
   } as unknown as Env;
 }
 
-async function get(spec: Spec, pairs: Array<[string, string]>, headers: HeadersInit = {}): Promise<Response> {
+async function get(
+  spec: Spec,
+  pairs: Array<[string, string]>,
+  headers: HeadersInit = {},
+  shouldFail?: DbFailure
+): Promise<Response> {
   const h = new Headers(headers);
   if (!h.has("authorization")) h.set("authorization", `Bearer ${SECRET}`);
   const url = new URL(`https://synthetic.example.test/api/v1/data/${spec.kind}`);
   url.search = new URLSearchParams(pairs).toString();
-  return await app.fetch(new Request(url, { headers: h }), appEnv(), ctx);
+  return await app.fetch(new Request(url, { headers: h }), appEnv(shouldFail), ctx);
 }
 
 function expectNoWork(): void {
@@ -238,6 +258,35 @@ function expectFoundEntry(spec: Spec, entry: BatchEntry, id: number, single: unk
 
 function expectMissingEntry(entry: BatchEntry, id: number): void {
   expect(entry).toEqual({ id, found: false });
+}
+
+// Finding 1: reject every D1 read against `table` whose binds include
+// `failId`, on both `first()` and `all()`. Other tables/ids still resolve,
+// so the sibling id in each case proves partial success cannot salvage a 200.
+function failTableId(table: string, failId: number): DbFailure {
+  return (attemptTable, _method, binds) => attemptTable === table && binds.includes(failId);
+}
+
+async function expectBatchD1Failure(response: Response): Promise<void> {
+  // Whole-request failure: a D1 rejection anywhere in the batch is a
+  // sanitized non-2xx problem, never per-ID `found: false` entries.
+  expect(response.status).toBe(500);
+  expect(response.headers.get("content-type")).toMatch(/^application\/problem\+json\b/);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("etag")).toBeNull();
+  expect(response.headers.get("x-entity-etag")).toBeNull();
+  const text = await response.text();
+  expect(text).not.toContain(D1_FAILURE_MARKER);
+  expect(text).not.toContain("\"entries\"");
+  const body = JSON.parse(text) as Record<string, unknown>;
+  expect(body).toMatchObject({ type: INTERNAL, title: "Internal Server Error", status: 500 });
+  expect(body).not.toHaveProperty("entries");
+  expect(body).not.toHaveProperty("instance");
+  // Fixed sanitized detail: no ids, no table names, no exception text.
+  expect(body.detail).toBe(
+    "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."
+  );
+  expect(body.requestId).toEqual(expect.any(String));
 }
 
 // Each malformed spelling is tested in the middle of a valid batch, so a
@@ -472,4 +521,30 @@ describe.each(specs)("batch $kind positive contract", (spec) => {
       expectNoWork();
     });
   });
+});
+
+describe("batch D1 rejection pins failure separately from missing IDs (finding 1)", () => {
+  // Each case pairs one successful sibling (id 1, present in every snapshot
+  // table) with id 2 whose primary or nested D1 read rejects. The whole
+  // request must 500 as sanitized problem+json with no entries body and no
+  // exception-text leak. A catch-to-null mutant would 200 with
+  // `{ id: 2, found: false }` and fail every case below.
+  const cases = [
+    { kind: "customer" as const, label: "primary customer read", table: "customer_snapshot" },
+    { kind: "customer" as const, label: "nested address read", table: "address_snapshot" },
+    { kind: "address" as const, label: "primary address read", table: "address_snapshot" },
+    { kind: "address" as const, label: "nested customer read", table: "customer_snapshot" },
+    { kind: "address" as const, label: "nested container read", table: "container_snapshot" },
+    { kind: "container" as const, label: "primary container read", table: "container_snapshot" },
+    { kind: "container" as const, label: "nested address read", table: "address_snapshot" }
+  ];
+  it.each(cases)(
+    "fails the whole $kind batch 500 when the $label rejects (sibling id 1 succeeds)",
+    async ({ kind, table }) => {
+      const spec = specs.find((candidate) => candidate.kind === kind)!;
+      const response = await get(spec, [["ids", "1,2"]], {}, failTableId(table, 2));
+      await expectBatchD1Failure(response);
+      expect(work.dbReads).toBeGreaterThan(0);
+    }
+  );
 });
