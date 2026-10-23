@@ -553,7 +553,7 @@ describe("archived-date listing acceptance (R21-01)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as DatesResponse;
     expect(body.dates).toHaveLength(366);
-    expect(body.dates[0]?.date).toBe("2026-01-01");
+    expect(body.dates[0]?.date).toBe("2026-01-02");
     expect(body.dates[365]?.date).toBe("2025-01-02");
     expect(body.truncated).toBe(true);
   });
