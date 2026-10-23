@@ -104,18 +104,25 @@ const EXPECTED_TAGS = [
 ];
 
 /**
- * Projection of the document without the agent-metadata layer pinned in
- * `test/openapiAgentMetadata.test.ts`. Everything else stays frozen.
+ * Projection without agent metadata and the additive ordinary-list upperId,
+ * pinned in openapiAgentMetadata.test.ts and snapshotUpperId.acceptance.test.ts.
+ * Everything else stays frozen.
  */
 function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
   for (const key of Object.keys(copy)) {
     if (key.startsWith("x-")) delete copy[key];
   }
-  for (const item of Object.values(copy.paths)) {
+  for (const [path, item] of Object.entries(copy.paths)) {
     for (const [method, operation] of Object.entries(item)) {
       if (!HTTP_METHODS.includes(method.toLowerCase())) continue;
       const op = operation as Record<string, unknown>;
+      // The additive ceiling contract is pinned independently (including type,
+      // bounds, errors and authority) in snapshotUpperId.acceptance.test.ts.
+      // Keep the pre-existing snapshot strict for every other parameter/path.
+      if (method === "get" && /^\/api\/v1\/(?:customer|address|container)-snapshot$/.test(path) && Array.isArray(op["parameters"])) {
+        op["parameters"] = (op["parameters"] as Array<{ name?: string }>).filter((p) => p.name !== "upperId");
+      }
       delete op["operationId"];
       for (const key of Object.keys(op)) {
         if (key.startsWith("x-")) delete op[key];
