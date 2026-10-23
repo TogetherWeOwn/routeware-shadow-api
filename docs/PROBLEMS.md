@@ -37,7 +37,7 @@ correction policy for those messages and for schema rejections. Rejections
 perform no data-handler, cache or D1 work. A valid but unknown ID remains 404.
 
 For batch hydration the same routes accept one comma-separated `ids` list of
-1 to 50 canonical ids (`?ids=1,2,3`, never repeated `?id=` keys and never
+1 to 50 canonical ids (`?ids=1,2,3`, never repeated `?ids=` keys and never
 mixed with `id`/alias). Any malformed or empty entry, any mixing, or more
 than 50 ids fails the whole request with the fixed value-free batch 400
 before any read. A batch 200 returns `{entries}` in request order — found
