@@ -42,6 +42,8 @@ const EXPOSED_RESPONSE_HEADERS = [
   "X-RateLimit-Limit",
   "X-RateLimit-Remaining",
   "X-RateLimit-Reset",
+  "RateLimit",
+  "RateLimit-Policy",
   "Content-Disposition",
   "X-Request-Id"
 ];
@@ -131,7 +133,9 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   appendVary(headers, "Origin");
   // The data-entity GETs version with ETag; expose it so browser clients can
   // do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
-  // can honor the auth-throttle 429 backoff. Content-Disposition is
+  // can honor the auth-throttle 429 backoff; RateLimit/RateLimit-Policy are
+  // the standard equivalents stamped on that same 429 (Retry-After is also on
+  // the upstream-timeout backstop 502). Content-Disposition is
   // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
   // the attachment filename. X-Request-Id is exposed so browser clients can
   // correlate retries with server-side logs.
