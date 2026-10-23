@@ -11,9 +11,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -32,6 +32,34 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Sparse fieldsets (`fields=`)
+
+The three ordinary lists and their by-id reads accept an optional
+`fields=` comma-separated selector that trims each response object to
+exactly the requested stored columns plus the resource id. The id is
+always present even when omitted from the selector; naming it explicitly
+is not a duplicate. Lists keep the `{rows, total, nextCursor}` envelope —
+only each row's keys shrink — and `fields=` composes with filters,
+pagination and `includeTotal=false` without changing matches, counts or
+cursors. The selectable set is an explicit per-resource allowlist in
+`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else);
+hydrated `/api/v1/data/*` reads, CSV exports and the changes feed ignore
+`fields=` as an unknown name.
+
+The selector is strict: exact column names, no spaces, no empty segments,
+no duplicates, and a single `fields` key. Anything else is the existing
+value-free anchored 400 before any D1 work. Synthetic example:
+
+```text
+GET /api/v1/customer-snapshot?fields=company_name,phone1&limit=1
+
+{"rows":[{"customer_id":9101,"company_name":"synthetic-fields-co-9101","phone1":"555-9101"}],"total":1,"nextCursor":null}
+```
+
+Run `npx vitest run test/sparseFieldsets.acceptance.test.ts` for the
+focused valid-selection, rejection, pagination-composition and ETag
+regressions. No live replay.
 
 ## Customer changes cursor validation
 
