@@ -12,14 +12,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   across pages, so higher-ID arrivals cannot extend the traversal; a cursor at
   or above the cap yields an empty page with existing cursor-relative totals.
   The cap composes with all filters, `q`, `enabled`, `fields=`, offset/cursor
-  and `includeTotal=false`, needs no migration or index, and omission preserves
-  existing behavior with no `MAX` query. Values are one canonical unpadded
-  ASCII decimal integer from `1` to `9007199254740991`; anything else is a
-  value-free 400 before D1, after read-role authentication. Numeric IDs are
-  not timestamps: inserts below the ceiling, updates and deletions remain
-  visible, with no snapshot isolation, exact-once or watermark promises.
-  Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
-  check: `npm run check:snapshot-upper-id`.
+  and `includeTotal=false`, is preserved verbatim in `Link` next targets, needs
+  no migration or index, and omission preserves existing behavior with no `MAX`
+  query. Values are one canonical unpadded ASCII decimal integer from `1` to
+  `9007199254740991`; anything else is a value-free 400 before D1, after
+  read-role authentication. Numeric IDs are not timestamps: inserts below the
+  ceiling, updates and deletions remain visible, with no snapshot isolation,
+  exact-once or watermark promises. Synthetic resume example:
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
+  `npm run check:snapshot-upper-id`.
+- #343: Snapshot customer/address/container lists now return optional
+  `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
+  preserve allowlisted filters, explicit fields, effective limit and
+  `includeTotal=false`, replacing cursor and dropping offset. No JSON or SQL
+  changes; a full terminal page may link to an empty page. CORS exposes Link;
+  OpenAPI and the same-origin follow-next quickstart document it.
 
 - #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
