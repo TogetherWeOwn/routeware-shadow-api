@@ -16,17 +16,16 @@ export const SCHEDULED_FLAG = "--scheduled";
 export const BASE_ENV = "SHADOW_API_BASE";
 export const DEFAULT_BASE = "http://localhost:8787";
 
-export const PUBLIC_PROBE_PATH = "/api/v1/health";
-export const AUTHED_PROBE_PATHS = Object.freeze([
-  "/api/v1/shadow/health",
-  "/api/v1/readiness",
+export const PROBES = Object.freeze([
+  Object.freeze({ id: "public-health", method: "GET", path: "/api/v1/health", authenticated: false }),
+  Object.freeze({ id: "shadow-health", method: "GET", path: "/api/v1/shadow/health", authenticated: true }),
+  Object.freeze({ id: "readiness", method: "GET", path: "/api/v1/readiness", authenticated: true }),
 ]);
+export const PUBLIC_PROBE_PATH = PROBES[0].path;
+export const AUTHED_PROBE_PATHS = Object.freeze(PROBES.filter((p) => p.authenticated).map((p) => p.path));
 
 /** All probe paths the script may ever hit (GET only, read-only). */
-export const ALL_PROBE_PATHS = Object.freeze([
-  PUBLIC_PROBE_PATH,
-  ...AUTHED_PROBE_PATHS,
-]);
+export const ALL_PROBE_PATHS = Object.freeze(PROBES.map((p) => p.path));
 
 /**
  * Resolve the probe base origin: explicit positional arg wins, then the
@@ -88,20 +87,95 @@ export function planProbes({ hasToken, skipIfNoToken } = {}) {
  * - "stale"   — `cron.stale === true`: the daily cron has not recorded a run
  *               within the threshold. The probe must fail (that is the alert).
  * - "fresh"   — `cron.stale === false`: the cron is running. Pass.
- * - "unknown" — no `cron` object in the readiness body (older deploy that
- *               predates the staleness probe). Advisory only: log,
- *               never fail, so old deploys do not page on a missing field.
+ * - "unknown" — absent legacy cron metadata; advisory only.
+ * - "malformed" — present metadata without an explicit boolean stale; fail.
+ * Metadata is retained for existing library consumers, never CLI output.
  */
 export function evalCronFreshness({ cron } = {}) {
-  if (!cron || typeof cron !== "object") {
+  if (cron === undefined) {
     return { verdict: "unknown", lastRunAt: null, detail: null };
   }
-  const lastRunAt = cron.lastRunAt ?? null;
-  const detail = typeof cron.detail === "string" ? cron.detail : null;
-  if (cron.stale === true) {
-    return { verdict: "stale", lastRunAt, detail };
+  if (!isRecord(cron) || typeof cron.stale !== "boolean") {
+    return { verdict: "malformed", lastRunAt: null, detail: null };
   }
-  return { verdict: "fresh", lastRunAt, detail };
+  return {
+    verdict: cron.stale ? "stale" : "fresh",
+    lastRunAt: cron.lastRunAt ?? null,
+    detail: typeof cron.detail === "string" ? cron.detail : null,
+  };
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+// Only fixed diagnostics leave the CLI; never format response or exception text.
+export const NEXT_ACTIONS = Object.freeze({
+  invalid_arguments: "Use --help and supply each option once with at most one target.",
+  invalid_target: "scheduled probe requires a bare remote HTTPS origin without URL credentials, path, query or fragment; for manual runs supply a valid HTTP(S) URL.",
+  missing_token: "Set SHADOW_API_TOKEN or CUSTOMER_SNAPSHOT_SYNC_SECRET, or pass --token-env=NAME; use --skip-if-no-token only for skip-safe execution.",
+  http_auth: "Verify the selected bearer token and its authorization for the target; do not retry with another credential.",
+  http_client: "Check target routing and access policy; for HTTP 429 respect the service retry guidance before a separately authorized run.",
+  http_server: "Inspect the target service and dependency health before a separately authorized run.",
+  http_redirect: "Verify the intended origin and routing; redirects are not followed by this fixed-GET probe.",
+  http_status: "Verify the target implements the documented health and readiness status contract.",
+  network_error: "Check target connectivity and TLS configuration before a separately authorized run.",
+  timeout: "Check target latency and dependency health; the timeout covers fetch and response body reading.",
+  invalid_json: "Verify the endpoint returns a JSON health payload rather than an intermediary response.",
+  invalid_health: "Verify the health endpoint returns status ok, a service string and the documented API version where required.",
+  invalid_readiness: "Inspect readiness dependencies and verify the documented readiness payload contract.",
+  cron_stale: "Check the cron trigger and docs/CRON-SYNC-ALARM-RUNBOOK.md; use the server staleness verdict, not a local timestamp threshold.",
+  malformed_readiness: "Verify checks.cron contains an explicit boolean stale; inspect the deployed readiness contract before proceeding.",
+});
+
+export function probeResult(probe, { outcome = "pass", errorCode = null, httpStatus = null, cron = null } = {}) {
+  return {
+    id: probe.id, method: probe.method, path: probe.path, outcome, errorCode,
+    httpStatus, httpClass: httpStatus === null ? null : `${Math.floor(httpStatus / 100)}xx`,
+    retryable: ["network_error", "timeout", "http_server"].includes(errorCode) || httpStatus === 429,
+    nextAction: errorCode === null ? null : NEXT_ACTIONS[errorCode], cron,
+  };
+}
+
+export function probePlan() {
+  return PROBES.map((probe) => ({
+    ...probeResult(probe, { outcome: probe.authenticated ? "unresolved" : "planned" }),
+    nextAction: probe.authenticated ? "Resolve the selected bearer token only during a separately authorized execution; this plan does not inspect credentials." : null,
+  }));
+}
+
+/** Shared text/JSON evaluation. The body is read fully, but never serialized. */
+export function evaluateProbe(probe, { httpStatus, body, invalidJson = false, errorCode = null }) {
+  const fail = (code, cron = null) => probeResult(probe, { outcome: "fail", errorCode: code, httpStatus, cron });
+  if (errorCode) return fail(errorCode);
+  if (httpStatus === 401 || httpStatus === 403) return fail("http_auth");
+  if (httpStatus >= 500) return fail("http_server");
+  if (httpStatus >= 400) return fail("http_client");
+  if (httpStatus >= 300) return fail("http_redirect");
+  if (httpStatus !== 200) return fail("http_status");
+  if (invalidJson) return fail("invalid_json");
+  if (probe.id !== "readiness") {
+    if (!isRecord(body) || body.status !== "ok" || typeof body.service !== "string" ||
+        (probe.authenticated && body.version !== "v1")) return fail("invalid_health");
+    return probeResult(probe, { httpStatus });
+  }
+  if (!isRecord(body) || !["ok", "degraded"].includes(body.status) ||
+      typeof body.service !== "string" || !isRecord(body.checks)) return fail("invalid_readiness");
+  const verdict = evalCronFreshness({ cron: body.checks.cron }).verdict;
+  const cron = verdict === "unknown" ? "absent" : verdict;
+  if (cron === "malformed") return fail("malformed_readiness", cron);
+  if (cron === "stale") return fail("cron_stale", cron);
+  if (body.status !== "ok") return fail("invalid_readiness", cron);
+  return probeResult(probe, { httpStatus, cron });
+}
+
+export function probeDocument({ mode = "run", target = null, checks = [], errorCode = null } = {}) {
+  const failure = checks.find((row) => row.outcome === "fail");
+  const code = errorCode ?? failure?.errorCode ?? null;
+  return {
+    schemaVersion: 1, command: "probe:post-deploy", mode, ok: code === null,
+    target, checks, errorCode: code, nextAction: code === null ? null : NEXT_ACTIONS[code],
+  };
 }
 
 export function formatSkipLine({ path, reason } = {}) {
