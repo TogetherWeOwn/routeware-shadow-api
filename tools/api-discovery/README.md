@@ -158,7 +158,11 @@ From the repo root:
 
 ```bash
 npm run discovery:validate
+npm run discovery:validate -- --json # JSON mode (npm also prints its command banners)
 ```
+
+Keep the `--` separator when forwarding flags through npm; without it, npm
+consumes `--json` instead of passing it to the validator.
 
 Or inside `tools/api-discovery`:
 
@@ -216,7 +220,10 @@ Checks and finding codes:
 | `cli.arguments` | `UNKNOWN_FLAG` | CLI-only: unknown flag or positional argument |
 
 `export-curl-examples.mjs` and `suggest-routes.mjs` accept `--dry-run`:
-validate the map, print the verdict, write nothing (exit 1 on findings).
+validate the map and fully prepare the artifact before printing the verdict,
+without writing files (exit 1 on findings or invalid inputs). The exporter
+resolves request bodies and checks filename collisions; the suggester reads
+`out/route-gaps.json` and renders the checklist, just as a real run would.
 `export-curl-examples.mjs` enforces the structural checks only (shape,
 duplicate upstream identities, conflicting shadow mappings): it renders
 non-executable documentation for any method/path, so method and path-shape
@@ -407,7 +414,7 @@ This also runs through `npm run test:probe` and `npm test`; no workflow changes.
 
 1. Open **`out/route-gaps.txt`** (or **`route-gaps.json`**) — high-count paths first.
 2. Add entries to **`route-map.json`** (`upstreamPath`, `shadowPath`, optional `exampleFile` / `exampleQuery`).
-3. Use **`out/suggested-routes.stub.ts`** as a naming hint; implement `createRoute` + handler in **`src/app.ts`** (same pattern as existing Routeware forwards).
+3. Use **`out/suggested-routes.stub.ts`** as a naming hint; define `createRoute` + handler under **`src/routes/*.ts`** and mount from **`src/app.ts`** (same pattern as existing Routeware forwards).
 4. Add example JSON under **`examples/`** if the exporter needs a body when the harvest has no preview for that path.
 5. Run **`npm run discovery:verify`** from the repo root.
 
