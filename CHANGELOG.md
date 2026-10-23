@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #348: A rejected Workers `Cache.match` lookup in the shared entity-read
+  cache helper now counts as one miss and continues through the existing D1
+  bundle/ETag path, so customer, address and container reads keep their
+  normal 200, empty-body conditional 304 and 404 contract during a cache
+  outage instead of failing as 500s. Each rejected lookup emits one bounded
+  `cache.entityData` warn diagnostic (entity kind and error classification
+  only) alongside the usual count-only miss event. No TTL/policy change, no
+  retry, no stale or remote fallback; cache population stays best-effort and
+  delete/graph invalidation failures stay loud. Troubleshooting:
+  `docs/ENTITY-DATA-CACHE.md` and `docs/LOGGING.md`.
+
 - #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
   requested `.customer`, `.address` or `.container` root is projected, always
