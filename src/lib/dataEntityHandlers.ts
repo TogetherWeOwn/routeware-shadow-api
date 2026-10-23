@@ -15,7 +15,14 @@ import { projectSnapshotRow, type SnapshotFieldsetResource } from "./sparseField
 
 export type DataEntityCtx = {
   env: Env;
-  var: { bodyBuffer: ArrayBuffer | null; sessionStub: DurableObjectStub };
+  // `requestId` flows from `c.var` when the route passes the full request var;
+  // optional so direct/pre-middleware callers omit save-path correlation
+  // instead of crashing.
+  var: {
+    bodyBuffer: ArrayBuffer | null;
+    sessionStub: DurableObjectStub;
+    requestId?: string;
+  };
   req: { raw: Request; header: (n: string) => string | undefined };
 };
 
