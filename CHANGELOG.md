@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- R20-02 (PR number on open): Hydrated single-ID
+  `GET /api/v1/data/customer|address|container` accepts optional per-type
+  `fields[customer]`, `fields[address]` and `fields[container]` selectors from
+  the shared snapshot allowlists, projecting the listed type everywhere it
+  appears — root and nested relations — while omitted types stay full and
+  every projected object retains its primary ID. Flat `fields=` keeps its
+  root-only meaning and composes with non-root typed keys; flat plus
+  `fields[<root>]` together, unknown `fields[TYPE]` keys and malformed
+  selectors are value-free 400s before cache/D1 access, with existing auth
+  precedence. Projected ETags hash served bytes per typed combination with
+  empty-body 304s, never reusing full-only validators or overwriting the
+  canonical full cache. No batch IDs, nested-path selectors, SQL optimization
+  or TTL changes. Synthetic examples and validator guidance:
+  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
+
 - #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
   requested `.customer`, `.address` or `.container` root is projected, always

@@ -44,8 +44,13 @@ only each row's keys shrink — and `fields=` composes with filters,
 pagination and `includeTotal=false` without changing matches, counts or
 cursors. The selectable set is an explicit per-resource allowlist in
 `src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else);
-hydrated `/api/v1/data/*` reads, CSV exports and the changes feed ignore
-`fields=` as an unknown name.
+CSV exports and the changes feed ignore `fields=` as an unknown name.
+Hydrated `/api/v1/data/*` reads honor flat `fields=` root-only, plus
+per-type `fields[customer]` / `fields[address]` / `fields[container]`
+selectors that project the listed type everywhere it appears (root and
+relations) while omitted types stay full. Flat `fields` plus
+`fields[<root>]` together, and unknown `fields[TYPE]` keys, are value-free
+400s.
 
 The selector is strict: exact column names, no spaces, no empty segments,
 no duplicates, and a single `fields` key. Anything else is the existing

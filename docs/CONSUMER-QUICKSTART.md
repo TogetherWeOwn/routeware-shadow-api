@@ -365,6 +365,40 @@ Credential-free acceptance check:
 npx vitest run test/hydratedFields.acceptance.test.ts
 ```
 
+### Per-type sparse fields on hydrated bundles
+
+Each single-ID read above also accepts `fields[customer]`, `fields[address]`
+and `fields[container]`, projecting every object of that type — the root and
+all nested relations — from the same strict per-type allowlists. Omitted types
+stay full; every projected object keeps its primary id. Synthetic examples:
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/customer?id=42&fields[address]=city,address"
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/address?id=10&fields[container]=serial_number"
+```
+
+The first request trims each nested address (and nothing else) to
+`pickup_address_id`, `city` and `address`; `.customer` and the nested
+`containers` arrays are unchanged. Flat `fields` keeps its root-only meaning
+and composes with non-root typed keys, but `fields` plus `fields[<root>]`
+together is a 400, as are unknown `fields[TYPE]` keys. Strictness, value-free
+400s and auth precedence match the flat selector; see the
+[shared fieldset policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+No batch `ids` support is added.
+
+ETags keep hashing the **served bundle bytes** per typed combination: a
+full-only validator cannot short-cut a projected response, and a matching
+projected validator returns an empty-body 304. Keep validators per URL and
+selector. See [cache semantics](ENTITY-DATA-CACHE.md#sparse-representations).
+
+Credential-free acceptance check:
+
+```bash
+npx vitest run test/hydratedBundleFields.acceptance.test.ts
+```
+
 ## 3a. Snapshot archives: `GET /api/v1/snapshots/{table}/{date}`
 
 Syncs archive their raw CSV to R2 (`snapshots/YYYY-MM-DD/<table>.csv`, when
