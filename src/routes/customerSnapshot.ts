@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   runCustomerSnapshotSync,
@@ -63,7 +64,7 @@ const customerSnapshotListRoute = createRoute({
         .number()
         .int()
         .optional()
-        .describe("Last customer_id from the previous page's nextCursor; takes precedence over offset")
+        .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
       includeTotal: z
         .enum(["true", "false"])
@@ -73,6 +74,7 @@ const customerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("customer")
     })
   },
@@ -88,13 +90,14 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];
   const binds: unknown[] = [];
@@ -113,7 +116,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push("enabled = 0");
   }
   if (p.cursor !== undefined) {
-    where.push("customer_id > ?");
+    where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
   const whereSql = where.join(" AND ");
@@ -129,13 +132,11 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
   }
-  // A cursor seeks from `customer_id > ?` and never needs OFFSET; keeping the
-  // OFFSET-less form off the cursor path is what avoids the scan-past-N-rows
-  // cost this route exists to remove.
+  // Cursor seeks follow the selected direction and never scan an OFFSET.
   const pageSql =
     p.cursor !== undefined
-      ? "ORDER BY customer_id LIMIT ?"
-      : "ORDER BY customer_id LIMIT ? OFFSET ?";
+      ? `ORDER BY customer_id${order.suffix} LIMIT ?`
+      : `ORDER BY customer_id${order.suffix} LIMIT ? OFFSET ?`;
   const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
