@@ -181,9 +181,16 @@ async function onErrorRes(err: unknown, path: string): Promise<Response> {
     }
   ).errorHandler;
   const url = `http://test.local${path}`;
+  const raw = new Request(url);
   return await handler(err, {
-    req: { raw: new Request(url), url, method: "GET" },
-    env: {}
+    req: {
+      raw,
+      url,
+      method: "GET",
+      header: (name: string) => raw.headers.get(name) ?? undefined
+    },
+    env: {},
+    get: (_key: string) => undefined
   });
 }
 
