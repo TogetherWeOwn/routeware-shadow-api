@@ -600,10 +600,9 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     const oldSelected = await expectServed(await get(spec, { typed: { [type]: samples.first } }),
       selectedBundle(spec.kind, { [type]: [samples.first] }));
     const table = type === "customer" ? "customer_snapshot" : type === "address" ? "address_snapshot" : "container_snapshot";
-    const idCol = TYPE_IDS[type];
-    const idVal = type === "customer" ? customer.customer_id : type === "address" ? address.pickup_address_id : container.container_id;
-    await DB.prepare(`UPDATE ${table} SET ${samples.omitted} = ? WHERE ${idCol} = ?`)
-      .bind("Synthetic changed omitted bundle field", idVal).run();
+    // Update every row: the oracle patches all bundle members of this type.
+    await DB.prepare(`UPDATE ${table} SET ${samples.omitted} = ?`)
+      .bind("Synthetic changed omitted bundle field").run();
     cache.clear();
     const changedCanonical = changedFullWithOmitted(spec.kind, type, samples.omitted);
     // Full validator must rotate; typed bytes stay identical.
@@ -623,10 +622,9 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     const old = await expectServed(await get(spec, { typed: { [type]: first } }),
       selectedBundle(spec.kind, { [type]: [first] }));
     const table = type === "customer" ? "customer_snapshot" : type === "address" ? "address_snapshot" : "container_snapshot";
-    const idCol = TYPE_IDS[type];
-    const idVal = type === "customer" ? customer.customer_id : type === "address" ? address.pickup_address_id : container.container_id;
-    await DB.prepare(`UPDATE ${table} SET ${first} = ? WHERE ${idCol} = ?`)
-      .bind("Synthetic changed selected bundle value", idVal).run();
+    // Update every row: the oracle patches all bundle members of this type.
+    await DB.prepare(`UPDATE ${table} SET ${first} = ?`)
+      .bind("Synthetic changed selected bundle value").run();
     cache.clear();
     const changedCanonical = fullBundle(spec.kind);
     applyChangedValue(changedCanonical, spec.kind, type, first, "Synthetic changed selected bundle value");
@@ -647,11 +645,9 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     const omittedFirst = TYPE_SAMPLES[omittedType].first;
     const table = omittedType === "customer" ? "customer_snapshot"
       : omittedType === "address" ? "address_snapshot" : "container_snapshot";
-    const idCol = TYPE_IDS[omittedType];
-    const idVal = omittedType === "customer" ? customer.customer_id
-      : omittedType === "address" ? address.pickup_address_id : container.container_id;
-    await DB.prepare(`UPDATE ${table} SET ${omittedFirst} = ? WHERE ${idCol} = ?`)
-      .bind("Changed synthetic omitted bundle relation", idVal).run();
+    // Update every row: the oracle patches all bundle members of this type.
+    await DB.prepare(`UPDATE ${table} SET ${omittedFirst} = ?`)
+      .bind("Changed synthetic omitted bundle relation").run();
     cache.clear();
     const changedCanonical = fullBundle(spec.kind);
     applyChangedValue(changedCanonical, spec.kind, omittedType, omittedFirst, "Changed synthetic omitted bundle relation");
