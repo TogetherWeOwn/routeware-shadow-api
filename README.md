@@ -130,6 +130,88 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run check:r2-manifest` | Hermetic pure + fake-reader acceptance checks; no R2/Wrangler access |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
+### First-run plans and local verification
+
+`npm run first-run` runs `devvars`, `migrate`, `seed`, then `smoke`, stopping at
+its first failure. It writes local D1 state and starts a loopback-only Wrangler
+server for smoke, then stops its process group. No remote target override exists.
+
+`--dry-run` (including `--json --dry-run` in either order) emits a deterministic
+`schemaVersion: 1` plan without reading credentials, running subprocesses,
+accessing the network, or writing files. `--json` executes those local steps,
+suppresses child output, and returns one bounded JSON envelope (at most 16 KiB)
+with fixed `error.code` and `next_action`; invalid or duplicate flags exit 2 before
+effects, while `--help`/`-h` anywhere takes precedence. Use npm's `--silent` to
+avoid its script banner when consuming JSON, or invoke Node directly.
+
+```sh
+# Intent only, safe without .dev.vars or installed Wrangler:
+node scripts/first-run.mjs --json --dry-run
+# Hermetic runnable local check; fake runners, credentials, sockets and HTTP:
+node --test scripts/first-run.acceptance.test.mjs
+# Real local execution (requires the local prerequisites above):
+npm run --silent first-run -- --json
+```
+
+Synthetic plan example (`<ephemeral>` is a placeholder, not an allocated port):
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "first-run",
+  "mode": "dry-run",
+  "outcome": "planned",
+  "steps": [
+    {
+      "id": "devvars",
+      "outcome": "planned",
+      "commands": [["node", "scripts/check-devvars.mjs"]],
+      "effects": ["read_local_credentials", "spawn_local_check"]
+    },
+    {
+      "id": "migrate",
+      "outcome": "planned",
+      "commands": [["npm", "run", "db:migrate:local"]],
+      "effects": ["spawn_local_migration", "write_local_database"]
+    },
+    {
+      "id": "seed",
+      "outcome": "planned",
+      "commands": [["npm", "run", "db:seed"]],
+      "effects": ["spawn_local_seed", "write_local_database"]
+    },
+    {
+      "id": "smoke",
+      "outcome": "planned",
+      "commands": [
+        ["node", "node_modules/wrangler/bin/wrangler.js", "dev", "--ip", "127.0.0.1", "--port", "<ephemeral>", "--show-interactive-dev-session=false"],
+        ["node", "scripts/smoke-readiness.mjs"]
+      ],
+      "effects": ["read_local_credentials", "start_loopback_server", "request_loopback_health", "run_local_smoke", "stop_process_group"]
+    }
+  ],
+  "failed": [],
+  "skipped": [],
+  "error": null,
+  "next_action": null
+}
+```
+
+The parser, flags, command order and effect schema live in
+[`scripts/lib/firstRun.mjs`](./scripts/lib/firstRun.mjs); help is generated from
+that schema and the acceptance check pins this example against it. A plan is
+**intent, not verification**. Execution uses `mode: "run"`, overall `outcome` of
+`success`, `error` or `interrupted`, and per-step `passed`, `failed` or `skipped`.
+`failed`/`skipped` list step IDs; `error` is null or
+`{code, retryable: false, next_action}`, mirrored by top-level `next_action`.
+Codes are `FIRST_RUN_INVALID_ARGUMENT`, `FIRST_RUN_STEP_FAILED`,
+`FIRST_RUN_SPAWN_FAILED`, `FIRST_RUN_HEALTH_FAILED`, `FIRST_RUN_INTERRUPTED` and
+`FIRST_RUN_TEARDOWN_FAILED`. Exits are 0 for success/help/plan, 1 for failure,
+2 for invalid arguments and 130 for interruption. Teardown failure takes error-code
+precedence over interruption: confirm both the process group and loopback port
+are stopped before retrying. No raw exceptions, credential values or Wrangler
+tails enter either JSON output stream; use human mode for local diagnostics.
+
 ### Local fixture plans and results
 
 `npm run db:seed -- --help` describes the local-only seed contract. No flags
