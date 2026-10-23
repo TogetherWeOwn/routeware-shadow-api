@@ -363,6 +363,143 @@ describe("JSON execution", () => {
   }
 });
 
+// Removing active-command cleanup must leave a live command in these cases;
+// the fixture never queues a successful completion after injecting the signal.
+function activeCommand(result, id, signal) {
+  const call = result.calls.find((call) => call.stage === id);
+  assert.ok(call, `${id}: the active command must actually start`);
+  assert.equal(call.api, "spawn", `${id}: interruption requires an asynchronous child`);
+  assert.equal(call.detached, id !== "smoke", `${id}: only smoke is a non-detached command`);
+  const waiting = result.trace.findIndex((event) => event.kind === "command_waiting" && event.stage === id);
+  const injected = result.trace.findIndex((event) => event.kind === "injected_signal" && event.stage === id);
+  assert.ok(waiting >= 0 && injected > waiting, `${id}: inject only after the command is independently live`);
+  assert.equal(result.trace[injected].signal, signal);
+  assert.equal(result.trace[injected].commandAlive, true);
+  assert.deepEqual(result.trace.filter((event) => event.kind === "command_exit" && event.stage === id && event.origin === "natural"), [], `${id}: held commands must never auto-complete`);
+  const state = result.trace.at(-1).commands.find((command) => command.stage === id);
+  assert.ok(state, `${id}: liveness must be observable at CLI exit`);
+  const signals = result.trace.filter((event) => id === "smoke"
+    ? event.kind === "child_kill" && event.pid === state.pid
+    : event.kind === "group_signal" && event.pid === -state.pid && event.signal !== 0);
+  assert.ok(signals.some((event) => event.signal === "SIGTERM"), `${id}: interruption must terminate the active ${id === "smoke" ? "child" : "command group"}, not only the dev server`);
+  assert.deepEqual(result.calls.map((call) => call.stage), id === "smoke" ? ["devvars", "migrate", "seed", "server", "smoke"] : IDS.slice(0, IDS.indexOf(id) + 1));
+  if (id === "smoke") assert.equal(result.trace.at(-1).groupAlive, false, "smoke interruption must also stop the independent server group");
+  return { state, signals };
+}
+function interruptedCommand(result, id, code = "FIRST_RUN_INTERRUPTED") {
+  assert.notEqual(result.status, 0);
+  const value = json(result);
+  assert.equal(value.outcome, "interrupted");
+  const index = IDS.indexOf(id);
+  assert.deepEqual(value.steps.map((step) => step.outcome), IDS.map((_, i) => i < index ? "passed" : i === index ? "failed" : "skipped"));
+  assert.deepEqual(value.failed, [id]);
+  assert.deepEqual(value.skipped, IDS.slice(index + 1));
+  remediation(value, code);
+}
+describe("active-command interruption", () => {
+  for (const id of IDS) {
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+      test(`${signal} stops a live ${id} before completion and reports failed/skipped steps`, () => {
+        const result = run(["--json"], `active-${id}-${signal}-term`);
+        const { state, signals } = activeCommand(result, id, signal);
+        assert.equal(state.alive, false, `${id}: active child survived interruption cleanup`);
+        assert.equal(state.groupAlive, false, `${id}: detached descendants survived interruption cleanup`);
+        assert.deepEqual(signals.map((event) => event.signal), ["SIGTERM"], "cooperative cleanup must not need escalation");
+        interruptedCommand(result, id);
+      });
+    }
+    test(`escalates live ${id} cleanup to SIGKILL when SIGTERM is insufficient`, () => {
+      const result = run(["--json"], `active-${id}-SIGINT-kill`);
+      const { state, signals } = activeCommand(result, id, "SIGINT");
+      assert.deepEqual(signals.map((event) => event.signal), ["SIGTERM", "SIGKILL"], `${id}: escalate rather than claiming SIGTERM stopped a survivor`);
+      assert.equal(state.alive, false, `${id}: SIGKILL must stop the child`);
+      assert.equal(state.groupAlive, false, `${id}: SIGKILL must stop detached descendants`);
+      interruptedCommand(result, id);
+    });
+    test(`reports teardown failure when live ${id} cleanup cannot be confirmed`, () => {
+      const result = run(["--json"], `active-${id}-SIGINT-${id === "smoke" ? "denied" : "stuck"}`);
+      const { state, signals } = activeCommand(result, id, "SIGINT");
+      assert.deepEqual(signals.map((event) => event.signal), ["SIGTERM", "SIGKILL"]);
+      if (id === "smoke") {
+        assert.equal(state.alive, true, "a child whose kill emits EPERM must not pretend to finish");
+        assert.equal(state.groupAlive, false, "smoke is non-detached");
+        assert.ok(result.trace.some((event) => event.kind === "command_signal_error" && event.code === "EPERM"));
+      } else {
+        assert.equal(state.alive, false, "the signalled wrapper exits independently of its descendants");
+        assert.equal(state.groupAlive, true, `${id}: surviving descendants must prevent a cleanup-success claim`);
+      }
+      interruptedCommand(result, id, "FIRST_RUN_TEARDOWN_FAILED");
+    });
+    test(`no flags still stops a live ${id} and reports interruption`, () => {
+      const result = run([], `active-${id}-SIGINT-term`);
+      const { state } = activeCommand(result, id, "SIGINT");
+      assert.equal(state.alive, false, `${id}: human mode must stop its active child`);
+      assert.equal(state.groupAlive, false, `${id}: human mode must stop detached descendants`);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /first-run: interrupted/);
+      assert.doesNotMatch(result.stdout, /first-run: PASS/);
+    });
+  }
+});
+
+// An unconditional "closed" result for every socket error must fail here.
+describe("cleanup socket uncertainty", () => {
+  test("coded ECONNREFUSED confirms a closed port after group termination", () => {
+    const result = run(["--json"]);
+    assert.equal(result.status, 0);
+    assert.equal(json(result).outcome, "success");
+    assert.equal(result.trace.at(-1).groupAlive, false);
+    assert.ok(result.trace.some((event) => event.kind === "port_result" && event.code === "ECONNREFUSED"));
+    localOnly(result);
+  });
+  for (const code of ["EACCES", "ETIMEDOUT", "silent"]) {
+    test(`${code}: inconclusive cleanup probe is FIRST_RUN_TEARDOWN_FAILED`, () => {
+      const result = run(["--json"], `probe-${code}`);
+      failure(result, "smoke", "FIRST_RUN_TEARDOWN_FAILED");
+      assert.equal(result.trace.at(-1).groupAlive, false, "group absence alone cannot confirm port cleanup");
+      localOnly(result);
+      const probes = result.trace.filter((event) => event.kind === "port_probe");
+      assert.ok(probes.length > 0, "cleanup must actually probe the socket");
+      assert.ok(probes.every((event) => event.host === "127.0.0.1" && event.port === PORT));
+      if (code === "silent") {
+        assert.ok(result.trace.some((event) => event.kind === "port_pending"));
+        assert.deepEqual(result.trace.filter((event) => event.kind === "port_result"), [], "silent socket must emit neither connect nor error");
+      } else {
+        assert.ok(result.trace.some((event) => event.kind === "port_result" && event.event === "error" && event.code === code));
+      }
+      assert.equal(result.trace.filter((event) => event.kind === "socket_destroy").length, probes.length, "all cleanup sockets, including silent ones, must be destroyed");
+    });
+  }
+});
+
+// Removing redirect rejection or buffering the health body must independently
+// change the real CLI result, not just a permissive fetch mock's call count.
+describe("health redirect and body safety", () => {
+  test("rejects a health redirect instead of following it to a fake 200", () => {
+    const result = run(["--json"], "health-redirect");
+    failure(result, "smoke", "FIRST_RUN_HEALTH_FAILED");
+    assert.ok(!result.calls.some((call) => call.stage === "smoke"), "redirected health cannot authorize the smoke child");
+    const redirects = result.trace.filter((event) => event.kind === "health_redirect");
+    assert.ok(redirects.length > 0, "the real health request must encounter a redirect");
+    assert.ok(redirects.every((event) => event.action === "rejected"), "health must reject, never follow or expose a manual redirect");
+    assert.ok(result.trace.filter((event) => event.kind === "fetch").every((event) => event.redirect === "error"));
+    localOnly(result);
+    assert.equal(result.trace.at(-1).groupAlive, false);
+  });
+  test("cancels a streaming health body without pulling or buffering it", () => {
+    const result = run(["--json"], "health-stream");
+    assert.deepEqual(result.trace.filter((event) => event.kind === "health_body_pull"), [], "health must cancel the stream rather than drain it with arrayBuffer/text/json/read");
+    const requests = result.trace.filter((event) => event.kind === "fetch");
+    assert.ok(requests.length > 0);
+    assert.equal(result.trace.filter((event) => event.kind === "health_body_cancel").length, requests.length, "every health response body must be cancelled");
+    assert.equal(result.status, 0, "headers-only health must succeed even when consuming its body would reject");
+    assert.equal(json(result).outcome, "success");
+    assert.ok(result.calls.some((call) => call.stage === "smoke"));
+    localOnly(result);
+    assert.equal(result.trace.at(-1).groupAlive, false);
+  });
+});
+
 describe("unchanged human-mode runner controls", () => {
   test("no flags preserves ordered execution, local wiring and the legacy PASS summary", () => {
     const result = run([]);

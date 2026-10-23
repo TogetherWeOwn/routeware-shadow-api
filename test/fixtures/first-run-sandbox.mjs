@@ -26,6 +26,21 @@ const PID = 424242;
 const noise = `${CANARY} Authorization: Bearer ${TOKEN} password=synthetic raw child output\n`;
 let alive = false;
 let dev;
+const active = /^active-(devvars|migrate|seed|smoke)-(SIGINT|SIGTERM|SIGHUP)-(term|kill|stuck|denied)$/.exec(scenario);
+const commands = new Map();
+const commandPids = { devvars: PID + 1, migrate: PID + 2, seed: PID + 3, smoke: PID + 4 };
+
+function finishCommand(state, code, signal, origin) {
+  if (!state.alive) return;
+  state.alive = false;
+  Object.assign(state.child, { exitCode: code, signalCode: signal });
+  trace({ kind: "command_exit", stage: state.stage, code, signal, origin });
+  state.child.emit("exit", code, signal);
+  state.child.emit("close", code, signal);
+}
+function resistsCommandSignal(stage, signal) {
+  return active?.[1] === stage && (active[3] === "stuck" || (active[3] === "kill" && signal !== "SIGKILL"));
+}
 
 function deny(kind) {
   trace({ kind });
@@ -135,12 +150,18 @@ cp.spawnSync = (command, args = [], options = {}) => {
 cp.spawn = (command, args = [], options = {}) => {
   const { stage, denied } = invocation("spawn", command, args, options);
   const child = new EventEmitter();
-  Object.assign(child, { pid: stage === "server" ? PID : PID + 1, exitCode: null, signalCode: null, stdout: new EventEmitter(), stderr: new EventEmitter() });
+  Object.assign(child, { pid: stage === "server" ? PID : commandPids[stage], exitCode: null, signalCode: null, stdout: new EventEmitter(), stderr: new EventEmitter() });
+  const state = { stage, child, detached: options.detached === true, alive: true, groupAlive: options.detached === true };
+  if (stage !== "server") commands.set(child.pid, state);
   child.kill = (signal = "SIGTERM") => {
-    trace({ kind: "child_kill", stage, signal });
-    child.signalCode = signal;
-    child.emit("exit", null, signal);
-    child.emit("close", null, signal);
+    trace({ kind: "child_kill", stage, pid: child.pid, signal });
+    if (active?.[1] === stage && active[3] === "denied") {
+      trace({ kind: "command_signal_error", stage, code: "EPERM" });
+      child.emit("error", Object.assign(new Error(noise), { code: "EPERM" }));
+      return false;
+    }
+    if (!resistsCommandSignal(stage, signal)) finishCommand(state, null, signal, "child_signal");
+    // Killing only a detached wrapper does NOT prove its descendants stopped.
     return true;
   };
   child.unref = () => {};
@@ -148,6 +169,8 @@ cp.spawn = (command, args = [], options = {}) => {
   queueMicrotask(() => {
     if (scenario === `error-${stage}`) {
       if (stage === "server") alive = false;
+      state.alive = false;
+      state.groupAlive = false;
       child.emit("error", Object.assign(new Error(noise), { code: "ENOENT" }));
       child.emit("close", null, null);
       return;
@@ -162,15 +185,21 @@ cp.spawn = (command, args = [], options = {}) => {
       }
       return;
     }
+    if (active?.[1] === stage) {
+      // Hold this command independently of the dev server. Only an effective
+      // signal ends it: no queued success can accidentally stand in for cleanup.
+      trace({ kind: "command_waiting", stage, pid: child.pid, detached: state.detached });
+      trace({ kind: "injected_signal", stage, signal: active[2], commandAlive: state.alive });
+      process.emit(active[2]);
+      return;
+    }
     if (scenario === "interrupt-during-smoke" && stage === "smoke") {
       trace({ kind: "injected_signal", signal: "SIGINT" });
       process.emit("SIGINT");
     }
     const signal = scenario === `signal-${stage}` ? "SIGTERM" : null;
-    child.exitCode = denied || scenario === `fail-${stage}` ? 17 : signal ? null : 0;
-    child.signalCode = signal;
-    child.emit("exit", child.exitCode, signal);
-    child.emit("close", child.exitCode, signal);
+    state.groupAlive = false;
+    finishCommand(state, denied || scenario === `fail-${stage}` ? 17 : signal ? null : 0, signal, "natural");
   });
   return child;
 };
@@ -189,15 +218,43 @@ net.createServer = () => {
 net.connect = net.createConnection = (options) => {
   trace({ kind: "port_probe", host: options?.host, port: options?.port });
   if (preflight) deny("preflight_socket");
+  if (options?.host !== "127.0.0.1" || options?.port !== PORT) deny("unexpected_network");
   const socket = new EventEmitter();
-  socket.destroy = () => {};
+  let destroyed = false;
+  socket.destroy = () => { destroyed = true; trace({ kind: "socket_destroy" }); return socket; };
   const answers = (alive && scenario !== "group-survives-port-closed") || scenario === "port-survives-group";
-  queueMicrotask(() => socket.emit(answers ? "connect" : "error", new Error(CANARY)));
+  queueMicrotask(() => {
+    if (destroyed) return;
+    if (answers) {
+      trace({ kind: "port_result", event: "connect" });
+      socket.emit("connect");
+    } else if (scenario === "probe-silent") {
+      trace({ kind: "port_pending" }); // intentionally no connect OR error
+    } else {
+      const code = scenario === "probe-EACCES" ? "EACCES" : scenario === "probe-ETIMEDOUT" ? "ETIMEDOUT" : "ECONNREFUSED";
+      trace({ kind: "port_result", event: "error", code });
+      socket.emit("error", Object.assign(new Error(CANARY), { code }));
+    }
+  });
   return socket;
 };
 process.kill = (pid, signal = "SIGTERM") => {
   trace({ kind: "group_signal", pid, signal });
-  if (preflight || pid !== -PID) deny("unexpected_process_signal");
+  if (preflight) deny("unexpected_process_signal");
+  if (pid !== -PID) {
+    const state = commands.get(-pid);
+    if (!state?.detached) deny("unexpected_process_signal");
+    if (!state.groupAlive) throw Object.assign(new Error("synthetic command group absent"), { code: "ESRCH" });
+    if (signal !== 0) {
+      if (!resistsCommandSignal(state.stage, signal)) state.groupAlive = false;
+      // In the stuck-group case the signalled wrapper exits, but independently
+      // live descendants survive BOTH signals. No natural completion is queued.
+      if (!state.groupAlive || (active?.[1] === state.stage && active[3] === "stuck")) {
+        finishCommand(state, null, signal, "group_signal");
+      }
+    }
+    return true;
+  }
   if (!alive) throw Object.assign(new Error("synthetic group absent"), { code: "ESRCH" });
   if (signal === 0) return true;
   const survives = ["teardown-failure", "group-survives-port-closed", "interrupt-teardown-failure"].includes(scenario) || (scenario === "needs-kill" && signal !== "SIGKILL");
@@ -209,15 +266,36 @@ process.kill = (pid, signal = "SIGTERM") => {
   }
   return true;
 };
-globalThis.fetch = async (input) => {
+globalThis.fetch = async (input, init = {}) => {
   const url = String(input?.url ?? input);
-  trace({ kind: "fetch", url });
+  const redirect = init.redirect ?? input?.redirect ?? "follow";
+  trace({ kind: "fetch", url, redirect });
   if (preflight || url !== `http://127.0.0.1:${PORT}/api/v1/health`) deny("unexpected_network");
   if (scenario === "health-throws") throw new Error(noise);
+  if (scenario === "health-redirect") {
+    trace({ kind: "health_redirect", action: redirect === "error" ? "rejected" : redirect === "manual" ? "manual" : "followed" });
+    if (redirect === "error") throw new TypeError("synthetic redirect rejected");
+    if (redirect === "manual") return new Response(null, { status: 302, headers: { Location: "/elsewhere" } });
+    // Model the followed 200 entirely in memory; NEVER issue another request.
+    return new Response("synthetic redirected health", { status: 200 });
+  }
+  if (scenario === "health-stream") {
+    const body = new ReadableStream({
+      pull(controller) {
+        trace({ kind: "health_body_pull" });
+        controller.error(new Error("synthetic health body must not be drained"));
+      },
+      cancel() { trace({ kind: "health_body_cancel" }); },
+    }, { highWaterMark: 0 });
+    return new Response(body, { status: 200 });
+  }
   return new Response("synthetic health", { status: scenario === "unhealthy" ? 503 : 200 });
 };
 for (const [mod, keys] of [[http, ["request", "get", "createServer"]], [https, ["request", "get", "createServer"]], [tls, ["connect", "createServer"]], [dgram, ["createSocket"]]]) {
   for (const key of keys) mod[key] = () => deny("unexpected_network");
 }
 syncBuiltinESMExports();
-process.on("exit", () => trace({ kind: "sandbox_exit", groupAlive: alive }));
+process.on("exit", () => trace({
+  kind: "sandbox_exit", groupAlive: alive,
+  commands: [...commands.values()].map(({ stage, child, detached, alive, groupAlive }) => ({ stage, pid: child.pid, detached, alive, groupAlive })),
+}));
