@@ -439,6 +439,87 @@ describe.each(specs)("$kind root-only hydrated fields", (spec) => {
       expectNoWork();
     });
   });
+
+  describe("mixed ID/fields auth-order regression", () => {
+    // Invalid fields must not expose preliminary ID errors to ordinary tokens.
+    // With no fields error, those same preliminary ID-only 400s remain compatible.
+    describe.each(["id", spec.alias])("invalid %s beside a valid alternative", (parameter) => {
+      describe.each(["malformed", "repeated"] as const)("%s ID", (shape) => {
+        const validId = String(spec.row[spec.key]);
+        const other = parameter === "id" ? spec.alias : "id";
+        const id = shape === "malformed" ? "SYNTHETIC-MARKER-invalid-id" : validId;
+        const idPairs: Array<[string, string]> = [[other, validId]];
+        if (shape === "repeated") idPairs.push([parameter, validId]);
+        const invalidSelectors = [
+          { label: "unknown field", fields: "SYNTHETIC-MARKER-column", extra: [] },
+          { label: "empty CSV member", fields: `${spec.first},,${spec.second}`, extra: [] },
+          { label: "repeated fields keys", fields: spec.first, extra: [["fields", spec.second]] }
+        ] satisfies Array<{ label: string; fields: string; extra: Array<[string, string]> }>;
+
+        beforeEach(async () => { await seedCache(spec); });
+        function mixedRequest(fields: string | undefined, extra: Array<[string, string]>, authorization: string) {
+          return get(spec, fields, { parameter, id, extra: [...idPairs, ...extra], headers: {
+            authorization, "if-none-match": cache.get(`${spec.kind}:${validId}`)!.headers.get("etag")!
+          } });
+        }
+        async function expectUnauthorized(response: Response, gate: string): Promise<void> {
+          expectNoWork();
+          expect(response.status).toBe(401);
+          expect(response.headers.get("cache-control")).toBe("no-store");
+          expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+          expect(response.headers.get("content-type")).toMatch(/^application\/problem\+json\b/);
+          expect(response.headers.get("etag")).toBeNull();
+          expect(response.headers.get("x-entity-etag")).toBeNull();
+          const body = await response.json() as Record<string, unknown>;
+          const { instance, requestId, ...problem } = body;
+          if (requestId !== undefined) expect(requestId).toBe("synthetic-hydrated-fields-request");
+          expect(problem).toEqual({ type: `${PROBLEMS}#unauthorized`, title: "Unauthorized", status: 401,
+            detail: `Send Authorization: Bearer <${gate}>. See docs/PROBLEMS.md#unauthorized.` });
+          if (instance !== undefined) expect(instance).toBe(`/api/v1/data/${spec.kind}`);
+          expect(JSON.stringify(body)).not.toMatch(/SYNTHETIC-MARKER|received|invalid_type|"input"|\?/i);
+        }
+
+        describe.each([
+          { label: "API token", authorization: "Bearer synthetic-api-token" },
+          { label: "read token", authorization: "Bearer synthetic-read-token" }
+        ])("$label", ({ authorization }) => {
+          it.each(invalidSelectors)("invalid $label requires inner auth before ID/fields errors", async ({ fields, extra }) => {
+            await expectUnauthorized(await mixedRequest(fields, extra, authorization), "CUSTOMER_SNAPSHOT_SYNC_SECRET");
+          });
+
+          it.each([
+            { label: "omitted fields", fields: undefined },
+            { label: "valid selected field", fields: spec.first },
+            { label: "valid primary-ID selection", fields: spec.key }
+          ])("preserves preliminary ID-only 400 with $label", async ({ fields }) => {
+            const response = await mixedRequest(fields, [], authorization);
+            expectNoWork();
+            expect(response.status).toBe(400);
+            expect(response.headers.get("cache-control")).toBe("no-store");
+            expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+            expect(response.headers.get("content-type")).toMatch(/^application\/problem\+json\b/);
+            const body = await response.json() as Record<string, unknown>;
+            expect(body).toMatchObject({ type: `${PROBLEMS}#bad-request`, title: "Bad Request", status: 400 });
+            expect(Object.keys(body).filter((key) => key !== "instance").sort()).toEqual(["detail", "status", "title", "type"]);
+            expect(body.detail).toEqual(expect.any(String));
+            expect(String(body.detail)).toContain(parameter);
+            expect(String(body.detail)).toContain("See docs/PROBLEMS.md#bad-request.");
+            if (body.instance !== undefined) expect(body.instance).toBe(`/api/v1/data/${spec.kind}`);
+            expect(JSON.stringify(body)).not.toMatch(/SYNTHETIC-MARKER|received|invalid_type|"input"|\?/i);
+          });
+        });
+
+        describe.each([
+          { label: "no bearer", authorization: "" },
+          { label: "wrong bearer", authorization: "Bearer synthetic-wrong" }
+        ])("$label", ({ authorization }) => {
+          it.each(invalidSelectors)("preserves outer auth before mixed ID/$label errors", async ({ fields, extra }) => {
+            await expectUnauthorized(await mixedRequest(fields, extra, authorization), "SHADOW_API_TOKEN");
+          });
+        });
+      });
+    });
+  });
 });
 
 it("runtime OpenAPI exposes root-only fields, representation validators and no batch selector on all hydrated GETs", async () => {
