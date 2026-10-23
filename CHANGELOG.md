@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #358: New `GET /api/v1/snapshots/{table}` lists newest-first archived dates
+  for `customer|address|container` from the per-day manifest sidecars, each
+  entry carrying `{date, bytes, sha256}` (hashes/sizes only, never row data).
+  Strict `limit` 1..366 (default 30) over a 366-manifest scan budget, with
+  `truncated: true` when the budget exhausts; zero archives is HTTP 200 with
+  an empty list, never 404. Same sync-secret gate and 401 precedence as the
+  date route, fixed 503 when SNAPSHOTS is unbound, sanitized fixed 500s on R2
+  or manifest failures, and content-hash ETags with empty-body 304s. No
+  lifecycle, CSV, binding or auth changes. Recipe: `docs/CONSUMER-QUICKSTART.md` §3b.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit
