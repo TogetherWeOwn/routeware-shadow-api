@@ -17,6 +17,8 @@ import { readSessionState } from "./sessionState";
 import { readUpstreamText } from "./upstreamBody";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import {
+  parseAddressIdFromSaveResponse,
+  parseContainerIdFromSaveResponse,
   parseCustomerIdFromSaveResponse,
   routewarePostLooksSuccessful,
   urlEncodedToObject
@@ -124,6 +126,47 @@ function postedId(v: string | undefined): number | null {
   }
   const n = Number.parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Ids for one snapshot column under one owner — the pre/post-save snapshots
+ * behind create-id D1 diffing. Rows are `INTEGER PRIMARY KEY`, so every id is
+ * positive by schema and no filtering is applied.
+ */
+async function columnIds(db: D1Database, sql: string, owner: number): Promise<number[]> {
+  const out = await db.prepare(sql).bind(owner).all<{ id: number }>();
+  return out.results.map((row) => row.id);
+}
+
+/** Pre-save address ids for the owning customer (R21-05 create diff input). */
+function queryCustomerAddressIds(db: D1Database, customerId: number): Promise<number[]> {
+  return columnIds(
+    db,
+    "SELECT pickup_address_id AS id FROM address_snapshot WHERE customer_id = ? ORDER BY pickup_address_id",
+    customerId
+  );
+}
+
+/** Container ids scoped to one owning address (R21-05 create diff input). */
+function queryAddressContainerIds(db: D1Database, addressId: number): Promise<number[]> {
+  return columnIds(
+    db,
+    "SELECT container_id AS id FROM container_snapshot WHERE pickup_address_id = ? ORDER BY container_id",
+    addressId
+  );
+}
+
+/**
+ * Singleton post-minus-pre difference wins; empty/ambiguous stays null. The
+ * caller keeps the existing `localSync` codes either way — resolution failure
+ * is reported as a null id, never as a new outcome code.
+ */
+function diffSingleton(pre: number[], post: number[]): number | null {
+  const before = new Set(pre);
+  const added = post.filter((id) => !before.has(id));
+  // The length guard guarantees presence (`noUncheckedIndexedAccess` types
+  // the index as `number | undefined`); same `!` idiom as orchestration.ts.
+  return added.length === 1 ? added[0]! : null;
 }
 
 export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response> {
@@ -326,10 +369,22 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
   const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
   const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
+  // R21-05: creates (posted id 0/absent) resolve their id — upstream JSON
+  // first, else the singleton post-refresh D1 id. Updates keep echoing the
+  // posted id, and failed saves keep today's null/echo semantics.
+  const isCreate = pickupAddressId === null;
+  let resolvedAddressId = ok ? parseAddressIdFromSaveResponse(posted, upText) : pickupAddressId;
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
     if (customerId !== null) {
       try {
+        // Pre-save snapshot for the create D1 diff; skipped unless this
+        // create missed upstream JSON. Inside the sync try so a D1 failure
+        // keeps the sync_failed outcome instead of becoming a 500.
+        const preAddressIds =
+          isCreate && resolvedAddressId === null
+            ? await queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
+            : null;
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
         localSync = {
           done: true,
@@ -337,6 +392,12 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
+        if (preAddressIds !== null) {
+          const created = diffSingleton(preAddressIds, g.addressIds);
+          if (created !== null) {
+            resolvedAddressId = created;
+          }
+        }
         // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
@@ -384,11 +445,14 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       ok,
       routewareStatus: up.status,
       customerId,
-      pickupAddressId,
+      pickupAddressId: resolvedAddressId,
       upstreamBytes: upstreamBytes(upText),
       localSync
     }),
-    { status: ok ? 200 : up.status, headers: { "content-type": "application/json; charset=utf-8" } }
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
   );
 }
 
@@ -464,6 +528,11 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
   const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
   const postedPickupAddressId = postedId(posted.PickupAddressID);
   const postedContainerId = postedId(posted.ContainerID);
+  // R21-05: same resolution shape as addresses, scoped to the owning address.
+  const isCreate = postedContainerId === null;
+  let resolvedContainerId = ok
+    ? parseContainerIdFromSaveResponse(posted, upText)
+    : postedContainerId;
   let customerId: number | null = postedCustomerId;
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
@@ -482,6 +551,16 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       // lookup above), so closures would lose the non-null narrowing.
       const ownerId = customerId;
       try {
+        // Pre-save snapshot for the create D1 diff, scoped to the owning
+        // address; skipped unless this create missed upstream JSON. The scope
+        // rides along so the post-refresh read needs no second null check.
+        const preDiff =
+          isCreate && resolvedContainerId === null && postedPickupAddressId !== null
+            ? {
+                addressId: postedPickupAddressId,
+                ids: await queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+              }
+            : null;
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, ownerId);
         localSync = {
           done: true,
@@ -489,6 +568,13 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
+        if (preDiff !== null) {
+          const postIds = await queryAddressContainerIds(c.env.CUSTOMER_DB, preDiff.addressId);
+          const created = diffSingleton(preDiff.ids, postIds);
+          if (created !== null) {
+            resolvedContainerId = created;
+          }
+        }
         // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
@@ -539,10 +625,13 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       routewareStatus: up.status,
       customerId,
       pickupAddressId: postedPickupAddressId,
-      containerId: postedContainerId,
+      containerId: resolvedContainerId,
       upstreamBytes: upstreamBytes(upText),
       localSync
     }),
-    { status: ok ? 200 : up.status, headers: { "content-type": "application/json; charset=utf-8" } }
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
   );
 }
