@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Snapshot customer, address and container lists accept exact `order=asc|desc`
+- #344: Snapshot customer, address and container lists accept exact `order=asc|desc`
   (default `asc`). `desc` starts at the highest primary ID and seeks below
   `cursor`; IDs do not promise chronological recency. Direction composes with
   filters, `fields`, `includeTotal=false` and cursor-over-offset precedence.
