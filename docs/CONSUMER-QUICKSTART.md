@@ -440,6 +440,22 @@ curl -i -H "Authorization: Bearer $SYNC" \
 # HTTP 200 + ETag header; repeat with -H "If-None-Match: <etag>" → 304
 ```
 
+## 3b. Snapshot archive dates: `GET /api/v1/snapshots/{table}`
+
+To browse which dates hold an archive instead of guessing dates one 404 at
+a time, list them newest-first (same sync-secret gate as §3a):
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer?limit=5"
+# {"table":"customer","dates":[{"date":"2026-09-27","bytes":1234,"sha256":"<64-hex>"}],"truncated":false}
+```
+
+`limit` is 1..366 (default 30); `truncated` means more dates may exist.
+Zero archives is 200 with `"dates": []`, never 404. Entries carry manifest
+hashes/sizes only, never row data. Replays carry a content-hash `ETag`;
+send it back for a 304, exactly like the §3a download.
+
 ## 4. Saves: write through Routeware, then D1 refreshes
 
 Saves go **through** Routeware upstream (they need a live Routeware session

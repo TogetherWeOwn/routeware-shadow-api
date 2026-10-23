@@ -386,6 +386,11 @@ the verify-first gate, an authorized import target and count/value checks. An
 HTTP ETag is not the manifest's SHA-256. A 404 means the object is absent; 503
 means the R2 binding is unavailable. Do not test imports on a production URL.
 
+To discover which dates hold an archive without guessing, `GET
+/api/v1/snapshots/{table}` lists them newest-first with manifest hashes/sizes
+(sync-secret authorization, same 503 when the binding is unavailable). Use it
+to pick the `$DATE` for §4 before downloading; an empty list is 200, never 404.
+
 Main also exposes `restoreSnapshotCsvFromR2(env, table, date?)` in
 `src/lib/r2SnapshotArchive.ts`: it returns the CSV stream, `null` for an absent
 key, or throws when archiving is disabled/unbound. Programmatic recovery feeds

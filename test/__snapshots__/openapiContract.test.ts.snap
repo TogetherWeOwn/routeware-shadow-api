@@ -3614,6 +3614,121 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
     },
+    "/api/v1/snapshots/{table}": {
+      "get": {
+        "description": "Lists the UTC dates holding an R2 archive for one table, newest-first, from the date-manifest sidecars (\`snapshots/YYYY-MM-DD.manifest.json\`). Each entry carries the manifest's recorded byte length and sha256 (hashes/sizes only, never row data). \`limit\` caps the page at 1..366 (default 30); \`truncated\` is true when possibly more dates exist — the page filled, the 366-manifest scan budget exhausted, or the R2 list truncated. Zero archives is 200 with an empty list, never 404. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. The ETag is a content hash of the served JSON bytes, and \`If-None-Match\` with the current tag returns 304.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "enum": [
+                "customer",
+                "address",
+                "container",
+              ],
+              "example": "customer",
+              "type": "string",
+            },
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "example": 30,
+              "maximum": 366,
+              "minimum": 1,
+              "type": "integer",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "dates": [
+                    {
+                      "bytes": 1234,
+                      "date": "2026-09-27",
+                      "sha256": "9f2c4a7e1b5d83f09f2c4a7e1b5d83f09f2c4a7e1b5d83f09f2c4a7e1b5d83f0",
+                    },
+                  ],
+                  "table": "customer",
+                  "truncated": false,
+                },
+                "schema": {
+                  "properties": {
+                    "dates": {
+                      "items": {
+                        "properties": {
+                          "bytes": {
+                            "type": "number",
+                          },
+                          "date": {
+                            "type": "string",
+                          },
+                          "sha256": {
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "date",
+                          "bytes",
+                          "sha256",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "table": {
+                      "enum": [
+                        "customer",
+                        "address",
+                        "container",
+                      ],
+                      "type": "string",
+                    },
+                    "truncated": {
+                      "type": "boolean",
+                    },
+                  },
+                  "required": [
+                    "table",
+                    "dates",
+                    "truncated",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Archived dates newest-first with manifest hashes/sizes (synthetic excerpt)",
+          },
+          "304": {
+            "description": "\`If-None-Match\` matched the current content ETag; empty body",
+          },
+          "400": {
+            "description": "Invalid table or limit (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum or a non-integer/out-of-range \`limit\` before any R2 read runs. Unknown query params are ignored.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "500": {
+            "description": "The date listing is unreadable (application/problem+json): the R2 list or a manifest read failed, or a scanned manifest is not valid JSON or fails manifest validation. Fixed sanitized body — no R2 keys, manifest bytes, or driver text. Re-run the table sync to republish.",
+          },
+          "503": {
+            "description": "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound.",
+          },
+        },
+        "summary": "List archived snapshot dates for a table from R2",
+        "tags": [
+          "data-snapshot",
+        ],
+      },
+    },
     "/api/v1/snapshots/{table}/{date}": {
       "get": {
         "description": "Streams the Routeware CSV archived to R2 by a previous snapshot sync (\`snapshots/YYYY-MM-DD/{customer|address|container}.csv\`), re-encoded for spreadsheets: records are split as the importer splits them, blank data records are dropped as its row parsers drop them, and each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a \`_shadow_csv_encoding\` column with value \`1\` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when no archive exists for that table and date. The ETag is a content hash of the served bytes, and \`If-None-Match\` with the current tag returns 304. Operators compare the download with a fresh \`...-snapshot/export\` by business values, not bytes.",

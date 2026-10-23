@@ -542,3 +542,115 @@ export async function restoreSnapshotCsvFromR2(
   }
   return obj.body;
 }
+
+/**
+ * Archived-date listing (R21-01): how many date manifests one listing scans.
+ *
+ * One year of daily manifests, newest-first: a full retention year fits the
+ * budget exactly, and anything older reports `truncated` instead of scanning
+ * unbounded R2 keys on a read path. The listing route's `limit` maximum is
+ * this same value, so the widest page and the scan budget always agree.
+ */
+export const SNAPSHOT_DATE_LIST_SCAN_BUDGET = 366;
+
+/**
+ * One `{date, bytes, sha256}` entry: manifest hashes/sizes only, never row
+ * data — safe to log, print and commit as a fixture, like the manifest itself.
+ */
+export type SnapshotArchiveDateEntry = {
+  /** UTC archive date (`YYYY-MM-DD`), taken from the manifest key. */
+  date: string;
+  /** Byte length of the stored CSV, as recorded in the manifest (read, never re-verified). */
+  bytes: number;
+  /** Lowercase hex sha256 of the stored CSV, as recorded in the manifest. */
+  sha256: string;
+};
+
+export type SnapshotArchiveDateListing = {
+  /** Matching dates, newest-first, sliced to the requested limit. */
+  dates: SnapshotArchiveDateEntry[];
+  /**
+   * True when possibly more dates exist: manifests remained unexamined after
+   * stopping (limit reached or scan budget exhausted) or the R2 list itself
+   * truncated. Conservative — an empty page can still be truncated.
+   */
+  truncated: boolean;
+};
+
+const SNAPSHOT_MANIFEST_KEY_PATTERN = /^snapshots\/(\d{4})-(\d{2})-(\d{2})\.manifest\.json$/;
+
+/**
+ * The manifest's UTC date from its key, or `null` for anything that is not a
+ * well-formed sidecar: per-date CSVs, other prefixes, malformed names — and
+ * digit-shaped but impossible dates (`2026-13-99`), which the pattern alone
+ * would accept. `Date` normalizes invalid days instead of failing (Feb 30
+ * becomes Mar 1), so the components must round-trip through UTC.
+ */
+export function snapshotManifestDateFromKey(key: string): string | null {
+  const match = SNAPSHOT_MANIFEST_KEY_PATTERN.exec(key);
+  const year = match?.[1];
+  const month = match?.[2];
+  const day = match?.[3];
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+  const y = Number(year);
+  const m = Number(month);
+  const d = Number(day);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return null;
+  }
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * List the dates holding an archive for `table`, newest-first, from the date
+ * manifests (`snapshots/YYYY-MM-DD.manifest.json`).
+ *
+ * One `list` over the `snapshots/` prefix; only well-formed sidecars are read
+ * (CSVs, other prefixes and malformed names are ignored, never errors) and
+ * each is validated whole by `isSnapshotManifest` BEFORE table filtering — a
+ * corrupt sidecar fails the listing even when it never held this table.
+ * Integrity fields are read, never re-verified, and CSV objects are never
+ * touched. Stops reading once `limit` entries are collected or the scan
+ * budget exhausts; `truncated` reports whether manifests went unexamined.
+ *
+ * Throws on any R2 list/read failure, a manifest that vanished mid-scan,
+ * unparseable JSON, or a failed `isSnapshotManifest`: the caller maps every
+ * throw to its fixed sanitized 500 (no key, manifest, or driver text travels —
+ * never let one of these messages reach a response body).
+ */
+export async function listSnapshotArchiveDatesForTable(
+  bucket: R2Bucket,
+  table: SnapshotArchiveTable,
+  limit: number
+): Promise<SnapshotArchiveDateListing> {
+  const listed = await bucket.list({ prefix: "snapshots/" });
+  const sidecars = listed.objects
+    .map((obj) => ({ key: obj.key, date: snapshotManifestDateFromKey(obj.key) }))
+    .filter((entry): entry is { key: string; date: string } => entry.date !== null)
+    .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
+  const basename = csvBasename(table);
+  const dates: SnapshotArchiveDateEntry[] = [];
+  let examined = 0;
+  for (const { key, date } of sidecars.slice(0, SNAPSHOT_DATE_LIST_SCAN_BUDGET)) {
+    if (dates.length >= limit) {
+      break;
+    }
+    examined += 1;
+    const obj = await bucket.get(key);
+    if (obj === null) {
+      throw new Error("snapshot archive date listing: manifest vanished mid-scan");
+    }
+    const parsed: unknown = JSON.parse(await obj.text());
+    if (!isSnapshotManifest(parsed)) {
+      throw new Error("snapshot archive date listing: manifest failed validation");
+    }
+    const entry = parsed.files[basename];
+    if (entry !== undefined) {
+      dates.push({ date, bytes: entry.bytes, sha256: entry.sha256 });
+    }
+  }
+  return { dates, truncated: examined < sidecars.length || listed.truncated };
+}
