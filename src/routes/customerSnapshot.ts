@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -55,6 +56,7 @@ const customerSnapshotListRoute = createRoute({
   request: {
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      ids: snapshotIdSelectionQuery(),
       q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
@@ -88,7 +90,7 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs."
     }
   }
 });
@@ -101,6 +103,10 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.customerId !== undefined) {
     where.push("customer_id = ?");
     binds.push(p.customerId);
+  }
+  if (p.ids !== undefined) {
+    where.push(snapshotIdSelectionPredicate("customer", p.ids.length));
+    binds.push(...p.ids);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     where.push("instr(lower(coalesce(company_name, '')), lower(?)) > 0");
