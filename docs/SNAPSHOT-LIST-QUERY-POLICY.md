@@ -76,6 +76,9 @@ The cap composes with every existing singular/relationship filter, `q`,
 `includeTotal=false`: the bound `<= ?` predicate is in both the page
 `SELECT` and the `COUNT`, with no `MAX` query, migration or index. Unknown
 parameter names stay ignored, and omission preserves existing behavior.
+When the page is non-terminal, the `Link` next target preserves the same
+`upperId=` ceiling verbatim, so following the server's link cannot escape
+the chosen scope; an uncapped page's next target carries no `upperId`.
 
 Validation is strict and shared (`src/lib/snapshotUpperId.ts`): one
 canonical unpadded ASCII decimal integer from `1` to `9007199254740991` —

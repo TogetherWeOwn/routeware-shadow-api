@@ -7,6 +7,7 @@ type SnapshotListQuery = {
   q?: string;
   enabled: "true" | "false" | "any";
   fields?: string[];
+  upperId?: number;
   limit: number;
   includeTotal: "true" | "false";
 };
@@ -41,6 +42,9 @@ export function snapshotNextLink(
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
+  // Caller-held inclusive ceiling: the next target keeps the same cap so the
+  // continuation cannot escape the traversal the caller chose to bound.
+  if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
   if (query.includeTotal === "false") params.set("includeTotal", "false");
   // Continuations always seek, even when the first request used an offset.
