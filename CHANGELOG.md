@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #333: mounted OpenAPI `fields` string schemas on the six flat snapshot list/by-id
+  reads now publish `x-snapshot-fieldset` v1: registry-derived selectable names,
+  mandatory identity, delimiter and strict parser rules. Agents can choose valid
+  selectors without reading records or making invalid trial requests. Projection,
+  omission and auth behavior are unchanged; unsupported routes gain no parameter.
+  See `docs/CONSUMER-QUICKSTART.md` and the credential-free
+  `npm run check:snapshot-fieldset-discovery` check.
+
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
   without rejecting the request. Gate, notFound and onError problem bodies and
