@@ -6,8 +6,8 @@
  * When route-map.json is present it is validated with the shared library
  * before anything is produced; an invalid map exits 1 and writes nothing.
  * (The map is not this script's input, so a missing map skips validation
- * instead of failing.) --dry-run validates, prints the verdict, and writes
- * nothing.
+ * instead of failing.) --dry-run validates, reads the gaps, and renders the
+ * checklist before printing the verdict, without writing anything.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -49,15 +49,6 @@ try {
   }
   // No route map beside the gaps input: nothing to guard, proceed.
 }
-if (dryRun) {
-  console.log(
-    mapEntries === null
-      ? `dry-run: no route-map.json present, map validation skipped; would write ${outTs} — no files written.`
-      : `dry-run: route map valid (${mapEntries} entries, no mapping findings); would write ${outTs} — no files written.`
-  );
-  process.exit(0);
-}
-
 let gaps;
 try {
   gaps = JSON.parse(await readFile(gapsPath, "utf8"));
@@ -68,6 +59,15 @@ try {
 
 const missing = gaps.missingInShadowApi ?? [];
 const output = renderSuggestedRoutesStub(missing);
+
+if (dryRun) {
+  console.log(
+    mapEntries === null
+      ? `dry-run: no route-map.json present, map validation skipped; would write ${outTs} — no files written.`
+      : `dry-run: route map valid (${mapEntries} entries, no mapping findings); would write ${outTs} — no files written.`
+  );
+  process.exit(0);
+}
 
 // Fresh checkout has no out/ dir yet — create it before the write below.
 await mkdir(join(__dirname, "out"), { recursive: true });

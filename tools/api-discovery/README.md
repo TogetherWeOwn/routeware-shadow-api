@@ -158,7 +158,11 @@ From the repo root:
 
 ```bash
 npm run discovery:validate
+npm run discovery:validate -- --json # JSON mode (npm also prints its command banners)
 ```
+
+Keep the `--` separator when forwarding flags through npm; without it, npm
+consumes `--json` instead of passing it to the validator.
 
 Or inside `tools/api-discovery`:
 
@@ -216,7 +220,10 @@ Checks and finding codes:
 | `cli.arguments` | `UNKNOWN_FLAG` | CLI-only: unknown flag or positional argument |
 
 `export-curl-examples.mjs` and `suggest-routes.mjs` accept `--dry-run`:
-validate the map, print the verdict, write nothing (exit 1 on findings).
+validate the map and fully prepare the artifact before printing the verdict,
+without writing files (exit 1 on findings or invalid inputs). The exporter
+resolves request bodies and checks filename collisions; the suggester reads
+`out/route-gaps.json` and renders the checklist, just as a real run would.
 `export-curl-examples.mjs` enforces the structural checks only (shape,
 duplicate upstream identities, conflicting shadow mappings): it renders
 non-executable documentation for any method/path, so method and path-shape
