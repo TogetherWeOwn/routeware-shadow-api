@@ -24,6 +24,8 @@
  * 5. README route location: the route-building guidance directs contributors
  *    to define `createRoute` handlers under `src/routes/*.ts` (mounted from
  *    `src/app.ts`), matching `deriveFromRepoSource`'s scan location.
+ * 6. Sibling suggest-routes dry-run: load gaps and render the stub before
+ *    success; input/render failures refuse without writes, just like real runs.
  *
  * Run: `node --test tools/api-discovery/discovery-cli-correctness.acceptance.test.mjs`
  * (also matched by `node --test tools/api-discovery/*.test.mjs`). The Builder
@@ -37,6 +39,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { validateRouteMap } from "./lib/routeMapValidation.mjs";
+import { renderSuggestedRoutesStub } from "./lib/stubNaming.mjs";
+import { EXPECTED_STUB_TEXT, ROUTE_GAPS } from "./downstream-fixtures.mjs";
 
 const toolsDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(toolsDir, "..", "..");
@@ -460,17 +464,18 @@ test("wrapper: root discovery:validate forwards CLI arguments to the nested scri
   );
 });
 
-test("wrapper: agent docs advertise --json for discovery:validate (control)", () => {
-  for (const file of [path.join(repoRoot, "README.md"), path.join(repoRoot, "docs", "CONVENTIONS.md")]) {
-    const text = fs.readFileSync(file, "utf8");
+for (const relative of ["README.md", "docs/CONVENTIONS.md"]) {
+  test(`wrapper: ${relative} advertises npm run discovery:validate -- --json (control)`, () => {
+    const text = fs.readFileSync(path.join(repoRoot, relative), "utf8");
     const row = text.split("\n").find((line) => line.includes("discovery:validate"));
-    assert.ok(row, `${path.relative(repoRoot, file)} must list npm run discovery:validate`);
+    assert.ok(row, `${relative} must list npm run discovery:validate`);
+    assert.ok(row.includes("--json"), `${relative} must advertise --json for discovery:validate: ${row}`);
     assert.ok(
-      row.includes("--json"),
-      `${path.relative(repoRoot, file)} must advertise --json for discovery:validate: ${row}`
+      row.includes("npm run discovery:validate -- --json"),
+      `${relative} must include the npm argument separator so --json reaches the CLI: ${row}`
     );
-  }
-});
+  });
+}
 
 function wrapperFixture(t) {
   const dir = fs.mkdtempSync(path.join(scratchRoot(), "discovery-cli-wrapper-"));
@@ -562,3 +567,82 @@ test("readme: the CLI scan location the wording must match is src/routes/*.ts (c
   );
   assert.match(cli, /createRoute/, "the scan must target createRoute definitions");
 });
+
+// --- section 6: suggest-routes dry-run (load and render before success) --------
+
+function suggestFixture(t, { map = WS_MAP, gaps = ROUTE_GAPS, existingStub = false } = {}) {
+  const dir = fs.mkdtempSync(path.join(scratchRoot(), "discovery-cli-suggest-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.copyFileSync(path.join(toolsDir, "suggest-routes.mjs"), path.join(dir, "suggest-routes.mjs"));
+  fs.cpSync(path.join(toolsDir, "lib"), path.join(dir, "lib"), { recursive: true });
+  if (map !== null) writeJson(path.join(dir, "route-map.json"), map);
+  if (gaps !== null || existingStub) fs.mkdirSync(path.join(dir, "out"));
+  if (gaps !== null) {
+    fs.writeFileSync(
+      path.join(dir, "out", "route-gaps.json"),
+      typeof gaps === "string" ? gaps : JSON.stringify(gaps)
+    );
+  }
+  if (existingStub) {
+    fs.writeFileSync(path.join(dir, "out", "suggested-routes.stub.ts"), "PREVIOUS STUB\n");
+    fs.writeFileSync(path.join(dir, "out", "keep.txt"), "UNRELATED ARTIFACT\n");
+  }
+  return dir;
+}
+
+const SUGGEST_RENDER_FAILURE = { missingInShadowApi: [null], staleInRouteMap: [] };
+const SUGGEST_SUCCESS = /route map valid|\b(?:would[\s-]+write|wrote|success(?:ful(?:ly)?)?)\b/i;
+
+for (const [label, gaps] of [
+  ["missing route-gaps.json", null],
+  ["malformed route-gaps.json", "{oops"],
+  ["a gap that throws during rendering", SUGGEST_RENDER_FAILURE],
+]) {
+  for (const existingStub of [false, true]) {
+    test(`suggest dry-run: ${label} refuses with ${existingStub ? "an existing" : "no"} stub (real-run parity)`, (t) => {
+      if (gaps === SUGGEST_RENDER_FAILURE) {
+        // Valid JSON, but not renderable: this reaches beyond JSON loading.
+        assert.throws(() => renderSuggestedRoutesStub(gaps.missingInShadowApi), TypeError);
+      }
+      const dir = suggestFixture(t, { gaps, existingStub });
+      const before = snapshot(dir);
+      const script = path.join(dir, "suggest-routes.mjs");
+      const real = runNode(script, [], dir);
+      assert.deepEqual(snapshot(dir), before, "a refused real run must leave the whole tree untouched");
+      assert.notEqual(real.status, 0, `real-run refusal control: ${real.output}`);
+      assert.doesNotMatch(real.output, SUGGEST_SUCCESS, "a refused real run must not announce success");
+
+      const dry = runNode(script, ["--dry-run"], dir);
+      assert.deepEqual(snapshot(dir), before, "a refused dry-run must neither create nor replace any artifact");
+      assert.notEqual(dry.status, 0, `--dry-run must refuse the same input as the real run: ${dry.output}`);
+      assert.equal(dry.status, real.status, "dry-run and real-run refusal exit codes must agree");
+      assert.doesNotMatch(dry.output, SUGGEST_SUCCESS, "no success/would-write verdict before loading and rendering");
+    });
+  }
+}
+
+for (const [label, map] of [["a valid map", WS_MAP], ["the optional map missing", null]]) {
+  for (const existingStub of [false, true]) {
+    test(`suggest dry-run: valid gaps with ${label} and ${existingStub ? "an existing" : "no"} stub (control)`, (t) => {
+      const dir = suggestFixture(t, { map, existingStub });
+      const before = snapshot(dir);
+      const script = path.join(dir, "suggest-routes.mjs");
+      const dry = runNode(script, ["--dry-run"], dir);
+      assert.equal(dry.status, 0, dry.output);
+      assert.match(dry.output, /dry-run/i, "successful dry-run must identify itself");
+      assert.deepEqual(snapshot(dir), before, "successful dry-run must leave every byte and mtime untouched");
+
+      const real = runNode(script, [], dir);
+      assert.equal(real.status, 0, real.output);
+      assert.equal(
+        fs.readFileSync(path.join(dir, "out", "suggested-routes.stub.ts"), "utf8"),
+        EXPECTED_STUB_TEXT,
+        "the real-run artifact must retain the byte-exact synthetic checklist"
+      );
+      const withoutStub = (files) => Object.fromEntries(
+        Object.entries(files).filter(([name]) => name !== "out" && name !== "out/suggested-routes.stub.ts")
+      );
+      assert.deepEqual(withoutStub(snapshot(dir)), withoutStub(before), "real-run changes only the stub artifact");
+    });
+  }
+}
