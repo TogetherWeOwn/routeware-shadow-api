@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #349: Every save-path error line in the customer, address and container
+  flows now carries the once-per-request `requestId` adopted from inbound
+  `X-Request-Id` or minted as a UUID (#338): data-tier local-sync and
+  fallback-eviction failures, routeware refresh and invalidation failures,
+  and save token-preparation failures. One header value joins a save attempt
+  to its server-side failure lines and outcome code. Route-level response
+  bodies are unchanged (header correlation only); valid saves emit no new
+  lines. See `docs/LOGGING.md`.
+
 - #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
   requested `.customer`, `.address` or `.container` root is projected, always
