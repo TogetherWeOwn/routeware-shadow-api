@@ -130,6 +130,8 @@ function appEnv(): Env {
 async function request(path: string, headers: HeadersInit = {}): Promise<Response> {
   const pending: Promise<unknown>[] = [];
   const h = new Headers({ origin: ORIGIN });
+  // Keep full cold/warm header comparisons strict despite per-request ID stamping.
+  h.set("x-request-id", "synthetic-hydrated-fields-request");
   h.set("authorization", `Bearer ${SECRET}`);
   new Headers(headers).forEach((value, key) => h.set(key, value));
   const response = await app.fetch(new Request(`https://synthetic.example.test${path}`, { headers: h }), appEnv(), {
