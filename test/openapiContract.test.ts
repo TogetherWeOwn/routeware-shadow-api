@@ -347,9 +347,9 @@ describe("published OpenAPI document", () => {
 
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
-    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "id"]);
-    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["id", "pickupAddressId"]);
-    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "id"]);
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id"]);
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "pickupAddressId"]);
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id"]);
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {
