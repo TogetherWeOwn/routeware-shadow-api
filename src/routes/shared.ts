@@ -147,6 +147,80 @@ export function isDryRunRequested(query: { dryRun?: string }): boolean {
 }
 
 /**
+ * Declared query keys for the three hydrated single-entity GETs
+ * (`GET /api/v1/data/customer|address|container`): `id`, the route's alias,
+ * and the optional `fields` sparse-fieldset selector. Single source of truth
+ * for the strict-query guard below — route handlers pass one of these, never
+ * an inline list. Additive keys owned by unmerged cards (`ids`, typed
+ * `fields[type]`) join the matching list when they merge.
+ */
+export const DATA_CUSTOMER_QUERY_KEYS = ["id", "customerId", "fields"] as const;
+export const DATA_ADDRESS_QUERY_KEYS = [
+  "id",
+  "pickupAddressId",
+  "fields"
+] as const;
+export const DATA_CONTAINER_QUERY_KEYS = [
+  "id",
+  "containerId",
+  "fields"
+] as const;
+
+/**
+ * Strict unknown-key guard for the three hydrated entity GETs. Returns a
+ * 400 `bad-request` problem+json response to return as-is, or `null` when
+ * every submitted query key is in `allowed`.
+ *
+ * Call this in the handler immediately after the snapshot-auth gate and
+ * before any other check or work, so a mistyped `?field=` fails loudly
+ * instead of stripping to a full PII bundle. Placement is load-bearing: the
+ * zod validator still owns known-key VALUES (an invalid `?fields=bogus`
+ * 400s before the handler's inner auth check), while unknown KEYS are
+ * checked here, after auth — a bad bearer with a typo'd key keeps the
+ * sync-secret 401. Repeated known keys likewise keep failing in the
+ * validator's string schema before this runs.
+ *
+ * Raw `searchParams` keys are enumerated, not `c.req.query()`: Hono drops
+ * empty-string names, so `?=x` would slip past a `c.req.query()`-based
+ * helper while the contract demands a 400. A trailing bare `&` carries no
+ * key and stays 200.
+ *
+ * The 400 is fixed guidance naming only the `allowed` keys, never the
+ * submitted names or values: unknown key bytes can carry PII probes, so they
+ * must not echo — which is also why this does not route through
+ * `validationFailureHook` (the hook forwards rejected field paths, safe only
+ * for allowlisted schema keys). Same `bad-request` type, title, status and
+ * `docs/PROBLEMS.md#bad-request` anchor as validator rejections, with a
+ * pathname-only instance (query stripped). Wording converges with R20-04's
+ * mutating-POST guard so the two merge cleanly.
+ */
+export function rejectUnknownDataEntityQuery(
+  c: { req: { url: string }; env?: Env },
+  allowed: readonly string[]
+): Response | null {
+  const keys = new Set(new URL(c.req.url).searchParams.keys());
+  let unknown = false;
+  for (const key of keys) {
+    if (!allowed.includes(key)) {
+      unknown = true;
+      break;
+    }
+  }
+  if (!unknown) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail:
+      `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
+      "See docs/PROBLEMS.md#bad-request.",
+    instance: new URL(c.req.url).pathname
+  });
+}
+
+/**
  * Map a dangling-FK snapshot failure to 400 `bad-request` problem+json, or
  * `null` when the error is not an FK violation. Lists up to 20 missing integer
  * keys, then `+N more` — integer keys only, no PII, no secrets.
