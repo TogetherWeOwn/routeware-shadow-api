@@ -17,6 +17,33 @@ This note records where freshness comes from and how to tune it.
   `invalidateCustomerGraph` (or the single-entity fallback), so the TTL only
   bounds how long an **unwritten** entry stays warm.
 
+## Sparse representations
+
+Single-ID hydrated reads accept `fields` for only the requested root object:
+`.customer`, `.address` or `.container`, always retaining its primary ID. Other
+bundle members remain unchanged. For example, the synthetic request
+`/api/v1/data/address?id=10&fields=city` retains `pickup_address_id` and `city`
+in `.address`, but still returns the full `.customer` and `.containers`.
+
+The canonical cache key and stored full body are unchanged. A selected read
+uses the warm full body or ordinary full D1 hydration on a miss, then projects
+without mutating the canonical bundle. A cold read may populate only the full
+canonical response; selected bodies are never cached there. There is no
+second cache and no reduction in cold D1 query work.
+
+`ETag` and the 200's `X-Entity-ETag` hash exactly the served projected bundle
+bytes. The full representation's early conditional shortcut is not used for
+selected reads: only the projected hash can produce an empty-body 304. Store
+validators per request URL/selector, including for alternating selections.
+After ordinary expiry/invalidation, a selected-out root change need not alter
+the projected hash, but selected values and related bundle changes do. Every
+selected 200/304 keeps the same `private, max-age=60` policy. Omitting `fields`
+keeps the existing full response, validators and cache path unchanged.
+
+Strict selector validation occurs after authorization and before any cache
+lookup or D1 read, including requests with a matching full validator. Invalid
+selectors cannot return a cached full body or 304.
+
 ## Tuning
 
 - **Lower the TTL** (e.g. 30 s) if clients report seeing pre-write data after a

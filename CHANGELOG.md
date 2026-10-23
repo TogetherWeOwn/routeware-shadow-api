@@ -5,13 +5,25 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Follow-up to #333: mounted OpenAPI `fields` string schemas on the six flat snapshot list/by-id
-  reads now publish `x-snapshot-fieldset` v1: registry-derived selectable names,
-  mandatory identity, delimiter and strict parser rules. Agents can choose valid
-  selectors without reading records or making invalid trial requests. Projection,
-  omission and auth behavior are unchanged; unsupported routes gain no parameter.
+- Follow-up to #333 and #342: mounted OpenAPI `fields` string schemas on the
+  six flat snapshot list/by-id reads and three hydrated single-ID reads now
+  publish `x-snapshot-fieldset` v1: registry-derived selectable names, mandatory
+  identity, delimiter and strict parser rules. Agents can choose valid selectors
+  without reading records or making invalid trial requests. Projection, omission
+  and auth behavior are unchanged; unsupported routes gain no parameter.
   See `docs/CONSUMER-QUICKSTART.md` and the credential-free
   `npm run check:snapshot-fieldset-discovery` check.
+
+- #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
+  strict `fields=` selectors from the shared snapshot allowlists. Only the
+  requested `.customer`, `.address` or `.container` root is projected, always
+  retaining its primary ID; related bundle data is unchanged. Omitted fields
+  preserves full-read behavior. Invalid selectors are value-free 400s before
+  cache/D1 access, with existing auth precedence. Projected ETags hash served
+  bytes and support empty-body 304s without reusing full-only validators or
+  overwriting the canonical full cache. No batch IDs, nested selectors, SQL
+  optimization or TTL changes. Synthetic examples and validator guidance:
+  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
 
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
