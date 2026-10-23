@@ -51,6 +51,7 @@ function capture(input, init, origin) {
   const request = new Request(input, init);
   const url = new URL(request.url);
   assert.equal(request.method, "GET", "recipe must not mutate data");
+  assert.equal(request.redirect, "error", "recipe must refuse redirects before forwarding authorization");
   if (origin) {
     assert.equal(url.origin, origin, "recipe must stay on its starting synthetic origin");
   } else {
@@ -94,6 +95,54 @@ test("published recipe follows encoded server targets verbatim and stops on Link
   });
   assert.equal(seen.length, 3);
 });
+
+test("published recipe refuses a synthetic redirect before fetching or consuming its target page", async () => {
+  const seen = [];
+  const redirectedPage = listResponse(2);
+  const refusal = new TypeError("synthetic fetch refused redirect");
+  await assert.rejects(execute(async (input, init) => {
+    const request = new Request(input, init);
+    seen.push(request.url);
+    assert.equal(seen.length, 1, "redirect refusal must stop without another recipe fetch");
+    const redirect = Response.redirect(new URL("?cursor=2", request.url), 302);
+    // Model fetch's redirect handling without a network. Following would fetch
+    // and return the target page; manual mode would expose the 302 instead.
+    if (request.redirect === "error") throw refusal;
+    if (request.redirect === "follow") {
+      seen.push(redirect.headers.get("location"));
+      return redirectedPage;
+    }
+    return redirect;
+  }), (error) => {
+    assert.equal(error, refusal, "recipe must propagate the fetch redirect refusal, not another error");
+    return true;
+  });
+  assert.equal(seen.length, 1, "must not fetch the redirect target");
+  assert.equal(redirectedPage.bodyUsed, false, "must not consume the redirect target page");
+});
+
+for (const status of [401, 500]) {
+  test(`published recipe rejects HTTP ${status} before consuming a problem response or following its Link`, async () => {
+    const response = new Response(JSON.stringify({
+      type: "about:blank", title: status === 401 ? "Unauthorized" : "Internal Server Error", status
+    }), {
+      status,
+      headers: {
+        "content-type": "application/problem+json",
+        Link: '</api/v1/customer-snapshot?cursor=2>; rel="next"'
+      }
+    });
+    let calls = 0;
+    await assert.rejects(execute(async (input, init) => {
+      calls++;
+      capture(input, init);
+      assert.equal(calls, 1, "HTTP failure must stop without fetching the advertised continuation");
+      return response;
+    }), { name: "Error", message: `Snapshot read failed: ${status}` });
+    assert.equal(response.bodyUsed, false, "HTTP failure must reject before reading the problem body as a page");
+    assert.equal(calls, 1, "must not follow Link after HTTP failure");
+  });
+}
 
 for (const target of ["https://foreign.test.invalid/steal", "//foreign.test.invalid/steal"]) {
   test(`published recipe rejects a cross-origin next target before forwarding authorization: ${target}`, async () => {
