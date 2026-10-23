@@ -49,7 +49,7 @@ it("keeps an unclassified partial-progress cause behind the exact generic 500 re
       method: "POST",
       headers: { authorization: `Bearer ${secret}` }
     }),
-    { ...env, CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } as Env,
+    { ...env, CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } as unknown as Env,
     ctx
   );
   const raw = await res.text();
