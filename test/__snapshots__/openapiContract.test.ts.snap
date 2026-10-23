@@ -633,6 +633,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -670,7 +681,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -879,6 +890,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -911,7 +933,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
@@ -1043,6 +1065,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1093,7 +1126,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -1302,6 +1335,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1347,7 +1391,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
@@ -1455,6 +1499,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1490,7 +1545,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",
@@ -1842,6 +1897,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1872,7 +1938,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid customer id (application/problem+json)",
+            "description": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
