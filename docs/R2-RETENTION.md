@@ -32,7 +32,11 @@ they serve the last successfully copied CSV for that date. The date verifier
 (`npm run verify:r2-manifest`) still verifies the mutable daily aliases. To
 verify a historical run, read its per-run manifest and compare the referenced object's
 SHA-256 and byte length. To select latest, read the per-table pointer and then
-its referenced object; no bucket listing is needed.
+its referenced object; no bucket listing is needed. That is what
+`GET /api/v1/snapshots/{table}/latest` serves over HTTP: the sync-secret gate,
+then the referenced history CSV through the same spreadsheet-safe re-encode as
+the date endpoint (table-only 404 when the pointer or CSV is missing, fixed
+sanitized 500 when the pointer is unreadable).
 
 A D1 failure writes no R2 objects. An R2 failure never undoes successful D1
 work. The archive outcome is `failed` if either CSV copy (history or date
@@ -130,9 +134,9 @@ imports again. No operation here deletes upstream data or decides a legal
 retention period for the marker.
 
 It does not remove R2 history CSVs, daily aliases, latest pointers, or the
-archived-CSV readback. Those copies keep serving through the existing date read
-endpoint and restore path until a separately approved retention rule removes
-them. Other edge locations and clients may keep serving the erased PII until the
+archived-CSV readback. Those copies keep serving through the existing date and
+latest read endpoints and restore path until a separately approved retention
+rule removes them. Other edge locations and clients may keep serving the erased PII until the
 60 s cache TTL expires. A CSV/R2 import into a database with the
 suppression schema skips tombstoned customer rows and their descendant address
 and container rows. Restoring a D1 backup from
