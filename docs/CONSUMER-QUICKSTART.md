@@ -157,6 +157,42 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Conditional JSON page reads (bandwidth only)
+
+The three ordinary snapshot list GETs return an `ETag`: quoted SHA-256 of
+exactly the served UTF-8 JSON envelope, **after** field projection, including
+`rows`, `total` and `nextCursor`. An authorized agent can send that quoted
+value in `If-None-Match`. An unchanged representation returns **304 with no
+body** and the same ETag; a nonmatch returns the current **200 JSON** and its
+ETag. Weak tags (`W/"…"`), comma-separated tag lists and standalone `*` work;
+unquoted hashes, lowercase `w/` prefixes and other malformed lists do not
+match. A quoted `"*"` is an ordinary opaque tag, not a wildcard.
+
+This saves **response bytes only, not D1 queries**: authentication, query
+validation and the usual D1 work still run on every request (two statements
+for counted pages, one with `includeTotal=false`). Auth/validation/D1 errors
+cannot turn into 304. `Cache-Control: no-store` is unchanged; this is **not a
+cache hit**, shared-cache permission or a TTL change. No response cache or
+persisted validator is added. CORS still exposes ETag and request IDs.
+Changing a selected value, total or nextCursor changes the tag; changing
+only selected-out values does not. Different requests serving identical
+bytes may share a tag. Detail, changes, CSV and hydrated-read contracts are
+unchanged.
+
+Synthetic, credential-free recipe (no running Worker or live tenant):
+
+```bash
+npx vitest run --maxWorkers=2 test/snapshotListConditional.acceptance.test.ts
+```
+
+The hermetic fixture calls the real app with local test D1 and makes any
+outbound fetch fail. For each resource it requests a projected page, computes
+the expected SHA-256 from the first 200's actual bytes, repeats the request
+with that ETag and checks a genuinely empty 304, then changes a selected
+synthetic value and checks a fresh 200. It also asserts identical executed
+SQL/binds on the 200/304 pair and preserved no-store/CORS/request-ID headers.
+These are synthetic regression results, not deployed performance measurements.
+
 Single rows (same 404 `not-found` shape when the id is not in D1):
 
 ```bash

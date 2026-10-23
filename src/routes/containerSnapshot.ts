@@ -3,6 +3,12 @@ import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
+  snapshotListConditionalHeaders,
+  snapshotListEtagHeaders,
+  snapshotListNotModifiedResponse,
+  snapshotListJsonResponse
+} from "../lib/snapshotListConditional";
+import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
 } from "../lib/d1SnapshotSync";
@@ -52,6 +58,7 @@ const containerSnapshotListRoute = createRoute({
   description:
     "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
+    headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
@@ -80,6 +87,7 @@ const containerSnapshotListRoute = createRoute({
   responses: {
     200: {
       description: "Rows and total",
+      headers: snapshotListEtagHeaders,
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -87,6 +95,7 @@ const containerSnapshotListRoute = createRoute({
         }
       }
     },
+    304: snapshotListNotModifiedResponse,
     400: {
       description:
         "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
@@ -174,7 +183,7 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("container", row as Record<string, unknown>, fields)
         );
-  return c.json({ rows: out, total, nextCursor });
+  return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
 
 const containerSnapshotExportRoute = createRoute({

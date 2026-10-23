@@ -24,7 +24,7 @@ const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
 const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type, X-Request-Id";
 // Allowlist for `Access-Control-Allow-Headers`: the API only
 // reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
-// `If-None-Match` (conditional GETs on the data-entity ETag cache) and
+// `If-None-Match` (conditional GETs on JSON lists, data entities and CSV) and
 // `X-Request-Id` (request correlation). Anything
 // else the browser asks for is dropped instead of reflected.
 const ALLOWED_REQUEST_HEADERS = [
@@ -131,8 +131,8 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   const clean = origin?.trim();
   headers.set("Access-Control-Allow-Origin", clean ? clean : "*");
   appendVary(headers, "Origin");
-  // The data-entity GETs version with ETag; expose it so browser clients can
-  // do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
+  // JSON lists, data entities and CSV reads version with ETag; expose it so
+  // browser clients can do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
   // can honor the auth-throttle 429 backoff; RateLimit/RateLimit-Policy are
   // the standard equivalents stamped on that same 429 (Retry-After is also on
   // the upstream-timeout backstop 502). Content-Disposition is

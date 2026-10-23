@@ -11,6 +11,7 @@ import {
   sha256Etag
 } from "./entityDataCache";
 import { problemJsonResponse, problemType } from "./problem";
+import { matchesIfNoneMatch as matchesConditional } from "./conditionalRequest";
 
 export type DataEntityCtx = {
   env: Env;
@@ -22,28 +23,10 @@ function etagHeader(etag: string): string {
   return `"${etag}"`;
 }
 
-/** Strip an optional weak-validator prefix and surrounding quotes from an ETag token. */
-function normalizeEtagToken(token: string): string {
-  return token
-    .trim()
-    .replace(/^W\//i, "")
-    .replace(/^"(.*)"$/, "$1");
-}
-
-/**
- * RFC 7232 If-None-Match: a comma-separated list of ETag tokens, or `*`.
- * Compares parsed tokens exactly rather than substring-matching, which could
- * otherwise produce false 304s.
- */
+// Preserve this surface's existing permissive token syntax; ordinary JSON
+// lists use the shared helper's strict quoted-token default instead.
 function matchesIfNoneMatch(h: string | undefined, etag: string): boolean {
-  if (!h) {
-    return false;
-  }
-  const want = normalizeEtagToken(etag);
-  return h
-    .split(",")
-    .map(normalizeEtagToken)
-    .some((token) => token === "*" || token === want);
+  return matchesConditional(h, etag, "legacy");
 }
 
 export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number): Promise<Response> {
