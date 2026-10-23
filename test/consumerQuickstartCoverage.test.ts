@@ -15,7 +15,9 @@ import quickstart from "../docs/CONSUMER-QUICKSTART.md?raw";
  * replaced by a concrete segment (e.g. `/api/v1/customer-snapshot/42` covers
  * `/api/v1/customer-snapshot/{customerId}`), bounded so a longer path never
  * covers its prefix (`/changes` does not cover the bare list). Snapshot by-ID
- * params require numeric examples so `/export` cannot count as an ID read.
+ * params require whole numeric segments so `/export` or `/42.5` cannot count
+ * as an ID read. Template braces never count as concrete parameter values;
+ * paths must end at a URL/Markdown delimiter, not just a valid-looking prefix.
  *
  * The two recipes this card adds (the customer `changes` feed and the R2
  * snapshot archive) are pinned as referenced, so they cannot be satisfied by
@@ -72,11 +74,11 @@ function isReferenced(key: string, doc = quickstart): boolean {
         return "[1-9][0-9]*";
       }
       return /^\{[^}]+\}$/.test(part)
-        ? "[^/?#\\s\"'`)\\]]+"
+        ? "[^/?#\\s\"'`)\\]{}]+"
         : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     })
     .join("");
-  return new RegExp(`${pattern}(?![A-Za-z0-9_\\-/])`).test(doc);
+  return new RegExp(`${pattern}(?=$|[?#\\s\"'\`)\\]])`).test(doc);
 }
 
 /** Lines of the `## ` section starting at `marker`, excluding the next section. */
@@ -97,10 +99,43 @@ describe("consumer quickstart GET coverage", () => {
     const path = `/api/v1/${route}`;
     const key = `GET ${path}/{${param}}`;
 
-    expect(isReferenced(key, `${path}/export`)).toBe(false);
-    expect(isReferenced(key, `${path}/42abc`)).toBe(false);
-    expect(isReferenced(key, `${path}/42`)).toBe(true);
-    expect(isReferenced(key, `${path}/42?fields=id`)).toBe(true);
+    for (const id of ["export", "42abc", "42.5", "42%2Fexport", "42:5", "42/export", "0", "042"]) {
+      expect(isReferenced(key, `${path}/${id}`), id).toBe(false);
+    }
+    for (const ending of ["", "?fields=id", "#example", " ", "\n", '"', "'", "`", ")", "]"]) {
+      expect(isReferenced(key, `${path}/42${ending}`), JSON.stringify(ending)).toBe(true);
+    }
+  });
+
+  it("requires concrete archive parameter segments", () => {
+    const key = "GET /api/v1/snapshots/{table}/{date}";
+
+    for (const path of [
+      "/api/v1/snapshots/{table}/{date}",
+      "/api/v1/snapshots/{table}/2026-01-01",
+      "/api/v1/snapshots/customer/{date}"
+    ]) {
+      expect(isReferenced(key, path), path).toBe(false);
+    }
+    expect(isReferenced(key, "/api/v1/snapshots/customer/2026-01-01")).toBe(true);
+  });
+
+  it("detects archive drift when only template references remain in the document", async () => {
+    const templateOnlyDoc = quickstart.replaceAll(
+      /\/api\/v1\/snapshots\/(?:customer|address|container)\/\d{4}-\d{2}-\d{2}/g,
+      "/api/v1/snapshots/{table}/{date}"
+    );
+    expect(templateOnlyDoc).not.toBe(quickstart);
+    expect(templateOnlyDoc).toContain("GET /api/v1/snapshots/{table}/{date}");
+
+    const archive = (await registryGetPaths()).filter((key) =>
+      key.startsWith("GET /api/v1/snapshots/")
+    );
+    expect(archive.length).toBeGreaterThan(0);
+    for (const key of archive) {
+      expect(isReferenced(key)).toBe(true);
+      expect(isReferenced(key, templateOnlyDoc), key).toBe(false);
+    }
   });
 
   it("references or allowlists every registry GET", async () => {
