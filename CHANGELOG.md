@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
+  bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
+  plan checks stay unresolved; valid plans are not health evidence. Only explicit
+  boolean `checks.cron.stale` is fresh/stale; malformed present cron fails closed,
+  while absent legacy cron remains advisory. No raw body/error/cron metadata is
+  printed. Redirects are refused and no retries are added. Output is bounded,
+  not response-body buffering. Existing scheduled-target and missing-token gates
+  remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
 - #344: Snapshot customer, address and container lists accept exact `order=asc|desc`
   (default `asc`). `desc` starts at the highest primary ID and seeks below
   `cursor`; IDs do not promise chronological recency. Direction composes with
