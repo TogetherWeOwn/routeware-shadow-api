@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   runAddressSnapshotSync,
@@ -65,6 +66,7 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Last pickup_address_id from the previous page's nextCursor; takes precedence over offset")
         .openapi({ example: 9 }),
+      upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
         .optional()
@@ -119,6 +121,13 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push("pickup_address_id > ?");
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive ceiling: a fixed primary-key bound shared with the
+  // COUNT below through the same where/binds. A cursor at or above the cap
+  // simply matches nothing — an empty page, not a validation error.
+  if (p.upperId !== undefined) {
+    where.push("pickup_address_id <= ?");
+    binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
   // Count-free page: zero COUNT statements. `total: null` means the count was

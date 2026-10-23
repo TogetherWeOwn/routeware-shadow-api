@@ -11,9 +11,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -60,6 +60,51 @@ GET /api/v1/customer-snapshot?fields=company_name,phone1&limit=1
 Run `npx vitest run test/sparseFieldsets.acceptance.test.ts` for the
 focused valid-selection, rejection, pagination-composition and ETag
 regressions. No live replay.
+
+## Caller-held upper bound (`upperId=`)
+
+The three ordinary lists accept an optional `upperId=` inclusive ceiling:
+only rows whose resource primary key (`customer_id`, `pickup_address_id`,
+`container_id`) is at or below the cap are listed and counted. The caller
+supplies the cap explicitly and retains it unchanged across pages, so
+higher-ID arrivals after the first page cannot extend the traversal beyond
+its chosen scope. A forward cursor at or above the cap yields an empty page,
+not a validation error; totals keep existing cursor-relative semantics.
+
+The cap composes with every existing singular/relationship filter, `q`,
+`enabled`, sparse `fields=`, offset or cursor pagination and
+`includeTotal=false`: the bound `<= ?` predicate is in both the page
+`SELECT` and the `COUNT`, with no `MAX` query, migration or index. Unknown
+parameter names stay ignored, and omission preserves existing behavior.
+
+Validation is strict and shared (`src/lib/snapshotUpperId.ts`): one
+canonical unpadded ASCII decimal integer from `1` to `9007199254740991` —
+no signs, whitespace, fractions, exponents or prefixes, and a single
+`upperId` key. Anything else (including an empty value or a repeated key,
+even percent-encoded) is the existing value-free 400 naming `upperId`
+before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#bad-request).
+
+Numeric IDs are not timestamps: inserts below the ceiling, updates and
+deletions remain visible within the chosen scope. The bound promises
+neither snapshot isolation, exact-once delivery nor automatic watermark
+discovery. Synthetic resume with an explicitly supplied cap:
+
+```text
+GET /api/v1/customer-snapshot?upperId=6&limit=2
+
+{"rows":[{"customer_id":2,...},{"customer_id":4,...}],"total":3,"nextCursor":4}
+
+# customer_id=10 arrives here; the caller resumes with the same cap:
+
+GET /api/v1/customer-snapshot?upperId=6&cursor=4&limit=2
+
+{"rows":[{"customer_id":6,...}],"total":1,"nextCursor":null}
+```
+
+Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
+validation, resume, composition, discovery and header regressions. No live
+replay.
 
 ## Customer changes cursor validation
 

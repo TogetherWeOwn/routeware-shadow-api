@@ -18,6 +18,7 @@
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:openapi-agent-metadata": "vitest run test/openapiAgentMetadata.test.ts",
     "check:customer-changes-cursor": "vitest run test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts",
+    "check:snapshot-upper-id": "vitest run test/snapshotUpperId.acceptance.test.ts",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:coverage-ratchet": "node scripts/check-coverage-ratchet.mjs",
     "check:per-file-coverage": "node scripts/check-per-file-coverage.mjs",

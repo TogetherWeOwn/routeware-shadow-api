@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   runContainerSnapshotSync,
@@ -66,6 +67,7 @@ const containerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last container_id from the previous page's nextCursor; takes precedence over offset")
         .openapi({ example: 99 }),
+      upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
         .optional()
@@ -131,6 +133,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push("c.container_id > ?");
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive ceiling on the container primary key (never the
+  // joined address key): a fixed bound shared with the COUNT below through
+  // the same where/binds. A cursor at or above the cap simply matches
+  // nothing — an empty page, not a validation error.
+  if (p.upperId !== undefined) {
+    where.push("c.container_id <= ?");
+    binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
   // Count-free page: zero COUNT statements. `total: null` means the count was
