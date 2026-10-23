@@ -120,17 +120,22 @@ gap O4) asserts cron freshness automatically: probe 3b reads
 verdict is stale, i.e. no cron run recorded within the server-side 48h threshold
 (`CRON_STALE_AFTER_MS` in `src/lib/readiness.ts` — the probe never re-implements the
 threshold, so probe and server cannot drift). The cron fires at 07:00 UTC, so the probe
-runs after it settles; a red job means two consecutive cron misses. Triage a red job
-with §1–§3 and the step-tag table below — start at this runbook's §1, not at the
-probe script. Probe output names the stale timestamp (`FAIL cron freshness -> STALE
-lastRunAt=…`) and points back here.
+runs after it settles. A red job alone is **not evidence of missed cron runs**:
+first distinguish target configuration, connectivity, authorization, readiness
+shape and dependency failures from the explicit server `stale: true` verdict.
+Triage a stale verdict with §1–§3 and the step-tag table below. Probe output uses
+fixed `FAIL cron freshness -> STALE` guidance, not raw timestamps or cron detail.
+Only boolean `stale: false` is fresh; `true` is stale. Present malformed cron
+metadata (including null, arrays, missing/non-boolean stale) fails as
+`malformed_readiness`, never fresh. Genuinely absent legacy cron is advisory.
+The CLI does not infer staleness from timestamps, even old or future ones.
 
 Schedule note: the probe needs a bearer (`SHADOW_API_TOKEN` secret) to reach
 readiness; in skip-safe mode without one the authed probes SKIP and cron freshness
-is unchecked — a SKIP-only scheduled run is a monitoring gap, not a pass. Ping the
-authored fixture check before trusting green: point the probe at a readiness body
-with a >48h-old cron timestamp and confirm it exits 1 (`test/postDeployProbe.test.ts`
-pins the verdict mapping; the `evalCronFreshness` unit tests are the runnable spec).
+is unchecked — a SKIP-only scheduled run is a monitoring gap, not a pass. Verify
+using the hermetic checks in [SCHEDULED-PROBE.md](SCHEDULED-PROBE.md): fixtures
+supply explicit stale/fresh booleans and malformed metadata without any live call.
+`test/postDeployProbe.test.ts` pins the shared verdict mapping.
 
 Until a log-based alerting tier exists, the manual fallback is this loop, run once daily after
 07:30 UTC by whoever holds the deploy token (or any existing scheduled runner):
@@ -172,6 +177,9 @@ failed table's invocation and persisted state **before** deciding to resubmit; a
 cancellation request is not a rollback. The combined HTTP route's normal
 `{upserted,rowCount}|null` contract, dry-run forwarding and correlation IDs remain
 unchanged. Optional `deleted` is validated like required counts unless skipped.
+The combined route additionally offers an opt-in `?partialProgress=true` 500
+envelope with per-table counts and the fixed `{table, code[, status]}` failure
+from the table above (default shapes unchanged; see `CUSTOMER_SNAPSHOT.md`).
 
 Wire R2 metadata keeps `stored|disabled|failed`, never arbitrary properties,
 nested data, keys or free text. Disabled reasons are exactly `SNAPSHOTS binding
@@ -184,7 +192,7 @@ is for HTTP wire results; local single-invocation driver reporting is unchanged.
 Hermetic focused check (synthetic streams, deny-by-default fetch; no live sync/replay):
 
 ```sh
-CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
+CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/combinedSyncPartialProgress.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
 ```
 
 ## 5. Local missed-run drill (no deploy, no token, no tenant)

@@ -16,6 +16,87 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ordering and single-GET ETag/304 are unchanged. Documented in
   `docs/CONSUMER-QUICKSTART.md` and `docs/PROBLEMS.md`; pinned by
   `test/batchHydratedReadIds.acceptance.test.ts`.
+- #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
+  bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
+  plan checks stay unresolved; valid plans are not health evidence. Only explicit
+  boolean `checks.cron.stale` is fresh/stale; malformed present cron fails closed,
+  while absent legacy cron remains advisory. No raw body/error/cron metadata is
+  printed. Redirects are refused and no retries are added. Output is bounded,
+  not response-body buffering. Existing scheduled-target and missing-token gates
+  remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+
+- #343: Snapshot customer/address/container lists now return optional
+  `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
+  preserve allowlisted filters, explicit fields, effective limit and
+  `includeTotal=false`, replacing cursor and dropping offset. No JSON or SQL
+  changes; a full terminal page may link to an empty page. CORS exposes Link;
+  OpenAPI and the same-origin follow-next quickstart document it.
+
+- #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
+  strict `fields=` selectors from the shared snapshot allowlists. Only the
+  requested `.customer`, `.address` or `.container` root is projected, always
+  retaining its primary ID; related bundle data is unchanged. Omitted fields
+  preserves full-read behavior. Invalid selectors are value-free 400s before
+  cache/D1 access, with existing auth precedence. Projected ETags hash served
+  bytes and support empty-body 304s without reusing full-only validators or
+  overwriting the canonical full cache. No batch IDs, nested selectors, SQL
+  optimization or TTL changes. Synthetic examples and validator guidance:
+  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
+
+- #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
+  1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
+  without rejecting the request. Gate, notFound and onError problem bodies and
+  onError logs carry the same `requestId`; route-level problem bodies are
+  unchanged. CORS allows and exposes the header for retry correlation, not
+  idempotency. IDs are not propagated upstream. See `docs/CONSUMER-QUICKSTART.md`
+  and `docs/LOGGING.md`.
+
+- #334: `POST /api/v1/data-snapshot/sync` accepts `?partialProgress=true` to
+  opt into sanitized partial progress on a table-step failure: HTTP 500
+  `application/json` `{customer, address, container, failure}` with per-table
+  `{upserted, rowCount}` (completed) or `null` and fixed `{table, code}` plus
+  the numeric `status` only for `ChainedHttpError`. `code` is one of the six
+  runbook §4.1 classifications, never upstream text; no `deleted`, `r2`, or
+  row data travels. Absent or `false` keeps the generic shapes byte-for-byte;
+  any other value is a value-free 400 before any table runs. Success is
+  identical with or without the flag. See `CUSTOMER_SNAPSHOT.md`.
+
+- #337: Auth-throttle 429s now carry standard `RateLimit`
+  (`"auth-burst";r=0;t=<retryAfterSec>`) and `RateLimit-Policy`
+  (`"auth-burst";q=19;w=60`) fields alongside the byte-identical `Retry-After` /
+  `X-RateLimit-*` headers, and the upstream-timeout backstop 502 carries a fixed
+  `Retry-After: 5`. CORS exposes the new fields. No other status gains `Retry-After`.
+
+- Consumer quickstart now documents the customer `changes` feed
+  (`GET /api/v1/customer-snapshot/changes`: composite `since` + `since_id`
+  cursor, lossless millisecond precision, upserts-only boundary) and the R2
+  snapshot archive readback (`GET /api/v1/snapshots/{table}/{date}`:
+  sync-secret gate, 404-vs-absent, ETag/304), plus address/container by-id
+  reads. A new `test/consumerQuickstartCoverage.test.ts` ratchet fails when a
+  registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
+  named in its reasoned allowlist (routeware passthroughs, orphan audit).
+  No Worker behavior change.
+
+## [1.0.0] - 2026-10-22
+
+Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
+health, Routeware account/customer/report proxies, customer/address/container
+snapshots with sync and import, data-entity reads and writes, and the
+versioned OpenAPI document at `GET /openapi.json`.
+
+- `openapi.json` `info.version` is now wired to
+  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
+  `1.0.0`, so consumers can tell releases apart. Added
+  `docs/VERSIONING.md` (bump policy) and this changelog.
+
+- #333: the customer/address/container snapshot lists and by-id reads accept
+  an optional `fields=` sparse-fieldset selector. Response objects contain
+  exactly the requested allowlisted columns plus the resource id, which is
+  always present even when omitted. Unknown, empty and duplicate names are a
+  value-free 400 before any D1 work. Auth ordering, ETags, pagination
+  envelopes and the hydrated/export/changes reads are unchanged. Documented
+  in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; pinned by
+  `test/sparseFieldsets.acceptance.test.ts`.
 - #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
   15 seconds, while retaining its non-sliding 20-second single-flight cache.
   Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
@@ -317,15 +398,3 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - OpenAPI now includes synthetic request and response examples for
   snapshot, data-entity, and general Routeware operations. Proxy bodies remain
   unvalidated and existing runtime schemas are unchanged.
-
-## [1.0.0] - 2026-09-27
-
-Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
-health, Routeware account/customer/report proxies, customer/address/container
-snapshots with sync and import, data-entity reads and writes, and the
-versioned OpenAPI document at `GET /openapi.json`.
-
-- `openapi.json` `info.version` is now wired to
-  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
-  `1.0.0`, so consumers can tell releases apart. Added
-  `docs/VERSIONING.md` (bump policy) and this changelog.

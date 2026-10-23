@@ -157,12 +157,64 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
-Single rows:
+### Follow the server's next-page target
+
+The three ordinary snapshot lists also return `Link: <relative-target>; rel="next"`
+exactly when `nextCursor` is non-null. Follow it rather than rebuilding the
+query: the target retains recognized filters, explicit `fields`, the effective
+limit and `includeTotal=false`, replaces the cursor, and drops `offset` even
+when you started with one. Unknown keys and request origins are never copied.
+CORS exposes `Link` alongside the existing exposed headers.
+
+**Omission means stop.** A full terminal page can link to an empty page; there
+is no lookahead query. JSON, count semantics (including cursor-relative totals)
+and query counts are unchanged. This is not a consistency guarantee during
+concurrent writes, and the customer `changes` feed is not included.
+
+Node 24 recipe (local synthetic origin, `$TOKEN` from step 1; log counts, not
+rows or credentials). Resolve the relative target against the current page,
+refuse foreign origins before sending authorization, and reject redirects:
+
+```javascript
+const start = new URL("http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false");
+let url = start;
+for (;;) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.TOKEN}` }, redirect: "error"
+  });
+  if (!res.ok) throw new Error(`Snapshot read failed: ${res.status}`);
+  const page = await res.json();
+  console.log({ rows: page.rows.length, total: page.total });
+  const link = res.headers.get("Link");
+  if (link === null) break;
+  const match = /^<([^>]+)>; rel="next"$/.exec(link);
+  if (!match) throw new Error("Untrusted next Link");
+  const next = new URL(match[1], url);
+  if (next.origin !== start.origin || next.username || next.password)
+    throw new Error("Untrusted next-link origin");
+  url = next;
+}
+```
+
+The executable-doc check runs this exact recipe with synthetic responses and
+no network or real credentials (also included in `npm test`):
+
+```bash
+node --test test/snapshotNextLinksRecipe.acceptance.test.mjs
+npx vitest run test/snapshotNextLinks.acceptance.test.ts
+```
+
+Single rows (same 404 `not-found` shape when the id is not in D1):
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8787/api/v1/customer-snapshot/42
 # HTTP 200 row, or 404 {"type":"...#not-found",...} when that id is not in D1
+
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/address-snapshot/10
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/container-snapshot/100
 ```
 
 Empty `rows` with HTTP 200 means auth works but no snapshot has been synced
@@ -242,6 +294,34 @@ curl -s -w '\nHTTP %{http_code}\n' \
 # HTTP 400
 ```
 
+## 2b. Incremental sync: the customer `changes` feed
+
+`GET /api/v1/customer-snapshot/changes` replays only rows touched after your
+cursor — the incremental counterpart to the full list in step 2. Omit the
+cursor for the first page (every row is newer than the epoch):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2"
+# {"rows":[...],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":7101}}
+```
+
+Resume chunked deltas with the whole pair: pass the previous page's
+`nextCursor` back as `since` + `since_id`. A bare `since` replays every later
+run whole (strict `>`); a mid-run resume needs the tiebreak, because every
+upserted row in one sync run shares that run's stamp:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2"
+```
+
+`since` is UTC `Z` with seconds or 1–3 fractional digits, compared at
+lossless millisecond precision — more than 3 digits is a 400, never rounded.
+`since_id` is exact unpadded decimal (`0`–`9007199254740991`) and needs a
+valid `since`. The feed surfaces upserts only: reconciled-away or erased rows
+never appear as tombstones, so re-list to detect disappearance.
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with
@@ -301,6 +381,81 @@ Run the credential-free, network-denying local check instead of querying a tenan
 
 ```bash
 npx vitest run test/hydratedReadIds.acceptance.test.ts test/batchHydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
+```
+
+### Root-only sparse fields on hydrated reads
+
+The three **single-ID** reads above accept the same strict `fields` allowlist
+as their flat snapshot counterparts. Root means `.customer`, `.address` or
+`.container`, not the bundle envelope. Synthetic examples:
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/customer?id=42&fields=company_name,phone1"
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/address?id=10&fields=city,address"
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/container?id=100&fields=serial_number,location_address"
+```
+
+For example, the first request selects only `customer_id`, `company_name`
+and `phone1` inside `.customer`. The full `.addresses` array, including all
+nested containers, is unchanged. Address/container requests likewise retain
+all other bundle members, nulls and ordering. The primary ID is always
+included, even for `fields=phone1`; omit `fields` for the existing full response.
+This shapes the response, not the D1 queries, and **does not remove PII from
+related data** or change authorization.
+
+Use exact stored column names separated by commas, once each in a single
+`fields` key. Empty/repeated/duplicate, unknown, cross-resource, dotted,
+wildcard and relationship selectors return a fixed value-free 400 before
+cache or D1 reads; auth still takes precedence over field validation. See the
+[shared fieldset policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+`fields` applies to single-ID reads only: combining `ids` with `fields` is a
+fixed value-free 400 (batch hydration is documented above).
+
+ETags hash the **served bundle bytes**, including unchanged related data.
+Keep validators per URL and selector: a full-only validator cannot short-cut
+a projected response. A matching projected validator returns an empty-body
+304. Selected-out root changes can leave that validator unchanged; related
+changes still invalidate it after normal cache expiry/invalidation. Warm reads
+derive the projection from the canonical full cache without mutating it; cold
+reads use ordinary hydration and cache only the full representation. The
+existing `private, max-age=60` policy is unchanged; there is no second cache.
+See [cache semantics](ENTITY-DATA-CACHE.md#sparse-representations).
+
+Credential-free acceptance check:
+
+```bash
+npx vitest run test/hydratedFields.acceptance.test.ts
+```
+
+## 3a. Snapshot archives: `GET /api/v1/snapshots/{table}/{date}`
+
+Syncs archive their raw CSV to R2 (`snapshots/YYYY-MM-DD/<table>.csv`, when
+the binding is configured). The sync secret streams it back re-encoded for
+spreadsheets (formula-leading cells quoted, `_shadow_csv_encoding` appended);
+compare the download with a fresh export by business values, not bytes:
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer/2026-01-01" -o customer-2026-01-01.csv
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/customer-snapshot/export" -o customer-fresh.csv
+# Same pair for address and container — swap the table name:
+# `/api/v1/snapshots/address/2026-01-01`, `/api/v1/address-snapshot/export`,
+# `/api/v1/snapshots/container/2026-01-01`, `/api/v1/container-snapshot/export`.
+```
+
+The general token 401s here even on GET — the inner privileged gate from
+step 3, not a bad token. A well-formed but absent archive is 404 `not-found`
+(history is missing, not a bad call). Replays carry a content-hash `ETag`;
+send it back for a 304:
+
+```bash
+curl -i -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer/2026-01-01"
+# HTTP 200 + ETag header; repeat with -H "If-None-Match: <etag>" → 304
 ```
 
 ## 4. Saves: write through Routeware, then D1 refreshes
@@ -481,6 +636,7 @@ change the throttle configuration for this drill.
 # Content-Type: application/problem+json; Retry-After: 60
 # X-RateLimit-Limit: 19; X-RateLimit-Remaining: 0
 # X-RateLimit-Reset: <absolute Unix time in seconds when the block expires>
+# RateLimit: "auth-burst";r=0;t=60; RateLimit-Policy: "auth-burst";q=19;w=60
 ```
 
 ```json
@@ -507,7 +663,18 @@ an HTTP date. The same 429 also carries three `X-RateLimit-*` headers:
   `Retry-After` for the wait itself, since it needs no clock agreement
   with the server.
 
-CORS exposes `Retry-After` and all three `X-RateLimit-*` headers, so
+The same 429 also carries the standard equivalents (`draft-ietf-httpapi-ratelimit-headers`
+shape), computed from the same throttle verdict, so any HTTP client can parse
+them without knowing the `X-RateLimit-*` names:
+
+- `RateLimit: "auth-burst";r=0;t=<retryAfterSec>` — quota policy `auth-burst`
+  with `r` (remaining: always `0` here, matching `X-RateLimit-Remaining`) and
+  `t` (backoff in seconds, matching `Retry-After`).
+- `RateLimit-Policy: "auth-burst";q=19;w=60` — the policy itself: `q` (quota:
+  19 failed checks allowed per window) and `w` (window: 60 seconds).
+
+CORS exposes `Retry-After`, all three `X-RateLimit-*` headers, and the standard
+`RateLimit`/`RateLimit-Policy` fields, so
 browser clients can read them cross-origin. **Fix:** stop the invalid-auth
 loop and honor the returned delay before another unauthenticated attempt;
 repeated failures can renew the
@@ -532,7 +699,8 @@ npm test -- test/authThrottle.test.ts
 ```
 
 This recipe applies only when `type` ends in `#rate-limited`; a 429 ending in
-`#upstream-error` carries no `Retry-After` and no `X-RateLimit-*` headers
+`#upstream-error` carries no `Retry-After`, no `X-RateLimit-*` headers, and no
+`RateLimit`/`RateLimit-Policy` fields
 ([see below](#upstream-errors-keep-their-status)). Catalog:
 [`rate-limited`](./PROBLEMS.md#rate-limited).
 
@@ -573,12 +741,27 @@ npm test -- test/upstreamTimeout.test.ts \
 ```
 
 A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
-the `detail` names the configured timeout budget. **Fix:** for a read timeout,
-retry once after a short backoff. If it persists, ask the operator to check
-Routeware availability, the session, and the login path. Changing the client
-bearer or raising the timeout does not repair an upstream failure. For the
-HTML error above, have the operator inspect the upstream session/report
-request before retrying; the problem body never includes the raw HTML.
+the `detail` names the configured timeout budget. **Not every timeout 502
+carries `Retry-After`: the response path matters.**
+
+| Timeout response path | `Retry-After` |
+|---|---|
+| Direct-forwarder timeout reaching the `app.onError` backstop | Fixed `5` seconds, from `UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in `src/lib/upstreamTimeout.ts`. |
+| Timeout caught by `forwardWithSessionRetry`, on either the first forward or the post-login retry | Absent. This includes `GET /api/v1/routeware/home/index` and the customer, address and container read/save routes that use this helper. |
+
+Both paths return the same problem type, title and body shape; those fields do
+not tell clients whether a retry delay is supplied. Check the header itself.
+The HTML error page above, concurrent-refresh timeout and login-unavailable
+502s also send no `Retry-After`. Auth-throttle 429 responses retain their own
+`Retry-After` header.
+
+**Fix:** for a read timeout, honor `Retry-After` when present; if absent, wait
+5 seconds as a client-side fallback before retrying once. Do not retry in a
+tight loop. If it persists, ask the operator to check Routeware availability,
+the session, and the login path. Changing the client bearer or raising the
+timeout does not repair an upstream failure. For the HTML error above, have
+the operator inspect the upstream session/report request before retrying;
+the problem body never includes the raw HTML.
 
 For saves, **do not blindly replay the write**: verify the outcome first.
 The `/routeware/*` silent-save failures described in step 4 use 502
@@ -639,6 +822,25 @@ Catalog: [`upstream-error`](./PROBLEMS.md#upstream-error).
 Worker-generated problem responses are `application/problem+json` with a
 `type` URL pointing at the [`PROBLEMS.md`](./PROBLEMS.md) section that explains
 them. The ordinary `/data/*` save envelope is the exception described above.
+
+## Correlate retries with `X-Request-Id`
+
+Send one id per logical attempt and reuse it across that attempt's retries;
+every `/api/v1` response echoes it, including 401/429, 404, and 5xx, so the
+id joins your retries to the server-side log line. Use 1–128 chars of RFC
+7230 token chars (`A–Z a–z 0–9` plus `!#$%&'*+-.^_`|~`); anything else is
+ignored and the server mints a UUID instead — the request never fails for a
+bad id. The gate/notFound/onError problem bodies also carry it as
+`requestId`, and browsers can send and read it (allowed + exposed via CORS).
+This is correlation only, not idempotency: reusing an id never dedupes a
+save — still verify the record before resubmitting (rows above).
+
+```bash
+RID="retry-$(date +%s)-a1"
+curl -sS -i -H "Authorization: Bearer $TOKEN" -H "X-Request-Id: $RID" \
+  "http://localhost:8787/api/v1/shadow/health" | grep -i "x-request-id"
+# X-Request-Id: retry-...-a1 (echoed byte-identical)
+```
 
 ## Smoke ladder: five copy-paste commands (fresh clone → green)
 

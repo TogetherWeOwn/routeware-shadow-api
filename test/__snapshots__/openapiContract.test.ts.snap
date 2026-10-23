@@ -633,6 +633,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -668,9 +679,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List address snapshot rows (D1)",
@@ -879,6 +899,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -911,7 +942,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
@@ -1043,6 +1074,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1091,9 +1133,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -1302,6 +1353,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1347,7 +1409,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid id (application/problem+json)",
+            "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
@@ -1455,6 +1517,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1488,9 +1561,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total count for pagination",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, or an unknown \`enabled\` value before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
           },
         },
         "summary": "List customer snapshot rows (D1)",
@@ -1842,6 +1924,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               ],
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1872,7 +1965,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Row",
           },
           "400": {
-            "description": "Invalid customer id (application/problem+json)",
+            "description": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
           },
           "404": {
             "description": "Not found (application/problem+json)",
@@ -1969,7 +2062,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data-snapshot/sync": {
       "post": {
-        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`. Pass \`?dryRun=true\` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes.
+        "description": "Runs **customer** → **address** → **container** when the corresponding \`*_REPORT_EXPORT_PATH\` or \`*_REPORT_QUERY_ID\` vars are set. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. This route **chains three internal HTTP calls** to the per-table \`...-snapshot/sync\` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when \`SHADOW_API_PUBLIC_BASE\` is set (otherwise it falls back to one single-invocation run — see \`src/scheduled.ts\`). Each table is streamed; see \`CUSTOMER_SNAPSHOT.md\`. Pass \`?dryRun=true\` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes. Pass \`?partialProgress=true\` to opt into sanitized partial progress on a table failure: HTTP 500 \`application/json\` \`{customer, address, container, failure}\` with per-table \`{upserted, rowCount}\` (completed) or \`null\` and fixed \`{table, code}\` plus numeric \`status\` only for \`ChainedHttpError\` (\`code\` is one of the six runbook §4.1 kinds, never raw upstream text). Default and \`?partialProgress=false\` keep the generic problem+json shapes byte-for-byte; success is identical with or without the flag.
 
 **Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
         "parameters": [
@@ -1980,6 +2073,21 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "required": false,
             "schema": {
               "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+          {
+            "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json",
+            "in": "query",
+            "name": "partialProgress",
+            "required": false,
+            "schema": {
+              "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json",
               "enum": [
                 "true",
                 "false",
@@ -2026,7 +2134,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2055,13 +2163,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
             "in": "query",
             "name": "ids",
             "required": false,
             "schema": {
-              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
               "example": "1,2,3",
+              "type": "string",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
               "type": "string",
             },
           },
@@ -2148,7 +2267,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2237,7 +2356,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2266,13 +2385,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
             "in": "query",
             "name": "ids",
             "required": false,
             "schema": {
-              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
               "example": "1,2,3",
+              "type": "string",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
               "type": "string",
             },
           },
@@ -2357,7 +2487,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2446,7 +2576,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/customer": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2475,13 +2605,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
             "in": "query",
             "name": "ids",
             "required": false,
             "schema": {
-              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
               "example": "1,2,3",
+              "type": "string",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
               "type": "string",
             },
           },
@@ -2570,7 +2711,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",

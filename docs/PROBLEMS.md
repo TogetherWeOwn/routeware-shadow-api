@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
 | `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
@@ -61,6 +61,21 @@ Validation happens before D1 and returns fixed, value-free guidance:
 `Invalid request query (since_id). See docs/PROBLEMS.md#bad-request.`
 The named field can instead be `since` (or multiple invalid fields); no
 submitted timestamp or id is echoed. Authentication still precedes validation.
+
+## Sparse fieldsets (`bad-request`)
+
+For the snapshot lists and by-id reads, `fields=` must be a single
+comma-separated list of exact stored column names from the route's
+allowlist (`src/lib/sparseFieldsets.ts`): no spaces, no case folding, no
+empty segments, no duplicates, no repeated `fields` key. Columns from
+another resource are unknown here, not aliases. Send the documented
+spelling; the resource id needs no naming since it is always present in
+responses. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields)
+for the contract and a synthetic example.
+
+Validation happens before D1 and returns fixed, value-free guidance:
+`Invalid request query (fields). See docs/PROBLEMS.md#bad-request.`
+No submitted name is echoed. Authentication still precedes validation.
 
 ## CSV control characters (`bad-request`)
 
@@ -415,7 +430,10 @@ headers and body together, with an inclusive **65,536-byte** actual-body cap.
 Non-2xx bodies are cancelled, not drained. Timeout, oversize, source-read and
 invalid JSON/count metadata refusals use fixed chained error kinds; cron keeps
 completed-table counts and the combined HTTP route retains its existing generic
-500 `internal` problem (no new partial-progress API). No POST retry or redirect
+500 `internal` problem by default, with an opt-in `?partialProgress=true`
+sanitized per-table envelope (fixed table/code, numeric status only for
+`ChainedHttpError`; see [partial progress](../CUSTOMER_SNAPSHOT.md#partial-progress-on-combined-sync-failure)).
+No POST retry or redirect
 replay occurs. Cancellation is best-effort and never awaited: remote work may
 already have completed. Inspect the failed table before resubmitting, as the
 fixed cron `next_action` directs. See [the chained response boundary and focused

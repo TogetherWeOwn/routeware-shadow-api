@@ -785,6 +785,13 @@ for (const script of ["export-curl-examples.mjs", "suggest-routes.mjs"]) {
 
   test(`${script}: --dry-run on a valid map validates and writes nothing`, (t) => {
     const dir = artifactSandbox(t, script, NO_EXAMPLE_MAP);
+    if (script === "suggest-routes.mjs") {
+      assert.deepEqual(
+        JSON.parse(fs.readFileSync(path.join(dir, "out", "route-gaps.json"), "utf8")),
+        ROUTE_GAPS,
+        "the valid-map control also needs valid synthetic gaps for complete dry-run validation"
+      );
+    }
     const before = tree(dir);
     const res = runScript(dir, script, "--dry-run");
     assert.equal(res.status, 0, res.output);
@@ -855,7 +862,7 @@ test("wiring: package scripts run validation first and expose it to agents", () 
   const root = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
   assert.equal(tools.scripts["validate:routes"], "node route-map-validation.mjs");
   assert.equal(String(tools.scripts.process).split("&&")[0].trim(), "node route-map-validation.mjs");
-  assert.equal(root.scripts["discovery:validate"], "npm run validate:routes --prefix tools/api-discovery");
+  assert.equal(root.scripts["discovery:validate"], "npm run validate:routes --prefix tools/api-discovery --");
   assert.match(root.scripts["test:discovery"], /tools\/api-discovery\/route-map-validation\.test\.mjs/);
 });
 

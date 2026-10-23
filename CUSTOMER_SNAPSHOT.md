@@ -228,6 +228,22 @@ are not written, and no archive key is created. A combined dry-run returns per-t
 table; on a table failure the route returns an error and later tables do not run.
 On a successful response, `null` means that table was skipped.
 
+### Partial progress on combined-sync failure
+
+Add `?partialProgress=true` to `POST /api/v1/data-snapshot/sync` to learn which
+tables completed when a table step fails: instead of the generic 500 `internal`
+problem+json, the route answers HTTP 500 `application/json`
+`{customer, address, container, failure}`, where each table is the completed
+`{upserted, rowCount}` or `null` (failed, unattempted, or skipped) and `failure`
+is the fixed `{table, code}` plus the numeric `status` only for
+`ChainedHttpError`. `code` is one of the six runbook §4.1 classifications —
+never upstream text — and no `deleted`, `r2`, or row data travels. Only the
+exact string `true` opts in (`false`/absent keeps the generic shapes
+byte-for-byte; anything else is a 400 before any table runs), and success is
+identical with or without the flag. The flag is consumed by the combined route
+only and is never forwarded to the per-table subrequests; it composes with
+`?dryRun=true` (dry-run is still forwarded to every table).
+
 ## Strict identities on operator CSV imports
 
 The three `POST /api/v1/{customer,address,container}-snapshot/import` routes,

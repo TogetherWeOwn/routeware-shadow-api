@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import {
   ORPHAN_SAMPLE_LIMIT_DEFAULT,
   ORPHAN_SAMPLE_LIMIT_MAX,
+  PartialDataSnapshotSyncError,
   getSnapshotOrphans,
   runDataSnapshotSyncChainedHttp
 } from "../lib/d1SnapshotSync";
@@ -32,6 +33,23 @@ const dataSnapshotResultSchema = z
   })
   .openapi("DataSnapshotSyncResult");
 
+/**
+ * Combined-route query: the shared `dryRun` enum plus the combined-only
+ * `partialProgress` opt-in. The enum follows the `dryRun` precedent
+ * (`shared.ts`): only the exact string `"true"` opts in; anything else is
+ * rejected with the anchored 400 before the handler — and therefore before
+ * any table — runs.
+ */
+const dataSnapshotSyncQuery = dryRunQuery.extend({
+  partialProgress: z
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json"
+    )
+    .openapi({ example: "true" })
+});
+
 const dataSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/data-snapshot/sync",
@@ -41,10 +59,10 @@ const dataSnapshotSyncRoute = createRoute({
   tags: ["data-snapshot"],
   summary: "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
   description:
-    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when `SHADOW_API_PUBLIC_BASE` is set (otherwise it falls back to one single-invocation run — see `src/scheduled.ts`). Each table is streamed; see `CUSTOMER_SNAPSHOT.md`. Pass `?dryRun=true` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes.\n\n" +
+    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when `SHADOW_API_PUBLIC_BASE` is set (otherwise it falls back to one single-invocation run — see `src/scheduled.ts`). Each table is streamed; see `CUSTOMER_SNAPSHOT.md`. Pass `?dryRun=true` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes. Pass `?partialProgress=true` to opt into sanitized partial progress on a table failure: HTTP 500 `application/json` `{customer, address, container, failure}` with per-table `{upserted, rowCount}` (completed) or `null` and fixed `{table, code}` plus numeric `status` only for `ChainedHttpError` (`code` is one of the six runbook §4.1 kinds, never raw upstream text). Default and `?partialProgress=false` keep the generic problem+json shapes byte-for-byte; success is identical with or without the flag.\n\n" +
     "**Try it in `/docs`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry `{upserted, rowCount}` only (no `deleted` leak); a table with no export source comes back `null`, not zeros.",
   request: {
-    query: dryRunQuery
+    query: dataSnapshotSyncQuery
   },
   responses: {
     200: {
@@ -72,29 +90,95 @@ function withoutDeleted(
   return t ? { upserted: t.upserted, rowCount: t.rowCount } : null;
 }
 
+/**
+ * Fixed chained failure classifications (runbook §4.1): the only `code`
+ * values the partial-progress envelope may carry. Mirrors
+ * `CHAINED_REFUSAL_KINDS` in `src/scheduled.ts` — an unknown cause name
+ * falls back to the generic 500 rather than leaking a new kind.
+ */
+const PARTIAL_PROGRESS_CODES = new Set([
+  "ChainedTimeoutError",
+  "ChainedResponseTooLargeError",
+  "ChainedInvalidJsonError",
+  "ChainedResponseReadError",
+  "ChainedHttpError",
+  "ChainedNetworkError"
+]);
+
+type PartialProgressTable = { upserted: number; rowCount: number } | null;
+
+/**
+ * Renders a chained step failure as the opt-in partial-progress envelope,
+ * or `null` when the error is not a classified chained failure (the caller
+ * rethrows those, so pre-work failures and the default path keep their
+ * existing shapes byte-for-byte).
+ *
+ * Only allowlisted fields travel: per-table `{upserted, rowCount}` via
+ * `withoutDeleted` (no `deleted`, no `r2`, never row data), the fixed
+ * `failedTable`, the fixed classification `code` (the cause name, never its
+ * message), and the numeric `status` only for `ChainedHttpError`.
+ */
+function partialProgressBody(err: unknown): {
+  customer: PartialProgressTable;
+  address: PartialProgressTable;
+  container: PartialProgressTable;
+  failure: { table: string; code: string; status?: number };
+} | null {
+  if (!(err instanceof PartialDataSnapshotSyncError)) {
+    return null;
+  }
+  const cause = err.cause;
+  if (!(cause instanceof Error) || !PARTIAL_PROGRESS_CODES.has(cause.name)) {
+    return null;
+  }
+  return {
+    customer: withoutDeleted(err.partial.customer),
+    address: withoutDeleted(err.partial.address),
+    container: withoutDeleted(err.partial.container),
+    failure:
+      cause.name === "ChainedHttpError" && err.status !== undefined
+        ? { table: err.failedTable, code: cause.name, status: err.status }
+        : { table: err.failedTable, code: cause.name }
+  };
+}
+
 dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
   const origin = new URL(c.req.url).origin;
+  const query = c.req.valid("query");
   // Forward `?dryRun=true` to every chained per-table subrequest.
   // Forward a valid inbound `x-run-id` the same way, so a direct
   // combined call still correlates its sub-invocations. Invalid values are
   // dropped — correlation must never fail a sync.
   const runId = parseRunIdHeader(c.req.header("x-run-id"));
-  const r = await runDataSnapshotSyncChainedHttp(origin, c.env, {
-    dryRun: isDryRunRequested(c.req.valid("query")),
-    ...(runId ? { runId } : {})
-  });
-  return c.json(
-    {
-      customer: withoutDeleted(r.customer),
-      address: withoutDeleted(r.address),
-      container: withoutDeleted(r.container)
-    },
-    200
-  );
+  // `?partialProgress=true` answers a classified step failure with the
+  // sanitized per-table envelope; every other error rethrows to the generic
+  // `onError` shape unchanged. The flag is consumed here only, never
+  // forwarded to the subrequests.
+  try {
+    const r = await runDataSnapshotSyncChainedHttp(origin, c.env, {
+      dryRun: isDryRunRequested(query),
+      ...(runId ? { runId } : {})
+    });
+    return c.json(
+      {
+        customer: withoutDeleted(r.customer),
+        address: withoutDeleted(r.address),
+        container: withoutDeleted(r.container)
+      },
+      200
+    );
+  } catch (e) {
+    const partial =
+      query.partialProgress === "true" ? partialProgressBody(e) : null;
+    if (!partial) {
+      throw e;
+    }
+    return c.json(partial, 500);
+  }
 });
 
 const snapshotOrphanSampleSchema = z

@@ -1,6 +1,8 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -71,12 +73,14 @@ const customerSnapshotListRoute = createRoute({
         .describe(
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
-        .openapi({ example: "false" })
+        .openapi({ example: "false" }),
+      fields: snapshotFieldsQuery("customer")
     })
   },
   responses: {
     200: {
       description: "Rows and total count for pagination",
+      headers: { Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -86,7 +90,7 @@ const customerSnapshotListRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, or an unknown `enabled` value before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
     }
   }
 });
@@ -146,7 +150,18 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const rows = results ?? [];
   const nextCursor =
     rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
-  return c.json({ rows, total, nextCursor });
+  // Sparse fieldset: same page, same envelope — only each row's keys shrink.
+  // The id stays on every row even when the selector omits it.
+  const fields = p.fields;
+  const out =
+    fields === undefined
+      ? rows
+      : rows.map((row) =>
+          projectSnapshotRow("customer", row as Record<string, unknown>, fields)
+        );
+  const nextLink = snapshotNextLink("customer", p, nextCursor);
+  if (nextLink !== null) c.header("Link", nextLink);
+  return c.json({ rows: out, total, nextCursor });
 });
 
 /**
@@ -327,7 +342,8 @@ const customerSnapshotByIdRoute = createRoute({
   description:
     "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
-    params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) })
+    params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) }),
+    query: z.object({ fields: snapshotFieldsQuery("customer") })
   },
   responses: {
     200: {
@@ -340,7 +356,8 @@ const customerSnapshotByIdRoute = createRoute({
       }
     },
     400: {
-      description: "Invalid customer id (application/problem+json)"
+      description:
+        "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
     },
     404: {
       description: "Not found (application/problem+json)"
@@ -376,7 +393,11 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
       instance: `${new URL(c.req.url).pathname}#customer_id=${customerId}`
     });
   }
-  return c.json(row, 200);
+  const fields = c.req.valid("query").fields;
+  return c.json(
+    fields === undefined ? row : projectSnapshotRow("customer", row, fields),
+    200
+  );
 });
 
 const customerSnapshotSyncRoute = createRoute({

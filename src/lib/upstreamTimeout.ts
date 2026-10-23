@@ -247,11 +247,32 @@ export async function fetchWithUpstreamTimeout(
   }
 }
 
+/**
+ * Fixed `Retry-After` (seconds) stamped on the `isUpstreamTimeout` onError
+ * backstop 502 only. Value: 5.
+ *
+ * Rationale: the timed-out request already cost the client its full budget
+ * (15s interactive, 60s report), so a short fixed backoff is enough to break
+ * tight retry loops during an upstream outage without parking clients for a
+ * full throttle window. Fixed — never per-request — so any HTTP client can
+ * honor the delay. `upstreamTimeoutProblem()` itself does not stamp this
+ * header: `forwardWithSessionRetry` catches first-forward and post-login
+ * retry timeouts and returns the same problem body without `Retry-After`
+ * (including home/index and customer/address/container read/save routes).
+ * Clients must inspect the header, not infer it from the problem type/title;
+ * for reads without it, wait 5 seconds and retry at most once. HTML error-page,
+ * concurrent-refresh and login-unavailable 502s also send no `Retry-After`.
+ * Auth-throttle 429s retain their own `Retry-After`; clients must still verify
+ * a write's outcome before resubmitting.
+ */
+export const UPSTREAM_TIMEOUT_RETRY_AFTER_SEC = 5;
+
 /** 502 problem+json for a timed-out upstream step. No URL, no body, no PII. */
 export function upstreamTimeoutProblem(
   timeoutMs: number,
   instance?: string,
-  env?: Env
+  env?: Env,
+  requestId?: string
 ): Response {
   return problemJsonResponse({
     type: problemType("bad-gateway", env),
@@ -261,6 +282,7 @@ export function upstreamTimeoutProblem(
       `Routeware did not complete its response within ${timeoutMs}ms. ` +
       `A save may have completed upstream; verify the record before resubmitting. ` +
       `See docs/PROBLEMS.md#bad-gateway.`,
-    instance
+    instance,
+    ...(requestId === undefined ? {} : { requestId })
   });
 }

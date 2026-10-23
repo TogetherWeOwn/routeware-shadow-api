@@ -51,8 +51,13 @@ async function resolveBody(entry, row) {
   }
   if (entry.exampleFile) {
     // A fallback is a known repository file, not an arbitrary path supplied by
-    // the recording. Resolve symlinks too; fail before replacing any artifacts.
-    const file = await realpath(resolve(root, entry.exampleFile));
+    // the recording. Reject lexical out/ paths (the directory and descendants)
+    // before resolving symlinks: a symlinked out/ would otherwise admit an
+    // out/ file that resolves inside the repo. The canonical-root check below
+    // still applies afterward; fail before replacing any artifacts.
+    const lexical = resolve(root, entry.exampleFile);
+    if (lexical === outDir || lexical.startsWith(outDir + sep)) throw new Error("INVALID_EXAMPLE_FILE: use a repository example outside out/");
+    const file = await realpath(lexical);
     const resolvedRoot = await realRoot();
     if (!file.startsWith(resolvedRoot + sep) || file.startsWith(join(resolvedRoot, "out") + sep)) throw new Error("INVALID_EXAMPLE_FILE: use a repository example outside out/");
     const bytes = await readFile(file);
@@ -104,12 +109,9 @@ async function main() {
     );
     process.exit(1);
   }
-  if (args.includes("--dry-run") && !args.includes("--json")) {
-    console.log(
-      `dry-run: route map valid (${map.length} entries, no mapping findings); would write ${outSh} and ${bodiesDir}/ — no files written.`
-    );
-    process.exit(0);
-  }
+  // Non-JSON --dry-run runs the complete validation below (validateMap,
+  // body resolution, body-filename collision checks) before reporting, so a
+  // dry-run refusal matches the real run exactly and never claims validity.
   validateMap(map);
   let harvestLines = [];
   try {
@@ -146,6 +148,9 @@ async function main() {
     return;
   }
   if (args.includes("--dry-run")) {
+    console.log(
+      `dry-run: route map valid (${map.length} entries, no mapping findings); would write ${outSh} and ${bodiesDir}/ — no files written.`
+    );
     for (const op of plan.operations) console.log(`${op.id} — ${op.executable ? "local GET only" : "non-executable documentation"}; body=${op.body.source}${op.body.code ? `; ${op.body.code}: ${op.body.next_action}` : ""}`);
     return;
   }
