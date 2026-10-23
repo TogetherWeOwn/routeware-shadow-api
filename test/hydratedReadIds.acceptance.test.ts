@@ -199,8 +199,12 @@ it("publishes aligned query constraints and 400 descriptions for all three hydra
   for (const spec of specs) {
     const operation = doc.paths[`/api/v1/data/${spec.kind}`].get;
     const parameters = operation.parameters.filter((parameter) => parameter.in === "query");
-    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(["fields", "id", spec.alias].sort());
-    for (const parameter of parameters.filter((parameter) => parameter.name !== "fields")) {
+    // Per-type bundle selectors (R20-02) ride on every data-entity GET; the ID
+    // constraint alignment below still covers only the id/alias pair.
+    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(
+      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", spec.alias].sort());
+    for (const parameter of parameters.filter((parameter) =>
+      parameter.name !== "fields" && !parameter.name.startsWith("fields["))) {
       expect(parameter.required).not.toBe(true);
       expect(parameter.schema).toBeDefined();
       constraints.push(Object.fromEntries(Object.entries(parameter.schema).filter(([key]) =>

@@ -346,10 +346,12 @@ describe("published OpenAPI document", () => {
     };
 
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
-    // re-record a regression away.
-    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id"]);
-    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "pickupAddressId"]);
-    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id"]);
+    // re-record a regression away. Per-type bundle selectors (R20-02) ride on
+    // every data-entity GET alongside the flat root-only `fields`.
+    const bundleFields = ["fields[address]", "fields[container]", "fields[customer]"];
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id", ...bundleFields].sort());
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "pickupAddressId", ...bundleFields].sort());
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id", ...bundleFields].sort());
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {
