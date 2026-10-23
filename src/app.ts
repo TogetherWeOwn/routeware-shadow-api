@@ -3,6 +3,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import {
   AUTH_THROTTLE_ALLOWED_FAILURES,
+  AUTH_THROTTLE_WINDOW_MS,
   clearAuthFailures,
   recordAuthFailure
 } from "./lib/authThrottle";
@@ -18,7 +19,11 @@ import {
   concurrentRefreshTimeoutProblem,
   isConcurrentRefreshTimeout
 } from "./lib/sessionRefreshLock";
-import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
+import {
+  UPSTREAM_TIMEOUT_RETRY_AFTER_SEC,
+  isUpstreamTimeout,
+  upstreamTimeoutProblem
+} from "./lib/upstreamTimeout";
 import { APP_VERSION } from "./lib/version";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
@@ -156,6 +161,19 @@ app.use("/api/v1/*", async (c, next) => {
           verdict.resetAtSec ??
             Math.ceil((Date.now() + verdict.retryAfterSec * 1000) / 1000)
         )
+      );
+      // Standard fields (`draft-ietf-httpapi-ratelimit-headers` shape over
+      // RFC 9651 structured fields): derived from the same verdict +
+      // AUTH_THROTTLE_* source of truth as the compat headers above, so all
+      // five agree on remaining quota and backoff. The compat headers stay
+      // byte-identical.
+      throttled.headers.set(
+        "RateLimit",
+        `"auth-burst";r=0;t=${verdict.retryAfterSec}`
+      );
+      throttled.headers.set(
+        "RateLimit-Policy",
+        `"auth-burst";q=${AUTH_THROTTLE_ALLOWED_FAILURES};w=${AUTH_THROTTLE_WINDOW_MS / 1000}`
       );
       return withCors(throttled, c.req.raw);
     }
@@ -302,10 +320,18 @@ app.onError((err, c) => {
       ms: null,
       timeoutMs: err.timeoutMs
     });
-    return withCors(
-      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
-      c.req.raw
+    const timeoutRes = upstreamTimeoutProblem(
+      err.timeoutMs,
+      new URL(c.req.url).pathname,
+      c.env
     );
+    // Fixed backoff so clients pause instead of hammering a hung upstream.
+    // Only this backstop 502 carries `Retry-After`: no other status gains one.
+    timeoutRes.headers.set(
+      "Retry-After",
+      String(UPSTREAM_TIMEOUT_RETRY_AFTER_SEC)
+    );
+    return withCors(timeoutRes, c.req.raw);
   }
   // A waiter that gave up on a hung concurrent refresh: surface
   // it as 502 problem+json, not a 500. The message is a fixed string (no

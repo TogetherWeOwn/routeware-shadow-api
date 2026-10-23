@@ -525,6 +525,7 @@ change the throttle configuration for this drill.
 # Content-Type: application/problem+json; Retry-After: 60
 # X-RateLimit-Limit: 19; X-RateLimit-Remaining: 0
 # X-RateLimit-Reset: <absolute Unix time in seconds when the block expires>
+# RateLimit: "auth-burst";r=0;t=60; RateLimit-Policy: "auth-burst";q=19;w=60
 ```
 
 ```json
@@ -551,7 +552,18 @@ an HTTP date. The same 429 also carries three `X-RateLimit-*` headers:
   `Retry-After` for the wait itself, since it needs no clock agreement
   with the server.
 
-CORS exposes `Retry-After` and all three `X-RateLimit-*` headers, so
+The same 429 also carries the standard equivalents (`draft-ietf-httpapi-ratelimit-headers`
+shape), computed from the same throttle verdict, so any HTTP client can parse
+them without knowing the `X-RateLimit-*` names:
+
+- `RateLimit: "auth-burst";r=0;t=<retryAfterSec>` — quota policy `auth-burst`
+  with `r` (remaining: always `0` here, matching `X-RateLimit-Remaining`) and
+  `t` (backoff in seconds, matching `Retry-After`).
+- `RateLimit-Policy: "auth-burst";q=19;w=60` — the policy itself: `q` (quota:
+  19 failed checks allowed per window) and `w` (window: 60 seconds).
+
+CORS exposes `Retry-After`, all three `X-RateLimit-*` headers, and the standard
+`RateLimit`/`RateLimit-Policy` fields, so
 browser clients can read them cross-origin. **Fix:** stop the invalid-auth
 loop and honor the returned delay before another unauthenticated attempt;
 repeated failures can renew the
@@ -576,7 +588,8 @@ npm test -- test/authThrottle.test.ts
 ```
 
 This recipe applies only when `type` ends in `#rate-limited`; a 429 ending in
-`#upstream-error` carries no `Retry-After` and no `X-RateLimit-*` headers
+`#upstream-error` carries no `Retry-After`, no `X-RateLimit-*` headers, and no
+`RateLimit`/`RateLimit-Policy` fields
 ([see below](#upstream-errors-keep-their-status)). Catalog:
 [`rate-limited`](./PROBLEMS.md#rate-limited).
 
@@ -617,12 +630,27 @@ npm test -- test/upstreamTimeout.test.ts \
 ```
 
 A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
-the `detail` names the configured timeout budget. **Fix:** for a read timeout,
-retry once after a short backoff. If it persists, ask the operator to check
-Routeware availability, the session, and the login path. Changing the client
-bearer or raising the timeout does not repair an upstream failure. For the
-HTML error above, have the operator inspect the upstream session/report
-request before retrying; the problem body never includes the raw HTML.
+the `detail` names the configured timeout budget. **Not every timeout 502
+carries `Retry-After`: the response path matters.**
+
+| Timeout response path | `Retry-After` |
+|---|---|
+| Direct-forwarder timeout reaching the `app.onError` backstop | Fixed `5` seconds, from `UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in `src/lib/upstreamTimeout.ts`. |
+| Timeout caught by `forwardWithSessionRetry`, on either the first forward or the post-login retry | Absent. This includes `GET /api/v1/routeware/home/index` and the customer, address and container read/save routes that use this helper. |
+
+Both paths return the same problem type, title and body shape; those fields do
+not tell clients whether a retry delay is supplied. Check the header itself.
+The HTML error page above, concurrent-refresh timeout and login-unavailable
+502s also send no `Retry-After`. Auth-throttle 429 responses retain their own
+`Retry-After` header.
+
+**Fix:** for a read timeout, honor `Retry-After` when present; if absent, wait
+5 seconds as a client-side fallback before retrying once. Do not retry in a
+tight loop. If it persists, ask the operator to check Routeware availability,
+the session, and the login path. Changing the client bearer or raising the
+timeout does not repair an upstream failure. For the HTML error above, have
+the operator inspect the upstream session/report request before retrying;
+the problem body never includes the raw HTML.
 
 For saves, **do not blindly replay the write**: verify the outcome first.
 The `/routeware/*` silent-save failures described in step 4 use 502

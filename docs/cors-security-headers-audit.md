@@ -20,9 +20,13 @@ Auditor: Security Engineer · 2026-09-28 · code at `src/lib/cors.ts`, `src/app.
   `Authorization` = bearer gate, `Content-Type` = POST bodies,
   `If-None-Match` = conditional GETs against the data-entity ETag cache.
 - **Exposed headers:** `ETag, Retry-After, X-RateLimit-Limit,
-  X-RateLimit-Remaining, X-RateLimit-Reset, Content-Disposition` (conditional
-  reads, auth-throttle 429 backoff + rate-limit budget, CSV-download filename).
+  X-RateLimit-Remaining, X-RateLimit-Reset, RateLimit, RateLimit-Policy,
+  Content-Disposition` (conditional reads, auth-throttle 429 backoff +
+  rate-limit budget, CSV-download filename).
   The `X-RateLimit-*` trio joined in #216; see the 2026-10-21 delta below.
+  The `RateLimit`/`RateLimit-Policy` pair joined in #337 alongside the
+  standard 429 fields (additive exposure of operational headers; the posture
+  suite's subset pin passes unmodified).
 - **Preflight:** `OPTIONS /api/v1/*` answered `204` before the bearer gate
   (preflight carries no `Authorization` by design and reveals only the CORS
   policy, never data); `Access-Control-Max-Age: 86400`.

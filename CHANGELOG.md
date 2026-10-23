@@ -14,6 +14,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   row data travels. Absent or `false` keeps the generic shapes byte-for-byte;
   any other value is a value-free 400 before any table runs. Success is
   identical with or without the flag. See `CUSTOMER_SNAPSHOT.md`.
+
+- #337: Auth-throttle 429s now carry standard `RateLimit`
+  (`"auth-burst";r=0;t=<retryAfterSec>`) and `RateLimit-Policy`
+  (`"auth-burst";q=19;w=60`) fields alongside the byte-identical `Retry-After` /
+  `X-RateLimit-*` headers, and the upstream-timeout backstop 502 carries a fixed
+  `Retry-After: 5`. CORS exposes the new fields. No other status gains `Retry-After`.
+
 - Consumer quickstart now documents the customer `changes` feed
   (`GET /api/v1/customer-snapshot/changes`: composite `since` + `since_id`
   cursor, lossless millisecond precision, upserts-only boundary) and the R2

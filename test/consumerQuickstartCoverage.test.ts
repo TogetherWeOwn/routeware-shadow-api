@@ -41,8 +41,6 @@ const ALLOWLIST: Record<string, string> = {
     "Upstream login-page probe passthrough (sessionless, strips Set-Cookie): a session/login diagnostic, not a consumer data read.",
   "GET /api/v1/routeware/customer/add-new-long":
     "New-customer HTML/JS form shell; optional for API clients because save-long-form fetches the anti-forgery token server-side, and the quickstart create path posts the documented field set directly.",
-  "GET /api/v1/routeware/home/index":
-    "Sessioned upstream Home/Index passthrough answering whatever the SPA serves (HTML, JSON, other): not consumer data.",
   "GET /api/v1/data-snapshot/orphans":
     "Privileged (sync-secret) FK-integrity audit for operators; normal syncs cannot create orphans, and counts/samples are an integrity signal, not a consumer read."
 };
@@ -157,6 +155,14 @@ describe("consumer quickstart GET coverage", () => {
     });
 
     expect(problems).toEqual([]);
+  });
+
+  it("keeps home/index documented, not allowlisted", async () => {
+    const key = "GET /api/v1/routeware/home/index";
+
+    expect(await registryGetPaths()).toContain(key);
+    expect(isReferenced(key), `${key} must stay documented in the quickstart`).toBe(true);
+    expect(key in ALLOWLIST, `${key} must not be allowlisted away`).toBe(false);
   });
 
   it("pins the changes feed and snapshot archive as documented recipes, not allowlist entries", async () => {
