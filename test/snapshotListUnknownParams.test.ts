@@ -42,7 +42,8 @@ const NON_LIST_ROUTES: Record<string, string> = {
   "/api/v1/data/address": "Single-address aggregate selected by id",
   "/api/v1/data/container": "Single-container aggregate selected by id",
   "/api/v1/data-snapshot/orphans": "Integrity report with counts and bounded id samples, not collection pagination",
-  "/api/v1/snapshots/:table/:date": "One archived CSV object by table and date"
+  "/api/v1/snapshots/:table/:date": "One archived CSV object by table and date",
+  "/api/v1/snapshots/:table": "R2-backed archived-date listing bounded by limit, not D1 pagination (unknown params ignored, pinned in snapshotArchiveDates.acceptance)"
 };
 
 function snapshotDataGets(routes: RegisteredRoute[]): string[] {

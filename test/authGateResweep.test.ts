@@ -17,9 +17,9 @@ import { problemType } from "../src/lib/problem";
  *
  * This file closes that gap:
  * - the privileged inventory is derived from the live router (`app.routes`)
- *   and must equal the pinned 19 below — adding a matching route fails here
+ *   and must equal the pinned 20 below — adding a matching route fails here
  *   until its inner gate is verified;
- * - every one of the 19 is re-probed: no token → outer 401, API token →
+ * - every one of the 20 is re-probed: no token → outer 401, API token →
  *   inner 401 (wrong-token cells ride on `authGateSweep`, which sweeps all
  *   38 routes with no and bad tokens).
  *
@@ -86,6 +86,10 @@ const PINNED_PRIVILEGED: string[] = [
   // `localeCompare`, so this GET lands with the GET group (after
   // `data/customer`, `data` < `snapshots`); probes carry a concrete table +
   // date.
+  // Archived-date listing: same /snapshots/ prefix, same inner gate; the
+  // shorter `:table` sorts before `:table/:date`. Probes carry a concrete
+  // table (the `:date` replacement is a no-op here).
+  "GET /api/v1/snapshots/:table",
   "GET /api/v1/snapshots/:table/:date",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
@@ -166,7 +170,7 @@ describe("auth-gate re-sweep on newest routes", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("privileged inventory from the live router equals the pinned 19", () => {
+  it("privileged inventory from the live router equals the pinned 20", () => {
     expect(livePrivilegedRoutes()).toEqual(PINNED_PRIVILEGED);
   });
 
