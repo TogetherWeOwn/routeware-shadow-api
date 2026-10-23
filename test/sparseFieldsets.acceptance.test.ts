@@ -11,10 +11,10 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  * SCOPE (v1): the six flat snapshot rows only —
  *   lists:  GET /api/v1/customer-snapshot, /address-snapshot, /container-snapshot
  *   details: GET /api/v1/customer-snapshot/{id}, /address-snapshot/{id}, /container-snapshot/{id}
- * Hydrated aggregates (GET /api/v1/data/*), CSV exports and the changes feed
- * KEEP their current behavior: `?fields=` is ignored there (unknown-param
- * policy preserved), ETag/304 still served. Nested-bundle trimming and
- * `?include=` are future work (R15-05), not v1.
+ * Hydrated single-ID aggregates additionally accept root-only `fields` (covered
+ * by hydratedFields.acceptance.test.ts); related bundles remain unchanged.
+ * CSV exports and the changes feed still ignore `?fields=`. Nested/relationship
+ * selection and `?include=` remain out of scope.
  *
  * SELECTOR: optional `fields=` comma-separated allowlist, strict:
  *   - exact snake_case column names from the route's SELECT list (whitelist);
@@ -30,10 +30,9 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  * before any D1 work. Auth (401) still precedes validation; no-store/CORS,
  * pagination, cursor-wins-over-offset, safe-ID and includeTotal=false compose.
  *
- * RED on main is EXPECTED for new-contract assertions (no `?fields=` support:
- * valid selectors return full rows, invalid selectors return 200 ignored).
- * Preserved-behavior assertions (bare full rows, hydrated 304, auth ordering,
- * headers) PASS on main. The Builder implements to make the whole file green.
+ * Existing flat-read assertions remain green. The hydrated extension is RED
+ * on its pre-build baseline: a full-only validator must not suppress a selected
+ * response. The Builder implements the extension without editing these tests.
  */
 
 const API_TOKEN = "test-api-token";
@@ -630,49 +629,34 @@ describe.each(SPECS)("$name: auth ordering and safe-ID preserved with fields", (
   });
 });
 
-describe("non-scope reads preserve behavior when fields is present", () => {
-  it("hydrated aggregates ignore fields and keep ETag/304 (no trimming, no 400)", async () => {
-    const cases = [
-      { kind: "customer", id: CUSTOMERS[0] },
-      { kind: "address", id: ADDRESSES[0] },
-      { kind: "container", id: CONTAINERS[0] }
-    ] as const;
-    for (const { kind, id } of cases) {
+describe("hydrated extension and non-scope reads", () => {
+  it("hydrated reads project only the requested root and validate its own ETag", async () => {
+    for (const spec of SPECS) {
+      const id = spec.name === "customer" ? CUSTOMERS[0] : spec.name === "address" ? ADDRESSES[0] : CONTAINERS[0];
+      const path = `http://test.local/api/v1/data/${spec.name}?id=${id}`;
       const headers = { authorization: `Bearer ${SYNC_SECRET}` };
-      const plain = await app.fetch(
-        new Request(`http://test.local/api/v1/data/${kind}?id=${id}`, { headers }),
-        TEST_ENV
-      );
+      const plain = await app.fetch(new Request(path, { headers }), TEST_ENV);
       expect(plain.status).toBe(200);
-      expect(plain.headers.get("cache-control")).toBe("private, max-age=60");
-      const etag = plain.headers.get("etag");
-      expect(etag).toBeTruthy();
-      const plainBody = await plain.json();
-
-      // Unknown/invalid fields values are ignored, not rejected, on aggregates.
-      for (const fields of ["company_name", "no_such_column_xyz", "", "a,a"]) {
-        const res = await app.fetch(
-          new Request(`http://test.local/api/v1/data/${kind}?id=${id}&fields=${encodeURIComponent(fields)}`, {
-            headers
-          }),
-          TEST_ENV
-        );
-        expect(res.status).toBe(200);
-        expect(await res.json()).toEqual(plainBody);
-        expect(res.headers.get("etag")).toBe(etag);
-      }
-
-      // 304 still served for the aggregate ETag, with and without fields present.
-      for (const suffix of ["", "&fields=company_name"]) {
-        const notModified = await app.fetch(
-          new Request(`http://test.local/api/v1/data/${kind}?id=${id}${suffix}`, {
-            headers: { ...headers, "if-none-match": etag as string }
-          }),
-          TEST_ENV
-        );
+      const etag = plain.headers.get("etag")!;
+      const body = await plain.json() as Record<string, Record<string, unknown>>;
+      const field = spec.sampleFields[0];
+      const selectedPath = `${path}&fields=${field}`;
+      const selected = await app.fetch(new Request(selectedPath, {
+        headers: { ...headers, "if-none-match": etag }
+      }), TEST_ENV);
+      expect(selected.status).toBe(200);
+      expect(await selected.json()).toEqual({
+        ...body, [spec.name]: { [spec.idColumn]: id, [field]: body[spec.name][field] }
+      });
+      const projectedEtag = selected.headers.get("etag")!;
+      expect(projectedEtag).not.toBe(etag);
+      for (const [url, validator] of [[path, etag], [selectedPath, projectedEtag]]) {
+        const notModified = await app.fetch(new Request(url, {
+          headers: { ...headers, "if-none-match": validator }
+        }), TEST_ENV);
         expect(notModified.status).toBe(304);
         expect(await notModified.text()).toBe("");
-        expect(notModified.headers.get("etag")).toBe(etag);
+        expect(notModified.headers.get("etag")).toBe(validator);
       }
     }
   });
@@ -713,7 +697,7 @@ describe("non-scope reads preserve behavior when fields is present", () => {
   });
 });
 
-describe("OpenAPI publishes fields on the six flat reads only", () => {
+describe("OpenAPI publishes fields on flat reads and keeps export/changes exclusions", () => {
   type Param = {
     name: string;
     in: string;
@@ -769,12 +753,9 @@ describe("OpenAPI publishes fields on the six flat reads only", () => {
     expect(op?.responses?.["400"]?.description ?? "").toMatch(/fields/);
   });
 
-  it("does not add fields to hydrated, export or changes operations", async () => {
+  it("does not add fields to export or changes operations", async () => {
     const doc = await openApi();
     for (const path of [
-      "/api/v1/data/customer",
-      "/api/v1/data/address",
-      "/api/v1/data/container",
       "/api/v1/customer-snapshot/export",
       "/api/v1/address-snapshot/export",
       "/api/v1/container-snapshot/export",

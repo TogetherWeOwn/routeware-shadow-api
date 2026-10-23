@@ -2134,7 +2134,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`).",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2160,6 +2160,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "city,address",
+              "type": "string",
             },
           },
         ],
@@ -2245,7 +2256,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2334,7 +2345,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`).",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2360,6 +2371,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "serial_number,location_address",
+              "type": "string",
             },
           },
         ],
@@ -2443,7 +2465,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2532,7 +2554,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/customer": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`).",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
@@ -2558,6 +2580,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
             },
           },
         ],
@@ -2645,7 +2678,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json).",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
