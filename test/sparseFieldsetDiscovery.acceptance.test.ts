@@ -74,25 +74,30 @@ type Spec = {
   idColumn: string;
   sampleField: string;
   operationIds: [string, string];
+  hydratedPath: string;
+  hydratedOperationId: string;
 };
 const SPECS: Spec[] = [
   {
     resource: "customer", listPath: "/api/v1/customer-snapshot",
     detailPath: "/api/v1/customer-snapshot/{customerId}", id: 98101,
     idColumn: "customer_id", sampleField: "company_name",
-    operationIds: ["listCustomerSnapshot", "getCustomerSnapshot"]
+    operationIds: ["listCustomerSnapshot", "getCustomerSnapshot"],
+    hydratedPath: "/api/v1/data/customer", hydratedOperationId: "getDataCustomer"
   },
   {
     resource: "address", listPath: "/api/v1/address-snapshot",
     detailPath: "/api/v1/address-snapshot/{pickupAddressId}", id: 98201,
     idColumn: "pickup_address_id", sampleField: "city",
-    operationIds: ["listAddressSnapshot", "getAddressSnapshot"]
+    operationIds: ["listAddressSnapshot", "getAddressSnapshot"],
+    hydratedPath: "/api/v1/data/address", hydratedOperationId: "getDataAddress"
   },
   {
     resource: "container", listPath: "/api/v1/container-snapshot",
     detailPath: "/api/v1/container-snapshot/{containerId}", id: 98301,
     idColumn: "container_id", sampleField: "serial_number",
-    operationIds: ["listContainerSnapshot", "getContainerSnapshot"]
+    operationIds: ["listContainerSnapshot", "getContainerSnapshot"],
+    hydratedPath: "/api/v1/data/container", hydratedOperationId: "getDataContainer"
   }
 ];
 
@@ -190,9 +195,27 @@ describe("mounted sparse-fieldset discovery contract", () => {
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
   });
 
-  it("advertises fields on exactly six supported flat reads, never on exports, feeds, batches or hydrated routes", async () => {
+  it.each(SPECS)("$resource: hydrated single-ID discovery matches its catalog and sync-secret access", async (spec) => {
     const doc = await document();
-    const supported = SPECS.flatMap((s) => [s.listPath, s.detailPath]).map((p) => `get ${p}`).sort();
+    const param = fieldsParameter(doc, spec.hydratedPath);
+    const meta = fieldset(param, spec.hydratedPath);
+    assertCatalog(meta, spec.resource);
+    expect(meta).toEqual(fieldset(fieldsParameter(doc, spec.listPath), spec.listPath));
+    expect(param.required).toBe(false);
+    expect(param.schema?.type).toBe("string");
+    expect(param.schema).not.toHaveProperty("enum");
+    expect(param).not.toHaveProperty("enum");
+    expect(doc.paths[spec.hydratedPath].get).toMatchObject({
+      operationId: spec.hydratedOperationId, "x-access": "sync-secret", "x-effect": "local-read"
+    });
+    expect(doc.paths[spec.hydratedPath].get.security).toBeUndefined();
+    expect(doc.security).toEqual([{ bearerAuth: [] }]);
+  });
+
+  it("advertises fields on exactly nine supported flat and single-ID hydrated reads, never on exports, feeds, POSTs or batches", async () => {
+    const doc = await document();
+    const supported = SPECS.flatMap((s) => [s.listPath, s.detailPath, s.hydratedPath]).map((p) => `get ${p}`).sort();
+    expect(supported).toHaveLength(9);
     const advertised: string[] = [];
     for (const [path, item] of Object.entries(doc.paths)) {
       for (const [method, op] of Object.entries(item)) {
@@ -384,5 +407,89 @@ describe("discovered selectors work against synthetic authenticated snapshot rea
       const meta = fieldset(fieldsParameter(after, spec.listPath), spec.listPath);
       expect(JSON.stringify(meta)).not.toContain("SYNTHETIC-RECORD-MARKER");
     });
+  });
+});
+
+// Same complete row shapes as hydratedFields.acceptance.test.ts, with disjoint
+// synthetic IDs. Expected bundles never use the production projector or catalog.
+const HYDRATED_ROWS: Record<SnapshotFieldsetResource, Record<string, string | number | null>> = {
+  customer: {
+    customer_id: 98101, customer_type_id: 2, company_name: "Synthetic discovery company",
+    first_name: "Synthetic", middle_initial: null, last_name: "Fixture",
+    name_suffix: "", customer_number: "SYN-001", sub_customer_number: "SUB-1",
+    phone1: "555-0100", phone2: null, comments: "Synthetic discovery note",
+    enabled: 1, synced_at: "2026-10-01T00:00:00.000Z"
+  },
+  address: {
+    pickup_address_id: 98201, customer_id: 98101, route_id: 7,
+    address: "1 Synthetic Way", city: "Syntheticville", state: "ZZ", zip: "00000",
+    franchise_id: "3", comments: null, extras_allowed: 0, enabled: 1,
+    driver_note: null, latitude: "0", longitude: "-10.5",
+    last_audit_date: "2026-09-01", synced_at: "2026-10-02T00:00:00.000Z"
+  },
+  container: {
+    container_id: 98301, pickup_address_id: 98201, container_type_id: 4,
+    serial_number: "SYNTHETIC-DISCOVERY-SERIAL", rfid: null, oncall: 0, event_code: "SYN",
+    gps_locked: 1, latitude: "0", longitude: "-11.5", enabled: 1,
+    location_address: "Synthetic enclosure", city: "Syntheticville", state: "ZZ", zip: "00000",
+    container_note: null, ud_cost_share_ud: "0", ud_enclosure_doors_ud: "2",
+    ud_last_compactor_inspection_ud: null, ud_last_enclosure_inspection_ud: "2026-09-02",
+    ud_material_stream_ud: "synthetic-paper", color: "blue", service_code_type: "SYN",
+    service_code_input: "SYN-INPUT", service_code: "SYN-CODE", service_date: "2026-10-03",
+    route_ids: "7,8", frequency_ids: "1,2", synced_at: "2026-10-03T00:00:00.000Z"
+  }
+};
+
+async function seedHydratedRows(): Promise<void> {
+  await seedSyntheticRows();
+  // Enrich the existing three related fixtures with independently known values,
+  // including null, zero and empty string, without changing flat-read fixtures.
+  for (const spec of SPECS) {
+    const row = HYDRATED_ROWS[spec.resource];
+    const columns = Object.keys(row);
+    await TEST_ENV.CUSTOMER_DB.prepare(
+      `UPDATE ${spec.resource}_snapshot SET ${columns.map((column) => `${column} = ?`).join(",")} WHERE ${spec.idColumn} = ?`
+    ).bind(...columns.map((column) => row[column]), spec.id).run();
+  }
+}
+
+function hydratedBundle(resource: SnapshotFieldsetResource): JsonObject {
+  const { customer, address, container } = HYDRATED_ROWS;
+  if (resource === "customer") return { customer, addresses: [{ ...address, containers: [container] }] };
+  if (resource === "address") return { address, customer, containers: [container] };
+  return { container, address, customer };
+}
+
+async function hydratedBody(path: string): Promise<JsonObject> {
+  const res = await read(path, "test-sync-secret");
+  expect(res.status).toBe(200);
+  expect(res.headers.get("cache-control")).toBe("private, max-age=60");
+  expect(res.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  return await res.json() as JsonObject;
+}
+
+// Auth/ETag/canonical-cache permutations remain owned by the unchanged hydrated
+// acceptance suite. This integration specifically connects discovery to usage.
+describe("discovered selectors project only the matching hydrated root", () => {
+  beforeEach(seedHydratedRows);
+
+  it.each(SPECS)("$resource: every discovered field retains identity and the complete related bundle; omission stays full", async (spec) => {
+    const meta = fieldset(fieldsParameter(await document(), spec.hydratedPath), spec.hydratedPath);
+    assertCatalog(meta, spec.resource);
+    const path = `${spec.hydratedPath}?id=${spec.id}`;
+    const full = hydratedBundle(spec.resource);
+    const root = HYDRATED_ROWS[spec.resource];
+    expect(await hydratedBody(path)).toEqual(full);
+    for (const field of meta.selectableFields) {
+      const projectedRoot = { [spec.idColumn]: spec.id, [field]: root[field] };
+      const projected = await hydratedBody(`${path}&fields=${encodeURIComponent(field)}`);
+      // Exact bundle equality also pins non-root objects, nested arrays and values.
+      expect(projected, `${spec.hydratedPath}: ${field}`).toEqual({ ...full, [spec.resource]: projectedRoot });
+      expect((projected[spec.resource] as JsonObject)[spec.idColumn]).toBe(spec.id);
+    }
+    const all = meta.selectableFields.join(meta.delimiter);
+    expect(await hydratedBody(`${path}&fields=${encodeURIComponent(all)}`)).toEqual(full);
+    // Selected requests must not contaminate a later omitted-fields response.
+    expect(await hydratedBody(path)).toEqual(full);
   });
 });
