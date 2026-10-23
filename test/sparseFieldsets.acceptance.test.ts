@@ -254,7 +254,7 @@ describe.each(SPECS)("$name list: valid selection trims rows, keeps envelope", (
     const res = await get(spec.listPath);
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
-    expect(res.headers.get("etag")).toBeNull();
+    expect.soft(res.headers.get("etag")).toEqual(expect.stringMatching(/^"[0-9a-f]{64}"$/));
     const body = (await res.json()) as ListBody;
     expect(Object.keys(body).sort()).toEqual(["nextCursor", "rows", "total"]);
     expect(body.rows).toHaveLength(3);
@@ -268,7 +268,7 @@ describe.each(SPECS)("$name list: valid selection trims rows, keeps envelope", (
     const res = await get(`${spec.listPath}?fields=${spec.allColumns.join(",")}`);
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
-    expect(res.headers.get("etag")).toBeNull();
+    expect.soft(res.headers.get("etag")).toEqual(expect.stringMatching(/^"[0-9a-f]{64}"$/));
     const body = (await res.json()) as ListBody;
     expect(Object.keys(body).sort()).toEqual(["nextCursor", "rows", "total"]);
     expect(body.rows).toHaveLength(3);
@@ -288,7 +288,7 @@ describe.each(SPECS)("$name list: valid selection trims rows, keeps envelope", (
     const res = await get(`${spec.listPath}?fields=${field}`, { db });
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
-    expect(res.headers.get("etag")).toBeNull();
+    expect.soft(res.headers.get("etag")).toEqual(expect.stringMatching(/^"[0-9a-f]{64}"$/));
     const body = (await res.json()) as ListBody;
     expect(Object.keys(body).sort()).toEqual(["nextCursor", "rows", "total"]);
     expect(body.rows).toHaveLength(3);
