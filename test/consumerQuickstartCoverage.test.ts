@@ -119,10 +119,21 @@ describe("consumer quickstart GET coverage", () => {
   });
 
   it("detects archive drift when only template references remain in the document", async () => {
-    const templateOnlyDoc = quickstart.replaceAll(
-      /\/api\/v1\/snapshots\/(?:customer|address|container)\/\d{4}-\d{2}-\d{2}/g,
-      "/api/v1/snapshots/{table}/{date}"
-    );
+    // Reduce two-segment date refs first, then bare-table listing refs (e.g.
+    // the §3b `/api/v1/snapshots/customer?limit=5` example), so the
+    // template-only document carries no concrete segment for EITHER archive
+    // route. Without the second pass the bare listing ref always survives and
+    // the listing op's drift assertion fails for every implementation, while
+    // the pins test forbids leaving it undocumented or allowlisted.
+    const templateOnlyDoc = quickstart
+      .replaceAll(
+        /\/api\/v1\/snapshots\/(?:customer|address|container)\/\d{4}-\d{2}-\d{2}/g,
+        "/api/v1/snapshots/{table}/{date}"
+      )
+      .replaceAll(
+        /\/api\/v1\/snapshots\/(?:customer|address|container)(?!\/\d{4}-\d{2}-\d{2})/g,
+        "/api/v1/snapshots/{table}"
+      );
     expect(templateOnlyDoc).not.toBe(quickstart);
     expect(templateOnlyDoc).toContain("GET /api/v1/snapshots/{table}/{date}");
 
