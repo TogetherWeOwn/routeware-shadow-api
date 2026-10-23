@@ -62,7 +62,9 @@ export function parseSnapshotIdSelection(raw: string): number[] | null {
       return null;
     }
     const id = Number(member);
-    if (!Number.isSafeInteger(id) || seen.has(id)) {
+    // Canonical text is already positive, so integer + named upper bound is
+    // exactly the safe-integer check. `Infinity` and rounded magnitudes fail.
+    if (!Number.isInteger(id) || id > SNAPSHOT_ID_SELECTION_MAX_VALUE || seen.has(id)) {
       return null;
     }
     seen.add(id);
