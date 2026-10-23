@@ -45,7 +45,8 @@ const EXPOSED_RESPONSE_HEADERS = [
   "RateLimit",
   "RateLimit-Policy",
   "Content-Disposition",
-  "X-Request-Id"
+  "X-Request-Id",
+  "Link"
 ];
 // Default `Cache-Control` for `/api/v1/*` responses: nothing under
 // the bearer gate is public-cacheable, and the authenticated snapshot routes
@@ -138,7 +139,7 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   // the upstream-timeout backstop 502). Content-Disposition is
   // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
   // the attachment filename. X-Request-Id is exposed so browser clients can
-  // correlate retries with server-side logs.
+  // correlate retries with server-side logs. Link exposes snapshot list continuations.
   headers.set(
     "Access-Control-Expose-Headers",
     EXPOSED_RESPONSE_HEADERS.join(", ")

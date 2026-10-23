@@ -1,0 +1,348 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`'address' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: empty-counted 1`] = `
+{
+  "bytes": "{"rows":[],"total":0,"nextCursor":null}",
+  "statements": [
+    {
+      "binds": [
+        6,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND pickup_address_id > ?",
+    },
+    {
+      "binds": [
+        6,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
+       FROM address_snapshot WHERE 1 = 1 AND pickup_address_id > ? ORDER BY pickup_address_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'address' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: filtered-selectors-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"pickup_address_id":2,"enabled":1}],"total":null,"nextCursor":2}",
+  "statements": [
+    {
+      "binds": [
+        1,
+        2,
+        "synthetic & +/雪? #"<x>",
+        1,
+        0,
+      ],
+      "method": "all",
+      "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
+       FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND pickup_address_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'address' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: full-row-terminal 1`] = `
+{
+  "bytes": "{"rows":[{"pickup_address_id":6,"customer_id":1,"route_id":null,"address":"synthetic & +/雪? #\\"<x>","city":null,"state":null,"zip":null,"franchise_id":null,"comments":null,"extras_allowed":1,"enabled":1,"driver_note":null,"latitude":null,"longitude":null,"last_audit_date":null,"synced_at":"synthetic"}],"total":1,"nextCursor":6}",
+  "statements": [
+    {
+      "binds": [
+        5,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND pickup_address_id > ?",
+    },
+    {
+      "binds": [
+        5,
+        1,
+      ],
+      "method": "all",
+      "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
+       FROM address_snapshot WHERE 1 = 1 AND pickup_address_id > ? ORDER BY pickup_address_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'address' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: offset-counted 1`] = `
+{
+  "bytes": "{"rows":[{"pickup_address_id":4,"enabled":1},{"pickup_address_id":5,"enabled":1}],"total":5,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND enabled = 1",
+    },
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
+       FROM address_snapshot WHERE 1 = 1 AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'address' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: seek-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"pickup_address_id":4,"enabled":1},{"pickup_address_id":5,"enabled":1}],"total":null,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
+              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
+       FROM address_snapshot WHERE 1 = 1 AND enabled = 1 AND pickup_address_id > ? ORDER BY pickup_address_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'container' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: empty-counted 1`] = `
+{
+  "bytes": "{"rows":[],"total":0,"nextCursor":null}",
+  "statements": [
+    {
+      "binds": [
+        6,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.container_id > ?",
+    },
+    {
+      "binds": [
+        6,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
+              c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
+              c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
+              c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
+       FROM container_snapshot c WHERE 1 = 1 AND c.container_id > ? ORDER BY c.container_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'container' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: filtered-selectors-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"container_id":2,"enabled":1}],"total":null,"nextCursor":2}",
+  "statements": [
+    {
+      "binds": [
+        1,
+        2,
+        2,
+        "synthetic & +/雪? #"<x>",
+        "synthetic & +/雪? #"<x>",
+        1,
+        0,
+      ],
+      "method": "all",
+      "sql": "SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
+              c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
+              c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
+              c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
+       FROM container_snapshot c INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id WHERE 1 = 1 AND a.customer_id = ? AND c.pickup_address_id = ? AND c.container_id = ? AND (instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0) AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'container' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: full-row-terminal 1`] = `
+{
+  "bytes": "{"rows":[{"container_id":6,"pickup_address_id":6,"container_type_id":null,"serial_number":"synthetic-serial-6","rfid":null,"oncall":0,"event_code":null,"gps_locked":0,"latitude":null,"longitude":null,"enabled":1,"location_address":"synthetic & +/雪? #\\"<x>","city":null,"state":null,"zip":null,"container_note":null,"ud_cost_share_ud":null,"ud_enclosure_doors_ud":null,"ud_last_compactor_inspection_ud":null,"ud_last_enclosure_inspection_ud":null,"ud_material_stream_ud":null,"color":null,"service_code_type":null,"service_code_input":null,"service_code":null,"service_date":null,"route_ids":null,"frequency_ids":null,"synced_at":"synthetic"}],"total":1,"nextCursor":6}",
+  "statements": [
+    {
+      "binds": [
+        5,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.container_id > ?",
+    },
+    {
+      "binds": [
+        5,
+        1,
+      ],
+      "method": "all",
+      "sql": "SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
+              c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
+              c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
+              c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
+       FROM container_snapshot c WHERE 1 = 1 AND c.container_id > ? ORDER BY c.container_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'container' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: offset-counted 1`] = `
+{
+  "bytes": "{"rows":[{"container_id":4,"enabled":1},{"container_id":5,"enabled":1}],"total":5,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.enabled = 1",
+    },
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
+              c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
+              c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
+              c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
+       FROM container_snapshot c WHERE 1 = 1 AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'container' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: seek-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"container_id":4,"enabled":1},{"container_id":5,"enabled":1}],"total":null,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
+              c.gps_locked, c.latitude, c.longitude, c.enabled, c.location_address, c.city, c.state, c.zip, c.container_note,
+              c.ud_cost_share_ud, c.ud_enclosure_doors_ud, c.ud_last_compactor_inspection_ud, c.ud_last_enclosure_inspection_ud,
+              c.ud_material_stream_ud, c.color, c.service_code_type, c.service_code_input, c.service_code, c.service_date, c.route_ids, c.frequency_ids, c.synced_at
+       FROM container_snapshot c WHERE 1 = 1 AND c.enabled = 1 AND c.container_id > ? ORDER BY c.container_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'customer' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: empty-counted 1`] = `
+{
+  "bytes": "{"rows":[],"total":0,"nextCursor":null}",
+  "statements": [
+    {
+      "binds": [
+        6,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND customer_id > ?",
+    },
+    {
+      "binds": [
+        6,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE 1 = 1 AND customer_id > ? ORDER BY customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'customer' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: filtered-selectors-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":2,"enabled":1}],"total":null,"nextCursor":2}",
+  "statements": [
+    {
+      "binds": [
+        2,
+        "synthetic & +/雪? #"<x>",
+        1,
+        0,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND instr(lower(coalesce(company_name, '')), lower(?)) > 0 AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'customer' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: full-row-terminal 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":6,"customer_type_id":null,"company_name":"synthetic & +/雪? #\\"<x>","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"synthetic"}],"total":1,"nextCursor":6}",
+  "statements": [
+    {
+      "binds": [
+        5,
+      ],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND customer_id > ?",
+    },
+    {
+      "binds": [
+        5,
+        1,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE 1 = 1 AND customer_id > ? ORDER BY customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`'customer' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: offset-counted 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":4,"enabled":1},{"customer_id":5,"enabled":1}],"total":5,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [],
+      "method": "first",
+      "sql": "SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND enabled = 1",
+    },
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE 1 = 1 AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?",
+    },
+  ],
+}
+`;
+
+exports[`'customer' snapshot: followable next links > preserves pre-feature JSON bytes and exact executed SQL/binds: seek-count-free 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":4,"enabled":1},{"customer_id":5,"enabled":1}],"total":null,"nextCursor":5}",
+  "statements": [
+    {
+      "binds": [
+        2,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE 1 = 1 AND enabled = 1 AND customer_id > ? ORDER BY customer_id LIMIT ?",
+    },
+  ],
+}
+`;

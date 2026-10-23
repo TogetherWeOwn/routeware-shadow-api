@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   snapshotListConditionalHeaders,
@@ -86,7 +87,7 @@ const customerSnapshotListRoute = createRoute({
   responses: {
     200: {
       description: "Rows and total count for pagination",
-      headers: snapshotListEtagHeaders,
+      headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -166,6 +167,8 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("customer", row as Record<string, unknown>, fields)
         );
+  const nextLink = snapshotNextLink("customer", p, nextCursor);
+  if (nextLink !== null) c.header("Link", nextLink);
   return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
 

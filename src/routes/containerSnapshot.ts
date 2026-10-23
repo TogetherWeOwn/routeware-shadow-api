@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   snapshotListConditionalHeaders,
@@ -87,7 +88,7 @@ const containerSnapshotListRoute = createRoute({
   responses: {
     200: {
       description: "Rows and total",
-      headers: snapshotListEtagHeaders,
+      headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -183,6 +184,8 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("container", row as Record<string, unknown>, fields)
         );
+  const nextLink = snapshotNextLink("container", p, nextCursor);
+  if (nextLink !== null) c.header("Link", nextLink);
   return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
 

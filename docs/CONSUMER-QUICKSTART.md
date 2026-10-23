@@ -193,6 +193,53 @@ synthetic value and checks a fresh 200. It also asserts identical executed
 SQL/binds on the 200/304 pair and preserved no-store/CORS/request-ID headers.
 These are synthetic regression results, not deployed performance measurements.
 
+### Follow the server's next-page target
+
+The three ordinary snapshot lists also return `Link: <relative-target>; rel="next"`
+exactly when `nextCursor` is non-null. Follow it rather than rebuilding the
+query: the target retains recognized filters, explicit `fields`, the effective
+limit and `includeTotal=false`, replaces the cursor, and drops `offset` even
+when you started with one. Unknown keys and request origins are never copied.
+CORS exposes `Link` alongside the existing exposed headers.
+
+**Omission means stop.** A full terminal page can link to an empty page; there
+is no lookahead query. JSON, count semantics (including cursor-relative totals)
+and query counts are unchanged. This is not a consistency guarantee during
+concurrent writes, and the customer `changes` feed is not included.
+
+Node 24 recipe (local synthetic origin, `$TOKEN` from step 1; log counts, not
+rows or credentials). Resolve the relative target against the current page,
+refuse foreign origins before sending authorization, and reject redirects:
+
+```javascript
+const start = new URL("http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false");
+let url = start;
+for (;;) {
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.TOKEN}` }, redirect: "error"
+  });
+  if (!res.ok) throw new Error(`Snapshot read failed: ${res.status}`);
+  const page = await res.json();
+  console.log({ rows: page.rows.length, total: page.total });
+  const link = res.headers.get("Link");
+  if (link === null) break;
+  const match = /^<([^>]+)>; rel="next"$/.exec(link);
+  if (!match) throw new Error("Untrusted next Link");
+  const next = new URL(match[1], url);
+  if (next.origin !== start.origin || next.username || next.password)
+    throw new Error("Untrusted next-link origin");
+  url = next;
+}
+```
+
+The executable-doc check runs this exact recipe with synthetic responses and
+no network or real credentials (also included in `npm test`):
+
+```bash
+node --test test/snapshotNextLinksRecipe.acceptance.test.mjs
+npx vitest run test/snapshotNextLinks.acceptance.test.ts
+```
+
 Single rows (same 404 `not-found` shape when the id is not in D1):
 
 ```bash

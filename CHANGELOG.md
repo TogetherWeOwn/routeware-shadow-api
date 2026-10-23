@@ -12,6 +12,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   unchanged `no-store` and no shared response cache or persisted validators.
   See `docs/CONSUMER-QUICKSTART.md` for the synthetic regression recipe.
 
+- #343: Snapshot customer/address/container lists now return optional
+  `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
+  preserve allowlisted filters, explicit fields, effective limit and
+  `includeTotal=false`, replacing cursor and dropping offset. No JSON or SQL
+  changes; a full terminal page may link to an empty page. CORS exposes Link;
+  OpenAPI and the same-origin follow-next quickstart document it.
+
 - #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
   requested `.customer`, `.address` or `.container` root is projected, always

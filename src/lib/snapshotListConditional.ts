@@ -2,6 +2,7 @@ import type { Context } from "hono";
 import { z } from "@hono/zod-openapi";
 import { matchesIfNoneMatch } from "./conditionalRequest";
 import { sha256Etag } from "./entityDataCache";
+import { snapshotNextLinkHeader } from "./snapshotNextLink";
 
 export const snapshotListConditionalHeaders = z.object({
   "If-None-Match": z.string().optional().openapi({
@@ -20,7 +21,9 @@ export const snapshotListEtagHeaders = {
 export const snapshotListNotModifiedResponse = {
   description:
     "If-None-Match matched the current JSON envelope. Empty body; unchanged D1 work and no-store policy.",
-  headers: snapshotListEtagHeaders
+  // Callers set Link via the context before responding, so 304s carry the same
+  // continuation as their 200. Declare it to keep the served document truthful.
+  headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader }
 };
 
 /** Called only after successful validation, D1 reads and row projection. */
