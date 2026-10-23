@@ -255,9 +255,10 @@ export async function fetchWithUpstreamTimeout(
  * (15s interactive, 60s report), so a short fixed backoff is enough to break
  * tight retry loops during an upstream outage without parking clients for a
  * full throttle window. Fixed — never per-request — so any HTTP client can
- * honor it blindly. Only this hung-upstream backstop 502 carries it: HTML
- * error-page 502s, concurrent-refresh 502s, login-unavailable 502s and every
- * other status send no `Retry-After`.
+ * honor the delay. Among 502 responses, only this hung-upstream backstop
+ * carries it: HTML error-page, concurrent-refresh and login-unavailable 502s
+ * send no `Retry-After`. Auth-throttle 429s retain their own `Retry-After`;
+ * clients must still verify a write's outcome before resubmitting.
  */
 export const UPSTREAM_TIMEOUT_RETRY_AFTER_SEC = 5;
 

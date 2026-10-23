@@ -572,8 +572,9 @@ A timeout uses the same `bad-gateway` type but the title `Upstream timed out`;
 the `detail` names the configured timeout budget. It also carries a fixed
 `Retry-After: 5` (`UPSTREAM_TIMEOUT_RETRY_AFTER_SEC` in
 `src/lib/upstreamTimeout.ts`): a 5-second backoff so clients pause instead of
-hammering a hung upstream. Only this backstop timeout 502 carries it — the
-HTML error page above and every other status send no `Retry-After`.
+hammering a hung upstream. Among 502 responses, only this backstop timeout
+carries `Retry-After`; the HTML error page above does not. Auth-throttle 429
+responses retain their own `Retry-After` header.
 **Fix:** for a read timeout,
 retry once after the `Retry-After` delay. If it persists, ask the operator to check
 Routeware availability, the session, and the login path. Changing the client
