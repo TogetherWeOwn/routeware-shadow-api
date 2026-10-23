@@ -264,9 +264,16 @@ async function expectStrict400(
   }
   // Submitted keys are matched as tokens: the allowed key `fields` contains
   // the typo `field` as a substring, and that guidance is required, not a leak.
+  // The permitted `instance` ("/api/v1/data/<kind>", validated above) is fixed
+  // body bytes, not an echo: it contains "1" (v1) and the route-name token, so
+  // strip it before matching. Do NOT pin "no instance" — it is the contract.
+  let haystack = raw;
+  if (typeof body.instance === "string") {
+    haystack = haystack.replace(JSON.stringify(body.instance), '""');
+  }
   for (const { key, value } of opts.submitted) {
-    if (key !== "") expect(raw).not.toMatch(tokenPattern(key));
-    if (value !== "") expect(raw).not.toContain(value);
+    if (key !== "") expect(haystack).not.toMatch(tokenPattern(key));
+    if (value !== "") expect(haystack).not.toContain(value);
   }
   expect(raw).not.toMatch(/received|invalid_type|"input"/i);
   expectNoWork();
@@ -347,8 +354,8 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     it.each(NEVER_VALID_KEYS)("?alias=<valid>&%s=<value> 400s with allowed-keys guidance", async (key) => {
       const allowed = declaredKeys[spec.kind]!;
       await expectStrict400(
-        await get(spec, [[spec.alias, spec.idValue], [key, "1"]]),
-        spec, { allowed, submitted: [{ key, value: "1" }] });
+        await get(spec, [[spec.alias, spec.idValue], [key, "SYNTHETIC-MARKER-1"]]),
+        spec, { allowed, submitted: [{ key, value: "SYNTHETIC-MARKER-1" }] });
     });
 
     it("?field= (headline typo) 400s on a warm cache without touching it", async () => {
@@ -371,15 +378,15 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     it("unknown key alongside a valid ?fields= projection 400s", async () => {
       const allowed = declaredKeys[spec.kind]!;
       await expectStrict400(
-        await get(spec, [["id", spec.idValue], ["fields", spec.first], ["bogus_param", "1"]]),
-        spec, { allowed, submitted: [{ key: "bogus_param", value: "1" }] });
+        await get(spec, [["id", spec.idValue], ["fields", spec.first], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
+        spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] });
     });
 
     it("repeated unknown keys 400s", async () => {
       const allowed = declaredKeys[spec.kind]!;
       await expectStrict400(
-        await get(spec, [["id", spec.idValue], ["bogus_param", "1"], ["bogus_param", "2"]]),
-        spec, { allowed, submitted: [{ key: "bogus_param", value: "1" }] });
+        await get(spec, [["id", spec.idValue], ["bogus_param", "SYNTHETIC-MARKER-1"], ["bogus_param", "SYNTHETIC-MARKER-2"]]),
+        spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }, { key: "bogus_param", value: "SYNTHETIC-MARKER-2" }] });
     });
 
     it("empty key name (?id=<valid>&=x) 400s", async () => {
@@ -394,8 +401,8 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     it("whitespace-only key name 400s", async () => {
       const allowed = declaredKeys[spec.kind]!;
       await expectStrict400(
-        await get(spec, [["id", spec.idValue], [" ", "1"]]),
-        spec, { allowed, submitted: [{ key: " ", value: "1" }] });
+        await get(spec, [["id", spec.idValue], [" ", "SYNTHETIC-MARKER-1"]]),
+        spec, { allowed, submitted: [{ key: " ", value: "SYNTHETIC-MARKER-1" }] });
     });
 
     it("unknown key with an empty value still 400s as an unknown key", async () => {
@@ -414,7 +421,7 @@ describe.each(specs)("$kind strict query keys", (spec) => {
       const details = new Set<string>();
       const probes: Array<{ pairs: Array<[string, string]>; submitted: Array<{ key: string; value: string }>; headers?: HeadersInit }> = [
         { pairs: [["id", spec.idValue], ["field", spec.first]], submitted: [{ key: "field", value: spec.first }] },
-        { pairs: [[spec.alias, spec.idValue], ["bogus_param", "1"]], submitted: [{ key: "bogus_param", value: "1" }] },
+        { pairs: [[spec.alias, spec.idValue], ["bogus_param", "SYNTHETIC-MARKER-1"]], submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] },
         { pairs: [["id", spec.idValue], ["fields", spec.first], ["limit", "5"]],
           submitted: [{ key: "limit", value: "5" }] },
         { pairs: [["id", spec.idValue], ["IDs", spec.idValue]], submitted: [{ key: "IDs", value: spec.idValue }],
@@ -444,8 +451,8 @@ describe.each(specs)("$kind strict query keys", (spec) => {
         expect(body.entries).toHaveLength(2);
         resetWork();
         await expectStrict400(
-          await get(spec, [["ids", spec.idValue], ["bogus_param", "1"]]),
-          spec, { allowed, submitted: [{ key: "bogus_param", value: "1" }] });
+          await get(spec, [["ids", spec.idValue], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
+          spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] });
       } else {
         // RED at base: `ids` is just another unknown key until #339 merges.
         await expectStrict400(
@@ -465,8 +472,8 @@ describe.each(specs)("$kind strict query keys", (spec) => {
           expect(typedResponse.status).toBe(200);
           resetWork();
           await expectStrict400(
-            await get(spec, [["id", spec.idValue], [typed, spec.first], ["bogus_param", "1"]]),
-            spec, { allowed, submitted: [{ key: "bogus_param", value: "1" }] });
+            await get(spec, [["id", spec.idValue], [typed, spec.first], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
+            spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] });
         } else {
           // RED at base: typed selectors are unknown keys until R20-02 merges.
           await expectStrict400(
@@ -514,7 +521,7 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     it("unknown key beside an invalid value still 400s without echo or work", async () => {
       // Order between the unknown-key check and value validation is the
       // Builder's; either anchored 400 is acceptable here.
-      const response = await get(spec, [["id", "not-an-id-SYNTHETIC-MARKER"], ["bogus_param", "1"]]);
+      const response = await get(spec, [["id", "not-an-id-SYNTHETIC-MARKER"], ["bogus_param", "SYNTHETIC-MARKER-1"]]);
       expect(response.status).toBe(400);
       const raw = await response.text();
       expect(raw).toContain("See docs/PROBLEMS.md#bad-request.");
@@ -600,7 +607,7 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     ])("%s + unknown key 401s at the %s gate without validation or work", async (_label, authorization, gate) => {
       await loadSeededCache(spec);
       await expectUnauthorized(
-        await get(spec, [["id", spec.idValue], ["bogus_param", "1"]], { authorization }),
+        await get(spec, [["id", spec.idValue], ["bogus_param", "SYNTHETIC-MARKER-1"]], { authorization }),
         gate);
     });
 
@@ -612,15 +619,15 @@ describe.each(specs)("$kind strict query keys", (spec) => {
     ])("%s + coercible-invalid id beside an unknown key 401s at the %s gate", async (_label, authorization, gate) => {
       // Both the canonical-ID check and the unknown-key check run after auth.
       await expectUnauthorized(
-        await get(spec, [["id", "01"], ["bogus_param", "1"]], { authorization }),
+        await get(spec, [["id", "01"], ["bogus_param", "SYNTHETIC-MARKER-1"]], { authorization }),
         gate);
     });
 
     it("sync secret + unknown key is the strict 400, not a 401", async () => {
       const allowed = declaredKeys[spec.kind]!;
       await expectStrict400(
-        await get(spec, [["id", spec.idValue], ["bogus_param", "1"]]),
-        spec, { allowed, submitted: [{ key: "bogus_param", value: "1" }] });
+        await get(spec, [["id", spec.idValue], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
+        spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] });
     });
   });
 });
