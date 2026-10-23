@@ -13,6 +13,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   idempotency. IDs are not propagated upstream. See `docs/CONSUMER-QUICKSTART.md`
   and `docs/LOGGING.md`.
 
+- #334: `POST /api/v1/data-snapshot/sync` accepts `?partialProgress=true` to
+  opt into sanitized partial progress on a table-step failure: HTTP 500
+  `application/json` `{customer, address, container, failure}` with per-table
+  `{upserted, rowCount}` (completed) or `null` and fixed `{table, code}` plus
+  the numeric `status` only for `ChainedHttpError`. `code` is one of the six
+  runbook §4.1 classifications, never upstream text; no `deleted`, `r2`, or
+  row data travels. Absent or `false` keeps the generic shapes byte-for-byte;
+  any other value is a value-free 400 before any table runs. Success is
+  identical with or without the flag. See `CUSTOMER_SNAPSHOT.md`.
+
 - #337: Auth-throttle 429s now carry standard `RateLimit`
   (`"auth-burst";r=0;t=<retryAfterSec>`) and `RateLimit-Policy`
   (`"auth-burst";q=19;w=60`) fields alongside the byte-identical `Retry-After` /

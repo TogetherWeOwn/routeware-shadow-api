@@ -276,9 +276,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
         checked++;
       }
     }
-    // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary
-    // lists; +6 for the fields sparse-fieldset selector on the six flat reads.
-    expect(checked).toBe(55);
+    // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
+    // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync.
+    expect(checked).toBe(56);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {

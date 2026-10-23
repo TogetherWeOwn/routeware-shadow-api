@@ -172,6 +172,9 @@ failed table's invocation and persisted state **before** deciding to resubmit; a
 cancellation request is not a rollback. The combined HTTP route's normal
 `{upserted,rowCount}|null` contract, dry-run forwarding and correlation IDs remain
 unchanged. Optional `deleted` is validated like required counts unless skipped.
+The combined route additionally offers an opt-in `?partialProgress=true` 500
+envelope with per-table counts and the fixed `{table, code[, status]}` failure
+from the table above (default shapes unchanged; see `CUSTOMER_SNAPSHOT.md`).
 
 Wire R2 metadata keeps `stored|disabled|failed`, never arbitrary properties,
 nested data, keys or free text. Disabled reasons are exactly `SNAPSHOTS binding
@@ -184,7 +187,7 @@ is for HTTP wire results; local single-invocation driver reporting is unchanged.
 Hermetic focused check (synthetic streams, deny-by-default fetch; no live sync/replay):
 
 ```sh
-CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
+CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/combinedSyncPartialProgress.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
 ```
 
 ## 5. Local missed-run drill (no deploy, no token, no tenant)
