@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
+- #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
   strict `fields=` selectors from the shared snapshot allowlists. Only the
   requested `.customer`, `.address` or `.container` root is projected, always
   retaining its primary ID; related bundle data is unchanged. Omitted fields
