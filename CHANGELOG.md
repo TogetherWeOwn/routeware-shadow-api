@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Consumer quickstart now documents the customer `changes` feed
+  (`GET /api/v1/customer-snapshot/changes`: composite `since` + `since_id`
+  cursor, lossless millisecond precision, upserts-only boundary) and the R2
+  snapshot archive readback (`GET /api/v1/snapshots/{table}/{date}`:
+  sync-secret gate, 404-vs-absent, ETag/304), plus address/container by-id
+  reads. A new `test/consumerQuickstartCoverage.test.ts` ratchet fails when a
+  registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
+  named in its reasoned allowlist (routeware passthroughs, orphan audit).
+  No Worker behavior change.
+
 ## [1.0.0] - 2026-10-22
 
 Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
