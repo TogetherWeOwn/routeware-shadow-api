@@ -110,6 +110,10 @@ const fixture = `
   const write = process.stdout.write.bind(process.stdout);
   process.stdout.write = (...args) => { log({ effect: 'stdout' }); return write(...args); };
   const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (callback, delay, ...args) => {
+    log({ effect: 'timer', delay });
+    return realSetTimeout(callback, delay, ...args);
+  };
   const wait = (signal, stage, pathname) => new Promise((resolve, reject) => {
     const timer = realSetTimeout(() => { log({ effect: 'late-completion', stage, path: pathname }); resolve(); }, 600);
     const abort = () => {
@@ -125,8 +129,9 @@ const fixture = `
     const headers = new Headers(init.headers);
     const method = init.method || 'GET';
     const authed = headers.has('authorization');
-    log({ effect: 'fetch', origin: url.origin, path: url.pathname, method, authed });
+    log({ effect: 'fetch', origin: url.origin, path: url.pathname, method, authed, redirect: init.redirect ?? null });
     if (cfg.noEffects) return refuse('forbidden-fetch');
+    if (init.redirect !== 'manual') return refuse('unsafe-redirect');
     if (url.origin !== cfg.origin || !cfg.paths.includes(url.pathname) || method !== 'GET' ||
         seen.has(url.pathname) || url.search || url.hash || url.username || url.password ||
         init.body != null || authed !== (url.pathname !== cfg.paths[0]) ||
@@ -142,7 +147,25 @@ const fixture = `
     }
     if (kind === 'invalid-health' || kind === 'invalid-readiness') body.status = 'degraded';
     if (cfg.poison !== false) body.privateDetail = 'SYNTHETIC_PRIVATE_BODY_DO_NOT_ECHO'.repeat(cfg.large ? 20000 : 1);
-    const status = typeof kind === 'number' ? kind : 200;
+    const status = cfg.failAt === url.pathname && cfg.bodyStream ? cfg.httpStatus : typeof kind === 'number' ? kind : 200;
+    if (cfg.failAt === url.pathname && cfg.bodyStream) {
+      // Native stream failures must not erase an already-known HTTP status.
+      // No pull/cancel count is required: non-200 bodies may be ignored entirely.
+      const stream = new ReadableStream({
+        start(controller) {
+          if (cfg.bodyStream === 'error') controller.error(new TypeError('SYNTHETIC_PRIVATE_BODY_DO_NOT_ECHO'));
+          else {
+            const abort = () => {
+              log({ effect: 'abort', stage: 'native-body', path: url.pathname });
+              controller.error(new DOMException('SYNTHETIC_PRIVATE_BODY_DO_NOT_ECHO', 'AbortError'));
+            };
+            if (init.signal?.aborted) abort();
+            else init.signal?.addEventListener('abort', abort, { once: true });
+          }
+        },
+      });
+      return new Response(stream, { status });
+    }
     const response = new Response(kind === 'invalid-json' ? body.privateDetail : JSON.stringify(body), { status });
     const text = response.text.bind(response);
     response.text = async () => {
@@ -179,7 +202,7 @@ function run(args = [], options = {}) {
     for (const marker of [TOKEN, POISON, "fixture-password", "fixture-query-secret", "fixture-user"]) {
       assert.ok(!output.includes(marker), `output leaked synthetic marker ${marker}: ${output.slice(0, 2000)}`);
     }
-    assert.deepEqual(events.filter((e) => ["network", "subprocess", "filesystem-write", "unexpected-fetch"].includes(e.effect)), []);
+    assert.deepEqual(events.filter((e) => ["network", "subprocess", "filesystem-write", "unexpected-fetch", "unsafe-redirect"].includes(e.effect)), []);
     return { ...result, events, output };
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -237,7 +260,7 @@ function rows(doc, outcomes = ["pass", "pass", "pass"]) {
 
 function requests(result, origin = ORIGIN, authed = true) {
   assert.deepEqual(result.events.filter((e) => e.effect === "fetch"), (authed ? PATHS : PATHS.slice(0, 1)).map((p, i) => ({
-    effect: "fetch", origin, path: p, method: "GET", authed: i !== 0,
+    effect: "fetch", origin, path: p, method: "GET", authed: i !== 0, redirect: "manual",
   })), "exact fixed GETs, authentication only where needed, no retries");
 }
 
@@ -480,3 +503,133 @@ for (const [label, config, status, pattern] of [
     requests(result);
   });
 }
+
+// Review regressions: status-before-body, redirect policy, origin cap and timers.
+// Each case runs the CLI; no assertion depends on implementation source text.
+for (const [httpStatus, errorCode, retryable, indices] of [
+  [401, "http_auth", false, [0, 1, 2]],
+  [403, "http_auth", false, [0, 1, 2]],
+  [404, "http_client", false, [2]],
+  [429, "http_client", true, [2]],
+  [503, "http_server", true, [2]],
+  [302, "http_redirect", false, [2]],
+]) {
+  for (const bodyStream of ["error", "stall"]) {
+    for (const index of indices) {
+      test(`HTTP-body precedence ${IDS[index]} ${httpStatus} native ${bodyStream} keeps ${errorCode}`, () => {
+        // A readable error-body control supplies the fixed remediation. The
+        // errored/stalled body must neither replace it nor be required to drain.
+        const control = run(["--json"], { fixture: { failAt: PATHS[index], kind: httpStatus } });
+        assert.equal(control.status, 1, control.output);
+        const controlDoc = json(control);
+        requests(control);
+        assert.equal(controlDoc.checks[index].errorCode, errorCode);
+        const result = run(["--json", "--timeout-ms=100"], {
+          fixture: { failAt: PATHS[index], httpStatus, bodyStream },
+        });
+        const doc = json(result);
+        requests(result);
+        assert.equal(result.status, 1, result.output);
+        assert.equal(doc.ok, false);
+        rows(doc, IDS.map((_, i) => i === index ? "fail" : "pass"));
+        const row = doc.checks[index];
+        assert.equal(row.httpStatus, httpStatus);
+        assert.equal(row.errorCode, errorCode);
+        assert.equal(row.retryable, retryable);
+        assert.equal(row.nextAction, controlDoc.checks[index].nextAction, "HTTP remediation cannot depend on error-body delivery");
+        assert.equal(doc.nextAction, controlDoc.nextAction);
+        if (errorCode === "http_auth") assert.match(row.nextAction, /token|SHADOW_API_TOKEN|token-env/i);
+      });
+    }
+  }
+}
+
+for (const [bodyStream, errorCode] of [["error", "network_error"], ["stall", "timeout"]]) {
+  for (const index of [0, 1, 2]) {
+    test(`HTTP-body control ${IDS[index]} native 200 ${bodyStream} remains ${errorCode}`, () => {
+      const result = run(["--json", "--timeout-ms=100"], {
+        fixture: { failAt: PATHS[index], httpStatus: 200, bodyStream },
+      });
+      const doc = json(result);
+      requests(result);
+      assert.equal(result.status, 1, result.output);
+      assert.equal(doc.ok, false);
+      rows(doc, IDS.map((_, i) => i === index ? "fail" : "pass"));
+      assert.equal(doc.checks[index].httpStatus, 200);
+      assert.equal(doc.checks[index].errorCode, errorCode);
+      assert.equal(doc.checks[index].retryable, true);
+    });
+  }
+}
+
+test("redirect invariant: all fixed GETs explicitly request manual redirects", () => {
+  const result = run(["--json"], { fixture: { failAt: PATHS[1], kind: 302 } });
+  assert.equal(result.status, 1, result.output);
+  const doc = json(result);
+  rows(doc, ["pass", "fail", "pass"]);
+  assert.equal(doc.checks[1].errorCode, "http_redirect");
+  requests(result); // The fetch seam rejects and records missing/follow/error.
+});
+
+for (const length of [1023, 1024, 1025, 16384]) {
+  for (const scheduled of [false, true]) {
+    test(`origin cap plan ${length} bytes ${scheduled ? "scheduled" : "manual"} is bounded and effect-free`, () => {
+      // WHATWG URL accepts long synthetic hostnames; DNS is never consulted.
+      const origin = `https://${"a".repeat(length - "https://".length - ".invalid".length)}.invalid`;
+      assert.equal(origin.length, length);
+      assert.equal(new URL(origin).origin, origin);
+      const result = run(["--json", "--dry-run", ...(scheduled ? ["--scheduled"] : []), origin], {
+        fixture: { noEffects: true },
+      });
+      noEffects(result);
+      const doc = json(result);
+      assert.equal(doc.mode, "dry-run");
+      if (length <= 1024) {
+        assert.equal(result.status, 0, result.output);
+        assert.equal(doc.ok, true);
+        assert.equal(doc.target, origin);
+        assert.equal(doc.errorCode, null);
+        rows(doc, ["planned", "unresolved", "unresolved"]);
+      } else {
+        assert.equal(result.status, 1, result.output);
+        assert.equal(doc.ok, false);
+        assert.equal(doc.target, null);
+        assert.equal(doc.errorCode, "invalid_target");
+        assert.deepEqual(doc.checks, []);
+      }
+    });
+  }
+}
+
+for (const value of ["0.5", "0", "-1", "NaN", "Infinity", "-Infinity", "2147483648"]) {
+  for (const dryRun of [false, true]) {
+    test(`timeout boundary refusal ${value} ${dryRun ? "plan" : "run"} is JSON before any effects`, () => {
+      refusal(["--json", ...(dryRun ? ["--dry-run"] : []), `--timeout-ms=${value}`]);
+    });
+  }
+}
+
+for (const value of ["1", "1.75", "1234.75", "2147483647"]) {
+  test(`timeout boundary accepted ${value} in an effect-free plan without arming timers`, () => {
+    const result = run(["--json", "--dry-run", `--timeout-ms=${value}`], { fixture: { noEffects: true } });
+    noEffects(result);
+    assert.equal(result.status, 0, result.output);
+    const doc = json(result);
+    assert.equal(doc.ok, true);
+    assert.equal(doc.mode, "dry-run");
+    assert.equal(doc.errorCode, null);
+    rows(doc, ["planned", "unresolved", "unresolved"]);
+  });
+}
+
+test("timeout fractional value keeps floor semantics for actual request timers", () => {
+  const result = run(["--json", "--timeout-ms=1234.75"]);
+  assert.equal(result.status, 0, result.output);
+  rows(json(result));
+  requests(result);
+  assert.deepEqual(result.events.filter((e) => e.effect === "timer"), [
+    { effect: "timer", delay: 1234 },
+    { effect: "timer", delay: 1234 },
+    { effect: "timer", delay: 1234 },
+  ]);
+});

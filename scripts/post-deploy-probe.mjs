@@ -120,6 +120,11 @@ async function fetchResult(probe, origin, { token, timeoutMs }) {
       signal: controller.signal,
     });
     httpStatus = res.status;
+    // Known HTTP failures do not need a body; a broken stream must not mask them.
+    if (httpStatus !== 200) {
+      controller.abort();
+      return evaluateProbe(probe, { httpStatus });
+    }
     // This slice bounds output, NOT response buffering. Keep the timer through text().
     const text = await res.text();
     let body = null;
