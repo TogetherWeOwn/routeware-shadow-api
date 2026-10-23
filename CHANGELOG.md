@@ -5,6 +5,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
+  creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
+  resolved `pickupAddressId` / `containerId`: upstream
+  `data.PickupAddressID` / `data.ContainerID` first, else the singleton
+  post-refresh D1 id (address ids for the owning customer, container ids
+  for the owning address). The id stays `null` only when that diff is empty
+  or ambiguous (0 or 2+ new ids). Updates keep echoing the posted id with
+  200; failed saves, customer saves and `localSync` codes are unchanged.
+  There is deliberately no `Location` header: the by-id snapshot URL may
+  not exist locally when the refresh fails. OpenAPI documents the 201/200
+  split with resolved-id examples; dry-run saves echo posted ids while
+  live saves resolve. See `docs/CONSUMER-QUICKSTART.md`.
+
 - #343: Snapshot customer/address/container lists now return optional
   `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
   preserve allowlisted filters, explicit fields, effective limit and
