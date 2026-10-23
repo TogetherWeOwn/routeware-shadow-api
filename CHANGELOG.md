@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
+- #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit
   boolean `checks.cron.stale` is fresh/stale; malformed present cron fails closed,
@@ -13,6 +13,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   printed. Redirects are refused and no retries are added. Output is bounded,
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+
+- #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
+  strict `fields=` selectors from the shared snapshot allowlists. Only the
+  requested `.customer`, `.address` or `.container` root is projected, always
+  retaining its primary ID; related bundle data is unchanged. Omitted fields
+  preserves full-read behavior. Invalid selectors are value-free 400s before
+  cache/D1 access, with existing auth precedence. Projected ETags hash served
+  bytes and support empty-body 304s without reusing full-only validators or
+  overwriting the canonical full cache. No batch IDs, nested selectors, SQL
+  optimization or TTL changes. Synthetic examples and validator guidance:
+  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
 
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values

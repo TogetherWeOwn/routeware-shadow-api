@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { RouteConfig } from "@hono/zod-openapi";
+import { snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   customerBundleExample,
   addressBundleExample,
@@ -19,7 +20,8 @@ import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
   parsePositiveIdParam,
-  requireSnapshotAuth
+  requireSnapshotAuth,
+  validationFailureHook
 } from "./shared";
 
 /**
@@ -40,8 +42,22 @@ const hydratedReadIdQuery = z.coerce.number().int().optional().openapi({
 });
 const hydratedReadBadRequest = {
   description:
-    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json)."
+    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads."
 };
+
+function hydratedReadValidationHook(
+  result: Parameters<typeof validationFailureHook>[0],
+  c: Parameters<typeof requireSnapshotAuth>[0]
+): Response | undefined {
+  // Any fields failure, including mixed ID/fields errors, must pass the inner
+  // auth gate. Keep ID-only preliminary validation in its old order.
+  if (!result.success && result.target === "query" &&
+      result.error?.issues.some((issue) => issue.path[0] === "fields")) {
+    const denied = requireSnapshotAuth(c);
+    if (denied) return denied;
+  }
+  return validationFailureHook(result, c);
+}
 
 function parseHydratedReadId(rawId: string | undefined, rawAlias: string | undefined): number | null {
   const id = rawId === undefined ? undefined : parsePositiveIdParam(rawId);
@@ -59,11 +75,12 @@ const dataCustomerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get customer (D1) with addresses and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Optional `fields=company_name,phone1` projects only the `.customer` root plus `customer_id`; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
-      customerId: hydratedReadIdQuery.openapi({ example: 345734 })
+      customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
+      fields: snapshotFieldsQuery("customer")
     })
   },
   responses: {
@@ -95,8 +112,8 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataCustomer({ env: c.env, var: c.var, req: c.req }, id);
-});
+  return handleGetDataCustomer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
+}, hydratedReadValidationHook);
 
 const dataAddressGetRoute = createRoute({
   method: "get",
@@ -107,11 +124,12 @@ const dataAddressGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Optional `fields=city,address` projects only the `.address` root plus `pickup_address_id`; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
-      pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 })
+      pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
+      fields: snapshotFieldsQuery("address")
     })
   },
   responses: {
@@ -140,8 +158,8 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id);
-});
+  return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
+}, hydratedReadValidationHook);
 
 const dataContainerGetRoute = createRoute({
   method: "get",
@@ -152,11 +170,12 @@ const dataContainerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`).",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Optional `fields=serial_number,location_address` projects only the `.container` root plus `container_id`; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
-      containerId: hydratedReadIdQuery.openapi({ example: 100 })
+      containerId: hydratedReadIdQuery.openapi({ example: 100 }),
+      fields: snapshotFieldsQuery("container")
     })
   },
   responses: {
@@ -185,8 +204,8 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id);
-});
+  return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
+}, hydratedReadValidationHook);
 
 function dataEntityPostResponse(example: Record<string, unknown>): RouteConfig["responses"] {
   return {
