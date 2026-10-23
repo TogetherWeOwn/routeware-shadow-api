@@ -49,10 +49,10 @@ function hydratedReadValidationHook(
   result: Parameters<typeof validationFailureHook>[0],
   c: Parameters<typeof requireSnapshotAuth>[0]
 ): Response | undefined {
-  // New fields failures must not expose selector validation to callers who
-  // fail the inner auth gate. Keep preliminary ID validation in its old order.
+  // Any fields failure, including mixed ID/fields errors, must pass the inner
+  // auth gate. Keep ID-only preliminary validation in its old order.
   if (!result.success && result.target === "query" &&
-      result.error?.issues.every((issue) => issue.path[0] === "fields")) {
+      result.error?.issues.some((issue) => issue.path[0] === "fields")) {
     const denied = requireSnapshotAuth(c);
     if (denied) return denied;
   }
