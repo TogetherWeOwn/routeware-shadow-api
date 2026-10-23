@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
+  bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
+  plan checks stay unresolved; valid plans are not health evidence. Only explicit
+  boolean `checks.cron.stale` is fresh/stale; malformed present cron fails closed,
+  while absent legacy cron remains advisory. No raw body/error/cron metadata is
+  printed. Redirects are refused and no retries are added. Output is bounded,
+  not response-body buffering. Existing scheduled-target and missing-token gates
+  remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
   without rejecting the request. Gate, notFound and onError problem bodies and
