@@ -14,6 +14,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
+
+## [1.0.0] - 2026-10-22
+
+Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
+health, Routeware account/customer/report proxies, customer/address/container
+snapshots with sync and import, data-entity reads and writes, and the
+versioned OpenAPI document at `GET /openapi.json`.
+
+- `openapi.json` `info.version` is now wired to
+  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
+  `1.0.0`, so consumers can tell releases apart. Added
+  `docs/VERSIONING.md` (bump policy) and this changelog.
+
 - #333: the customer/address/container snapshot lists and by-id reads accept
   an optional `fields=` sparse-fieldset selector. Response objects contain
   exactly the requested allowlisted columns plus the resource id, which is
@@ -323,15 +336,3 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - OpenAPI now includes synthetic request and response examples for
   snapshot, data-entity, and general Routeware operations. Proxy bodies remain
   unvalidated and existing runtime schemas are unchanged.
-
-## [1.0.0] - 2026-09-27
-
-Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
-health, Routeware account/customer/report proxies, customer/address/container
-snapshots with sync and import, data-entity reads and writes, and the
-versioned OpenAPI document at `GET /openapi.json`.
-
-- `openapi.json` `info.version` is now wired to
-  `package.json#version` (via `src/lib/version.ts`) instead of a hardcoded
-  `1.0.0`, so consumers can tell releases apart. Added
-  `docs/VERSIONING.md` (bump policy) and this changelog.

@@ -524,12 +524,12 @@ describe("wiring and documentation", () => {
     expect(script).toContain("test/openapiAgentMetadata.test.ts");
   });
 
-  it("notes the change in the Unreleased changelog section", () => {
-    const unreleased = changelog.split(/^## /m).find((s) => s.startsWith("[Unreleased]")) ?? "";
+  it("notes the change in the 1.0.0 changelog section", () => {
+    const release = changelog.split(/^## /m).find((s) => s.startsWith("[1.0.0]")) ?? "";
 
-    expect(unreleased).toContain("operationId");
-    expect(unreleased).toContain("x-access");
-    expect(unreleased).toContain("x-effect");
+    expect(release).toContain("operationId");
+    expect(release).toContain("x-access");
+    expect(release).toContain("x-effect");
   });
 
   it("documents the discovery schema with an example in the consumer quickstart", () => {
