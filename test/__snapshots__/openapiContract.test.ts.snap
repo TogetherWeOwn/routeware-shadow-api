@@ -2318,7 +2318,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                     "done": true,
                   },
                   "ok": true,
-                  "pickupAddressId": null,
+                  "pickupAddressId": 10,
                   "routewareStatus": 200,
                   "upstreamBytes": 16,
                 },
@@ -2514,7 +2514,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "example": {
-                  "containerId": null,
+                  "containerId": 100,
                   "customerId": 345734,
                   "localSync": {
                     "addressIds": [
