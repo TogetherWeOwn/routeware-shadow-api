@@ -352,6 +352,52 @@ Run the credential-free, network-denying local check instead of querying a tenan
 npx vitest run test/hydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
 ```
 
+### Root-only sparse fields on hydrated reads
+
+The three **single-ID** reads above accept the same strict `fields` allowlist
+as their flat snapshot counterparts. Root means `.customer`, `.address` or
+`.container`, not the bundle envelope. Synthetic examples:
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/customer?id=42&fields=company_name,phone1"
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/address?id=10&fields=city,address"
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/data/container?id=100&fields=serial_number,location_address"
+```
+
+For example, the first request selects only `customer_id`, `company_name`
+and `phone1` inside `.customer`. The full `.addresses` array, including all
+nested containers, is unchanged. Address/container requests likewise retain
+all other bundle members, nulls and ordering. The primary ID is always
+included, even for `fields=phone1`; omit `fields` for the existing full response.
+This shapes the response, not the D1 queries, and **does not remove PII from
+related data** or change authorization.
+
+Use exact stored column names separated by commas, once each in a single
+`fields` key. Empty/repeated/duplicate, unknown, cross-resource, dotted,
+wildcard and relationship selectors return a fixed value-free 400 before
+cache or D1 reads; auth still takes precedence over field validation. See the
+[shared fieldset policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+No batch `ids` support is added.
+
+ETags hash the **served bundle bytes**, including unchanged related data.
+Keep validators per URL and selector: a full-only validator cannot short-cut
+a projected response. A matching projected validator returns an empty-body
+304. Selected-out root changes can leave that validator unchanged; related
+changes still invalidate it after normal cache expiry/invalidation. Warm reads
+derive the projection from the canonical full cache without mutating it; cold
+reads use ordinary hydration and cache only the full representation. The
+existing `private, max-age=60` policy is unchanged; there is no second cache.
+See [cache semantics](ENTITY-DATA-CACHE.md#sparse-representations).
+
+Credential-free acceptance check:
+
+```bash
+npx vitest run test/hydratedFields.acceptance.test.ts
+```
+
 ## 3a. Snapshot archives: `GET /api/v1/snapshots/{table}/{date}`
 
 Syncs archive their raw CSV to R2 (`snapshots/YYYY-MM-DD/<table>.csv`, when

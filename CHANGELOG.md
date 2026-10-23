@@ -11,6 +11,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   filters, `fields`, `includeTotal=false` and cursor-over-offset precedence.
   Keep order with the cursor; changing direction starts a new traversal.
   No endpoint or migration added. Check: `npm run check:snapshot-order`.
+- #342: Hydrated single-ID `GET /api/v1/data/customer|address|container` accepts
+  strict `fields=` selectors from the shared snapshot allowlists. Only the
+  requested `.customer`, `.address` or `.container` root is projected, always
+  retaining its primary ID; related bundle data is unchanged. Omitted fields
+  preserves full-read behavior. Invalid selectors are value-free 400s before
+  cache/D1 access, with existing auth precedence. Projected ETags hash served
+  bytes and support empty-body 304s without reusing full-only validators or
+  overwriting the canonical full cache. No batch IDs, nested selectors, SQL
+  optimization or TTL changes. Synthetic examples and validator guidance:
+  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
 
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
