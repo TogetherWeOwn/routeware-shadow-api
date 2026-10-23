@@ -737,12 +737,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -821,12 +821,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -1191,12 +1191,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -1275,12 +1275,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -1705,12 +1705,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like \`{upserted: 2, rowCount: 2, deleted: 0}\` — imports never delete, so \`deleted\` is always 0. Run this before the address/container imports so their foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -1791,12 +1791,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** paste the sync secret once into the \`bearerAuth\` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: \`{upserted, rowCount, deleted}\` (\`skipped: true\` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -2067,12 +2067,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
               "enum": [
                 "true",
                 "false",
@@ -2082,12 +2082,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json",
+            "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json. Any other query key is rejected with a value-free 400 before any table runs.",
             "in": "query",
             "name": "partialProgress",
             "required": false,
             "schema": {
-              "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json",
+              "description": "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json. Any other query key is rejected with a value-free 400 before any table runs.",
               "enum": [
                 "true",
                 "false",

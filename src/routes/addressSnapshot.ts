@@ -23,10 +23,12 @@ import {
 } from "../lib/snapshot/export";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
+  SNAPSHOT_POST_QUERY_KEYS,
   createRouteModule,
   dryRunQuery,
   foreignKeyProblem,
   isDryRunRequested,
+  rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
@@ -312,6 +314,8 @@ addressSnapshotRoutes.openapi(addressSnapshotSyncRoute, async (c) => {
   if (denied) return denied;
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, SNAPSHOT_POST_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   if (!c.env.ADDRESS_REPORT_EXPORT_PATH?.trim() && !c.env.ADDRESS_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: problemType("misconfigured", c.env),
@@ -391,6 +395,8 @@ const addressSnapshotImportRoute = createRoute({
 addressSnapshotRoutes.openapi(addressSnapshotImportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, SNAPSHOT_POST_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   const oversized = rejectOversizedSnapshotImport(
     { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
     SNAPSHOT_IMPORT_MAX_BYTES,
