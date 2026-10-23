@@ -21,6 +21,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   exact-once or watermark promises. Synthetic resume example:
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
   `npm run check:snapshot-upper-id`.
+
+- #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
+  bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
+  plan checks stay unresolved; valid plans are not health evidence. Only explicit
+  boolean `checks.cron.stale` is fresh/stale; malformed present cron fails closed,
+  while absent legacy cron remains advisory. No raw body/error/cron metadata is
+  printed. Redirects are refused and no retries are added. Output is bounded,
+  not response-body buffering. Existing scheduled-target and missing-token gates
+  remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+
 - #343: Snapshot customer/address/container lists now return optional
   `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
   preserve allowlisted filters, explicit fields, effective limit and
