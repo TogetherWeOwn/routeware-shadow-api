@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
+  snapshot CSV for one table without naming its date, resolving the existing
+  `snapshot-latest/{table}.json` pointer the sync leg republishes after every
+  archive. Same sync-secret gate and 401 precedence, same spreadsheet-safe
+  re-encode (byte-identical to the explicit-date download, same content-hash
+  ETag with empty-body 304s, `{table}-latest.csv` filename). A missing pointer
+  or CSV is a fixed table-only 404; an unreadable pointer is a fixed sanitized
+  500. The `{date}` route is unchanged. See `docs/CONSUMER-QUICKSTART.md` and
+  `docs/R2-RETENTION.md`.
+
 - #343: Snapshot customer/address/container lists now return optional
   `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
   preserve allowlisted filters, explicit fields, effective limit and
