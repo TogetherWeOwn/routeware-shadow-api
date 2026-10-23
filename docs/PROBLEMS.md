@@ -422,7 +422,10 @@ headers and body together, with an inclusive **65,536-byte** actual-body cap.
 Non-2xx bodies are cancelled, not drained. Timeout, oversize, source-read and
 invalid JSON/count metadata refusals use fixed chained error kinds; cron keeps
 completed-table counts and the combined HTTP route retains its existing generic
-500 `internal` problem (no new partial-progress API). No POST retry or redirect
+500 `internal` problem by default, with an opt-in `?partialProgress=true`
+sanitized per-table envelope (fixed table/code, numeric status only for
+`ChainedHttpError`; see [partial progress](../CUSTOMER_SNAPSHOT.md#partial-progress-on-combined-sync-failure)).
+No POST retry or redirect
 replay occurs. Cancellation is best-effort and never awaited: remote work may
 already have completed. Inspect the failed table before resubmitting, as the
 fixed cron `next_action` directs. See [the chained response boundary and focused
