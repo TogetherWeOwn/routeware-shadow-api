@@ -179,7 +179,18 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("container", row as Record<string, unknown>, fields)
         );
-  const nextLink = snapshotNextLink("container", p, nextCursor);
+  // Echo an explicitly requested direction/count-mode into the follow-next
+  // target. Raw presence is safe here: validation already rejected
+  // repeated/invalid values, while the zod defaults erase explicitness.
+  const nextLink = snapshotNextLink(
+    "container",
+    {
+      ...p,
+      order: c.req.query("order") === undefined ? undefined : p.order,
+      includeTotal: c.req.query("includeTotal") === undefined ? undefined : p.includeTotal
+    },
+    nextCursor
+  );
   if (nextLink !== null) c.header("Link", nextLink);
   return c.json({ rows: out, total, nextCursor });
 });

@@ -166,6 +166,8 @@ highest primary ID, **not necessarily the newest row in time**. Keep direction
 and cursor together; changing direction starts a new traversal. Cursor overrides
 offset in either direction. With counts enabled, `total` counts matching rows
 after the cursor, before limit/offset; with `includeTotal=false`, no COUNT runs.
+Follow-next `Link` targets preserve an explicitly requested `order`, so a
+`desc` traversal continues downward; omitted `order` keeps the default target.
 
 Synthetic IDs only; illustrative requests for a disposable local fixture:
 
