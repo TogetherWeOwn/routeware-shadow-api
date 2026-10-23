@@ -191,7 +191,8 @@ net.connect = net.createConnection = (options) => {
   if (preflight) deny("preflight_socket");
   const socket = new EventEmitter();
   socket.destroy = () => {};
-  queueMicrotask(() => socket.emit(alive && scenario !== "group-survives-port-closed" ? "connect" : "error", new Error(CANARY)));
+  const answers = (alive && scenario !== "group-survives-port-closed") || scenario === "port-survives-group";
+  queueMicrotask(() => socket.emit(answers ? "connect" : "error", new Error(CANARY)));
   return socket;
 };
 process.kill = (pid, signal = "SIGTERM") => {

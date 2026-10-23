@@ -349,8 +349,8 @@ describe("JSON execution", () => {
     assert.ok(result.trace.some((event) => event.kind === "group_signal" && event.pid === -PID && event.signal === "SIGKILL"));
     assert.equal(result.trace.at(-1).groupAlive, false);
   });
-  for (const scenario of ["teardown-failure", "group-survives-port-closed", "interrupt-teardown-failure"]) {
-    test(`${scenario}: no success when teardown is incomplete, even if the port is free`, () => {
+  for (const scenario of ["teardown-failure", "group-survives-port-closed", "port-survives-group", "interrupt-teardown-failure"]) {
+    test(`${scenario}: both the group and port must be stopped before success`, () => {
       const result = run(["--json"], scenario);
       assert.notEqual(result.status, 0);
       const value = json(result);
@@ -358,7 +358,7 @@ describe("JSON execution", () => {
       assert.notEqual(value.steps[3].outcome, "passed");
       assert.deepEqual(value.failed, ["smoke"]);
       remediation(value, "FIRST_RUN_TEARDOWN_FAILED");
-      assert.equal(result.trace.at(-1).groupAlive, true, "fixture must really represent an unconfirmed group stop");
+      assert.equal(result.trace.at(-1).groupAlive, scenario !== "port-survives-group", "fixture independently distinguishes a surviving group from a surviving port");
     });
   }
 });
