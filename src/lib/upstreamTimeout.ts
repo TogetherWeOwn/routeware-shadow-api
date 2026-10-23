@@ -271,7 +271,8 @@ export const UPSTREAM_TIMEOUT_RETRY_AFTER_SEC = 5;
 export function upstreamTimeoutProblem(
   timeoutMs: number,
   instance?: string,
-  env?: Env
+  env?: Env,
+  requestId?: string
 ): Response {
   return problemJsonResponse({
     type: problemType("bad-gateway", env),
@@ -281,6 +282,7 @@ export function upstreamTimeoutProblem(
       `Routeware did not complete its response within ${timeoutMs}ms. ` +
       `A save may have completed upstream; verify the record before resubmitting. ` +
       `See docs/PROBLEMS.md#bad-gateway.`,
-    instance
+    instance,
+    ...(requestId === undefined ? {} : { requestId })
   });
 }

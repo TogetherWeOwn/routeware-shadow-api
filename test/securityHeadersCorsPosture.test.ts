@@ -91,7 +91,8 @@ function expectCorsGrant(res: Response, origin = FOREIGN_ORIGIN): void {
 /**
  * Exposed headers: the audit trio (conditional reads, throttle backoff,
  * CSV-download filename) plus the rate-limit trio that landed with the
- * throttle 429 headers (the delta since the 09-28 audit).
+ * throttle 429 headers (the delta since the 09-28 audit) plus the request
+ * correlation id.
  */
 function expectExposedHeaders(res: Response): void {
   const tokens = new Set(
@@ -106,7 +107,8 @@ function expectExposedHeaders(res: Response): void {
     "content-disposition",
     "x-ratelimit-limit",
     "x-ratelimit-remaining",
-    "x-ratelimit-reset"
+    "x-ratelimit-reset",
+    "x-request-id"
   ]) {
     expect(tokens.has(h)).toBe(true);
   }
@@ -412,7 +414,7 @@ describe("security-header + CORS posture acceptance (R9-08)", () => {
     });
     expect(fallback.status).toBe(204);
     expect(fallback.headers.get("access-control-allow-headers")).toBe(
-      "Authorization, Content-Type"
+      "Authorization, Content-Type, X-Request-Id"
     );
   });
 
@@ -445,11 +447,17 @@ describe("security-header + CORS posture acceptance (R9-08)", () => {
     // type so the probe provably reaches the named if-branch.
     function mockContext(path: string): unknown {
       const url = `http://test.local${path}`;
+      const raw = new Request(url, { headers: { Origin: FOREIGN_ORIGIN } });
       return {
+        // No middleware ran in these direct probes: `get` yields no request
+        // id, and `header` reads the raw inbound headers (no X-Request-Id
+        // here, so onError mints).
+        get: (_key: string) => undefined,
         req: {
-          raw: new Request(url, { headers: { Origin: FOREIGN_ORIGIN } }),
+          raw,
           url,
-          method: "GET"
+          method: "GET",
+          header: (name: string) => raw.headers.get(name)
         },
         env: {}
       };

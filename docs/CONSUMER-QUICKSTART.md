@@ -712,6 +712,25 @@ Worker-generated problem responses are `application/problem+json` with a
 `type` URL pointing at the [`PROBLEMS.md`](./PROBLEMS.md) section that explains
 them. The ordinary `/data/*` save envelope is the exception described above.
 
+## Correlate retries with `X-Request-Id`
+
+Send one id per logical attempt and reuse it across that attempt's retries;
+every `/api/v1` response echoes it, including 401/429, 404, and 5xx, so the
+id joins your retries to the server-side log line. Use 1–128 chars of RFC
+7230 token chars (`A–Z a–z 0–9` plus `!#$%&'*+-.^_`|~`); anything else is
+ignored and the server mints a UUID instead — the request never fails for a
+bad id. The gate/notFound/onError problem bodies also carry it as
+`requestId`, and browsers can send and read it (allowed + exposed via CORS).
+This is correlation only, not idempotency: reusing an id never dedupes a
+save — still verify the record before resubmitting (rows above).
+
+```bash
+RID="retry-$(date +%s)-a1"
+curl -sS -i -H "Authorization: Bearer $TOKEN" -H "X-Request-Id: $RID" \
+  "http://localhost:8787/api/v1/shadow/health" | grep -i "x-request-id"
+# X-Request-Id: retry-...-a1 (echoed byte-identical)
+```
+
 ## Smoke ladder: five copy-paste commands (fresh clone → green)
 
 Run these verbatim after `cp .dev.vars.example .dev.vars` (fill in

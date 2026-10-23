@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
+  1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
+  without rejecting the request. Gate, notFound and onError problem bodies and
+  onError logs carry the same `requestId`; route-level problem bodies are
+  unchanged. CORS allows and exposes the header for retry correlation, not
+  idempotency. IDs are not propagated upstream. See `docs/CONSUMER-QUICKSTART.md`
+  and `docs/LOGGING.md`.
+
 - #334: `POST /api/v1/data-snapshot/sync` accepts `?partialProgress=true` to
   opt into sanitized partial progress on a table-step failure: HTTP 500
   `application/json` `{customer, address, container, failure}` with per-table

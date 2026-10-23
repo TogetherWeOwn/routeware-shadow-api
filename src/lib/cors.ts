@@ -21,13 +21,32 @@
  */
 
 const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
-const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
+const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type, X-Request-Id";
 // Allowlist for `Access-Control-Allow-Headers`: the API only
 // reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
-// `If-None-Match` (conditional GETs on the data-entity ETag cache). Anything
+// `If-None-Match` (conditional GETs on the data-entity ETag cache) and
+// `X-Request-Id` (request correlation). Anything
 // else the browser asks for is dropped instead of reflected.
-const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
+const ALLOWED_REQUEST_HEADERS = [
+  "authorization",
+  "content-type",
+  "if-none-match",
+  "x-request-id"
+];
 const MAX_AGE_SECONDS = "86400";
+// One-per-line so parallel header cards merge without conflicts: each new
+// exposed field gets its own line.
+const EXPOSED_RESPONSE_HEADERS = [
+  "ETag",
+  "Retry-After",
+  "X-RateLimit-Limit",
+  "X-RateLimit-Remaining",
+  "X-RateLimit-Reset",
+  "RateLimit",
+  "RateLimit-Policy",
+  "Content-Disposition",
+  "X-Request-Id"
+];
 // Default `Cache-Control` for `/api/v1/*` responses: nothing under
 // the bearer gate is public-cacheable, and the authenticated snapshot routes
 // return customer PII to browser clients, so an unset policy must fail closed
@@ -118,10 +137,11 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   // the standard equivalents stamped on that same 429 (Retry-After is also on
   // the upstream-timeout backstop 502). Content-Disposition is
   // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
-  // the attachment filename.
+  // the attachment filename. X-Request-Id is exposed so browser clients can
+  // correlate retries with server-side logs.
   headers.set(
     "Access-Control-Expose-Headers",
-    "ETag, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, RateLimit, RateLimit-Policy, Content-Disposition"
+    EXPOSED_RESPONSE_HEADERS.join(", ")
   );
   applySecurityHeaders(headers);
 }

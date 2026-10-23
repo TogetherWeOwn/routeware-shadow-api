@@ -20,10 +20,12 @@ const ctx = {
   passThroughOnException() {}
 } as unknown as ExecutionContext;
 
+const requestId = "combined-sync-unknown-cause-01";
 const genericFailure =
   '{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#internal"' +
   ',"title":"Internal Server Error","status":500' +
-  ',"detail":"An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."}';
+  ',"detail":"An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."' +
+  `,"requestId":"${requestId}"}`;
 
 afterEach(() => {
   behavior.error = null;
@@ -47,7 +49,7 @@ it("keeps an unclassified partial-progress cause behind the exact generic 500 re
   const res = await app.fetch(
     new Request("http://test.local/api/v1/data-snapshot/sync?partialProgress=true", {
       method: "POST",
-      headers: { authorization: `Bearer ${secret}` }
+      headers: { authorization: `Bearer ${secret}`, "X-Request-Id": requestId }
     }),
     { ...env, CUSTOMER_SNAPSHOT_SYNC_SECRET: secret } as unknown as Env,
     ctx
@@ -55,6 +57,7 @@ it("keeps an unclassified partial-progress cause behind the exact generic 500 re
   const raw = await res.text();
 
   expect(res.status).toBe(500);
+  expect(res.headers.get("X-Request-Id")).toBe(requestId);
   expect(raw).toBe(genericFailure);
   expect(res.headers.get("content-type")).toContain("application/problem+json");
   expect(raw).not.toContain(cause.name);

@@ -15,6 +15,7 @@ const marker = "SYNTHETIC-PARTIAL-PROGRESS-MARKER";
 const credential = "partial-probe-pass-7d2e1a";
 const secret = "synthetic-sync-secret";
 const syncSecret = "test-sync-secret";
+const requestId = "combined-sync-acceptance-01";
 const config = {
   CUSTOMER_REPORT_QUERY_ID: "23",
   ADDRESS_REPORT_QUERY_ID: "24",
@@ -134,8 +135,9 @@ async function postCombined(
 ): Promise<{ status: number; raw: string; contentType: string }> {
   const resp = await exports.default.fetch(`${base}/api/v1/data-snapshot/sync${query}`, {
     method: "POST",
-    headers: { authorization: `Bearer ${syncSecret}`, ...headers }
+    headers: { authorization: `Bearer ${syncSecret}`, "X-Request-Id": requestId, ...headers }
   });
+  expect(resp.headers.get("X-Request-Id")).toBe(requestId);
   return {
     status: resp.status,
     raw: await resp.text(),
@@ -458,7 +460,8 @@ describe("default shape is byte-for-byte unchanged", () => {
   const genericFailure =
     '{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#internal"' +
     ',"title":"Internal Server Error","status":500' +
-    ',"detail":"An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."}';
+    ',"detail":"An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."' +
+    `,"requestId":"${requestId}"}`;
   const fullSuccess =
     '{"customer":{"upserted":3,"rowCount":4}' +
     ',"address":{"upserted":3,"rowCount":4}' +
@@ -528,13 +531,28 @@ describe("opt-in composes with dryRun without forwarding the flag", () => {
 describe("auth and pre-work failures ignore the flag", () => {
   it("missing auth answers the same 401 with and without the opt-in", async () => {
     const opted = await exports.default.fetch(`${base}/api/v1/data-snapshot/sync?partialProgress=true`, {
-      method: "POST"
+      method: "POST",
+      headers: { "X-Request-Id": requestId }
     });
     const implicit = await exports.default.fetch(`${base}/api/v1/data-snapshot/sync`, {
-      method: "POST"
+      method: "POST",
+      headers: { "X-Request-Id": requestId }
     });
+    const unauthorized =
+      '{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#unauthorized"' +
+      ',"title":"Unauthorized","status":401' +
+      ',"detail":"Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized."' +
+      ',"instance":"/api/v1/data-snapshot/sync"' +
+      `,"requestId":"${requestId}"}`;
     expect(opted.status).toBe(401);
-    expect(await opted.text()).toBe(await implicit.text());
+    expect(implicit.status).toBe(401);
+    for (const res of [opted, implicit]) {
+      expect(res.headers.get("X-Request-Id")).toBe(requestId);
+      expect(res.headers.get("content-type")).toContain("application/problem+json");
+    }
+    const optedRaw = await opted.text();
+    expect(optedRaw).toBe(unauthorized);
+    expect(optedRaw).toBe(await implicit.text());
     expect(attempted).toEqual([]);
   });
 
