@@ -679,6 +679,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {},
         },
@@ -1122,6 +1131,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {},
         },
@@ -1539,6 +1557,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Rows and total count for pagination",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {},
         },
