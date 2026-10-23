@@ -314,7 +314,7 @@ describe.each(SPECS)("$name primary-ID direction contract", (spec) => {
     }
   });
 
-  it("keeps request-ID problem enrichment and CORS on rejected order", async () => {
+  it("keeps request-ID header correlation, unchanged problem body and CORS on rejected order", async () => {
     const response = await exports.default.fetch(`http://test.local${spec.path}?order=secret-direction-marker`, {
       headers: { authorization: `Bearer ${READ_TOKEN}`, origin: "https://app.example.com", "x-request-id": "synthetic-direction-error" }
     });
@@ -323,7 +323,7 @@ describe.each(SPECS)("$name primary-ID direction contract", (spec) => {
     expect(response.headers.get("access-control-allow-origin")).toBeTruthy();
     expect(await response.json()).toEqual({
       type: problemType("bad-request"), title: "Bad Request", status: 400,
-      detail: "Invalid request query (order). See docs/PROBLEMS.md#bad-request.", requestId: "synthetic-direction-error"
+      detail: "Invalid request query (order). See docs/PROBLEMS.md#bad-request."
     });
   });
 
