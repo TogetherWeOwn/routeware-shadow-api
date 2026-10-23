@@ -12,6 +12,7 @@ import {
 } from "./entityDataCache";
 import { problemJsonResponse, problemType } from "./problem";
 import { matchesIfNoneMatch as matchesConditional } from "./conditionalRequest";
+import { projectSnapshotRow, type SnapshotFieldsetResource } from "./sparseFieldsets";
 
 export type DataEntityCtx = {
   env: Env;
@@ -29,7 +30,55 @@ function matchesIfNoneMatch(h: string | undefined, etag: string): boolean {
   return matchesConditional(h, etag, "legacy");
 }
 
-export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number): Promise<Response> {
+/** Derive a representation without storing selected bodies or validating against full-only ETags. */
+async function projectedDataEntityResponse(
+  c: DataEntityCtx,
+  resource: SnapshotFieldsetResource,
+  columns: string[],
+  getFull: (fullContext: DataEntityCtx) => Promise<Response>
+): Promise<Response> {
+  // Reuse the canonical read/cache path, but never let its full validator return
+  // a 304 before we have the bytes of this selected representation.
+  const full = await getFull({
+    ...c,
+    req: {
+      raw: c.req.raw,
+      header: (name) => name.toLowerCase() === "if-none-match" ? undefined : c.req.header(name)
+    }
+  });
+  if (full.status !== 200) return full;
+  const bundle = await full.json() as Record<string, unknown>;
+  const body = bundleJsonString({
+    ...bundle,
+    [resource]: projectSnapshotRow(resource, bundle[resource] as Record<string, unknown>, columns)
+  });
+  const etag = await sha256Etag(body);
+  if (matchesIfNoneMatch(c.req.header("if-none-match"), etag)) {
+    return new Response(null, {
+      status: 304,
+      headers: { ETag: etagHeader(etag), "Cache-Control": entityDataCacheControlValue() }
+    });
+  }
+  return new Response(body, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ETag: etagHeader(etag),
+      "Cache-Control": entityDataCacheControlValue(),
+      "X-Entity-ETag": etag
+    }
+  });
+}
+
+export async function handleGetDataCustomer(
+  c: DataEntityCtx,
+  customerId: number,
+  columns?: string[]
+): Promise<Response> {
+  if (columns !== undefined) {
+    return projectedDataEntityResponse(c, "customer", columns,
+      (fullContext) => handleGetDataCustomer(fullContext, customerId));
+  }
   const ifNone = c.req.header("if-none-match");
   const cached = await getCachedDataEntity("customer", customerId);
   if (cached) {
@@ -77,8 +126,13 @@ export async function handleGetDataCustomer(c: DataEntityCtx, customerId: number
 
 export async function handleGetDataAddress(
   c: DataEntityCtx,
-  pickupAddressId: number
+  pickupAddressId: number,
+  columns?: string[]
 ): Promise<Response> {
+  if (columns !== undefined) {
+    return projectedDataEntityResponse(c, "address", columns,
+      (fullContext) => handleGetDataAddress(fullContext, pickupAddressId));
+  }
   const ifNone = c.req.header("if-none-match");
   const cached = await getCachedDataEntity("address", pickupAddressId);
   if (cached) {
@@ -126,8 +180,13 @@ export async function handleGetDataAddress(
 
 export async function handleGetDataContainer(
   c: DataEntityCtx,
-  containerId: number
+  containerId: number,
+  columns?: string[]
 ): Promise<Response> {
+  if (columns !== undefined) {
+    return projectedDataEntityResponse(c, "container", columns,
+      (fullContext) => handleGetDataContainer(fullContext, containerId));
+  }
   const ifNone = c.req.header("if-none-match");
   const cached = await getCachedDataEntity("container", containerId);
   if (cached) {
