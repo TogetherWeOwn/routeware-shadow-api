@@ -157,12 +157,17 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
-Single rows:
+Single rows (same 404 `not-found` shape when the id is not in D1):
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   http://localhost:8787/api/v1/customer-snapshot/42
 # HTTP 200 row, or 404 {"type":"...#not-found",...} when that id is not in D1
+
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/address-snapshot/10
+curl -H "Authorization: Bearer $TOKEN" \
+  http://localhost:8787/api/v1/container-snapshot/100
 ```
 
 Empty `rows` with HTTP 200 means auth works but no snapshot has been synced
@@ -242,6 +247,34 @@ curl -s -w '\nHTTP %{http_code}\n' \
 # HTTP 400
 ```
 
+## 2b. Incremental sync: the customer `changes` feed
+
+`GET /api/v1/customer-snapshot/changes` replays only rows touched after your
+cursor — the incremental counterpart to the full list in step 2. Omit the
+cursor for the first page (every row is newer than the epoch):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2"
+# {"rows":[...],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":7101}}
+```
+
+Resume chunked deltas with the whole pair: pass the previous page's
+`nextCursor` back as `since` + `since_id`. A bare `since` replays every later
+run whole (strict `>`); a mid-run resume needs the tiebreak, because every
+upserted row in one sync run shares that run's stamp:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2"
+```
+
+`since` is UTC `Z` with seconds or 1–3 fractional digits, compared at
+lossless millisecond precision — more than 3 digits is a 400, never rounded.
+`since_id` is exact unpadded decimal (`0`–`9007199254740991`) and needs a
+valid `since`. The feed surfaces upserts only: reconciled-away or erased rows
+never appear as tombstones, so re-list to detect disappearance.
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with
@@ -284,6 +317,34 @@ Run the credential-free, network-denying local check instead of querying a tenan
 
 ```bash
 npx vitest run test/hydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
+```
+
+## 3a. Snapshot archives: `GET /api/v1/snapshots/{table}/{date}`
+
+Syncs archive their raw CSV to R2 (`snapshots/YYYY-MM-DD/<table>.csv`, when
+the binding is configured). The sync secret streams it back re-encoded for
+spreadsheets (formula-leading cells quoted, `_shadow_csv_encoding` appended);
+compare the download with a fresh export by business values, not bytes:
+
+```bash
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer/2026-01-01" -o customer-2026-01-01.csv
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/customer-snapshot/export" -o customer-fresh.csv
+# Same pair for address and container — swap the table name:
+# `/api/v1/snapshots/address/2026-01-01`, `/api/v1/address-snapshot/export`,
+# `/api/v1/snapshots/container/2026-01-01`, `/api/v1/container-snapshot/export`.
+```
+
+The general token 401s here even on GET — the inner privileged gate from
+step 3, not a bad token. A well-formed but absent archive is 404 `not-found`
+(history is missing, not a bad call). Replays carry a content-hash `ETag`;
+send it back for a 304:
+
+```bash
+curl -i -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer/2026-01-01"
+# HTTP 200 + ETag header; repeat with -H "If-None-Match: <etag>" → 304
 ```
 
 ## 4. Saves: write through Routeware, then D1 refreshes
