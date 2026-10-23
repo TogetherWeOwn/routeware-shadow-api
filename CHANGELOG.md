@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- R20-02 (PR number on open): Hydrated single-ID
+- #351: Hydrated single-ID
   `GET /api/v1/data/customer|address|container` accepts optional per-type
   `fields[customer]`, `fields[address]` and `fields[container]` selectors from
   the shared snapshot allowlists, projecting the listed type everywhere it
