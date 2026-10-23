@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #343: Snapshot customer/address/container lists now return optional
+  `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
+  preserve allowlisted filters, explicit fields, effective limit and
+  `includeTotal=false`, replacing cursor and dropping offset. No JSON or SQL
+  changes; a full terminal page may link to an empty page. CORS exposes Link;
+  OpenAPI and the same-origin follow-next quickstart document it.
+
 - #338: Every `/api/v1` response echoes `X-Request-Id`, adopting inbound IDs of
   1–128 RFC 7230 token characters or minting a UUID for missing/invalid values
   without rejecting the request. Gate, notFound and onError problem bodies and
