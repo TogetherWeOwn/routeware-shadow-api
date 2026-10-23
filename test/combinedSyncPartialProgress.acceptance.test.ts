@@ -244,6 +244,26 @@ describe("opt-in partial progress on step failure", () => {
     expect(JSON.stringify(records)).not.toContain(marker);
   });
 
+  it.each([401, 429, 503])("http %i: preserves upstream status inside the outer 500 envelope", async (status) => {
+    responses.set("address", () => new Response(
+      `<html><body>Upstream refusal ${marker} ${credential}</body></html>`,
+      { status, headers: { "content-type": "text/html" } }
+    ));
+    const res = await postCombined("?partialProgress=true");
+    expect(res.status).toBe(500);
+    expect(res.contentType).toContain("application/json");
+    expect(res.contentType).not.toContain("problem+json");
+    expectPartialBody(res.raw, {
+      customer: counts,
+      address: null,
+      container: null,
+      failure: { table: "address", code: "ChainedHttpError", status }
+    });
+    expect(attempted).toEqual(["customer", "address"]);
+    expect(JSON.stringify(records)).not.toContain(marker);
+    expect(JSON.stringify(records)).not.toContain(credential);
+  });
+
   it("fetch reject: classified network code, no status, no credential leak", async () => {
     responses.set("address", () => {
       throw new TypeError(`fetch failed for https://sync-user:${credential}@routeware.invalid/sync?token=${marker}`);
@@ -365,6 +385,29 @@ describe("opt-in failure position and allowlist", () => {
       container: null,
       failure: { table: "container", code: "ChainedNetworkError" }
     });
+    expect(attempted).toEqual(tables);
+    expect(JSON.stringify(records)).not.toContain(marker);
+  });
+
+  it("container failure preserves distinct completed customer and address counts without metadata", async () => {
+    reply("customer", { upserted: 7, rowCount: 11, deleted: 2, r2: { status: "stored" } });
+    reply("address", { upserted: 13, rowCount: 17, deleted: 5, r2: { status: "failed", reason: marker } });
+    responses.set("container", () => {
+      throw new TypeError(`fetch failed ${marker}`);
+    });
+    const res = await postCombined("?partialProgress=true");
+    expect(res.status).toBe(500);
+    expect(res.contentType).toContain("application/json");
+    expect(res.contentType).not.toContain("problem+json");
+    const body = expectPartialBody(res.raw, {
+      customer: { upserted: 7, rowCount: 11 },
+      address: { upserted: 13, rowCount: 17 },
+      container: null,
+      failure: { table: "container", code: "ChainedNetworkError" }
+    });
+    for (const table of ["customer", "address"] as const) {
+      expect(Object.keys(body[table] as Record<string, unknown>).sort()).toEqual(["rowCount", "upserted"]);
+    }
     expect(attempted).toEqual(tables);
     expect(JSON.stringify(records)).not.toContain(marker);
   });
