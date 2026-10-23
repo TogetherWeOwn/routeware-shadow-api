@@ -14,6 +14,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   row data travels. Absent or `false` keeps the generic shapes byte-for-byte;
   any other value is a value-free 400 before any table runs. Success is
   identical with or without the flag. See `CUSTOMER_SNAPSHOT.md`.
+- #333: the customer/address/container snapshot lists and by-id reads accept
+  an optional `fields=` sparse-fieldset selector. Response objects contain
+  exactly the requested allowlisted columns plus the resource id, which is
+  always present even when omitted. Unknown, empty and duplicate names are a
+  value-free 400 before any D1 work. Auth ordering, ETags, pagination
+  envelopes and the hydrated/export/changes reads are unchanged. Documented
+  in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; pinned by
+  `test/sparseFieldsets.acceptance.test.ts`.
 - #326: Readiness now bounds concurrent D1 ping and advisory cron response waits at
   15 seconds, while retaining its non-sliding 20-second single-flight cache.
   Timed-out pings return degraded HTTP 503; cron timeouts remain advisory.
