@@ -264,6 +264,24 @@ describe.each(SPECS)("$name list: valid selection trims rows, keeps envelope", (
     expect(body.total).toBe(3);
   });
 
+  it("all columns are selectable and survive serialization on every row", async () => {
+    const res = await get(`${spec.listPath}?fields=${spec.allColumns.join(",")}`);
+    expect(res.status).toBe(200);
+    expectNoStoreCors(res);
+    expect(res.headers.get("etag")).toBeNull();
+    const body = (await res.json()) as ListBody;
+    expect(Object.keys(body).sort()).toEqual(["nextCursor", "rows", "total"]);
+    expect(body.rows).toHaveLength(3);
+    expect(body.total).toBe(3);
+    expect(body.nextCursor).toBeNull();
+    const ids = spec.name === "customer" ? CUSTOMERS : spec.name === "address" ? ADDRESSES : CONTAINERS;
+    expect(body.rows.map((row) => row[spec.idColumn])).toEqual(ids);
+    for (const row of body.rows) {
+      // Nullable columns must remain keys, not disappear as undefined in JSON.
+      expect(Object.keys(row).sort()).toEqual([...spec.allColumns].sort());
+    }
+  });
+
   it("single field returns exactly id + that field on every row", async () => {
     const [field] = spec.sampleFields;
     const { db, statements } = spyDb(TEST_ENV.CUSTOMER_DB);
@@ -351,6 +369,16 @@ describe.each(SPECS)("$name detail: valid selection trims the row", (spec) => {
 
   it("bare request returns the full row (preserved default)", async () => {
     const res = await get(spec.detailPath(detailId()));
+    expect(res.status).toBe(200);
+    expectNoStoreCors(res);
+    expect(res.headers.get("etag")).toBeNull();
+    const row = (await res.json()) as Record<string, unknown>;
+    expect(Object.keys(row).sort()).toEqual([...spec.allColumns].sort());
+    expect(row[spec.idColumn]).toBe(detailId());
+  });
+
+  it("all columns are selectable and survive serialization on the detail row", async () => {
+    const res = await get(`${spec.detailPath(detailId())}?fields=${spec.allColumns.join(",")}`);
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
     expect(res.headers.get("etag")).toBeNull();
