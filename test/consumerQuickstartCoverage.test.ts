@@ -14,7 +14,8 @@ import quickstart from "../docs/CONSUMER-QUICKSTART.md?raw";
  * Referenced = the doc contains the operation's path with each `{param}`
  * replaced by a concrete segment (e.g. `/api/v1/customer-snapshot/42` covers
  * `/api/v1/customer-snapshot/{customerId}`), bounded so a longer path never
- * covers its prefix (`/changes` does not cover the bare list).
+ * covers its prefix (`/changes` does not cover the bare list). Snapshot by-ID
+ * params require numeric examples so `/export` cannot count as an ID read.
  *
  * The two recipes this card adds (the customer `changes` feed and the R2
  * snapshot archive) are pinned as referenced, so they cannot be satisfied by
@@ -62,17 +63,20 @@ async function registryGetPaths(): Promise<string[]> {
 }
 
 /** True when the doc references the template with concrete param segments. */
-function isReferenced(key: string): boolean {
+function isReferenced(key: string, doc = quickstart): boolean {
   const template = key.slice("GET ".length);
   const pattern = template
     .split(/(\{[^}]+\})/g)
-    .map((part) =>
-      /^\{[^}]+\}$/.test(part)
+    .map((part) => {
+      if (/^\{(?:customerId|pickupAddressId|containerId)\}$/.test(part)) {
+        return "[1-9][0-9]*";
+      }
+      return /^\{[^}]+\}$/.test(part)
         ? "[^/?#\\s\"'`)\\]]+"
-        : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    )
+        : part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
     .join("");
-  return new RegExp(`${pattern}(?![A-Za-z0-9_\\-/])`).test(quickstart);
+  return new RegExp(`${pattern}(?![A-Za-z0-9_\\-/])`).test(doc);
 }
 
 /** Lines of the `## ` section starting at `marker`, excluding the next section. */
@@ -85,6 +89,20 @@ function sectionLines(marker: string): string[] {
 }
 
 describe("consumer quickstart GET coverage", () => {
+  it.each([
+    ["customer-snapshot", "customerId"],
+    ["address-snapshot", "pickupAddressId"],
+    ["container-snapshot", "containerId"]
+  ])("requires numeric by-ID examples for %s", (route, param) => {
+    const path = `/api/v1/${route}`;
+    const key = `GET ${path}/{${param}}`;
+
+    expect(isReferenced(key, `${path}/export`)).toBe(false);
+    expect(isReferenced(key, `${path}/42abc`)).toBe(false);
+    expect(isReferenced(key, `${path}/42`)).toBe(true);
+    expect(isReferenced(key, `${path}/42?fields=id`)).toBe(true);
+  });
+
   it("references or allowlists every registry GET", async () => {
     const uncovered = (await registryGetPaths()).filter(
       (key) => !isReferenced(key) && !(key in ALLOWLIST)
@@ -109,6 +127,7 @@ describe("consumer quickstart GET coverage", () => {
   it("pins the changes feed and snapshot archive as documented recipes, not allowlist entries", async () => {
     const gets = await registryGetPaths();
     const archive = gets.filter((key) => key.startsWith("GET /api/v1/snapshots/"));
+    expect(gets).toContain(CHANGES_KEY);
     expect(archive.length).toBeGreaterThan(0);
 
     for (const key of [CHANGES_KEY, ...archive]) {
