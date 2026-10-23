@@ -203,6 +203,8 @@ function json(result) {
   assert.equal(doc.schemaVersion, 1);
   assert.equal(doc.command, "probe:post-deploy");
   assert.equal(typeof doc.ok, "boolean");
+  assert.ok(doc.errorCode === null || CODES.has(doc.errorCode) || ["invalid_arguments", "invalid_target"].includes(doc.errorCode), "allowlisted envelope errorCode");
+  assert.ok(doc.nextAction === null || (typeof doc.nextAction === "string" && doc.nextAction.length > 10 && doc.nextAction.length <= 240), "bounded envelope remediation");
   assert.ok(["run", "dry-run"].includes(doc.mode));
   assert.ok(Array.isArray(doc.checks));
   assert.ok(doc.target === null || (typeof doc.target === "string" && doc.target === new URL(doc.target).origin));
