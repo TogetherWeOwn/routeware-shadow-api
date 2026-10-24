@@ -26,9 +26,11 @@ export async function snapshotIdsQuietly(
   try {
     return await work();
   } catch (snapshotErr) {
+    // Computed `msg` (pinned in test/loggingCatalogueCoverage.test.ts):
+    // one fixed string per call site, never interpolated content.
     logEvent({
       level: "error",
-      msg,
+      msg: msg,
       route,
       kind: errorKind(snapshotErr)
     });
