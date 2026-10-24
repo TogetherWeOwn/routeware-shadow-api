@@ -214,6 +214,25 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
 }
 
 /**
+ * The bounded `ids` extension has independent behavioral/schema assertions in
+ * snapshotIdSelection.acceptance.test.ts. Project out only its new parameter
+ * and the three evolving 400 descriptions; freeze all pre-existing structure.
+ */
+function withoutIdSelectionExtension(doc: unknown): unknown {
+  const copy = structuredClone(doc) as {
+    paths: Record<string, { get?: { parameters?: Param[]; responses?: Record<string, { description?: string }> } }>;
+  };
+  type Param = { name?: string };
+  for (const resource of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/${resource}-snapshot`]?.get;
+    if (!get) continue;
+    if (get.parameters) get.parameters = get.parameters.filter((p) => p.name !== "ids");
+    if (get.responses?.["400"]) delete get.responses["400"].description;
+  }
+  return copy;
+}
+
+/**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts. Keep all existing
  * parameter schemas, responses, tags and other operations in the legacy golden.
@@ -515,11 +534,12 @@ describe("published OpenAPI document", () => {
     // no other fields parameter property is projected out. Conditional list
     // If-None-Match, 200 ETag and 304 declarations are separately pinned by
     // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
+    // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // unrelated golden contracts stay pinned.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
   });
 });
 

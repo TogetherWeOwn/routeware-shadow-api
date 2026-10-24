@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { env } from "cloudflare:workers";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Pins the hydrated reads' legacy `If-None-Match` dispatch.
@@ -276,5 +277,149 @@ describe("hydrated legacy If-None-Match dispatch", () => {
       await handleGetDataContainer(ctx(containerDb, `w/"${containerEtag}"`), 100),
       containerEtag
     );
+  });
+});
+
+const { default: app } = await import("../src/app");
+const HYDRATED_SPECS = [
+  { kind: "customer", id: 5, field: "company_name", rows: CUSTOMER_DB_ROWS },
+  { kind: "address", id: 10, field: "address", rows: {
+    ...ADDRESS_DB_ROWS,
+    address: { pickup_address_id: 10, customer_id: 5, address: "Synthetic street" }
+  } },
+  { kind: "container", id: 100, field: "serial_number", rows: {
+    ...CONTAINER_DB_ROWS,
+    container: { container_id: 100, pickup_address_id: 10, serial_number: "Synthetic serial" }
+  } }
+];
+const READ_PATHS = [
+  { name: "cold full", warm: false, projected: false },
+  { name: "warm full", warm: true, projected: false },
+  { name: "cold projected", warm: false, projected: true },
+  { name: "warm projected", warm: true, projected: true }
+];
+const QUOTED_NONMATCHES = [
+  { name: "hash inside one quoted tag", header: (h: string) => `"prefix,${h},suffix"` },
+  { name: "hash inside one lowercase-weak tag", header: (h: string) => `w/"prefix,${h},suffix"` },
+  { name: "wildcard inside one quoted tag", header: () => '"prefix,*,suffix"' },
+  { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' },
+  // TOG-39719: a quoted "*" is an opaque entity-tag, never the RFC 7232
+  // wildcard. The current hash is 64 hex chars (asserted in currentRead), so
+  // these must miss (200) on every read path; the raw "*" 304 control lives
+  // in LEGACY_MATCHES below.
+  { name: "standalone quoted wildcard", header: () => '"*"' },
+  { name: "standalone lowercase-weak quoted wildcard", header: () => 'w/"*"' },
+  { name: "standalone uppercase-weak quoted wildcard", header: () => 'W/"*"' }
+];
+const LEGACY_MATCHES = [
+  { name: "exact quoted tag", header: (h: string) => `"${h}"` },
+  { name: "bare tag", header: (h: string) => h },
+  { name: "lowercase weak tag", header: (h: string) => `w/"${h}"` },
+  { name: "uppercase weak tag", header: (h: string) => `W/"${h}"` },
+  { name: "standalone wildcard", header: () => "*" },
+  { name: "whitespace and list", header: (h: string) => ` \t"other", \t${h} \t` },
+  { name: "real tag after quoted commas", header: (h: string) => `"prefix,wrong,suffix", w/"${h}"` },
+  // An opaque-tag backslash is literal: the next quote closes the first tag.
+  { name: "real tag after a trailing backslash", header: (h: string) => `"prefix,wrong\\", "${h}"` }
+];
+
+async function getHydrated(
+  kind: string, id: number, db: D1Database, fields?: string, ifNoneMatch?: string
+): Promise<Response> {
+  const query = new URLSearchParams({ id: String(id) });
+  if (fields !== undefined) query.set("fields", fields);
+  const headers = new Headers({ authorization: "Bearer test-sync-secret" });
+  if (ifNoneMatch !== undefined) headers.set("if-none-match", ifNoneMatch);
+  const pending: Promise<unknown>[] = [];
+  const res = await app.fetch(
+    new Request(`http://test.local/api/v1/data/${kind}?${query}`, { headers }),
+    { ...env, CUSTOMER_DB: db } as unknown as Env,
+    {
+      waitUntil(p: Promise<unknown>) { pending.push(p); },
+      passThroughOnException() {},
+      props: {}
+    } as ExecutionContext
+  );
+  await Promise.all(pending);
+  return res;
+}
+
+// Mutation target: splitting inside an opaque tag returns a false 304 and loses
+// the current body. Route through production auth/validation/hydration, not a
+// matcher helper. Only D1 and the external cache/network boundaries are faked.
+describe.each(HYDRATED_SPECS)("$kind quoted-comma legacy route", (spec) => {
+  const outbound = vi.fn(async () => { throw new Error("Unexpected hydrated outbound fetch"); });
+  beforeEach(() => {
+    outbound.mockClear();
+    vi.stubGlobal("fetch", outbound);
+  });
+  afterEach(() => {
+    try { expect(outbound).not.toHaveBeenCalled(); }
+    finally { vi.unstubAllGlobals(); }
+  });
+
+  it("refreshes from D1 on a warm full validator miss instead of serving stale cache", async () => {
+    const db = fakeDb(spec.rows);
+    const current = await getHydrated(spec.kind, spec.id, db);
+    expect(current.status).toBe(200);
+    const text = await current.text();
+    const etag = current.headers.get("etag");
+    expect(text.length).toBeGreaterThan(0);
+    expect(etag).toBeTruthy();
+    cacheState.entry = new Response('{"stale":true}', {
+      status: 200,
+      headers: { "X-Entity-ETag": "stale-cache-validator" }
+    });
+
+    // Returning the cached body on a miss would silently skip the D1 refresh.
+    const res = await getHydrated(spec.kind, spec.id, db, undefined, '"not-current"');
+    expect(res.status).toBe(200);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe(text);
+  });
+
+  describe.each(READ_PATHS)("$name", (path) => {
+    async function currentRead(matches: boolean) {
+      const db = fakeDb(spec.rows);
+      const full = await getHydrated(spec.kind, spec.id, db);
+      expect(full.status).toBe(200);
+      const fullText = await full.text();
+      expect(fullText.length).toBeGreaterThan(0);
+      const fields = path.projected ? spec.field : undefined;
+      const current = await getHydrated(spec.kind, spec.id, db, fields);
+      expect(current.status).toBe(200);
+      const text = await current.text();
+      expect(text.length).toBeGreaterThan(0);
+      const hash = current.headers.get("x-entity-etag")!;
+      expect(hash).toMatch(/^[0-9a-f]{64}$/);
+      // Full misses refresh from D1; warm matches and projections use the cache.
+      const cacheOnly = path.warm && (matches || path.projected);
+      const readDb = cacheOnly ? {
+        prepare() { throw new Error("Warm hydrated read unexpectedly queried D1"); }
+      } as unknown as D1Database : db;
+      return {
+        hash, text,
+        read: (header: string) => {
+          cacheState.entry = path.warm
+            ? new Response(fullText, { status: 200, headers: full.headers }) : null;
+          return getHydrated(spec.kind, spec.id, readDb, fields, header);
+        }
+      };
+    }
+
+    it.each(QUOTED_NONMATCHES)("serves the current body for $name", async ({ header }) => {
+      const current = await currentRead(false);
+      const res = await current.read(header(current.hash));
+      const text = await res.text();
+      expect.soft(res.status).toBe(200);
+      expect.soft(res.headers.get("etag")).toBe(`"${current.hash}"`);
+      expect.soft(text.length).toBeGreaterThan(0);
+      expect(text).toBe(current.text);
+    });
+
+    it.each(LEGACY_MATCHES)("preserves 304 for $name", async ({ header }) => {
+      const current = await currentRead(true);
+      await expectEmpty304(await current.read(header(current.hash)), current.hash);
+    });
   });
 });

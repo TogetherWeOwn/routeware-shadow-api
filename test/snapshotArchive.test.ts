@@ -172,6 +172,34 @@ describe("R2 archive readback", () => {
     expect(await res.text()).toBe("");
   });
 
+  it.each([
+    { name: "quoted wildcard", header: '"*"' },
+    { name: "lowercase-weak quoted wildcard", header: 'w/"*"' },
+    { name: "uppercase-weak quoted wildcard", header: 'W/"*"' }
+  ])("serves the archive for $name (quoted wildcard is an opaque tag, not *)", async ({ header }) => {
+    // TOG-39719: a quoted "*" is an opaque entity-tag that never equals the
+    // fnv64 content-hash ETag, so it must miss (200). The raw "*" 304 control
+    // above is preserved. This pins the shared matchesSnapshotIfNoneMatch
+    // path for both the date and latest archive routes (same route module).
+    await bucket().put("snapshots/2026-09-22/customer.csv", ARCHIVE_CSV, CSV_TYPE);
+    const first = await getArchive("customer", "2026-09-22", SYNC_SECRET);
+    expect(first.status).toBe(200);
+    const etag = first.headers.get("etag");
+    expect(etag).toBe(fnv1a64Etag(new TextEncoder().encode(ARCHIVE_READBACK)));
+    expect(etag).not.toBe('"*"');
+    await first.text();
+
+    // Act
+    const res = await getArchive("customer", "2026-09-22", SYNC_SECRET, undefined, {
+      "if-none-match": header
+    });
+
+    // Assert — full body again under the same tag, never a false 304.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe(ARCHIVE_READBACK);
+  });
+
   it("answers 409 problem+json when the archive is replaced between the two reads", async () => {
     // Arrange — the second read is conditional on the first read's ETag; a
     // replacement makes R2 answer with metadata and no body.

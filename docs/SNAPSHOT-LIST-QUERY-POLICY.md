@@ -11,9 +11,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -272,6 +272,40 @@ npm run check:customer-changes-cursor
 ```
 
 No live replay or upstream calls.
+
+## Bounded primary-ID selection (`ids=`)
+
+The three ordinary lists accept an optional `ids=` selector that restricts
+the page to a bounded set of primary IDs (`customer_id`,
+`pickup_address_id`, `container_id` respectively). A request that previously
+carried an ignored `ids` now filters on these three lists only; by-id
+reads, CSV exports and the changes feed still ignore `ids` as an unknown
+name.
+
+The selector is strict: 1 to 50 distinct canonical ASCII positive
+safe-integer decimals (unpadded digits, at most `9007199254740991`),
+comma-separated, with no whitespace, signs, fractions, exponents, empty
+segments, duplicate IDs or coercion, and a single `ids` key. Anything else
+is the existing value-free anchored 400 before any D1 work. Selection
+AND-composes with the singular/relationship filters, `enabled`, `q`,
+`fields`, `includeTotal` and cursor/offset paging; result order is the
+existing primary-key order regardless of selector order, selected IDs with
+no row simply do not match, and the `{rows, total, nextCursor}` envelope is
+unchanged. Synthetic example:
+
+```text
+GET /api/v1/customer-snapshot?ids=9105,9101,9103&limit=2
+
+{"rows":[{"customer_id":9101,...},{"customer_id":9103,...}],"total":3,"nextCursor":9103}
+```
+
+The second page replays the selector with the cursor:
+`GET /api/v1/customer-snapshot?ids=9105,9101,9103&limit=2&cursor=9103`
+returns the remaining row with `total: 3` and `nextCursor: null`.
+
+Run `npx vitest run test/snapshotIdSelection.acceptance.test.ts` for the
+focused selection, rejection, pagination-composition and SQL/bind-parity
+regressions. No live replay.
 
 ## Hydrated entity reads are strict
 
