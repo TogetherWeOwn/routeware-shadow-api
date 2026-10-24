@@ -305,7 +305,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal` |
+| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, exact `routeId` / `franchiseId` (AND intersection), `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal` |
 | GET | `/api/v1/address-snapshot/{pickupAddressId}` | One address row |
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
@@ -366,7 +366,14 @@ at `8402` returns:
 {"nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
 ```
 
-The next request's query is
+The same full page advertises this optional response header:
+
+```text
+Link: </api/v1/customer-snapshot/changes?since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=1>; rel="next"
+```
+
+Prefer following that server-supplied relative target over reconstructing the
+pair. The next request's query is
 `since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=1`; it includes
 `8407` instead of skipping the millisecond tie. Order stays
 `(synced_at, customer_id)`, page limit stays `1..500` (default `50`), and
@@ -374,10 +381,24 @@ The next request's query is
 including the final full page; continue until `nextCursor` is `null`.
 Cursor timestamps are always emitted with three fraction digits.
 
-Hermetic regression check, also listed by `npm run help`:
+Link appears exactly when the composite cursor is non-null. It replaces
+`since` and `since_id` together and retains the validated effective limit;
+the fixed path/allowlist excludes unknown keys, request origins, forwarded
+hosts and credentials. `fields` and `until` remain unsupported/ignored on
+this feed. A full terminal page may link to an empty page; short/empty/error
+pages have no next link, and omission means stop. JSON bytes/shape, SQL/binds
+and the single SELECT are unchanged: no COUNT or lookahead is added. Auth,
+read-token access, no-store, request ID and existing CORS exposure (including
+Link) stay intact. Mounted OpenAPI declares the optional header. See the
+[safe synthetic client recipe](docs/CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link)
+for same-origin/fixed-path checks, manual redirects and non-2xx refusal
+before parsing JSON. No completeness or snapshot-isolation promise is added.
+
+Hermetic regression checks (no running Worker needed):
 
 ```bash
 npm run check:customer-changes-cursor
+npm run check:customer-changes-next-links
 ```
 
 This uses synthetic local D1 rows only; no credentials, upstream requests,

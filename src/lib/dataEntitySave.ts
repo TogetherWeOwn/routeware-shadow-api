@@ -17,11 +17,19 @@ import { readSessionState } from "./sessionState";
 import { readUpstreamText } from "./upstreamBody";
 import { readUpstreamTimeoutMs } from "./upstreamTimeout";
 import {
+  parseAddressIdFromSaveResponse,
+  parseContainerIdFromSaveResponse,
   parseCustomerIdFromSaveResponse,
   routewarePostLooksSuccessful,
   urlEncodedToObject
 } from "./routewarePostResult";
 import { routewareWebRwUrl } from "./upstreamUrl";
+import {
+  diffSingleton,
+  queryAddressContainerIds,
+  queryCustomerAddressIds,
+  snapshotIdsQuietly
+} from "./saveCreatedIdDiff";
 
 /**
  * Invalidate the posted entity id(s) after a successful upstream
@@ -409,6 +417,21 @@ export async function handlePostDataAddress(
       localSync: notAttempted()
     });
   }
+  // Capture the baseline before this request can create a row upstream. A
+  // concurrent refresh after the POST must not hide our row in the baseline.
+  const posted = urlEncodedToObject(buf);
+  const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
+  const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
+  const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
+  const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
+  const isCreate = pickupAddressId === null;
+  const preAddressIds = isCreate && customerId !== null
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/address",
+        "Pre-save id snapshot unavailable",
+        () => queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
+      )
+    : null;
   const url = routewareWebRwUrl(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
@@ -423,13 +446,11 @@ export async function handlePostDataAddress(
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // `posted` is parsed for ids only and never echoed.
-  const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
-  const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
-  const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
-  const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
-  const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
+  // R21-05: creates (posted id 0/absent) resolve their id — upstream JSON
+  // first, else the singleton post-refresh D1 id. Updates keep echoing the
+  // posted id, and failed saves keep today's null/echo semantics.
+  let resolvedAddressId = ok ? parseAddressIdFromSaveResponse(posted, upText) : pickupAddressId;
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
     if (customerId !== null) {
@@ -441,6 +462,12 @@ export async function handlePostDataAddress(
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
+        if (resolvedAddressId === null && preAddressIds !== null) {
+          const created = diffSingleton(preAddressIds, g.addressIds);
+          if (created !== null) {
+            resolvedAddressId = created;
+          }
+        }
         // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
@@ -496,11 +523,14 @@ export async function handlePostDataAddress(
       ok,
       routewareStatus: up.status,
       customerId,
-      pickupAddressId,
+      pickupAddressId: resolvedAddressId,
       upstreamBytes: upstreamBytes(upText),
       localSync
     }),
-    { status: ok ? 200 : up.status, headers: { "content-type": "application/json; charset=utf-8" } }
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
   );
 }
 
@@ -586,6 +616,20 @@ export async function handlePostDataContainer(
       localSync: notAttempted()
     });
   }
+  // As with addresses, snapshot before the upstream mutation; scope the diff
+  // to the owning address, not every container under the customer.
+  const posted = urlEncodedToObject(buf);
+  const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
+  const postedPickupAddressId = postedId(posted.PickupAddressID);
+  const postedContainerId = postedId(posted.ContainerID);
+  const isCreate = postedContainerId === null;
+  const preContainerIds = isCreate && postedPickupAddressId !== null
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/container",
+        "Pre-save id snapshot unavailable",
+        () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+      )
+    : null;
   const url = routewareWebRwUrl(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
@@ -600,12 +644,11 @@ export async function handlePostDataContainer(
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // `posted` is parsed for ids only and never echoed.
-  const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
-  const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
-  const postedPickupAddressId = postedId(posted.PickupAddressID);
-  const postedContainerId = postedId(posted.ContainerID);
+  // R21-05: same resolution shape as addresses, scoped to the owning address.
+  let resolvedContainerId = ok
+    ? parseContainerIdFromSaveResponse(posted, upText)
+    : postedContainerId;
   let customerId: number | null = postedCustomerId;
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
@@ -631,6 +674,22 @@ export async function handlePostDataContainer(
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
+        if (resolvedContainerId === null && preContainerIds !== null && postedPickupAddressId !== null) {
+          // The post-refresh id read is best-effort: a failure leaves the id
+          // null without rewriting the completed sync or skipping the graph
+          // invalidation below.
+          const postIds = await snapshotIdsQuietly(
+            "POST /api/v1/data/container",
+            "Post-refresh id snapshot unavailable",
+            () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+          );
+          if (postIds !== null) {
+            const created = diffSingleton(preContainerIds, postIds);
+            if (created !== null) {
+              resolvedContainerId = created;
+            }
+          }
+        }
         // Retry the whole graph on a mid-graph throw (cache deletes
         // are idempotent) so a transient delete failure cannot leave sibling
         // address/container PII stale while the customer row was rewritten.
@@ -689,10 +748,13 @@ export async function handlePostDataContainer(
       routewareStatus: up.status,
       customerId,
       pickupAddressId: postedPickupAddressId,
-      containerId: postedContainerId,
+      containerId: resolvedContainerId,
       upstreamBytes: upstreamBytes(upText),
       localSync
     }),
-    { status: ok ? 200 : up.status, headers: { "content-type": "application/json; charset=utf-8" } }
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
   );
 }
