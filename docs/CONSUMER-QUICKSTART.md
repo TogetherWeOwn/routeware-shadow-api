@@ -610,11 +610,43 @@ upstream body are never echoed):
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
 for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
 Their JSON envelopes additionally require nullable `pickupAddressId`, and the
-container envelope also requires nullable `containerId`. Those child IDs come
-from usable posted IDs; a successful create can still return `null`, even when
-the local graph refresh succeeds. `customerId` is also nullable when unresolved.
+container envelope also requires nullable `containerId`. `customerId` is also
+nullable when unresolved. Creates answer **HTTP 201** with the resolved id
+while updates echo the posted id with 200 (customer saves stay 200 on creates):
+
+```bash
+# Create address (PickupAddressID=0); the 201 body carries the created id
+curl -X POST http://localhost:8787/api/v1/data/address \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "PickupAddressID=0" \
+  --data-urlencode "CustomerID=5" \
+  --data-urlencode "Address=1 Main St"
+# HTTP 201 {"ok":true,"routewareStatus":200,"customerId":5,
+#   "pickupAddressId":77,"upstreamBytes":46,
+#   "localSync":{"done":true,"customerId":5,"addressIds":[10,77],"containerIds":[100]}}
+```
+
+For live creates, the id comes from upstream `data.PickupAddressID` / `data.ContainerID`
+first, else the singleton post-refresh D1 id (address ids for the owning
+customer, container ids for the owning address). The diff baseline is captured
+**before** the upstream POST so a concurrent refresh cannot put this request's
+created row into the baseline. Without an upstream id, `null` remains when the
+diff is empty or ambiguous (0 or 2+ new ids), the owning graph is unknown, or
+the baseline/refresh is unavailable. A failed baseline read disables only
+id diffing: the save and normal refresh still run, and an upstream JSON id
+still wins. Posted save keys are case-exact (`PickupAddressID`, `ContainerID`);
+camelCase keys do not name an update. Upstream JSON ids must be positive safe
+integers (numbers or digit-only strings); invalid candidates do not mask valid
+fallback fields. There is deliberately no `Location`
+header: the by-id snapshot URL may not exist locally when the refresh fails,
+and a header that 404s is worse than none. Dry-run saves echo posted ids;
+live creates resolve or return `null`, while live updates return the
+case-exact posted key.
+
 `routewareStatus` is the original upstream status, not necessarily the wrapper
-status (for example, accepted upstream 201 currently returns wrapper 200).
+status (for example, upstream 200 on a create returns wrapper 201 with the
+resolved id).
 
 **Read `dryRun`, `ok` and `localSync` separately.** On a live save (no `dryRun`
 response flag), `ok=true` means the upstream write was accepted, not that local
@@ -635,9 +667,11 @@ refresh: the upstream write may already have landed. Verify existing identities
 and reconcile local state without repeating the create; these codes do not
 provide idempotency or authorize retries. Error codes are fixed strings, never
 exception text, upstream HTML, form fields or PII. Inspect `application/json`
-examples on each save operation in `/openapi.json` for the four live outcomes
-and the validation-only dry-run outcome. HTTP 200 advertises a union of those
-strict live and dry-run schemas; null upstream status is valid only on dry runs.
+examples on each save operation in `/openapi.json` for the four live outcomes,
+the validation-only dry-run outcome, and the 201 created-id outcome on address
+and container saves. HTTP 200 advertises a union of those strict live and
+dry-run schemas (live updates echo the posted id; live creates answer 201);
+null upstream status is valid only on dry runs.
 
 Runnable hermetic schema-vs-runtime check (no live provider, credentials or data):
 
@@ -648,9 +682,8 @@ npx vitest run test/saveOutcomeSchemas.acceptance.test.ts --maxWorkers=2
 This serves OpenAPI via `app.fetch`, validates all three envelopes and synthetic
 outcomes, rejects malformed `localSync`, and checks unchanged forwarding,
 authentication, `no-store`, statuses and side effects. It exercises the behavior
-present at this implementation head; it does not introduce dry-run or created-ID
-resolution behavior.
-
+present at this implementation head, including the merged dry-run and created-ID
+resolution contracts; it does not introduce new save behavior.
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through
