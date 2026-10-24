@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { env, exports } from "cloudflare:workers";
 import {
   ADDRESS_SNAPSHOT_EXPORT,
@@ -577,6 +577,64 @@ describe.each(SPECS)("$name export route", (spec) => {
     expect(res.status).toBe(304);
     expect(res.headers.get("etag")).toBe(etag);
     expect(await res.text()).toBe("");
+  });
+
+  describe("quoted-comma legacy validators", () => {
+    const outbound = vi.fn(async () => { throw new Error("Unexpected CSV outbound fetch"); });
+    beforeEach(() => {
+      outbound.mockClear();
+      vi.stubGlobal("fetch", outbound);
+    });
+    afterEach(() => {
+      try { expect(outbound).not.toHaveBeenCalled(); }
+      finally { vi.unstubAllGlobals(); }
+    });
+
+    async function currentExport() {
+      const db = fakeExportDb(spec.edgeRows, spec.pk).db;
+      const first = await callExport(spec.routes, spec.path, db);
+      expect(first.status).toBe(200);
+      const tag = first.headers.get("etag")!;
+      expect(tag).toMatch(/^"fnv64-[0-9a-f]{16}"$/);
+      const text = `${spec.header}\n${spec.edgeLines.join("\n")}\n`;
+      expect(await first.text()).toBe(text);
+      return { db, tag, hash: tag.slice(1, -1), text };
+    }
+
+    // The current hash or * inside ONE unrelated opaque tag must not suppress
+    // the CSV body. These run the production routes, not just the matcher helper.
+    it.each([
+      { name: "hash inside one quoted tag", header: (h: string) => `"prefix,${h},suffix"` },
+      { name: "hash inside one lowercase-weak tag", header: (h: string) => `w/"prefix,${h},suffix"` },
+      { name: "wildcard inside one quoted tag", header: () => '"prefix,*,suffix"' },
+      { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' }
+    ])("serves current CSV for $name", async ({ header }) => {
+      const current = await currentExport();
+      const res = await callExport(spec.routes, spec.path, current.db, SECRET, header(current.hash));
+      const text = await res.text();
+      expect.soft(res.status).toBe(200);
+      expect.soft(res.headers.get("etag")).toBe(current.tag);
+      expect.soft(text.length).toBeGreaterThan(0);
+      expect(text).toBe(current.text);
+    });
+
+    it.each([
+      { name: "exact quoted tag", header: (h: string) => `"${h}"` },
+      { name: "bare tag", header: (h: string) => h },
+      { name: "lowercase weak tag", header: (h: string) => `w/"${h}"` },
+      { name: "uppercase weak tag", header: (h: string) => `W/"${h}"` },
+      { name: "standalone wildcard", header: () => "*" },
+      { name: "whitespace and list", header: (h: string) => ` \t"other", \t${h} \t` },
+      { name: "real tag after quoted commas", header: (h: string) => `"prefix,wrong,suffix", w/"${h}"` },
+      // Backslashes are literal in opaque tags, not quote escapes.
+      { name: "real tag after a trailing backslash", header: (h: string) => `"prefix,wrong\\", "${h}"` }
+    ])("preserves 304 for $name", async ({ header }) => {
+      const current = await currentExport();
+      const res = await callExport(spec.routes, spec.path, current.db, SECRET, header(current.hash));
+      expect(res.status).toBe(304);
+      expect(res.headers.get("etag")).toBe(current.tag);
+      expect(await res.text()).toBe("");
+    });
   });
 
   it("re-downloads with a fresh ETag after any cell edit", async () => {
