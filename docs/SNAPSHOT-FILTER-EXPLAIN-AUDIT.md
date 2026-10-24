@@ -61,6 +61,38 @@ query cost. No migration/index, remote D1 probe, latency measurement or
 production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
 
+## Address container-presence predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 6 synthetic addresses / 5 synthetic containers (no
+tenant data). Used the address route's COUNT template and SELECT template with
+the new correlated predicates, `ORDER BY pickup_address_id` with
+`LIMIT ? OFFSET ?` (or seek without OFFSET). Each row below is the full local
+plan for that statement shape:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `COUNT` with `EXISTS (...)` | `SCAN address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `COUNT` with `NOT EXISTS (...)` | `SCAN address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id`, `CORRELATED SCALAR SUBQUERY 1`, then `SEARCH container_snapshot USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS`/`NOT EXISTS`, offset page | `SCAN address_snapshot`, `CORRELATED SCALAR SUBQUERY 1`, then `SEARCH container_snapshot [EXISTS] USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS`, keyset seek | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS` plus `customer_id = ?`, desc | `SEARCH address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id (customer_id=?)` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+
+Every shape resolves the correlated child lookup through the existing
+`idx_container_snapshot_pickup_address_id`; no plan scans the child table. The
+enum becomes a predicate, not a bind: COUNT carries only the filter binds and
+SELECT adds just the page window. The executable
+`test/addressContainerPresence.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements for both enum values, and asserts exact matches, read-only
+execution and denied network. Run `npm run check:address-container-presence`
+to repeat that bounded check.
+
+Presence-only reads may still scan the parent; this feature bounds returned
+data, not query cost. No migration/index, remote D1 probe, latency measurement
+or production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.
