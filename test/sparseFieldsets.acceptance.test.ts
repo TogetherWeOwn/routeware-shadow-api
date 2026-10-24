@@ -13,8 +13,9 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  *   details: GET /api/v1/customer-snapshot/{id}, /address-snapshot/{id}, /container-snapshot/{id}
  * Hydrated single-ID aggregates additionally accept root-only `fields` (covered
  * by hydratedFields.acceptance.test.ts); related bundles remain unchanged.
- * CSV exports and the changes feed still ignore `?fields=`. Nested/relationship
- * selection and `?include=` remain out of scope.
+ * Customer changes additionally accepts `fields` without altering composite
+ * cursors (customerChangesFields.acceptance.test.ts). CSV exports still ignore
+ * `fields`; nested/relationship selection and `include` remain out of scope.
  *
  * SELECTOR: optional `fields=` comma-separated allowlist, strict:
  *   - exact snake_case column names from the route's SELECT list (whitelist);
@@ -687,17 +688,27 @@ describe("hydrated extension and non-scope reads", () => {
     }
   });
 
-  it("changes feed ignores fields (unknown-param policy preserved)", async () => {
+  it("customer changes recognizes fields without changing page ids, total or composite cursor", async () => {
     const plain = await get("/api/v1/customer-snapshot/changes?limit=2");
     expect(plain.status).toBe(200);
-    const plainBody = await plain.json();
-    const withFields = await get("/api/v1/customer-snapshot/changes?limit=2&fields=no_such_column_xyz");
+    const plainBody = await plain.json() as { rows: Array<Record<string, unknown>>; total: number; nextCursor: unknown };
+    const withFields = await get("/api/v1/customer-snapshot/changes?limit=2&fields=company_name&unknown=ignored");
     expect(withFields.status).toBe(200);
-    expect(await withFields.json()).toEqual(plainBody);
+    expectNoStoreCors(withFields);
+    expect(await withFields.json()).toEqual({
+      ...plainBody,
+      rows: plainBody.rows.map((row) => ({ customer_id: row.customer_id, company_name: row.company_name }))
+    });
+  });
+
+  it("customer changes rejects invalid fields before D1 instead of ignoring them", async () => {
+    const { db, prepare } = throwingDb();
+    const response = await get("/api/v1/customer-snapshot/changes?fields=no_such_column_xyz", { db });
+    await expectFields400(response, prepare, "no_such_column_xyz");
   });
 });
 
-describe("OpenAPI publishes fields on flat reads and keeps export/changes exclusions", () => {
+describe("OpenAPI publishes fields on flat reads and keeps export exclusions", () => {
   type Param = {
     name: string;
     in: string;
@@ -753,13 +764,12 @@ describe("OpenAPI publishes fields on flat reads and keeps export/changes exclus
     expect(op?.responses?.["400"]?.description ?? "").toMatch(/fields/);
   });
 
-  it("does not add fields to export or changes operations", async () => {
+  it("does not add fields to export operations", async () => {
     const doc = await openApi();
     for (const path of [
       "/api/v1/customer-snapshot/export",
       "/api/v1/address-snapshot/export",
-      "/api/v1/container-snapshot/export",
-      "/api/v1/customer-snapshot/changes"
+      "/api/v1/container-snapshot/export"
     ]) {
       const names = (doc.paths[path]?.get?.parameters ?? []).map((p) => p.name);
       expect(names, path).not.toContain("fields");
