@@ -51,21 +51,31 @@ const hydratedReadBadRequest = {
     "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid `fields` or `fields[type]` selectors — including unknown `fields[TYPE]` keys and flat-plus-typed-root pairs — are value-free 400s before cache or D1 reads."
 };
 
-function hydratedReadValidationHook(
-  result: Parameters<typeof validationFailureHook>[0],
-  c: Parameters<typeof requireSnapshotAuth>[0]
-): Response | undefined {
-  // Any fields failure, including mixed ID/fields errors, must pass the inner
-  // auth gate. Keep ID-only preliminary validation in its old order.
-  if (!result.success && result.target === "query" &&
-      result.error?.issues.some((issue) => {
-        const head = issue.path[0];
-        return typeof head === "string" && (head === "fields" || head.startsWith("fields["));
-      })) {
-    const denied = requireSnapshotAuth(c);
-    if (denied) return denied;
-  }
-  return validationFailureHook(result, c);
+function hydratedReadValidationHook(root: SnapshotFieldsetResource) {
+  return (
+    result: Parameters<typeof validationFailureHook>[0],
+    c: Parameters<typeof requireSnapshotAuth>[0]
+  ): Response | undefined => {
+    // Any fields failure, including mixed ID/fields errors, must pass the inner
+    // auth gate. Keep ID-only preliminary validation in its old order.
+    if (!result.success && result.target === "query") {
+      const raw = new URL(c.req.url).searchParams;
+      // Unknown keys are stripped by zod; individually valid flat/typed-root
+      // selectors also produce no fields issue. Detect both before ID errors
+      // can prevent the in-handler selector checks from running.
+      const invalidSelectors = findUnknownTypedBundleFieldKeys([...raw.keys()]).length > 0 ||
+        (raw.has("fields") && raw.has(BUNDLE_TYPED_FIELD_KEYS[root])) ||
+        result.error?.issues.some((issue) => {
+          const head = issue.path[0];
+          return typeof head === "string" && (head === "fields" || head.startsWith("fields["));
+        });
+      if (invalidSelectors) {
+        const denied = requireSnapshotAuth(c);
+        if (denied) return denied;
+      }
+    }
+    return validationFailureHook(result, c);
+  };
 }
 
 type HydratedReadFieldsQuery = {
@@ -188,7 +198,7 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   }
   return handleGetDataCustomer(
     { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
-}, hydratedReadValidationHook);
+}, hydratedReadValidationHook("customer"));
 
 const dataAddressGetRoute = createRoute({
   method: "get",
@@ -242,7 +252,7 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   }
   return handleGetDataAddress(
     { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
-}, hydratedReadValidationHook);
+}, hydratedReadValidationHook("address"));
 
 const dataContainerGetRoute = createRoute({
   method: "get",
@@ -296,7 +306,7 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   }
   return handleGetDataContainer(
     { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
-}, hydratedReadValidationHook);
+}, hydratedReadValidationHook("container"));
 
 function dataEntityPostResponse(example: Record<string, unknown>): RouteConfig["responses"] {
   return {
