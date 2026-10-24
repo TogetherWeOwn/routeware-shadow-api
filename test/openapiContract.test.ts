@@ -279,6 +279,32 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// Stored-classification equality supersedes the customer list's filter
+// narrative. Its schema, bounds, example, composition and error discovery are
+// asserted independently in customerTypeFilter.acceptance.test.ts, not frozen
+// as speculative prose or parameter position. All legacy parameters and
+// unrelated operations remain frozen.
+function withoutCustomerTypeContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{ name?: string; in?: string }>;
+      responses?: Record<string, { description?: string }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    if (operation.responses?.["400"]) delete operation.responses["400"].description;
+    if (operation.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || parameter.name !== "customerTypeId"
+      );
+    }
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -545,7 +571,9 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
+    // The customer list's customerTypeId selector and filter/error prose move
+    // to customerTypeFilter.acceptance.test.ts the same way.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(doc))))))).toMatchSnapshot();
   });
 });
 

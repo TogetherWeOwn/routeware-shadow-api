@@ -1,12 +1,11 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
-import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
-import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
+import { snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
-import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
-import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
+import { snapshotIdSelectionPredicate } from "../lib/snapshotIdSelection";
+import { customerSnapshotListQuery } from "../lib/customerSnapshotListQuery";
 import {
   snapshotListConditionalHeaders,
   snapshotListEtagHeaders,
@@ -55,12 +54,6 @@ import {
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
 export const customerSnapshotRoutes = createRouteModule();
 
-// Keep account references opaque: trim only to detect blank input, never to
-// transform it. The UTF-16 guard bounds allocation before counting code points.
-const customerAccountNumberQuery = z.string()
-  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
-  .openapi({ minLength: 1, maxLength: 100 });
-
 const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
@@ -70,40 +63,13 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, company substring `q`, or `enabled`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, stored-classification `customerTypeId`, exact `customerNumber` and/or `subCustomerNumber`, company substring `q`, or `enabled`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     headers: snapshotListConditionalHeaders,
-    query: z.object({
-      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
-      ids: snapshotIdSelectionQuery(),
-      customerNumber: customerAccountNumberQuery.optional()
-        .describe("Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
-        .openapi({ example: "00042" }),
-      subCustomerNumber: customerAccountNumberQuery.optional()
-        .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
-        .openapi({ example: "North" }),
-      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
-      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
-      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
-      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
-      cursor: z.coerce
-        .number()
-        .int()
-        .optional()
-        .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
-        .openapi({ example: 345733 }),
-      upperId: snapshotUpperIdQuery,
-      includeTotal: z
-        .enum(["true", "false"])
-        .optional()
-        .default("true")
-        .describe(
-          "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
-        )
-        .openapi({ example: "false" }),
-      order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("customer")
-    })
+    // Query contract lives in `src/lib/customerSnapshotListQuery.ts` so this
+    // file stays under the 800-line source guard; the object is referenced,
+    // not copied, so validation and OpenAPI stay identical.
+    query: customerSnapshotListQuery
   },
   responses: {
     200: {
@@ -119,7 +85,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, a non-canonical `customerTypeId` (anything but one unpadded ASCII nonnegative safe integer), `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send customerTypeId once as unpadded ASCII digits from 0 to 9007199254740991, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -137,6 +103,13 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.ids !== undefined) {
     where.push(snapshotIdSelectionPredicate("customer", p.ids.length));
     binds.push(...p.ids);
+  }
+  // Stored classification equality: one bound predicate shared with the
+  // COUNT below. SQL NULL never equals the literal, so null rows simply do
+  // not match; omission adds no predicate and preserves previous matches.
+  if (p.customerTypeId !== undefined) {
+    where.push("customer_type_id = ?");
+    binds.push(p.customerTypeId);
   }
   if (p.customerNumber !== undefined) {
     where.push("customer_number = ?");
