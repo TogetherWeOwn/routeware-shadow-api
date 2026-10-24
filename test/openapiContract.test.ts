@@ -279,6 +279,36 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// Customer name-search supersedes this route's old company-only query narrative.
+// Its operation description and q parameter/schema descriptions are asserted
+// semantically in customerNameSearch.acceptance.test.ts (substring wording plus
+// company/first/last/any), not frozen as speculative prose here. The q schema
+// shape, all other parameters, responses and unrelated operations remain frozen.
+function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{
+        name?: string;
+        in?: string;
+        description?: string;
+        schema?: Record<string, unknown>;
+      }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    for (const parameter of operation.parameters ?? []) {
+      if (parameter.name !== "q" || parameter.in !== "query") continue;
+      delete parameter.description;
+      const schema = parameter.schema as Record<string, unknown> | undefined;
+      if (schema) delete schema.description;
+    }
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -540,12 +570,13 @@ describe("published OpenAPI document", () => {
     // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
-    // additions move to containerIdentifierFilters.acceptance.test.ts;
-    // unrelated golden contracts stay pinned.
+    // additions move to containerIdentifierFilters.acceptance.test.ts; the
+    // customer name-search operation/q prose moves to
+    // customerNameSearch.acceptance.test.ts; unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutCustomerNameSearchContract(doc))))))).toMatchSnapshot();
   });
 });
 
