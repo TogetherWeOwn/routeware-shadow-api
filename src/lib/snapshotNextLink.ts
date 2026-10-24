@@ -6,6 +6,7 @@ type SnapshotListQuery = {
   subCustomerNumber?: string;
   pickupAddressId?: number;
   containerId?: number;
+  containerTypeId?: number;
   ids?: number[];
   serialNumber?: string;
   rfid?: string;
@@ -25,7 +26,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "serialNumber", "rfid"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
