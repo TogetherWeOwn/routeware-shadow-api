@@ -54,6 +54,24 @@ Validation happens before D1 and returns fixed, value-free guidance:
 The named field can instead be `since` (or multiple invalid fields); no
 submitted timestamp or id is echoed. Authentication still precedes validation.
 
+## Address route and franchise scopes (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, send each optional scope key once:
+
+- `routeId`: exact unpadded ASCII decimal integer `0..9007199254740991`.
+  No signs, padding, whitespace, fractions, exponent/hex notation or unsafe
+  integers. Zero matches literal stored route `0`, not all routes.
+- `franchiseId`: opaque case-sensitive exact string, 1..100 Unicode code
+  points, not blank/whitespace-only. Leading zeros and nonblank whitespace
+  are significant; do not trim or numerically coerce it. URL-encode it.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (routeId). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `franchiseId` (or both). Correct the named field's
+format, send it once, then retry; omit it only if no scope is intended.
+Authentication still precedes validation. Valid scopes that match no rows
+return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
+
 ## Sparse fieldsets (`bad-request`)
 
 For the snapshot lists and by-id reads, `fields=` must be a single

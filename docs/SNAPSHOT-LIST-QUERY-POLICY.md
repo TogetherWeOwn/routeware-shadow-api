@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
@@ -32,6 +32,34 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Address route and franchise scopes
+
+Only the address list recognizes `routeId` and `franchiseId`. Each is optional
+and must appear once. `routeId` is an exact unpadded ASCII decimal safe integer
+from `0` through `9007199254740991`; zero matches literal stored zero, never
+an all-routes sentinel. `franchiseId` is an opaque case-sensitive exact string
+of 1..100 Unicode code points. Leading zeros and nonblank whitespace remain
+significant; blank/whitespace-only values are invalid. Repeated keys (including
+percent-encoded aliases), invalid formats and overlength strings fail through
+the existing value-free 400 hook after authentication and before D1.
+
+Bound `route_id = ?` and `franchise_id = ?` predicates intersect by AND with
+each other and with `customerId`, `pickupAddressId`, `q` and `enabled`. Nulls
+do not match supplied scopes. No deduplication, joins, indexes or migrations
+are added. Omitted scopes leave the old behavior intact. Valid no-match is
+200 empty; fields only project the matched rows. Offset/seek ordering and
+cursor-relative totals are unchanged; count-free mode still executes one
+SELECT and no COUNT. Conditional ETags still describe the served envelope.
+
+Next links retain the validated scopes using URLSearchParams encoding,
+including opaque punctuation/whitespace; do not reconstruct or log scope
+values while following them. Unrelated unknown keys keep list-ignore policy.
+See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-franchise-scopes),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
+Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
+list/link/conditional regressions; no live credentials or upstream calls.
 
 ## Sparse fieldsets (`fields=`)
 

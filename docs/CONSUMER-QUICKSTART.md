@@ -134,7 +134,8 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId`. Every list response includes
+also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
 `nextCursor` (the last row's primary key, or `null` on the last page); pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
 seek — `offset` re-scans everything before it, `cursor` does not:
@@ -156,6 +157,42 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false"
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
+
+### Address route and franchise scopes
+
+Use the existing `listAddressSnapshot` operation to avoid fetching unrelated
+addresses. Optional `routeId` and `franchiseId` intersect by AND with one
+another and with every old filter. `routeId` must be unpadded ASCII decimal
+`0..9007199254740991`; zero is literal stored zero. `franchiseId` is an opaque,
+case-sensitive exact string of 1..100 Unicode code points. Preserve leading
+zeros and nonblank whitespace; URL-encode it rather than interpolating it
+into a URL. Blank/repeated/malformed scopes return the existing value-free
+400 before D1 ([correction guidance](PROBLEMS.md#bad-request)); valid no-match
+returns 200 empty. Null scope columns never match supplied values.
+
+Synthetic scoped-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-scope
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?routeId=7&franchiseId=001&fields=enabled&limit=2&includeTotal=false`.
+Its first IDs are `20,30`, next IDs `120,130`; it follows the returned Link
+unchanged and stops after the final empty page. Every row keeps its address
+ID, `total` is null and each page executes one SELECT with no COUNT. The
+counted offset/seek cases retain cursor-relative totals and pickup-address-ID
+order. Other fixtures prove literal route zero, case/leading-zero distinction,
+100 astral code points, nulls, duplicate scope pairs and URL-encoded quotes,
+percent, underscore and whitespace. Network-deny and read-only D1/R2 doubles
+fail on unexpected side effects. No upstream lookup or write is added.
+
+For a custom synthetic local request, construct the query with
+`new URLSearchParams({ routeId: "7", franchiseId: " 雪%_ " })` and use the
+[same-origin next-page loop](#follow-the-servers-next-page-target) below.
+Scopes, fields and count-free mode round-trip in Link; do not log scope
+values or rows. Authentication, no-store, ETags and existing count semantics
+remain unchanged. These checks are not deployed performance evidence.
 
 ### Conditional JSON page reads (bandwidth only)
 
