@@ -456,6 +456,119 @@ describe.each(SPECS)("$name: cap composes without requiring ids selection", (spe
   });
 });
 
+// Integration oracle: unlike the baseline's optional feature probes, direction,
+// next links and conditional reads are now required. Literal fixture pages catch
+// an ascending empty-range shortcut, uncapped COUNT, lost link state, and a cap
+// applied to the joined address ID instead of the container's own primary ID.
+describe.each(SPECS)("$name: descending upperId integration", (spec) => {
+  describe.each(["true", "false"])("includeTotal=%s", (includeTotal) => {
+    const counted = includeTotal === "true";
+    const query = { upperId: 6, order: "desc", includeTotal, limit: 2 };
+
+    it.each([
+      ["first page includes the ceiling", {}, [6, 4], 3, 4],
+      ["cursor equals ceiling but lower rows remain", { cursor: 6 }, [4, 2], 2, 2],
+      ["cursor exceeds ceiling without emptying range", { cursor: 8 }, [6, 4], 3, 4],
+      ["strict-lower continuation", { cursor: 4 }, [2], 1, null],
+      ["cursor overrides offset", { cursor: 6, offset: 100 }, [4, 2], 2, 2]
+    ] as Array<[string, Query, number[], number, number | null]>)
+    ("%s", async (_label, input, ids, total, next) => {
+      const result = await page(spec, { ...query, ...input });
+      expectPage(result, spec, ids, counted ? total : null, next);
+      expectQueries(result, spec, counted, 6);
+      const select = result.executions.find((s) => !/\bCOUNT\s*\(/i.test(s.sql))!;
+      expect(select.sql).toMatch(new RegExp(`ORDER\\s+BY\\s+(?:\\w+\\.)?${spec.key}\\s+DESC\\b`, "i"));
+      if (input.cursor !== undefined) {
+        for (const statement of result.executions) {
+          expect(statement.sql).toMatch(new RegExp(`\\b${spec.key}\\s*<\\s*\\?`));
+          expect(statement.sql).not.toMatch(/\bOFFSET\b/i);
+        }
+      }
+    });
+
+    it("follows the actual capped descending Link across an above-cap arrival", async () => {
+      const first = await page(spec, query);
+      expectPage(first, spec, [6, 4], counted ? 3 : null, 4);
+      expectQueries(first, spec, counted, 6);
+      const link = first.response.headers.get("link");
+      expect(link).toMatch(/^<\/api\/v1\/[^<>\s]+>; rel="next"$/);
+      const target = new URL(/^<([^>]+)>; rel="next"$/.exec(link!)![1], "http://test.local");
+      expect(target.origin).toBe("http://test.local");
+      expect(target.pathname).toBe(spec.path);
+      expect([...target.searchParams.entries()].sort()).toEqual([
+        ["cursor", "4"], ["includeTotal", includeTotal], ["limit", "2"], ["order", "desc"], ["upperId", "6"]
+      ]);
+      await insert(spec, 10);
+      // Positive control: the arrival exists and uncapped descending reads see it.
+      expectPage(await page(spec, { order: "desc", includeTotal, limit: 2 }), spec, [10, 8], counted ? 5 : null, 8);
+      const observed = observeDb();
+      const response = await app.fetch(new Request(target, { headers: {
+        authorization: `Bearer ${READ_TOKEN}`, origin: ORIGIN, "x-request-id": REQUEST_ID
+      } }), { ...TEST_ENV, CUSTOMER_DB: observed.db });
+      expect(response.status).toBe(200);
+      commonHeaders(response);
+      const resumed = { response, body: await response.json() as Body, ...observed };
+      expectPage(resumed, spec, [2], counted ? 1 : null, null);
+      expectQueries(resumed, spec, counted, 6);
+      expect(response.headers.get("link")).toBeNull();
+    });
+
+    it("keeps text/enabled filters and exact sparse projection inside the cap", async () => {
+      const result = await page(spec, { ...query, cursor: 8, q: "needle", enabled: "true", fields: spec.field });
+      expectPage(result, spec, [4], counted ? 1 : null, null);
+      expect(result.body.rows).toEqual([{ [spec.key]: 4, [spec.field]: "synthetic-needle-4" }]);
+      expectQueries(result, spec, counted, 6);
+    });
+
+    it("hashes capped descending bytes and preserves no-store/Link on bodyless 304", async () => {
+      const input = { ...query, fields: spec.field };
+      const first = await page(spec, input);
+      expectPage(first, spec, [6, 4], counted ? 3 : null, 4);
+      expectQueries(first, spec, counted, 6);
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(await first.response.text()));
+      const tag = `"${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}"`;
+      expect(first.response.headers.get("etag")).toBe(tag);
+      const observed = observeDb();
+      const response = await request(spec, new URLSearchParams(
+        Object.entries(input).map(([key, value]) => [key, String(value)])
+      ).toString(), { db: observed.db, headers: { "if-none-match": tag } });
+      expect(response.status).toBe(304);
+      expect(response.body).toBeNull();
+      expect(await response.text()).toBe("");
+      commonHeaders(response);
+      expect(response.headers.get("etag")).toBe(tag);
+      expect(response.headers.get("link")).toBe(first.response.headers.get("link"));
+      expect(observed.executions).toEqual(first.executions);
+      expectQueries({ ...first, ...observed }, spec, counted, 6);
+    });
+  });
+
+  it.each([null, "synthetic-invalid-token"])("auth precedes direction/cap validation and wildcard conditional for %s", async (token) => {
+    for (const search of ["upperId=6&order=desc", "upperId=0&order=desc", "upperId=6&order=invalid"]) {
+      const observed = observeDb();
+      const response = await request(spec, search, { db: observed.db, token, headers: {
+        "if-none-match": "*", "cf-connecting-ip": `192.0.2.${++authProbe}`
+      } });
+      expect(response.status).toBe(401);
+      commonHeaders(response);
+      expect(await response.json()).toMatchObject({ status: 401, title: "Unauthorized" });
+      expect(observed.methods).toEqual([]);
+    }
+  });
+});
+
+it.each(["true", "false"])("descending upperId bounds the container key, not its joined address, with includeTotal=%s", async (includeTotal) => {
+  const spec = SPECS[2];
+  const query = { order: "desc", includeTotal, cursor: 8, customerId: 2, q: "needle", enabled: "false", fields: "serial_number", limit: 2 };
+  const result = await page(spec, { ...query, upperId: 6 });
+  expectPage(result, spec, [6], includeTotal === "true" ? 1 : null, null);
+  expect(result.body.rows).toEqual([{ container_id: 6, serial_number: "serial-needle-6" }]);
+  expectQueries(result, spec, includeTotal === "true", 6);
+  const below = await page(spec, { ...query, upperId: 5 });
+  expectPage(below, spec, [], includeTotal === "true" ? 0 : null, null);
+  expectQueries(below, spec, includeTotal === "true", 5);
+});
+
 describe("upperId machine discovery and unchanged operation authority", () => {
   it.each(SPECS)("publishes an optional safe integer ceiling on $name, with fixed validation guidance", async (spec) => {
     const operation = (await openApi()).paths[spec.path]?.get;
