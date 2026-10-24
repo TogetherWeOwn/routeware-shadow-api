@@ -421,7 +421,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
     // +2 for serialNumber and rfid on the container snapshot list.
-    expect(checked).toBe(73);
+    expect(checked).toBe(75);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
