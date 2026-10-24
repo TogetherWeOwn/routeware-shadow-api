@@ -82,6 +82,9 @@ const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   // R2 archive readback (sync secret only), probed with a concrete
   // table/date by probePath just like the customer erasure route above.
   { method: "GET", path: "/api/v1/snapshots/:table/:date" },
+  // Archived-date listing (sync secret only): same inner gate, probed
+  // with a concrete table (probePath's :date replacement is a no-op here).
+  { method: "GET", path: "/api/v1/snapshots/:table" },
   // Latest-pointer readback (sync secret only): same inner gate, probed
   // with a concrete table (probePath's :date replacement is a no-op here).
   { method: "GET", path: "/api/v1/snapshots/:table/latest" }
@@ -134,7 +137,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(20);
+    expect(GUARDED_ROUTES).toHaveLength(21);
   });
 
   for (const route of GUARDED_ROUTES) {
