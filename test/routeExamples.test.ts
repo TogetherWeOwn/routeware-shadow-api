@@ -353,6 +353,7 @@ const REMAINING_RESPONSES = [
     { path: `/api/v1/data/${entity}`, method: "post", mediaType: "application/json" }
   ]),
   { path: "/api/v1/snapshots/{table}/{date}", method: "get", mediaType: "text/csv" },
+  { path: "/api/v1/snapshots/{table}", method: "get", mediaType: "application/json" },
   { path: "/api/v1/snapshots/{table}/latest", method: "get", mediaType: "text/csv" },
   { path: "/api/v1/customer-snapshot/changes", method: "get", mediaType: "application/json" },
   { path: "/api/v1/customer-snapshot/{customerId}", method: "delete", mediaType: "application/json" },
@@ -416,9 +417,10 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +3 for order on the customer, address and container snapshot lists;
     // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
+    // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
     // +2 for serialNumber and rfid on the container snapshot list.
-    expect(checked).toBe(73);
+    expect(checked).toBe(75);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
