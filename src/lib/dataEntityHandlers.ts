@@ -37,11 +37,102 @@ function matchesIfNoneMatch(h: string | undefined, etag: string): boolean {
   return matchesConditional(h, etag, "legacy");
 }
 
+/**
+ * Parsed per-type selections for one hydrated read: flat-root columns plus the
+ * `fields[TYPE]` columns per type. The route rejects flat + typed-root
+ * together, so at most one root selector is set; omitted types stay full.
+ */
+export type BundleFieldSelection = {
+  flatRoot?: string[];
+  typed?: Partial<Record<SnapshotFieldsetResource, string[]>>;
+};
+
+type BundleRow = Record<string, unknown>;
+
+function hasBundleSelection(selection?: BundleFieldSelection): boolean {
+  if (!selection) return false;
+  if (selection.flatRoot !== undefined) return true;
+  const typed = selection.typed;
+  return typed !== undefined &&
+    (typed.customer !== undefined || typed.address !== undefined || typed.container !== undefined);
+}
+
+/**
+ * Effective per-type columns for a route serving `root`: the flat selector
+ * projects the root, each typed selector projects its type everywhere.
+ */
+function effectiveBundleColumns(
+  root: SnapshotFieldsetResource,
+  selection: BundleFieldSelection
+): Partial<Record<SnapshotFieldsetResource, string[]>> {
+  const typed = selection.typed ?? {};
+  return { ...typed, [root]: selection.flatRoot ?? typed[root] };
+}
+
+function projectCustomerBundle(
+  bundle: BundleRow,
+  columns: Partial<Record<SnapshotFieldsetResource, string[]>>
+): BundleRow {
+  const out: BundleRow = { ...bundle };
+  if (columns.customer !== undefined) {
+    out.customer = projectSnapshotRow("customer", bundle.customer as BundleRow, columns.customer);
+  }
+  if (columns.address !== undefined || columns.container !== undefined) {
+    out.addresses = (bundle.addresses as Array<BundleRow & { containers: BundleRow[] }>).map((entry) => {
+      const { containers, ...rest } = entry;
+      const projected = columns.address !== undefined
+        ? projectSnapshotRow("address", rest, columns.address)
+        : rest;
+      const projectedContainers = columns.container !== undefined
+        ? (containers ?? []).map((con) => projectSnapshotRow("container", con, columns.container as string[]))
+        : containers;
+      // The `containers` key keeps its trailing position so an all-columns
+      // selection stays byte-identical to the full representation.
+      return { ...projected, containers: projectedContainers };
+    });
+  }
+  return out;
+}
+
+function projectAddressBundle(
+  bundle: BundleRow,
+  columns: Partial<Record<SnapshotFieldsetResource, string[]>>
+): BundleRow {
+  const out: BundleRow = { ...bundle };
+  if (columns.address !== undefined) {
+    out.address = projectSnapshotRow("address", bundle.address as BundleRow, columns.address);
+  }
+  if (columns.customer !== undefined && bundle.customer !== null) {
+    out.customer = projectSnapshotRow("customer", bundle.customer as BundleRow, columns.customer);
+  }
+  if (columns.container !== undefined) {
+    out.containers = (bundle.containers as BundleRow[]).map((con) =>
+      projectSnapshotRow("container", con, columns.container as string[]));
+  }
+  return out;
+}
+
+function projectContainerBundle(
+  bundle: BundleRow,
+  columns: Partial<Record<SnapshotFieldsetResource, string[]>>
+): BundleRow {
+  const out: BundleRow = { ...bundle };
+  if (columns.container !== undefined) {
+    out.container = projectSnapshotRow("container", bundle.container as BundleRow, columns.container);
+  }
+  if (columns.address !== undefined && bundle.address !== null) {
+    out.address = projectSnapshotRow("address", bundle.address as BundleRow, columns.address);
+  }
+  if (columns.customer !== undefined && bundle.customer !== null) {
+    out.customer = projectSnapshotRow("customer", bundle.customer as BundleRow, columns.customer);
+  }
+  return out;
+}
+
 /** Derive a representation without storing selected bodies or validating against full-only ETags. */
 async function projectedDataEntityResponse(
   c: DataEntityCtx,
-  resource: SnapshotFieldsetResource,
-  columns: string[],
+  project: (bundle: BundleRow) => unknown,
   getFull: (fullContext: DataEntityCtx) => Promise<Response>
 ): Promise<Response> {
   // Reuse the canonical read/cache path, but never let its full validator return
@@ -54,11 +145,8 @@ async function projectedDataEntityResponse(
     }
   });
   if (full.status !== 200) return full;
-  const bundle = await full.json() as Record<string, unknown>;
-  const body = bundleJsonString({
-    ...bundle,
-    [resource]: projectSnapshotRow(resource, bundle[resource] as Record<string, unknown>, columns)
-  });
+  const bundle = await full.json() as BundleRow;
+  const body = bundleJsonString(project(bundle));
   const etag = await sha256Etag(body);
   if (matchesIfNoneMatch(c.req.header("if-none-match"), etag)) {
     return new Response(null, {
@@ -80,10 +168,14 @@ async function projectedDataEntityResponse(
 export async function handleGetDataCustomer(
   c: DataEntityCtx,
   customerId: number,
-  columns?: string[]
+  columns?: string[],
+  typed?: Partial<Record<SnapshotFieldsetResource, string[]>>
 ): Promise<Response> {
-  if (columns !== undefined) {
-    return projectedDataEntityResponse(c, "customer", columns,
+  const selection: BundleFieldSelection = { flatRoot: columns, typed };
+  if (hasBundleSelection(selection)) {
+    const effective = effectiveBundleColumns("customer", selection);
+    return projectedDataEntityResponse(c,
+      (bundle) => projectCustomerBundle(bundle, effective),
       (fullContext) => handleGetDataCustomer(fullContext, customerId));
   }
   const ifNone = c.req.header("if-none-match");
@@ -134,10 +226,14 @@ export async function handleGetDataCustomer(
 export async function handleGetDataAddress(
   c: DataEntityCtx,
   pickupAddressId: number,
-  columns?: string[]
+  columns?: string[],
+  typed?: Partial<Record<SnapshotFieldsetResource, string[]>>
 ): Promise<Response> {
-  if (columns !== undefined) {
-    return projectedDataEntityResponse(c, "address", columns,
+  const selection: BundleFieldSelection = { flatRoot: columns, typed };
+  if (hasBundleSelection(selection)) {
+    const effective = effectiveBundleColumns("address", selection);
+    return projectedDataEntityResponse(c,
+      (bundle) => projectAddressBundle(bundle, effective),
       (fullContext) => handleGetDataAddress(fullContext, pickupAddressId));
   }
   const ifNone = c.req.header("if-none-match");
@@ -188,10 +284,14 @@ export async function handleGetDataAddress(
 export async function handleGetDataContainer(
   c: DataEntityCtx,
   containerId: number,
-  columns?: string[]
+  columns?: string[],
+  typed?: Partial<Record<SnapshotFieldsetResource, string[]>>
 ): Promise<Response> {
-  if (columns !== undefined) {
-    return projectedDataEntityResponse(c, "container", columns,
+  const selection: BundleFieldSelection = { flatRoot: columns, typed };
+  if (hasBundleSelection(selection)) {
+    const effective = effectiveBundleColumns("container", selection);
+    return projectedDataEntityResponse(c,
+      (bundle) => projectContainerBundle(bundle, effective),
       (fullContext) => handleGetDataContainer(fullContext, containerId));
   }
   const ifNone = c.req.header("if-none-match");

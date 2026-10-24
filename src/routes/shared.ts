@@ -154,23 +154,38 @@ export function isDryRunRequested(query: { dryRun?: string }): boolean {
 /**
  * Declared query keys for the three hydrated single-entity GETs
  * (`GET /api/v1/data/customer|address|container`): `id`, the route's alias,
- * the optional `fields` sparse-fieldset selector, and the batch `ids`
- * selector. Single source of truth for the strict-query guard below — route
- * handlers pass one of these, never an inline list. Additive keys owned by
- * unmerged cards (typed `fields[type]`) join the matching list when they merge.
+ * the batch `ids` selector, the optional `fields` sparse-fieldset
+ * selector, and the optional typed `fields[customer]` / `fields[address]` /
+ * `fields[container]` selectors (every typed key is valid on every route).
+ * Single source of truth for the strict-query guard below — route handlers
+ * pass one of these, never an inline list.
  */
-export const DATA_CUSTOMER_QUERY_KEYS = ["id", "customerId", "fields", "ids"] as const;
+export const DATA_CUSTOMER_QUERY_KEYS = [
+  "id",
+  "customerId",
+  "ids",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
 export const DATA_ADDRESS_QUERY_KEYS = [
   "id",
   "pickupAddressId",
+  "ids",
   "fields",
-  "ids"
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
 ] as const;
 export const DATA_CONTAINER_QUERY_KEYS = [
   "id",
   "containerId",
+  "ids",
   "fields",
-  "ids"
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
 ] as const;
 
 /**
@@ -246,9 +261,13 @@ export function rejectUnknownSnapshotPostQuery(
  *
  * Hydrated GETs select `allowed-only`: fixed guidance must never echo
  * submitted names or values, including names carrying PII. This bypasses
- * validationFailureHook, which forwards rejected field paths. The default
- * retains the existing POST guidance (key names, never values). Both use
- * the same problem type and pathname-only instance, with no query echo.
+ * validationFailureHook, which forwards rejected field paths. The detail
+ * keeps the shared `Invalid request query (fields selectors)` anchor: the
+ * bundle-selector contract pins that anchor shape for selector-bearing
+ * rejections, while the strict-key contract pins the allowed-keys clause
+ * and the no-echo rule. The default retains the existing POST guidance
+ * (key names, never values). Both use the same problem type and
+ * pathname-only instance, with no query echo.
  */
 export function rejectUnknownQueryKeys(
   c: { env?: Env; req: { url: string } },
@@ -265,8 +284,8 @@ export function rejectUnknownQueryKeys(
     title: "Bad Request",
     status: 400,
     detail: guidance === "allowed-only"
-      ? `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
-        "See docs/PROBLEMS.md#bad-request."
+      ? `Invalid request query (fields selectors). Unknown query parameter. ` +
+        `Allowed query parameters: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`
       : `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
         `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
     instance: new URL(c.req.url).pathname

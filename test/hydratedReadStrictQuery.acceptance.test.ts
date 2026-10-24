@@ -267,10 +267,15 @@ async function expectStrict400(
   // The permitted `instance` ("/api/v1/data/<kind>", validated above) is fixed
   // body bytes, not an echo: it contains "1" (v1) and the route-name token, so
   // strip it before matching. Do NOT pin "no instance" — it is the contract.
+  // Declared `fields[TYPE]` selectors are likewise required guidance, not a
+  // leak: their `[type]` segment matches the bare `customer`/`address`/
+  // `container` token, so project them to `fields` before the token check.
+  // A no-op where no typed key is declared (unmerged heads stay green).
   let haystack = raw;
   if (typeof body.instance === "string") {
     haystack = haystack.replace(JSON.stringify(body.instance), '""');
   }
+  haystack = haystack.replace(/fields\[[^\]]*\]/g, "fields");
   for (const { key, value } of opts.submitted) {
     if (key !== "") expect(haystack).not.toMatch(tokenPattern(key));
     if (value !== "") expect(haystack).not.toContain(value);
@@ -468,11 +473,18 @@ describe.each(specs)("$kind strict query keys", (spec) => {
         if (allowed.includes(typed)) {
           // R20-02 merged first: a valid typed selector is accepted (its full
           // contract is pinned by its own suite; here only acceptance).
-          const typedResponse = await get(spec, [["id", spec.idValue], [typed, spec.first]]);
+          // Per-type allowlists are the R20-02 contract: the root's sample
+          // column is invalid under a non-root type, so send a column valid
+          // for the SELECTOR's type, not the route's root.
+          const typedValid =
+            typed === "fields[customer]" ? "company_name"
+            : typed === "fields[address]" ? "city"
+            : "serial_number";
+          const typedResponse = await get(spec, [["id", spec.idValue], [typed, typedValid]]);
           expect(typedResponse.status).toBe(200);
           resetWork();
           await expectStrict400(
-            await get(spec, [["id", spec.idValue], [typed, spec.first], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
+            await get(spec, [["id", spec.idValue], [typed, typedValid], ["bogus_param", "SYNTHETIC-MARKER-1"]]),
             spec, { allowed, submitted: [{ key: "bogus_param", value: "SYNTHETIC-MARKER-1" }] });
         } else {
           // RED at base: typed selectors are unknown keys until R20-02 merges.

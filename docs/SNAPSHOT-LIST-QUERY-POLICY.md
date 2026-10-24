@@ -200,9 +200,12 @@ and the composite cursor from full rows **before** projection, even when
 `fields` omits `synced_at`. This does not add `includeTotal` to changes.
 The selectable set is the canonical per-resource allowlist in
 `src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else).
-Hydrated `/api/v1/data/*` reads project only the requested root with the same
-allowlist and reject any other query key (see below); related objects remain
-full. CSV exports still ignore `fields=`.
+Hydrated `/api/v1/data/*` reads honor flat `fields=` root-only, plus
+per-type `fields[customer]` / `fields[address]` / `fields[container]`
+selectors that project the listed type everywhere it appears (root and
+relations) while omitted types stay full, and reject any other query key
+(see below). Flat `fields` plus `fields[<root>]` together, and unknown
+`fields[TYPE]` keys, are value-free 400s. CSV exports still ignore `fields=`.
 
 The selector is strict: exact column names, no spaces, no empty segments,
 no duplicates, and a single `fields` key. Anything else is the existing
@@ -251,9 +254,9 @@ tried to trim.
 
 | GET route | Declared query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/data/customer` | `id`, `customerId`, `fields`, `ids` | Reject (400) |
-| `/api/v1/data/address` | `id`, `pickupAddressId`, `fields`, `ids` | Reject (400) |
-| `/api/v1/data/container` | `id`, `containerId`, `fields`, `ids` | Reject (400) |
+| `/api/v1/data/customer` | `id`, `customerId`, `ids`, `fields`, `fields[customer]`, `fields[address]`, `fields[container]` | Reject (400) |
+| `/api/v1/data/address` | `id`, `pickupAddressId`, `ids`, `fields`, `fields[customer]`, `fields[address]`, `fields[container]` | Reject (400) |
+| `/api/v1/data/container` | `id`, `containerId`, `ids`, `fields`, `fields[customer]`, `fields[address]`, `fields[container]` | Reject (400) |
 
 Route validators run before handlers and may return 400 for invalid values
 such as `?fields=bogus` or repeated known keys. After validation succeeds,
@@ -270,7 +273,7 @@ GET /api/v1/data/customer?id=94101&field=company_name
 
 {"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
  "title":"Bad Request","status":400,
- "detail":"Unknown query parameter. Allowed query parameters: id, customerId, fields, ids. See docs/PROBLEMS.md#bad-request."}
+ "detail":"Invalid request query (fields selectors). Unknown query parameter. Allowed query parameters: id, customerId, ids, fields, fields[customer], fields[address], fields[container]. See docs/PROBLEMS.md#bad-request."}
 ```
 
 Operator recovery is a corrected retry — fix the spelling to the exact
