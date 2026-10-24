@@ -506,18 +506,20 @@ describe("container type filter: next-link traversal", () => {
     expect(ids(first.body)).toEqual([9302]);
     expect(first.body.total).toBe(2);
     expect(first.body.nextCursor).toBe(9302);
-    const second = await getList(nextTarget(first.response, first.url, {
+    const secondTarget = nextTarget(first.response, first.url, {
       containerTypeId: "5",
       limit: "1",
       cursor: "9302"
-    }).search.slice(1));
+    });
+    const second = await getList(secondTarget.search.slice(1));
     expect(second.status).toBe(200);
     const secondBody = (await second.json()) as Body;
     expect(ids(secondBody)).toEqual([9303]);
     expect(secondBody.total).toBe(1);
     expect(secondBody.nextCursor).toBe(9303);
     // Full terminal page links to an empty page: omission means stop.
-    const emptyTarget = nextTarget(second, new URL(second.url), {
+    // Constructed worker Responses carry an empty url: reuse the request target as the Link base.
+    const emptyTarget = nextTarget(second, secondTarget, {
       containerTypeId: "5",
       limit: "1",
       cursor: "9303"
@@ -546,7 +548,8 @@ describe("container type filter: next-link traversal", () => {
     const secondBody = (await second.json()) as Body;
     expect(ids(secondBody)).toEqual([9302]);
     expect(secondBody.nextCursor).toBe(9302);
-    const tail = await getList(nextTarget(second, new URL(second.url), {
+    // Constructed worker Responses carry an empty url: reuse the request target as the Link base.
+    const tail = await getList(nextTarget(second, target, {
       containerTypeId: "5",
       limit: "1",
       order: "desc",
