@@ -14,6 +14,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
 
+- #347: Conditional snapshot JSON reads: customer, address and container lists return
+  quoted SHA-256 ETags for the final projected JSON envelope and an empty 304
+  when `If-None-Match` matches. Malformed validators are misses; authentication,
+  query validation and D1 work remain unchanged. Bandwidth savings only, with
+  unchanged `no-store` and no shared response cache or persisted validators.
+  See `docs/CONSUMER-QUICKSTART.md` for the synthetic regression recipe.
+
 - #343: Snapshot customer/address/container lists now return optional
   `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
   preserve allowlisted filters, explicit fields, effective limit and
