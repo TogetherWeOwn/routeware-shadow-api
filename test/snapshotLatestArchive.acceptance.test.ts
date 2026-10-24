@@ -431,6 +431,82 @@ describe("latest snapshot archive acceptance (R20-01)", () => {
     expect(body).not.toHaveProperty("requestId");
   });
 
+  it("answers a fixed table-only 409 when the latest archive is replaced during download", async () => {
+    // Arrange — pointer and first CSV read use real R2; the conditional
+    // second CSV read returns replacement metadata without a body.
+    const { historyKey, pointerKey } = await seedLatest("customer", csvFor("customer"));
+    const real = bucket();
+    const replaced = {
+      get: (key: string, options?: R2GetOptions) =>
+        options?.onlyIf
+          ? Promise.resolve({ httpEtag: '"replaced"', etag: "replaced", size: 0 })
+          : real.get(key, options)
+    } as unknown as R2Bucket;
+
+    // Act
+    const res = await getLatest(
+      "customer",
+      SYNC_SECRET,
+      { ...testEnv(), SNAPSHOTS: replaced } as unknown as Env
+    );
+
+    // Assert — the latest-specific conflict names only the table, never
+    // the resolved date, run, pointer, or storage key.
+    expect(res.status).toBe(409);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    const body = (await res.json()) as ProblemBody;
+    expect(body).toEqual({
+      type: problemType("conflict"),
+      title: "Conflict",
+      status: 409,
+      detail:
+        "The snapshot archive for table=customer was replaced during the download. " +
+        "Retry the download. See docs/PROBLEMS.md#conflict.",
+      instance: "/api/v1/snapshots/customer/latest"
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(pointerKey);
+    expect(serialized).not.toContain(historyKey);
+    expect(serialized).not.toContain(historyKey.split("/")[2] as string);
+    expect(serialized).not.toContain("2026-09-27");
+  });
+
+  it("answers a fixed table-only 404 when the latest archive is deleted during download", async () => {
+    // Arrange — the pointer and first CSV read succeed; only the
+    // conditional second CSV read observes the deletion.
+    const { historyKey, pointerKey } = await seedLatest("customer", csvFor("customer"));
+    const real = bucket();
+    const deleted = {
+      get: (key: string, options?: R2GetOptions) =>
+        options?.onlyIf ? Promise.resolve(null) : real.get(key, options)
+    } as unknown as R2Bucket;
+
+    // Act
+    const res = await getLatest(
+      "customer",
+      SYNC_SECRET,
+      { ...testEnv(), SNAPSHOTS: deleted } as unknown as Env
+    );
+
+    // Assert — the same table-only not-found problem as an absent pointer,
+    // not the explicit-date route's date-bearing detail.
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("problem+json");
+    const body = (await res.json()) as ProblemBody;
+    expect(body).toEqual({
+      type: problemType("not-found"),
+      title: "Not Found",
+      status: 404,
+      detail: latestNotFoundDetail("customer"),
+      instance: "/api/v1/snapshots/customer/latest"
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(pointerKey);
+    expect(serialized).not.toContain(historyKey);
+    expect(serialized).not.toContain(historyKey.split("/")[2] as string);
+    expect(serialized).not.toContain("2026-09-27");
+  });
+
   it.each([
     ["is not JSON at all", "{not json"],
     [
