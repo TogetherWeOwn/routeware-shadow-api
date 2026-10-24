@@ -134,7 +134,8 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId`. Every list response includes
+also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -158,6 +159,42 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false"
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
+
+### Address route and franchise scopes
+
+Use the existing `listAddressSnapshot` operation to avoid fetching unrelated
+addresses. Optional `routeId` and `franchiseId` intersect by AND with one
+another and with every old filter. `routeId` must be unpadded ASCII decimal
+`0..9007199254740991`; zero is literal stored zero. `franchiseId` is an opaque,
+case-sensitive exact string of 1..100 Unicode code points. Preserve leading
+zeros and nonblank whitespace; URL-encode it rather than interpolating it
+into a URL. Blank/repeated/malformed scopes return the existing value-free
+400 before D1 ([correction guidance](PROBLEMS.md#bad-request)); valid no-match
+returns 200 empty. Null scope columns never match supplied values.
+
+Synthetic scoped-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-scope
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?routeId=7&franchiseId=001&fields=enabled&limit=2&includeTotal=false`.
+Its first IDs are `20,30`, next IDs `120,130`; it follows the returned Link
+unchanged and stops after the final empty page. Every row keeps its address
+ID, `total` is null and each page executes one SELECT with no COUNT. The
+counted offset/seek cases retain cursor-relative totals and pickup-address-ID
+order. Other fixtures prove literal route zero, case/leading-zero distinction,
+100 astral code points, nulls, duplicate scope pairs and URL-encoded quotes,
+percent, underscore and whitespace. Network-deny and read-only D1/R2 doubles
+fail on unexpected side effects. No upstream lookup or write is added.
+
+For a custom synthetic local request, construct the query with
+`new URLSearchParams({ routeId: "7", franchiseId: " 雪%_ " })` and use the
+[same-origin next-page loop](#follow-the-servers-next-page-target) below.
+Scopes, fields and count-free mode round-trip in Link; do not log scope
+values or rows. Authentication, no-store, ETags and existing count semantics
+remain unchanged. These checks are not deployed performance evidence.
 
 ### Highest primary IDs first
 
@@ -241,7 +278,8 @@ CORS exposes `Link` alongside the existing exposed headers.
 **Omission means stop.** A full terminal page can link to an empty page; there
 is no lookahead query. JSON, count semantics (including cursor-relative totals)
 and query counts are unchanged. This is not a consistency guarantee during
-concurrent writes, and the customer `changes` feed is not included.
+concurrent writes. The customer `changes` feed uses its own composite-cursor
+[follow-next contract](#2c-follow-the-composite-next-link).
 
 Node 24 recipe (local synthetic origin, `$TOKEN` from step 1; log counts, not
 rows or credentials). Resolve the relative target against the current page,
@@ -458,6 +496,67 @@ lossless millisecond precision — more than 3 digits is a 400, never rounded.
 valid `since`. The feed surfaces upserts only: reconciled-away or erased rows
 never appear as tombstones, so re-list to detect disappearance.
 
+## 2c. Follow the composite next link
+
+Prefer the server's `Link: <relative-target>; rel="next"` to rebuilding the
+pair from JSON. It appears exactly when `nextCursor` is non-null, replaces
+both cursor halves and retains the effective limit (1..500, default 50) and
+the validated `fields` selector, so sparse traversal keeps sparse pages.
+The target is always `/api/v1/customer-snapshot/changes` with URL-encoded
+`since`, `since_id`, `limit` and, when requested, `fields`: unknown keys,
+origins and credentials are never echoed. This feed recognizes optional
+`fields` (sparse stored-column projection after cursor derivation; omit for
+full rows) but not `until`. Other unknown keys remain ignored.
+
+Omission means stop. A full terminal page may link to an empty page; short,
+empty and error pages have no next link. JSON bytes/shape, row ordering,
+`total` (returned page length), cursor and the single SELECT stay unchanged:
+no COUNT or lookahead is added. This is not a completeness or snapshot-isolation
+promise across concurrent writes. Read-token auth, no-store, request ID and
+existing CORS exposure (including Link) are unchanged.
+
+Node 24 recipe for a **disposable synthetic local fixture**; it is not a live
+probe. Supply the local test bearer as `$TOKEN`. Resolve emitted URLs unchanged,
+check same origin, fixed path and absence of URL credentials **before** sending
+authorization, and use manual redirects. Reject non-2xx before parsing JSON;
+log counts only, never records or credentials:
+
+```javascript
+const start = new URL("http://localhost:8787/api/v1/customer-snapshot/changes?limit=2");
+let url = start;
+for (;;) {
+  if (url.origin !== start.origin || url.pathname !== start.pathname || url.username || url.password)
+    throw new Error("Untrusted next-link origin, path or credentials");
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.TOKEN}` }, redirect: "manual"
+  });
+  if (!res.ok) throw new Error(`Changes read failed: ${res.status}`);
+  const page = await res.json();
+  console.log({ rows: page.rows.length, total: page.total });
+  const link = res.headers.get("Link");
+  if (link === null) break;
+  const match = /^<([^>]+)>; rel="next"$/.exec(link);
+  if (!match) throw new Error("Untrusted next Link");
+  url = new URL(match[1], url);
+}
+```
+
+Focused command (no Worker, credentials or network needed):
+
+```bash
+npm run check:customer-changes-next-links
+# Or run the oracles separately:
+npx vitest run test/customerChangesNextLinks.acceptance.test.ts --maxWorkers=2
+node --test test/customerChangesNextLinksRecipe.acceptance.test.mjs
+```
+
+The HTTP oracle seeds real hermetic D1 with timestamp ties/multiple runs,
+follows Link unchanged, pins JSON bytes/SQL/binds/query counts, proves zero
+application writes and fails on unexpected outbound fetch. The recipe oracle
+executes this exact block with synthetic responses and no real network. Both
+run in normal `npm test`/CI. These are source regressions, not installed or
+production verification.
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with
@@ -613,7 +712,39 @@ upstream body are never echoed):
 ```
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
-for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
+for a new address; `ContainerID=0` + `PickupAddressID` for a new container),
+except creates answer **HTTP 201** with the resolved id while updates echo
+the posted id with 200 (customer saves stay 200 on creates):
+
+```bash
+# Create address (PickupAddressID=0); the 201 body carries the created id
+curl -X POST http://localhost:8787/api/v1/data/address \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "PickupAddressID=0" \
+  --data-urlencode "CustomerID=5" \
+  --data-urlencode "Address=1 Main St"
+# HTTP 201 {"ok":true,"routewareStatus":200,"customerId":5,
+#   "pickupAddressId":77,"upstreamBytes":46,
+#   "localSync":{"done":true,"customerId":5,"addressIds":[10,77],"containerIds":[100]}}
+```
+
+For live creates, the id comes from upstream `data.PickupAddressID` / `data.ContainerID`
+first, else the singleton post-refresh D1 id (address ids for the owning
+customer, container ids for the owning address). The diff baseline is captured
+**before** the upstream POST so a concurrent refresh cannot put this request's
+created row into the baseline. Without an upstream id, `null` remains when the
+diff is empty or ambiguous (0 or 2+ new ids), the owning graph is unknown, or
+the baseline/refresh is unavailable. A failed baseline read disables only
+id diffing: the save and normal refresh still run, and an upstream JSON id
+still wins. Posted save keys are case-exact (`PickupAddressID`, `ContainerID`);
+camelCase keys do not name an update. Upstream JSON ids must be positive safe
+integers (numbers or digit-only strings); invalid candidates do not mask valid
+fallback fields. There is deliberately no `Location`
+header: the by-id snapshot URL may not exist locally when the refresh fails,
+and a header that 404s is worse than none. Dry-run saves echo posted ids;
+live creates resolve or return `null`, while live updates return the
+case-exact posted key.
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through

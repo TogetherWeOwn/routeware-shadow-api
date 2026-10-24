@@ -3,6 +3,7 @@ import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
   snapshotListConditionalHeaders,
@@ -224,7 +225,7 @@ const customerSnapshotChangesRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows changed since a cursor (D1)",
   description:
-    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). Optional `fields` selects stored customer columns, always retaining `customer_id`; omit it for full rows. Page membership, total (returned page length), order and composite `nextCursor` are computed from full rows before projection, even when `synced_at` is not selected. This is an upserts-only feed, not historical isolation or a deletion log.",
+    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit and the validated fields selector. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; until is not supported. Optional `fields` selects stored customer columns, always retaining `customer_id`; omit it for full rows. Page membership, total (returned page length), order and composite `nextCursor` are computed from full rows before projection, even when `synced_at` is not selected. This is an upserts-only feed, not historical isolation or a deletion log.",
   request: {
     query: z.object({
       since: z
@@ -262,6 +263,7 @@ const customerSnapshotChangesRoute = createRoute({
   responses: {
     200: {
       description: "Changed rows in (synced_at, customer_id) order with nextCursor",
+      headers: { Link: customerChangesNextLinkHeader },
       content: {
         "application/json": {
           schema: customerSnapshotChangesResponse,
@@ -321,6 +323,10 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("customer", row as Record<string, unknown>, fields)
         );
+  // The next link retains the validated projection so sparse traversal keeps
+  // sparse pages; an absent selector keeps the pre-existing three-key target.
+  const nextLink = customerChangesNextLink(nextCursor, p.limit, fields);
+  if (nextLink !== null) c.header("Link", nextLink);
   return c.json({ rows: out, total: rows.length, nextCursor });
 });
 

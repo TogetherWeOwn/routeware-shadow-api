@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -32,6 +32,34 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Address route and franchise scopes
+
+Only the address list recognizes `routeId` and `franchiseId`. Each is optional
+and must appear once. `routeId` is an exact unpadded ASCII decimal safe integer
+from `0` through `9007199254740991`; zero matches literal stored zero, never
+an all-routes sentinel. `franchiseId` is an opaque case-sensitive exact string
+of 1..100 Unicode code points. Leading zeros and nonblank whitespace remain
+significant; blank/whitespace-only values are invalid. Repeated keys (including
+percent-encoded aliases), invalid formats and overlength strings fail through
+the existing value-free 400 hook after authentication and before D1.
+
+Bound `route_id = ?` and `franchise_id = ?` predicates intersect by AND with
+each other and with `customerId`, `pickupAddressId`, `q` and `enabled`. Nulls
+do not match supplied scopes. No deduplication, joins, indexes or migrations
+are added. Omitted scopes leave the old behavior intact. Valid no-match is
+200 empty; fields only project the matched rows. Offset/seek ordering and
+cursor-relative totals are unchanged; count-free mode still executes one
+SELECT and no COUNT. Conditional ETags still describe the served envelope.
+
+Next links retain the validated scopes using URLSearchParams encoding,
+including opaque punctuation/whitespace; do not reconstruct or log scope
+values while following them. Unrelated unknown keys keep list-ignore policy.
+See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-franchise-scopes),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
+Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
+list/link/conditional regressions; no live credentials or upstream calls.
 
 ## Mutating POST query keys are strict
 
@@ -193,6 +221,36 @@ contains a synthetic tie-resume example and response conventions.
 
 Run `npm run check:customer-changes-cursor` for the focused synthetic-local-D1
 precision, pair, multi-page, auth and header regressions. No live replay.
+
+### Composite follow-next links
+
+Every successful changes page with non-null `nextCursor` also advertises
+`Link: <relative-target>; rel="next"`. The fixed path is
+`/api/v1/customer-snapshot/changes`; `URLSearchParams` encodes the returned
+`since` and `since_id` pair, the validated effective `limit` (default 50)
+and, when requested, the validated `fields` selector, so sparse traversal
+keeps sparse pages. Both cursor halves replace the previous boundary
+together, including when starting with bare/omitted `since`. No unknown key,
+request origin, forwarded host, credential or arbitrary path is copied.
+This feed recognizes optional `fields` (sparse projection after cursor
+derivation; omit for full rows) but not `until`, which keeps the existing
+unknown-name ignore policy. The ordinary-list helper and its integer cursor
+contract are unchanged.
+
+A full terminal page can link to an empty page; short/empty pages have null
+cursors and no Link. Error responses have no Link. Omission means stop.
+JSON bytes/shape, `(synced_at, customer_id)` membership/order, composite cursor,
+`total` (returned page length), SQL/binds and the one-query budget are unchanged.
+No COUNT or lookahead is added, and this is not a completeness or snapshot-isolation
+promise across concurrent writes. Read-token auth, auth-before-D1, no-store,
+request ID and all existing CORS-exposed headers (including Link) are retained.
+Mounted OpenAPI declares the optional string header on `listCustomerSnapshotChanges`.
+
+Run `npm run check:customer-changes-next-links` for the focused hermetic D1
+traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
+prove zero application writes and fail on any unexpected outbound fetch.
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
+Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
 
 ## Coverage boundary and non-list classifications
 

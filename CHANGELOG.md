@@ -5,6 +5,39 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #362: `GET /api/v1/address-snapshot` accepts exact `routeId` and opaque,
+  case-sensitive `franchiseId` scopes, intersected by AND with existing filters.
+  Route zero is literal; franchise leading zeros and nonblank whitespace are
+  significant (1..100 Unicode code points). Invalid/repeated scopes reject
+  before D1 with value-free guidance. Next links preserve encoded scopes;
+  pagination, projection, count-free and conditional reads remain compatible.
+  No new endpoint, index, migration, access or write behavior. Synthetic recipe:
+  `npm run check:address-scope` and `docs/CONSUMER-QUICKSTART.md`.
+
+- Follow-up to #343: Customer changes-feed GET now returns optional `Link: <relative-target>; rel="next"`
+  exactly when its composite `nextCursor` is non-null. The fixed-path target
+  replaces `since` and `since_id` together and retains the validated effective
+  limit, without reflecting unknown keys, origins or credentials. JSON bytes,
+  SQL/binds and query counts are unchanged; a full terminal page can link to
+  an empty page. Existing CORS exposure includes Link; mounted OpenAPI and
+  the consumer quickstart document the contract and safe synthetic traversal.
+  Check: `npm run check:customer-changes-next-links`.
+
+- #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
+  creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
+  resolved `pickupAddressId` / `containerId`: upstream
+  `data.PickupAddressID` / `data.ContainerID` first, else the singleton
+  post-refresh D1 id (address ids for the owning customer, container ids
+  for the owning address). Without an upstream id, the id stays `null` when
+  that diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown
+  owner or failed baseline/refresh). Updates keep echoing the posted id with
+  200; failed saves, customer saves and `localSync` codes are unchanged.
+  There is deliberately no `Location` header: the by-id snapshot URL may
+  not exist locally when the refresh fails. OpenAPI documents the 201/200
+  split with resolved-id examples; dry-run saves echo posted ids, live
+  creates resolve or return `null`, and live updates echo case-exact posted
+  ids. See `docs/CONSUMER-QUICKSTART.md`.
+
 - #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
   snapshot CSV for one table without naming its date, resolving the existing
   `snapshot-latest/{table}.json` pointer the sync leg republishes after every
@@ -20,7 +53,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   page membership, order, page-length `total` and composite `nextCursor` remain
   unchanged even when `synced_at` is omitted. Invalid selectors fail before D1
   with value-free guidance; absent fields preserves full rows. The shared OpenAPI
-  `x-snapshot-fieldset` catalog also applies to this feed. See the synthetic
+  `x-snapshot-fieldset` catalog also applies to this feed. The composite
+  follow-next Link retains the validated selector so sparse traversal keeps
+  sparse pages; an omitted selector keeps the three-key target. See the synthetic
   two-page example and focused check in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
 
 - #353: The seven mutating snapshot POSTs (combined sync, three per-table

@@ -157,8 +157,11 @@ function formBody(fields: Record<string, string>): ArrayBuffer {
 }
 
 /**
- * Fake D1 for the container handler's customer-id fallback lookup only.
- * `bind()` is honoured so a query for the wrong pickup_address_id misses.
+ * Fake D1 for the container handler's customer-id fallback lookup plus the
+ * R21-05 pre/post-save id snapshots. `bind()` is honoured so a query for the
+ * wrong pickup_address_id misses; `.all()` mirrors the mocked sync result so
+ * create diffs are empty (null preserved) unless a test overrides
+ * `behavior.syncResult`.
  */
 function fallbackDb(row: { pickup_address_id: number; customer_id: number } | null): D1Database {
   return {
@@ -173,6 +176,12 @@ function fallbackDb(row: { pickup_address_id: number; customer_id: number } | nu
               return args.includes(row.pickup_address_id)
                 ? ({ customer_id: row.customer_id } as T)
                 : null;
+            },
+            async all<T>() {
+              const ids = sql.includes("FROM container_snapshot")
+                ? behavior.syncResult.containerIds
+                : behavior.syncResult.addressIds;
+              return { results: ids.map((id) => ({ id })) as T[] };
             }
           };
         }
@@ -671,12 +680,13 @@ describe("handlePostDataAddress", () => {
 
   it("invalidates nothing when the unresolvable address write posts no usable ids", async () => {
     // Arrange — an address save with neither CustomerID nor PickupAddressID
-    // still succeeds upstream; there is simply no cache key to drop.
+    // still succeeds upstream; there is simply no cache key to drop. No
+    // posted id marks a create, so a successful save answers 201 (R21-05).
     // Act
     const res = await handlePostDataAddress(postCtx(formBody({ Notes: "x" })));
 
     // Assert
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(calls.synced).toEqual([]);
     expect(calls.entity).toEqual([]);
   });
@@ -685,13 +695,14 @@ describe("handlePostDataAddress", () => {
 describe("handlePostDataContainer", () => {
   it("looks the customer id up from the pickup address when the form omits it", async () => {
     // Arrange — the container form frequently posts only PickupAddressID.
+    // No ContainerID marks a create, so a successful save answers 201 (R21-05).
     const db = fallbackDb({ pickup_address_id: 10, customer_id: 5 });
 
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ PickupAddressID: "10" }), db));
 
     // Assert
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = (await res.json()) as PostBody;
     expect(body).toMatchObject({
       ok: true,
@@ -712,8 +723,8 @@ describe("handlePostDataContainer", () => {
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ PickupAddressID: "10" }), db));
 
-    // Assert
-    expect(res.status).toBe(200);
+    // Assert — a create answers 201 even when no owner resolves (R21-05).
+    expect(res.status).toBe(201);
     const body = (await res.json()) as PostBody;
     expect(body.customerId).toBeNull();
     expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
@@ -749,8 +760,8 @@ describe("handlePostDataContainer", () => {
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ Notes: "x" }), db));
 
-    // Assert
-    expect(res.status).toBe(200);
+    // Assert — a create with no usable ids still answers 201 (R21-05).
+    expect(res.status).toBe(201);
     expect(calls.synced).toEqual([]);
     expect(calls.entity).toEqual([]);
   });
