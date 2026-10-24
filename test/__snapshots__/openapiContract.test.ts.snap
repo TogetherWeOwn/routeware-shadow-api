@@ -5,6 +5,360 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "components": {
     "parameters": {},
     "schemas": {
+      "AddressSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. On a live address create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Container outcomes and validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
+          "pickupAddressId",
+        ],
+        "type": "object",
+      },
+      "AddressSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. On a live address create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Container outcomes and validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "pickupAddressId",
+        ],
+        "type": "object",
+      },
+      "ContainerSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "containerId": {
+            "description": "Usable posted ContainerID, or null. On a live container create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. On a live address create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Container outcomes and validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
+          "pickupAddressId",
+          "containerId",
+        ],
+        "type": "object",
+      },
+      "ContainerSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "containerId": {
+            "description": "Usable posted ContainerID, or null. On a live container create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. On a live address create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Container outcomes and validation-only (dryRun) responses echo the posted value only.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "pickupAddressId",
+          "containerId",
+        ],
+        "type": "object",
+      },
+      "CustomerSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
+        ],
+        "type": "object",
+      },
+      "CustomerSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+        ],
+        "type": "object",
+      },
       "CustomerSnapshotChanges": {
         "properties": {
           "nextCursor": {
@@ -158,6 +512,72 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "version",
         ],
         "type": "object",
+      },
+      "LocalSyncCode": {
+        "description": "not_attempted: upstream save was rejected or this was validation-only (dryRun=true), so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed.",
+        "enum": [
+          "not_attempted",
+          "unknown_customer_id",
+          "sync_failed",
+        ],
+        "type": "string",
+      },
+      "LocalSyncSummary": {
+        "description": "Best-effort local D1 graph refresh and cache invalidation, separate from upstream write acceptance. done=true identifies the refreshed graph; done=false carries a fixed recovery code, not exception details.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "$ref": "#/components/schemas/LocalSyncCode",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "addressIds": {
+                "items": {
+                  "type": "number",
+                },
+                "type": "array",
+              },
+              "containerIds": {
+                "items": {
+                  "type": "number",
+                },
+                "type": "array",
+              },
+              "customerId": {
+                "type": "number",
+              },
+              "done": {
+                "enum": [
+                  true,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "customerId",
+              "addressIds",
+              "containerIds",
+            ],
+            "type": "object",
+          },
+        ],
       },
       "ReadinessResponse": {
         "properties": {
@@ -2373,27 +2793,98 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "customerId": 5,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 5,
-                    "done": true,
+                "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
                   },
-                  "ok": true,
-                  "pickupAddressId": 10,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 16,
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 5,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AddressSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/AddressSaveDryRun",
+                    },
+                  ],
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "201": {
             "content": {
@@ -2416,22 +2907,212 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "routewareStatus": 200,
                   "upstreamBytes": 46,
                 },
-                "schema": {},
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
               },
             },
             "description": "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
-            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local validation failure uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Inspect the media type, not only the status.",
           },
           "401": {
-            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local bearer denial uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. An upstream 401 does not mean the caller's bearer is invalid.",
           },
           "502": {
-            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "503": {
-            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection uses application/json with ok=false and localSync.code=not_attempted. Local failures, including auth throttling (429) and unhandled errors (500), use application/problem+json. An ambiguous create may have landed; verify existing records rather than blindly replaying it.",
           },
         },
         "summary": "Create/update address in Routeware + sync D1",
@@ -2627,28 +3308,103 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "containerId": 100,
-                  "customerId": 345734,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 345734,
-                    "done": true,
+                "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "containerId": 100,
+                      "customerId": 345734,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
                   },
-                  "ok": true,
-                  "pickupAddressId": 10,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 16,
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "containerId": 100,
+                      "customerId": 345734,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 345734,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "containerId": 100,
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "containerId": 100,
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "containerId": 100,
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ContainerSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/ContainerSaveDryRun",
+                    },
+                  ],
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "201": {
             "content": {
@@ -2672,22 +3428,212 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "routewareStatus": 200,
                   "upstreamBytes": 43,
                 },
-                "schema": {},
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
               },
             },
             "description": "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
-            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local validation failure uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Inspect the media type, not only the status.",
           },
           "401": {
-            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local bearer denial uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. An upstream 401 does not mean the caller's bearer is invalid.",
           },
           "502": {
-            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "503": {
-            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection uses application/json with ok=false and localSync.code=not_attempted. Local failures, including auth throttling (429) and unhandled errors (500), use application/problem+json. An ambiguous create may have landed; verify existing records rather than blindly replaying it.",
           },
         },
         "summary": "Create/update container in Routeware + sync D1",
@@ -2837,7 +3783,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from \`GetCustomerDetailFull\` and invalidate related cache entries; this can fail independently of the write. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
         "parameters": [
           {
             "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
@@ -2900,38 +3846,293 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "customerId": 345734,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 345734,
-                    "done": true,
+                "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
                   },
-                  "ok": true,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 36,
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 345734,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
+                  },
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerSaveDryRun",
+                    },
+                  ],
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
-            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local validation failure uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Inspect the media type, not only the status.",
           },
           "401": {
-            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Local bearer denial uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. An upstream 401 does not mean the caller's bearer is invalid.",
           },
           "502": {
-            "description": "Bad Gateway",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "503": {
-            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection uses application/json with ok=false and localSync.code=not_attempted. Local failures, including auth throttling (429) and unhandled errors (500), use application/problem+json. An ambiguous create may have landed; verify existing records rather than blindly replaying it.",
           },
         },
         "summary": "Create/update customer in Routeware + sync D1",
