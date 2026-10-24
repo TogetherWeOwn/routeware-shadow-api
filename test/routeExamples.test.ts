@@ -6,7 +6,7 @@ const API_TOKEN = "test-api-token";
 
 /**
  * The customer, address and container routes publish
- * request/response `example` payloads so Scalar shows realistic bodies.
+ * request/response `example` or named `examples` payloads so Scalar shows realistic bodies.
  *
  * The examples are docs-only: every schema is a raw OpenAPI object (never a
  * zod schema), so `@hono/zod-openapi` renders it into `/openapi.json`
@@ -19,6 +19,9 @@ const API_TOKEN = "test-api-token";
 type ExampleSchema = {
   $ref?: string;
   type?: string | string[];
+  nullable?: boolean;
+  anyOf?: ExampleSchema[];
+  oneOf?: ExampleSchema[];
   properties?: Record<string, ExampleSchema>;
   required?: string[];
   items?: ExampleSchema;
@@ -27,7 +30,11 @@ type ExampleSchema = {
   minimum?: number;
   maximum?: number;
 };
-type MediaExample = { schema?: ExampleSchema; example?: unknown };
+type MediaExample = {
+  schema?: ExampleSchema;
+  example?: unknown;
+  examples?: Record<string, { value?: unknown }>;
+};
 type Operation = {
   tags?: string[];
   parameters?: Array<{ name: string; in: string; schema?: ExampleSchema; example?: unknown }>;
@@ -65,10 +72,21 @@ function assertExampleMatchesSchema(
   schemas: Record<string, ExampleSchema> = {}
 ): void {
   expect(media, `${route} ${mediaType} media`).toBeDefined();
-  const { schema, example } = media!;
+  const { schema, example, examples } = media!;
   expect(schema, `${route} ${mediaType} schema`).toBeDefined();
-  expect(example, `${route} ${mediaType} example`).toBeDefined();
-  assertValueMatchesSchema(schema!, example, `${route} ${mediaType}`, schemas);
+  if (examples !== undefined) {
+    expect(example, `${route} ${mediaType} example and examples are mutually exclusive`).toBeUndefined();
+    const entries = Object.entries(examples);
+    expect(entries.length, `${route} ${mediaType} named examples`).toBeGreaterThan(0);
+    for (const [name, named] of entries) {
+      const label = `${route} ${mediaType} example ${name}`;
+      expect(named.value, `${label} value`).toBeDefined();
+      assertValueMatchesSchema(schema!, named.value, label, schemas);
+    }
+  } else {
+    expect(example, `${route} ${mediaType} example`).toBeDefined();
+    assertValueMatchesSchema(schema!, example, `${route} ${mediaType}`, schemas);
+  }
 }
 
 function assertValueMatchesSchema(
@@ -81,6 +99,20 @@ function assertValueMatchesSchema(
     const referenced = schemas[schema.$ref.replace("#/components/schemas/", "")];
     expect(referenced, `${label} reference`).toBeDefined();
     return assertValueMatchesSchema(referenced, value, label, schemas);
+  }
+  if (schema.nullable && value === null) return;
+  for (const [kind, branches] of [["anyOf", schema.anyOf], ["oneOf", schema.oneOf]] as const) {
+    if (!branches) continue;
+    const matches = branches.filter((branch) => {
+      try {
+        assertValueMatchesSchema(branch, value, label, schemas);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (kind === "oneOf") expect(matches.length, `${label} oneOf matches`).toBe(1);
+    else expect(matches.length, `${label} anyOf matches`).toBeGreaterThan(0);
   }
   if (schema.enum) expect(schema.enum, label).toContain(value);
   const type = Array.isArray(schema.type)
@@ -115,6 +147,72 @@ function assertValueMatchesSchema(
     expect(typeof value, label).toBe(type);
   }
 }
+
+describe("media example schema checks", () => {
+  const schemas: Record<string, ExampleSchema> = {
+    Result: {
+      type: "object",
+      required: ["id", "localSync"],
+      properties: {
+        id: { type: ["integer", "null"], minimum: 1 },
+        localSync: { $ref: "#/components/schemas/LocalSync" }
+      }
+    },
+    LocalSync: {
+      anyOf: [
+        { type: "object", required: ["done"], properties: { done: { type: "boolean", enum: [true] } } },
+        {
+          type: "object",
+          required: ["done", "code"],
+          properties: { done: { type: "boolean", enum: [false] }, code: { type: "string", enum: ["sync_failed"] } }
+        }
+      ]
+    }
+  };
+  const schema = { $ref: "#/components/schemas/Result" };
+  const refreshed = { id: 5, localSync: { done: true } };
+  const failed = { id: null, localSync: { done: false, code: "sync_failed" } };
+
+  it("checks named values through shared refs, including nullable fields and both union branches", () => {
+    const media = { schema, examples: { refreshed: { value: refreshed }, failed: { value: failed } } };
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).not.toThrow();
+  });
+
+  it.each([
+    ["missing examples", { schema }],
+    ["empty named examples", { schema, examples: {} }],
+    ["a named example without a value", { schema, examples: { missing: {} } }],
+    ["both singular and named examples", { schema, example: refreshed, examples: { refreshed: { value: refreshed } } }],
+    ["missing media", undefined],
+    ["missing schema", { examples: { refreshed: { value: refreshed } } }]
+  ] as Array<[string, MediaExample | undefined]>)("rejects %s", (_name, media) => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).toThrow();
+  });
+
+  it.each([
+    ["wrong integer type", { ...failed, id: "5" }],
+    ["below-minimum integer", { ...failed, id: 0 }],
+    ["missing required field", { localSync: failed.localSync }],
+    ["wrong discriminator type", { id: null, localSync: { done: "false", code: "sync_failed" } }],
+    ["unknown union code", { id: null, localSync: { done: false, code: "exception text" } }],
+    ["missing union field", { id: null, localSync: { done: false } }]
+  ])("rejects a later named value with %s", (_name, value) => {
+    const media = { schema, examples: { refreshed: { value: refreshed }, invalid: { value } } };
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).toThrow();
+  });
+
+  it("retains singular examples and OpenAPI nullable fields", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: "integer", nullable: true }, example: null
+    })).not.toThrow();
+  });
+
+  it("rejects a oneOf value matching more than one branch", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { oneOf: [{ type: "integer" }, { type: "number" }] }, example: 5
+    })).toThrow();
+  });
+});
 
 const ROUTES: Array<{ path: string; group: string; requestMedia: string }> = [
   {
