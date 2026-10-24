@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Entity-save outcomes: served OpenAPI now types the customer/address/container
+  save envelopes and shared done-discriminated `localSync` with fixed failure
+  codes. Synthetic examples distinguish refreshed graphs, accepted writes with
+  failed/skipped refresh, and upstream rejection even on HTTP 200. Read `ok`
+  and `localSync` separately; never blindly replay ambiguous creates. Runtime
+  payloads/statuses, forwarding, auth and cache behavior are unchanged.
+  See `docs/CONSUMER-QUICKSTART.md` for recovery guidance and the hermetic
+  schema-vs-runtime check.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit

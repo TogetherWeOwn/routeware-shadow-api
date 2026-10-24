@@ -4,6 +4,7 @@ import {
   prepareSaveCustomerLongFormBody
 } from "./customerSaveAutoToken";
 import type { DataEntityCtx } from "./dataEntityHandlers";
+import type { LocalSyncSummary } from "./dataEntitySaveSchemas";
 import { detailFullInvalidateAttempts, syncCustomerDetailFullToD1 } from "./detailFullSync";
 import { errorKind, logEvent } from "./logger";
 import {
@@ -84,21 +85,7 @@ async function evictAfterSaveQuietly(
   }
 }
 
-/**
- * Local-sync outcome codes. Fixed strings only — never exception
- * text, which previously reached clients verbatim inside `localSync.reason`
- * and could carry upstream PII/HTML.
- */
-export type LocalSyncCode = "not_attempted" | "unknown_customer_id" | "sync_failed";
-
-export type LocalSyncSummary =
-  | { done: false; code: LocalSyncCode }
-  | {
-      done: true;
-      customerId: number;
-      addressIds: number[];
-      containerIds: number[];
-    };
+export type { LocalSyncCode, LocalSyncSummary } from "./dataEntitySaveSchemas";
 
 function syncFailed(): LocalSyncSummary {
   return { done: false, code: "sync_failed" };

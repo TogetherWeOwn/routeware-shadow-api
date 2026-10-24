@@ -511,6 +511,43 @@ upstream body are never echoed):
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
 for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
+Their JSON envelopes additionally require nullable `pickupAddressId`, and the
+container envelope also requires nullable `containerId`. Those child IDs come
+from usable posted IDs; a successful create can still return `null`, even when
+the local graph refresh succeeds. `customerId` is also nullable when unresolved.
+`routewareStatus` is the original upstream status, not necessarily the wrapper
+status (for example, accepted upstream 201 currently returns wrapper 200).
+
+**Read `ok` and `localSync` separately.** An `ok=true` response means the upstream
+write was accepted, not that local data was refreshed. Local refresh and cache
+invalidation are best-effort; HTTP 200 does not guarantee a refreshed local graph.
+The shared, served OpenAPI `LocalSyncSummary` contract has two exclusive shapes:
+
+| `localSync` | Meaning and recovery |
+| --- | --- |
+| `{done:true, customerId, addressIds, containerIds}` | Graph refreshed and cache invalidation completed; arrays contain graph IDs, not submitted fields. |
+| `{done:false, code:"sync_failed"}` | Write accepted, but refresh or cache invalidation failed; local state may be stale or partially refreshed. Verify local state and arrange graph reconciliation rather than repeating the save. |
+| `{done:false, code:"unknown_customer_id"}` | Write accepted, but the owning customer was unresolved, so no graph refresh ran. Resolve the existing upstream identity before reconciling local state. |
+| `{done:false, code:"not_attempted"}` | Upstream rejected the save (`ok=false`), so no local refresh ran; this is not a success claim. |
+
+Never blindly replay or retry creates after an ambiguous response or failed
+refresh: the upstream write may already have landed. Verify existing identities
+and reconcile local state without repeating the create; these codes do not
+provide idempotency or authorize retries. Error codes are fixed strings, never
+exception text, upstream HTML, form fields or PII. Inspect `application/json`
+examples on each save operation in `/openapi.json` for all four synthetic outcomes.
+
+Runnable hermetic schema-vs-runtime check (no live provider, credentials or data):
+
+```bash
+npx vitest run test/saveOutcomeSchemas.acceptance.test.ts --maxWorkers=2
+```
+
+This serves OpenAPI via `app.fetch`, validates all three envelopes and synthetic
+outcomes, rejects malformed `localSync`, and checks unchanged forwarding,
+authentication, `no-store`, statuses and side effects. It exercises the behavior
+present at this implementation head; it does not introduce dry-run or created-ID
+resolution behavior.
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through

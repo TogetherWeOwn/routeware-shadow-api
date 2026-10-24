@@ -16,6 +16,13 @@ import {
   handlePostDataContainer,
   handlePostDataCustomer
 } from "../lib/dataEntitySave";
+import {
+  addressSaveOutcomeSchema,
+  containerSaveOutcomeSchema,
+  customerSaveOutcomeSchema,
+  type EntitySaveOutcome,
+  type LocalSyncSummary
+} from "../lib/dataEntitySaveSchemas";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
@@ -207,20 +214,45 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
 }, hydratedReadValidationHook);
 
-function dataEntityPostResponse(example: Record<string, unknown>): RouteConfig["responses"] {
+const saveRecoveryGuidance =
+  "Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.";
+
+function dataEntityPostResponse(schema: z.ZodType, example: EntitySaveOutcome): RouteConfig["responses"] {
   return {
     200: {
       description:
-        "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
-      content: { "application/json": { schema: z.unknown(), example } }
+        "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. " + saveRecoveryGuidance,
+      content: {
+        "application/json": {
+          schema,
+          examples: {
+            refreshed: { summary: "Upstream accepted; local graph refreshed (synthetic)", value: example },
+            syncFailed: {
+              summary: "Upstream accepted; local refresh or invalidation failed (synthetic)",
+              value: { ...example, localSync: { done: false, code: "sync_failed" } }
+            },
+            unknownCustomer: {
+              summary: "Upstream accepted; owning customer unresolved (synthetic)",
+              value: { ...example, customerId: null, localSync: { done: false, code: "unknown_customer_id" } }
+            },
+            rejected: {
+              summary: "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+              value: { ...example, ok: false, upstreamBytes: 17, localSync: { done: false, code: "not_attempted" } }
+            }
+          }
+        }
+      }
     },
     400: { description: "Bad Request" },
     401: { description: "Unauthorized" },
-    502: { description: "Bad Gateway" }
+    502: {
+      description:
+        "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim."
+    }
   };
 }
 
-const localSyncExample = {
+const localSyncExample: LocalSyncSummary = {
   done: true,
   customerId: 345734,
   addressIds: [10],
@@ -236,7 +268,7 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from `GetCustomerDetailFull` and invalidate related cache entries; this can fail independently of the write. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
   request: {
     body: {
       description: "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
@@ -268,7 +300,7 @@ const dataCustomerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse({
+  responses: dataEntityPostResponse(customerSaveOutcomeSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 345734,
@@ -314,7 +346,7 @@ const dataAddressPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse({
+  responses: dataEntityPostResponse(addressSaveOutcomeSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 5,
@@ -361,7 +393,7 @@ const dataContainerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse({
+  responses: dataEntityPostResponse(containerSaveOutcomeSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 345734,
