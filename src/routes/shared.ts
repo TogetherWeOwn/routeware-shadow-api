@@ -131,16 +131,17 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
  * turn a cautious `?dryRun=false` probe into a real write. Only the exact
  * string `"true"` dry-runs; anything else is rejected with the anchored 400
  * below. The object is intentionally non-strict: unknown keys pass the
- * validator and are rejected after auth by `rejectUnknownQueryKeys`, so an
- * inner 401 precedes an unknown-key 400 while an invalid `dryRun` value
- * 400s first.
+ * validator and are rejected after auth by the respective unknown-key
+ * guards below, so an inner 401 precedes an unknown-key 400 while an invalid
+ * `dryRun` value 400s first.
  */
 export const dryRunQuery = z.object({
   dryRun: z
     .enum(["true", "false"])
     .optional()
     .describe(
-      "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation"
+      "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. " +
+        "Mutating snapshot POSTs reject any other query key with a value-free 400 before any work."
     )
     .openapi({ example: "true" })
 });
@@ -169,6 +170,67 @@ export const DATA_CONTAINER_QUERY_KEYS = [
   "containerId",
   "fields"
 ] as const;
+
+/**
+ * Declared query keys for the mutating snapshot POSTs: `dryRun` on the six
+ * per-table sync/import routes, plus the combined-only `partialProgress`
+ * opt-in on `POST /api/v1/data-snapshot/sync`. Single source of truth for
+ * the strict-query guard below — route handlers pass one of these, never an
+ * inline list.
+ */
+export const SNAPSHOT_POST_QUERY_KEYS = ["dryRun"] as const;
+export const DATA_SNAPSHOT_SYNC_QUERY_KEYS = [
+  "dryRun",
+  "partialProgress"
+] as const;
+
+/**
+ * Strict unknown-key guard for the seven mutating snapshot POSTs. Returns a
+ * 400 `bad-request` problem+json response to return as-is, or `null` when
+ * every submitted query key is in `allowed`.
+ *
+ * Call this in the handler immediately after the snapshot-auth gates and
+ * before any other check or work, so a mistyped `?dryrun=true` fails loudly
+ * instead of stripping to `{}` and running a real mutation. Placement is
+ * load-bearing: the zod validator still owns known-key VALUES (an invalid
+ * `?dryRun=maybe` 400s before the handler's inner auth check), while unknown
+ * KEYS are checked here, after auth — an API-token bearer with a typo'd key
+ * keeps the sync-secret 401. Repeated known keys likewise keep failing in
+ * the validator's string schema before this runs.
+ *
+ * The 400 is fixed guidance naming only the `allowed` keys, never the
+ * submitted names or values: unknown key bytes can carry PII probes, so they
+ * must not echo — which is also why this does not route through
+ * `validationFailureHook` (the hook forwards rejected field paths, safe only
+ * for allowlisted schema keys). Same `bad-request` type, title, status and
+ * `docs/PROBLEMS.md#bad-request` anchor as validator rejections, with a
+ * pathname-only instance (query stripped).
+ */
+export function rejectUnknownSnapshotPostQuery(
+  c: { req: { url: string }; env?: Env },
+  allowed: readonly string[]
+): Response | null {
+  const keys = new Set(new URL(c.req.url).searchParams.keys());
+  let unknown = false;
+  for (const key of keys) {
+    if (!allowed.includes(key)) {
+      unknown = true;
+      break;
+    }
+  }
+  if (!unknown) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail:
+      `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
+      "See docs/PROBLEMS.md#bad-request.",
+    instance: new URL(c.req.url).pathname
+  });
+}
 
 /**
  * Strict-query tail for routes whose zod query schema is non-strict on
