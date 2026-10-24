@@ -294,6 +294,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
 
+- #373: The existing customer `changes` feed
+  (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows
+  (`CustomerSnapshotChangesRow` in `/openapi.json`): every stored customer
+  column with storage-faithful integer/text/null types. `customer_id` and
+  `synced_at` are always required (replay/cursor identity); every other
+  column is optional with stored nullability so sparse `fields=` pages stay
+  valid. Stored flags stay integers (`enabled` is `0`/`1`, never boolean);
+  text carries no invented format/enum/minimum promises. `total` documents
+  its returned-page-length meaning and `nextCursor` its composite-resume
+  meaning; operationId, headers, examples and response codes are unchanged.
+  Served bytes, SELECTs, cursors, auth and query behavior are unchanged.
+  Synthetic resume recipe: `docs/CONSUMER-QUICKSTART.md` §2c; focused check:
+  `npm run check:customer-changes-delta`.
+
 ## [1.0.0] - 2026-10-22
 
 Initial release of the Routeware Shadow API (Cloudflare Worker): shadow
