@@ -657,16 +657,27 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     expect(selected.etag).not.toBe(old.etag);
   });
 
-  it("preserves cached empty/null related members rather than inventing rows", async () => {
+  it.each(others)("preserves cached empty/null related members when selecting %s rather than inventing rows", async (type) => {
     const canonical: Bundle = spec.kind === "customer" ? { customer: { ...customer }, addresses: [] }
       : spec.kind === "address" ? { address: { ...address }, customer: null, containers: [] }
       : { container: { ...container }, address: null, customer: null };
     await seedCache(spec, canonical);
-    const type = others[0];
+    const cached = cache.get(`${spec.kind}:${spec.row[spec.key]}`)!;
+    const canonicalText = await cached.clone().text();
+    const canonicalHeaders = allHeaders(cached);
     const first = TYPE_SAMPLES[type].first;
-    await expectServed(await get(spec, { typed: { [type]: first } }),
+    const served = await expectServed(await get(spec, { typed: { [type]: first } }),
       selectedBundle(spec.kind, { [type]: [first] }, undefined, canonical));
+    expect(served.text).toBe(JSON.stringify(canonical));
+    await expect304(await get(spec, {
+      typed: { [type]: first }, headers: { "if-none-match": served.etag }
+    }), served.etag);
     await expectCanonicalCache(spec, canonical);
+    expect(cache.size).toBe(1);
+    const unchanged = cache.get(`${spec.kind}:${spec.row[spec.key]}`)!;
+    expect(await unchanged.clone().text()).toBe(canonicalText);
+    expect(allHeaders(unchanged)).toEqual(canonicalHeaders);
+    expect(work).toEqual({ cacheReads: 2, cacheWrites: 0, statements: [] });
     expect(work.statements).toEqual([]);
   });
 
@@ -807,21 +818,29 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     // Invalid typed selectors must pass the inner auth gate like flat fields:
     // API/read tokens see 401 before any mixed ID/typed 400. With no typed
     // error, preliminary ID-only 400s remain compatible.
-    describe("malformed id beside a valid alternative", () => {
-      const parameter = "id";
-      const other = spec.alias;
+    describe.each([
+      { label: "malformed id beside a valid alias", parameter: "id", other: spec.alias },
+      { label: "malformed alias beside a valid id", parameter: spec.alias, other: "id" },
+      { label: "malformed id alone", parameter: "id", other: undefined },
+      { label: "malformed alias alone", parameter: spec.alias, other: undefined }
+    ])("$label", ({ parameter, other }) => {
       const validId = String(spec.row[spec.key]);
+      const alternative: Array<[string, string]> = other === undefined ? [] : [[other, validId]];
       const type = others[0];
       const first = TYPE_SAMPLES[type].first;
       const invalidSelectors = [
         { label: "unknown typed field", typed: { [type]: "SYNTHETIC-MARKER-column" }, extra: [] as Array<[string, string]> },
         { label: "empty typed CSV member", typed: { [type]: `${first},,${TYPE_SAMPLES[type].second}` }, extra: [] as Array<[string, string]> },
-        { label: "repeated typed keys", typed: { [type]: first }, extra: [[`fields[${type}]`, TYPE_SAMPLES[type].second]] as Array<[string, string]> }
+        { label: "repeated typed keys", typed: { [type]: first }, extra: [[`fields[${type}]`, TYPE_SAMPLES[type].second]] as Array<[string, string]> },
+        { label: "unknown TYPE", typed: { foo: "city" }, extra: [] as Array<[string, string]> },
+        { label: "unknown TYPE beside valid typed", typed: { [type]: first, foo: "city" }, extra: [] as Array<[string, string]> },
+        { label: "ambiguous flat plus typed-root", typed: { [spec.kind]: TYPE_SAMPLES[spec.kind].second },
+          extra: [["fields", TYPE_SAMPLES[spec.kind].first]] as Array<[string, string]> }
       ];
       beforeEach(async () => { await seedCache(spec); });
       function mixedRequest(typed: Record<string, string>, extra: Array<[string, string]>, authorization: string, idValue: string) {
         return get(spec, {
-          typed, parameter, id: idValue, extra: [[other, validId], ...extra],
+          typed, parameter, id: idValue, extra: [...alternative, ...extra],
           headers: { authorization, "if-none-match": cache.get(`${spec.kind}:${spec.row[spec.key]}`)!.headers.get("etag")! }
         });
       }
@@ -840,16 +859,23 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
       ])("$label", ({ authorization }) => {
         it.each(invalidSelectors)("invalid $label requires inner auth before ID/typed errors", async ({ typed, extra }) => {
           await expectUnauthorized(
-            await mixedRequest(typed, extra, authorization, "SYNTHETIC-MARKER-invalid-id"),
+            await mixedRequest(typed, extra, authorization, "abc"),
             "CUSTOMER_SNAPSHOT_SYNC_SECRET");
         });
         it.each([
-          { label: "omitted typed", typed: undefined as unknown as Record<string, string> },
-          { label: "valid typed field", typed: { [type]: first } }
-        ])("preserves preliminary ID-only 400 with $label", async ({ typed }) => {
-          const response = typed === undefined
-            ? await get(spec, { parameter, id: "SYNTHETIC-MARKER-invalid-id", extra: [[other, validId]], headers: { authorization } })
-            : await mixedRequest(typed, [], authorization, "SYNTHETIC-MARKER-invalid-id");
+          { label: "omitted selectors", typed: {}, extra: [] as Array<[string, string]> },
+          { label: "valid typed field", typed: { [type]: first }, extra: [] as Array<[string, string]> },
+          { label: "valid typed-root", typed: { [spec.kind]: TYPE_SAMPLES[spec.kind].first }, extra: [] as Array<[string, string]> },
+          { label: "valid flat root", typed: {}, extra: [["fields", TYPE_SAMPLES[spec.kind].first]] as Array<[string, string]> },
+          { label: "both valid non-root types", typed: {
+            [others[0]]: TYPE_SAMPLES[others[0]].first, [others[1]]: TYPE_SAMPLES[others[1]].first
+          }, extra: [] as Array<[string, string]> },
+          ...others.map((nonRoot) => ({
+            label: `valid flat plus non-root ${nonRoot}`, typed: { [nonRoot]: TYPE_SAMPLES[nonRoot].first },
+            extra: [["fields", TYPE_SAMPLES[spec.kind].first]] as Array<[string, string]>
+          }))
+        ])("preserves preliminary ID-only 400 with $label", async ({ typed, extra }) => {
+          const response = await mixedRequest(typed, extra, authorization, "abc");
           expectNoWork();
           expect(response.status).toBe(400);
           const body = await response.json() as Record<string, unknown>;
@@ -864,7 +890,7 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
       ])("$label", ({ authorization }) => {
         it.each(invalidSelectors)("preserves outer auth before mixed ID/$label errors", async ({ typed, extra }) => {
           await expectUnauthorized(
-            await mixedRequest(typed, extra, authorization, "SYNTHETIC-MARKER-invalid-id"),
+            await mixedRequest(typed, extra, authorization, "abc"),
             "SHADOW_API_TOKEN");
         });
       });
