@@ -115,12 +115,13 @@ describe("auth-gate negative sweep", () => {
     );
     expect(registered).toContain(`${PUBLIC_HEALTH.method} ${PUBLIC_HEALTH.path}`);
     // Pinned count: adding/removing a v1 route must update this sweep explicitly.
-    // 41 = prior 34 + GET ...-snapshot/export x3 (CSV download) +
+    // 42 = prior 34 + GET ...-snapshot/export x3 (CSV download) +
     // DELETE /api/v1/customer-snapshot/{customerId} (erasure) +
     // GET /api/v1/snapshots/:table/:date (R2 archive readback) +
+    // GET /api/v1/snapshots/:table/latest (R2 latest-pointer readback) +
     // GET /api/v1/customer-snapshot/changes (changes feed) +
     // GET /api/v1/data-snapshot/orphans (orphan report).
-    expect(routes).toHaveLength(41);
+    expect(routes).toHaveLength(42);
   });
 
   it.each(gatedRoutes())("401 problem+json without a token: $method $path", async (route) => {
