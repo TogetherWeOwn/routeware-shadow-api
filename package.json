@@ -17,6 +17,7 @@
     "check:d1-drift": "node scripts/check-d1-drift.mjs",
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:openapi-agent-metadata": "vitest run test/openapiAgentMetadata.test.ts",
+    "check:container-identifiers": "vitest run test/containerIdentifierFilters.acceptance.test.ts",
     "check:customer-changes-cursor": "vitest run test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:coverage-ratchet": "node scripts/check-coverage-ratchet.mjs",
