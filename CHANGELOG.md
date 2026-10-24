@@ -14,6 +14,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   No new endpoint, index, migration, access or write behavior. Synthetic recipe:
   `npm run check:address-scope` and `docs/CONSUMER-QUICKSTART.md`.
 
+- #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
+  to validate a save — form fields plus session health — without persisting
+  anything: no upstream POST, no D1 write, no cache invalidation, no login. A
+  dry-pass answers HTTP 200 with `dryRun: true`, `routewareStatus: null`,
+  `upstreamBytes: 0`, posted ids only and `localSync.not_attempted`;
+  validation failures return the identical 400/502 shapes as live. Without a
+  usable session the dry-run fails closed with 503 `failed-precondition`.
+  Only `dryRun` is an allowed query key (anything else is a value-free 400
+  after authentication);
+  an omitted flag or `?dryRun=false` writes exactly as before. Recipe:
+  `docs/CONSUMER-QUICKSTART.md`; problem pointers: `docs/PROBLEMS.md`.
+
 - #349: Every save-path error line in the customer, address and container
   flows now carries the once-per-request `requestId` adopted from inbound
   `X-Request-Id` or minted as a UUID (#338): data-tier local-sync and
