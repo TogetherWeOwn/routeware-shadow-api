@@ -9,12 +9,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   save envelopes and shared done-discriminated `localSync` with fixed failure
   codes. Synthetic examples distinguish refreshed graphs, accepted writes with
   failed/skipped refresh, upstream rejection even on HTTP 200, and the existing
-  validation-only dry-run envelope. HTTP 503 documents both forwarded JSON and
-  dry-run precondition problems. Read `dryRun`, `ok` and `localSync` separately;
+  validation-only dry-run envelope. Exact 400/401/502/503 and default error
+  responses distinguish forwarded JSON outcomes from local problem+json
+  failures. Read `dryRun`, `ok` and `localSync` separately;
   never blindly replay ambiguous creates. Runtime
   payloads/statuses, forwarding, auth and cache behavior are unchanged.
   See `docs/CONSUMER-QUICKSTART.md` for recovery guidance and the hermetic
   schema-vs-runtime check.
+
+- #353: The seven mutating snapshot POSTs (combined sync, three per-table
+  syncs, three imports) now reject any query key outside their declared set
+  (`dryRun` everywhere, plus `partialProgress` on the combined route) with a
+  fixed value-free 400 before any D1, R2 or upstream work. A mistyped
+  `?dryrun=true` fails loudly instead of running a real mutation. Sync-secret
+  401 precedence is preserved; invalid values and repeated known keys keep
+  their existing validator 400s. GET lists keep ignoring unknown names. See
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and `docs/PROBLEMS.md#bad-request`.
 
 - #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
   to validate a save — form fields plus session health — without persisting

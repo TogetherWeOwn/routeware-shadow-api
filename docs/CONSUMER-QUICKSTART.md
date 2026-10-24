@@ -658,8 +658,12 @@ failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
 save envelope. Likewise, HTTP 503 can carry a forwarded live rejection as
-JSON or a dry-run session precondition failure as problem+json; inspect the
-media type and payload, not only the status. See the
+JSON or a dry-run session precondition failure as problem+json. The exact
+400/401 responses and the default error response also publish both media
+schemas: a forwarded rejection is a JSON save outcome, while local validation,
+bearer denial, auth throttling (429) and unhandled failures (500) use
+problem+json. A problem response alone does not prove whether a write landed.
+Inspect the media type and payload, not only the status. See the
 [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
 
 ### Dry-run recipe: validate, fix, save

@@ -281,8 +281,16 @@ function dataEntityPostResponse(
         }
       }
     },
-    400: { description: "Bad Request" },
-    401: { description: "Unauthorized" },
+    400: {
+      ...forwardedOrProblemResponse,
+      description:
+        "Local validation failure uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Inspect the media type, not only the status."
+    },
+    401: {
+      ...forwardedOrProblemResponse,
+      description:
+        "Local bearer denial uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. An upstream 401 does not mean the caller's bearer is invalid."
+    },
     502: forwardedOrProblemResponse,
     503: {
       ...forwardedOrProblemResponse,
@@ -290,9 +298,9 @@ function dataEntityPostResponse(
         "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim."
     },
     default: {
+      ...forwardedOrProblemResponse,
       description:
-        "Forwarded upstream rejection with its original status and the JSON save-outcome envelope: ok=false and localSync.code=not_attempted. Not a success claim.",
-      content: { "application/json": { schema } }
+        "Forwarded upstream rejection uses application/json with ok=false and localSync.code=not_attempted. Local failures, including auth throttling (429) and unhandled errors (500), use application/problem+json. An ambiguous create may have landed; verify existing records rather than blindly replaying it."
     }
   };
 }
