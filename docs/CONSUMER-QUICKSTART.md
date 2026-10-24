@@ -135,14 +135,16 @@ curl -H "Authorization: Bearer $TOKEN" \
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`. Every list response includes
-`nextCursor` (the last row's primary key, or `null` on the last page); pass it
+`nextCursor` (the last row's primary key on a full page, otherwise `null`);
+full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
 seek — `offset` re-scans everything before it, `cursor` does not:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=500&cursor=50000"
-# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor, or null at the end
+# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
+# Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
 Scanning pages without needing an exact count? Pass `includeTotal=false` to
@@ -155,6 +157,40 @@ today's exact count.
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false"
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
+```
+
+### Highest primary IDs first
+
+All three ordinary lists accept exact, case-sensitive `order=asc|desc`;
+omission and `asc` keep the existing ascending order. `desc` starts at the
+highest primary ID, **not necessarily the newest row in time**. Keep direction
+and cursor together; changing direction starts a new traversal. Cursor overrides
+offset in either direction. With counts enabled, `total` counts matching rows
+after the cursor, before limit/offset; with `includeTotal=false`, no COUNT runs.
+Follow-next `Link` targets preserve an explicitly requested `order`, so a
+`desc` traversal continues downward; omitted `order` keeps the default target.
+
+Synthetic IDs only; illustrative requests for a disposable local fixture:
+
+```text
+GET /api/v1/customer-snapshot?order=desc&limit=2&fields=company_name&includeTotal=false
+# IDs [91,58], nextCursor 58 for a matching fixture
+GET /api/v1/customer-snapshot?order=desc&cursor=58&limit=2&fields=company_name&includeTotal=false
+# IDs [42,37], nextCursor 37; total remains null
+GET /api/v1/address-snapshot?order=desc&limit=2&offset=2
+GET /api/v1/container-snapshot?order=desc&cursor=58&limit=2&customerId=11
+```
+
+Empty/repeated/other `order` values return a value-free 400 before D1
+(after auth); send one lowercase `asc` or `desc`, or omit it for `asc`.
+Full pages return their last integer ID even when terminal; stop on `null`
+from a partial or subsequent empty page. Concurrent writes are not a stable
+snapshot guarantee. Changes feeds, by-id reads and exports are unchanged.
+See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
+The focused check needs no credentials, running Worker or live tenant:
+
+```bash
+npm run check:snapshot-order
 ```
 
 ### Conditional JSON page reads (bandwidth only)

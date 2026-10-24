@@ -13,6 +13,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `x-snapshot-fieldset` catalog also applies to this feed. See the synthetic
   two-page example and focused check in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
 
+- #349: Every save-path error line in the customer, address and container
+  flows now carries the once-per-request `requestId` adopted from inbound
+  `X-Request-Id` or minted as a UUID (#338): data-tier local-sync and
+  fallback-eviction failures, routeware refresh and invalidation failures,
+  and save token-preparation failures. One header value joins a save attempt
+  to its server-side failure lines and outcome code. Route-level response
+  bodies are unchanged (header correlation only); valid saves emit no new
+  lines. See `docs/LOGGING.md`.
+
 - Follow-up to #333 and #342: mounted OpenAPI `fields` string schemas on the
   six flat snapshot list/by-id reads and three hydrated single-ID reads now
   publish `x-snapshot-fieldset` v1: registry-derived selectable names, mandatory
@@ -41,6 +50,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   printed. Redirects are refused and no retries are added. Output is bounded,
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+- #344: Snapshot customer, address and container lists accept exact `order=asc|desc`
+  (default `asc`). `desc` starts at the highest primary ID and seeks below
+  `cursor`; IDs do not promise chronological recency. Direction composes with
+  filters, `fields`, `includeTotal=false`, cursor-over-offset precedence and
+  follow-next targets. Keep order with the cursor; changing direction starts
+  a new traversal.
+  No endpoint or migration added. Check: `npm run check:snapshot-order`.
 
 - #347: Conditional snapshot JSON reads: customer, address and container lists return
   quoted SHA-256 ETags for the final projected JSON envelope and an empty 304

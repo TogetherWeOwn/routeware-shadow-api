@@ -11,9 +11,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -32,6 +32,30 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Primary-ID direction (`order=`)
+
+The three ordinary lists accept one exact, case-sensitive `order=asc|desc`.
+Omitted order and explicit `asc` retain ascending primary-ID order; `desc`
+starts at the highest primary ID and seeks strictly below `cursor`. ID order
+is not chronological recency. No arbitrary sort column or expression is accepted.
+Empty, repeated, whitespace-padded and other values return the existing
+value-free 400 after authentication and before any D1 work; correct the key
+to one lowercase `asc` or `desc`, or omit it for `asc`.
+
+Keep `order` with `nextCursor`: changing direction starts a new traversal.
+Cursor takes precedence over offset in either direction. Filters, joins,
+`fields` and `includeTotal=false` compose unchanged. When counted, `total`
+is the matching count **after the cursor predicate**, before limit/offset,
+not an invariant full-table count. A full page returns its last primary ID
+as integer `nextCursor` even when terminal; a subsequent empty page returns
+`null`. Partial pages also return `null`. There is no lookahead or extra
+COUNT, and no consistency guarantee across concurrent writes. This does not
+change the changes feed, by-id reads or CSV exports.
+
+Run `npm run check:snapshot-order` for the focused credential-free regression
+using synthetic local D1 fixtures with unexpected outbound fetch denied.
+See the [synthetic continuation examples](CONSUMER-QUICKSTART.md#highest-primary-ids-first).
 
 ## Sparse fieldsets (`fields=`)
 
