@@ -257,6 +257,65 @@ Empty `rows` with HTTP 200 means auth works but no snapshot has been synced
 yet — ask the operator to run `POST /api/v1/data-snapshot/sync` (or the daily
 cron), not a bug in your call.
 
+### Discover legal sparse-field selections
+
+Each supported operation's actual `fields` query parameter has
+`schema["x-snapshot-fieldset"]`. This **vendor extension**, not a standard
+OpenAPI keyword or an enum of whole comma-separated selectors, defines v1:
+
+| Key | Contract |
+|---|---|
+| `schemaVersion` | Integer `1`; stop selection for an unsupported version. |
+| `resource` | `customer`, `address` or `container`, for this operation only. |
+| `selectableFields` | Ordered array of all legal exact field names, including the primary identity. Generated from the same registry as validation, not record values. |
+| `alwaysIncludedFields` | Array containing the resource's primary identity, even when not selected. |
+| `delimiter` | `","`, also used by the parser. |
+| `rules` | `{caseSensitive: true, whitespace: "reject", emptySegments: "reject", duplicates: "reject", unknownNames: "reject", repeatedKeys: "reject"}`. |
+
+Use names exactly as advertised: no case folding, whitespace trimming, empty
+selector/segment, duplicate name or repeated `fields` key. Unadvertised names
+(including names exclusive to another resource) are invalid. An explicitly
+selected identity is legal once and returned once, not treated as a duplicate
+of the always-included identity. Invalid selectors yield the value-free 400
+before D1 work described in the [existing query policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+
+Use `fields` only where the operation declares it. The six flat snapshot
+list/by-id reads project **each row** or the response object, retaining the
+primary identity without changing `total`, `nextCursor` or the envelope.
+The existing single-ID `GET /api/v1/data/customer`, `GET /api/v1/data/address`
+and `GET /api/v1/data/container` reads also declare `fields`: only the matching
+`.customer`, `.address` or `.container` root is projected, leaving related bundle
+data unchanged. Those hydrated reads still require the sync secret; their
+existing ETag and cache behavior is unchanged. Omitting `fields` preserves the
+full response. Exports, changes feeds and batch paths do not support `fields`.
+Inspect each operation's actual parameter and route description; the catalog
+does not grant authority. Operation IDs and access/effect metadata are unchanged.
+
+Given JSON saved from the existing enabled `/openapi.json` response as
+`openapi.json`, this offline example selects synthetic field names without
+reading records, trying invalid requests or invoking a data route:
+
+```bash
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const doc = JSON.parse(readFileSync(0, "utf8"));
+const op = doc.paths["/api/v1/customer-snapshot"].get;
+const p = op.parameters.find(p => p.in === "query" && p.name === "fields");
+const f = p?.schema?.["x-snapshot-fieldset"];
+if (f?.schemaVersion !== 1 || f.resource !== "customer") throw Error("Unsupported catalog");
+const wanted = ["company_name", "phone1"];
+if (!wanted.every(n => f.selectableFields.includes(n))) throw Error("Unavailable selection");
+const query = new URLSearchParams({ fields: wanted.join(f.delimiter) });
+console.log(JSON.stringify({ query: query.toString(), alwaysIncludedFields: f.alwaysIncludedFields }));
+' < openapi.json
+```
+
+Discovery itself needs no bearer, data bindings or upstream work;
+`OPENAPI_DOCS_ENABLED` still gates the document. Data reads still require the
+bearer from step 1. No separately published static spec is required. Run the
+credential-free, synthetic, network-denying discovery oracle plus existing
+projection/OpenAPI checks with `npm run check:snapshot-fieldset-discovery`.
+
 ## 2a. Upstream customer pagination: `skip`/`take` or `start`/`limit`
 
 `POST /api/v1/routeware/customer/customers-read` is an **upstream read**, not
