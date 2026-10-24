@@ -4,6 +4,12 @@ import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import {
+  snapshotListConditionalHeaders,
+  snapshotListEtagHeaders,
+  snapshotListNotModifiedResponse,
+  snapshotListJsonResponse
+} from "../lib/snapshotListConditional";
+import {
   runAddressSnapshotSync,
   syncAddressSnapshotFromStream
 } from "../lib/d1SnapshotSync";
@@ -53,6 +59,7 @@ const addressSnapshotListRoute = createRoute({
   description:
     "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
+    headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
@@ -80,7 +87,7 @@ const addressSnapshotListRoute = createRoute({
   responses: {
     200: {
       description: "Rows and total",
-      headers: { Link: snapshotNextLinkHeader },
+      headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -88,6 +95,7 @@ const addressSnapshotListRoute = createRoute({
         }
       }
     },
+    304: snapshotListNotModifiedResponse,
     400: {
       description:
         "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
@@ -164,7 +172,7 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
         );
   const nextLink = snapshotNextLink("address", p, nextCursor);
   if (nextLink !== null) c.header("Link", nextLink);
-  return c.json({ rows: out, total, nextCursor });
+  return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
 
 const addressSnapshotExportRoute = createRoute({
