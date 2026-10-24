@@ -543,7 +543,9 @@ curl -X POST "http://localhost:8787/api/v1/data/customer?dryRun=true" \
 
 Without a usable session the dry-run fails closed with 503
 `failed-precondition` and never logs in — run a live request first. Only
-`dryRun` is an allowed query key; anything else is a value-free 400.
+`dryRun` is an allowed query key; after sync-secret authentication succeeds,
+anything else is a value-free 400. Missing or invalid authentication retains
+precedence over unknown-key rejection.
 `routewareStatus` is unknowable without posting and is never predicted.
 Run the hermetic proof: `npm run check:save-dry-run`.
 
