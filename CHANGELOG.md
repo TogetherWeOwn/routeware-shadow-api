@@ -5,6 +5,30 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #343: Customer changes-feed GET now returns optional `Link: <relative-target>; rel="next"`
+  exactly when its composite `nextCursor` is non-null. The fixed-path target
+  replaces `since` and `since_id` together and retains the validated effective
+  limit, without reflecting unknown keys, origins or credentials. JSON bytes,
+  SQL/binds and query counts are unchanged; a full terminal page can link to
+  an empty page. Existing CORS exposure includes Link; mounted OpenAPI and
+  the consumer quickstart document the contract and safe synthetic traversal.
+  Check: `npm run check:customer-changes-next-links`.
+
+- #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
+  creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
+  resolved `pickupAddressId` / `containerId`: upstream
+  `data.PickupAddressID` / `data.ContainerID` first, else the singleton
+  post-refresh D1 id (address ids for the owning customer, container ids
+  for the owning address). Without an upstream id, the id stays `null` when
+  that diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown
+  owner or failed baseline/refresh). Updates keep echoing the posted id with
+  200; failed saves, customer saves and `localSync` codes are unchanged.
+  There is deliberately no `Location` header: the by-id snapshot URL may
+  not exist locally when the refresh fails. OpenAPI documents the 201/200
+  split with resolved-id examples; dry-run saves echo posted ids, live
+  creates resolve or return `null`, and live updates echo case-exact posted
+  ids. See `docs/CONSUMER-QUICKSTART.md`.
+
 - #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
   snapshot CSV for one table without naming its date, resolving the existing
   `snapshot-latest/{table}.json` pointer the sync leg republishes after every
