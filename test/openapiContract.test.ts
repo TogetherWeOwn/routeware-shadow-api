@@ -166,6 +166,31 @@ function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
   return copy;
 }
 
+// Exact identifiers supersede this route's old query/error narrative. Their
+// schema, composition and error discovery are asserted independently in
+// containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
+// or parameter position. All legacy parameters and unrelated operations remain frozen.
+function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{ name?: string; in?: string }>;
+      responses?: Record<string, { description?: string }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    if (operation.responses?.["400"]) delete operation.responses["400"].description;
+    if (operation.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || !["serialNumber", "rfid"].includes(parameter.name ?? "")
+      );
+    }
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -409,7 +434,7 @@ describe("published OpenAPI document", () => {
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
     // enriching it never re-records this frozen document.
-    expect(withoutIncludeTotalProse(withoutAgentMetadata(doc))).toMatchSnapshot();
+    expect(withoutIncludeTotalProse(withoutContainerIdentifierAdditions(withoutAgentMetadata(doc)))).toMatchSnapshot();
   });
 });
 
