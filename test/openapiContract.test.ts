@@ -254,6 +254,23 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+/**
+ * The stored extras-allowed selector has semantic checks in
+ * addressExtrasAllowed.acceptance.test.ts. Project out only its new parameter;
+ * address filter/recovery prose is already owned by
+ * withoutAddressScopeContract. Keep all existing parameter schemas in the
+ * legacy golden.
+ */
+function withoutAddressExtrasAllowedContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"].get as {
+    parameters: Array<{ name: string; in: string }>;
+  };
+  operation.parameters = operation.parameters.filter(parameter =>
+    parameter.in !== "query" || parameter.name !== "extrasAllowed");
+  return copy;
+}
+
 // Exact identifiers supersede this route's old query/error narrative. Their
 // schema, composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
@@ -545,7 +562,9 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
+    // Only the address stored-extras selector moves to addressExtrasAllowed
+    // ownership; every other address parameter stays frozen.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(doc))))))).toMatchSnapshot();
   });
 });
 

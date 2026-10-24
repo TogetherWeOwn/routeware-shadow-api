@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `extrasAllowed`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -89,6 +89,42 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
+
+## Address stored extras-allowed selector
+
+Only the address list recognizes `extrasAllowed`. It is an optional exact,
+case-sensitive enum — `true`, `false` or `any` (default `any`) — sent once.
+`true` matches stored `extras_allowed = 1`, `false` matches stored `0`, and
+`any`/omission adds no predicate, so `any` and omission produce identical
+bodies and identical SQL. The flag is stored snapshot state from the last
+sync, not permission to mutate service terms or proof of current upstream
+policy. Malformed, blank, padded, case-mismatched and repeated keys fail
+through the existing value-free 400 hook after authentication and before D1;
+no coercion, source-default change or derived eligibility meaning is added.
+
+The literal `extras_allowed = 1` / `= 0` predicate (no bind) intersects by
+AND with `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`,
+`q`, `enabled` and cursor/offset scope in both the `COUNT` and the page
+`SELECT`, which keep one shared WHERE clause. The selector never joins, so a
+row with child containers still appears exactly once and presence/absence
+changes nothing. No deduplication, indexes, migrations, extra D1 calls, new
+endpoint or upstream request are added. Omission leaves the old behavior
+intact. Valid no-match is 200 empty; fields only project the matched rows.
+Offset/seek ordering and cursor-relative totals are unchanged; count-free
+mode still executes one SELECT and no COUNT. Conditional ETags still describe
+the served envelope.
+
+Next links retain a validated non-any selector and omit `any` canonically,
+just like `enabled=any`, while still replacing cursor and dropping offset;
+do not reconstruct or log the selector while following them. Unrelated
+unknown keys keep list-ignore policy, and sibling lists still ignore
+`extrasAllowed` as an unknown name. See the [synthetic follow-next
+recipe](CONSUMER-QUICKSTART.md#address-stored-extras-allowed-selector),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-extras-allowed-predicate-audit).
+Run `npm run check:address-extras-allowed` for the hermetic local-D1 contract
+and relevant list/link/conditional regressions; no live credentials or
+upstream calls.
 
 ## Exact container asset lookup
 

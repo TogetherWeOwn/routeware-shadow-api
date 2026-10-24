@@ -62,7 +62,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text on street `q`, `enabled`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text on street `q`, `enabled`, stored `extrasAllowed`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -83,6 +83,9 @@ const addressSnapshotListRoute = createRoute({
         .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" }),
       q: snapshotSearchQuery.optional().describe("Address line substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      extrasAllowed: z.enum(["true", "false", "any"]).optional().default("any")
+        .describe("Stored extras-allowed equality: true matches stored extras_allowed = 1, false matches stored 0, any (default) adds no predicate. The flag is stored snapshot state from the last sync, not permission to mutate service terms or proof of current upstream policy. Exact case-sensitive spelling, sent once; malformed, blank or repeated keys are invalid. Correct the value and retry.")
+        .openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
@@ -118,7 +121,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -158,6 +161,14 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   }
   if (p.enabled === "false") {
     where.push("enabled = 0");
+  }
+  // Stored-state equality, not a live policy assertion: literal predicates,
+  // no binds, shared with COUNT through the same where/binds below.
+  if (p.extrasAllowed === "true") {
+    where.push("extras_allowed = 1");
+  }
+  if (p.extrasAllowed === "false") {
+    where.push("extras_allowed = 0");
   }
   if (p.cursor !== undefined) {
     where.push(`pickup_address_id ${order.seek} ?`);

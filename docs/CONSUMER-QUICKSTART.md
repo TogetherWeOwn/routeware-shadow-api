@@ -134,8 +134,10 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
-scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
+also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes))
+and the stored `extrasAllowed=true|false|any` selector (default `any`;
+[synthetic selector recipe](#address-stored-extras-allowed-selector)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -243,6 +245,38 @@ For a custom synthetic local request, construct the query with
 Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
+
+### Address stored extras-allowed selector
+
+Use the existing `listAddressSnapshot` operation to read only sites that
+allow (or disallow) extras without transferring every mirrored address.
+Optional `extrasAllowed=true|false|any` (default `any`) intersects by AND
+with every other filter. `true` matches stored `extras_allowed = 1`, `false`
+matches stored `0`, and `any`/omission adds no predicate. The flag is stored
+snapshot state from the last sync, not permission to mutate service terms or
+proof of current upstream policy. Spelling is exact and case-sensitive, sent
+once; malformed, blank or repeated keys return the existing value-free 400
+before D1 ([correction guidance](PROBLEMS.md#bad-request)); valid no-match
+returns 200 empty.
+
+Synthetic follow-next recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-extras-allowed
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?extrasAllowed=true&fields=enabled&limit=2&includeTotal=false`.
+Its first IDs are `11,37` with `nextCursor: 37`; it follows the returned
+Link unchanged to the final `42` page and stops when no Link is returned.
+Every row keeps its address ID, `total` is null and each page executes one
+SELECT with no COUNT. Other fixtures prove `any`/omission equivalence,
+`false` membership, `customerId`/`pickupAddressId`/`q`/`enabled`
+intersections, counted offset/seek with cursor-relative totals, sparse and
+conditional reads, strict enum rejection with auth precedence, and `false`
+preserved (and `any` omitted) in Link targets. Network-deny and read-only
+doubles fail on unexpected side effects. No upstream lookup or write is
+added. These checks are not deployed performance evidence.
 
 ### Highest primary IDs first
 

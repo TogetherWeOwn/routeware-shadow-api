@@ -13,6 +13,8 @@ type SnapshotListQuery = {
   franchiseId?: string;
   q?: string;
   enabled: "true" | "false" | "any";
+  // Address list only; sibling lists omit the key and keep unfiltered links.
+  extrasAllowed?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -54,6 +56,10 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Non-any only, like enabled: any/omission stays out of the canonical target.
+  if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
+    params.set("extrasAllowed", query.extrasAllowed);
+  }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the
   // continuation cannot escape the traversal the caller chose to bound.
