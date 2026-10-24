@@ -9,7 +9,10 @@ type SnapshotListQuery = {
   fields?: string[];
   upperId?: number;
   limit: number;
-  includeTotal: "true" | "false";
+  // Routes pass order/includeTotal only when the request spelled them out, so
+  // default-valued targets stay byte-identical while explicit values round-trip.
+  order?: "asc" | "desc";
+  includeTotal?: "true" | "false";
 };
 
 const LISTS = {
@@ -46,7 +49,10 @@ export function snapshotNextLink(
   // continuation cannot escape the traversal the caller chose to bound.
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
-  if (query.includeTotal === "false") params.set("includeTotal", "false");
+  if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
+  // Direction travels with the cursor: an explicitly requested order is echoed
+  // so desc traversals continue downward; omitted order keeps the asc default.
+  if (query.order !== undefined) params.set("order", query.order);
   // Continuations always seek, even when the first request used an offset.
   params.set("cursor", String(nextCursor));
   return `<${list.path}?${params.toString()}>; rel="next"`;

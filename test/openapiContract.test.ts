@@ -104,30 +104,32 @@ const EXPECTED_TAGS = [
 ];
 
 /**
- * Projection without agent metadata and the additive ordinary-list upperId,
- * pinned in openapiAgentMetadata.test.ts and snapshotUpperId.acceptance.test.ts.
- * Everything else stays frozen.
+ * Projection without agent metadata pinned in `openapiAgentMetadata.test.ts`
+ * and the fields vendor extension owned by `sparseFieldsetDiscovery.acceptance.test.ts`.
+ * Everything else, including fields schema/prose/defaults, stays frozen.
  */
 function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
   for (const key of Object.keys(copy)) {
     if (key.startsWith("x-")) delete copy[key];
   }
-  for (const [path, item] of Object.entries(copy.paths)) {
+  for (const item of Object.values(copy.paths)) {
     for (const [method, operation] of Object.entries(item)) {
       if (!HTTP_METHODS.includes(method.toLowerCase())) continue;
       const op = operation as Record<string, unknown>;
-      // The additive ceiling contract is pinned independently (including type,
-      // bounds, errors and authority) in snapshotUpperId.acceptance.test.ts.
-      // Keep the pre-existing snapshot strict for every other parameter/path.
-      if (method === "get" && /^\/api\/v1\/(?:customer|address|container)-snapshot$/.test(path) && Array.isArray(op["parameters"])) {
-        op["parameters"] = (op["parameters"] as Array<{ name?: string }>).filter((p) => p.name !== "upperId");
-      }
       delete op["operationId"];
       for (const key of Object.keys(op)) {
         if (key.startsWith("x-")) delete op[key];
       }
       if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
+      if (Array.isArray(op.parameters)) {
+        for (const param of op.parameters as Array<Record<string, unknown>>) {
+          if (param.name !== "fields" || param.in !== "query") continue;
+          delete param["x-snapshot-fieldset"];
+          const schema = param.schema as Record<string, unknown> | undefined;
+          if (schema) delete schema["x-snapshot-fieldset"];
+        }
+      }
     }
   }
   const bearer = copy.components?.securitySchemes?.["bearerAuth"] as
@@ -441,7 +443,11 @@ describe("published OpenAPI document", () => {
     // The agent-metadata layer (operationId, x-* extensions, the empty `security`
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
-    // enriching it never re-records this frozen document.
+    // enriching it never re-records this frozen document. The fields-only
+    // x-snapshot-fieldset extension is likewise pinned by the discovery oracle;
+    // no other fields parameter property is projected out. Conditional list
+    // If-None-Match, 200 ETag and 304 declarations are separately pinned by
+    // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
     expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
   });
 });
