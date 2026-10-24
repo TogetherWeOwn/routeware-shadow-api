@@ -441,7 +441,7 @@ describe("address hasContainers pagination", () => {
     const descTrue = await page({ hasContainers: "true", limit: 1, order: "desc" });
     expect(ids(descTrue.body)).toEqual([14]);
     expect(descTrue.body.total).toBe(3);
-    const descFalse = await page({ hasContainers: "false", limit: 2 });
+    const descFalse = await page({ hasContainers: "false", limit: 2, order: "desc" });
     expect(ids(descFalse.body)).toEqual([16, 15]);
     const seekDesc = await page({ hasContainers: "true", order: "desc", cursor: 14, limit: 1 });
     expect(ids(seekDesc.body)).toEqual([13]);
