@@ -302,7 +302,14 @@ const QUOTED_NONMATCHES = [
   { name: "hash inside one quoted tag", header: (h: string) => `"prefix,${h},suffix"` },
   { name: "hash inside one lowercase-weak tag", header: (h: string) => `w/"prefix,${h},suffix"` },
   { name: "wildcard inside one quoted tag", header: () => '"prefix,*,suffix"' },
-  { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' }
+  { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' },
+  // TOG-39719: a quoted "*" is an opaque entity-tag, never the RFC 7232
+  // wildcard. The current hash is 64 hex chars (asserted in currentRead), so
+  // these must miss (200) on every read path; the raw "*" 304 control lives
+  // in LEGACY_MATCHES below.
+  { name: "standalone quoted wildcard", header: () => '"*"' },
+  { name: "standalone lowercase-weak quoted wildcard", header: () => 'w/"*"' },
+  { name: "standalone uppercase-weak quoted wildcard", header: () => 'W/"*"' }
 ];
 const LEGACY_MATCHES = [
   { name: "exact quoted tag", header: (h: string) => `"${h}"` },

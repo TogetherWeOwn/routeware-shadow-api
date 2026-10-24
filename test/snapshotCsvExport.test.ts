@@ -607,7 +607,13 @@ describe.each(SPECS)("$name export route", (spec) => {
       { name: "hash inside one quoted tag", header: (h: string) => `"prefix,${h},suffix"` },
       { name: "hash inside one lowercase-weak tag", header: (h: string) => `w/"prefix,${h},suffix"` },
       { name: "wildcard inside one quoted tag", header: () => '"prefix,*,suffix"' },
-      { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' }
+      { name: "wildcard inside one lowercase-weak tag", header: () => 'w/"prefix,*,suffix"' },
+      // TOG-39719: a quoted "*" is an opaque entity-tag, never the RFC 7232
+      // wildcard. The current tag is fnv64 hex (asserted in currentExport),
+      // so these must miss (200); the raw "*" 304 control is preserved below.
+      { name: "standalone quoted wildcard", header: () => '"*"' },
+      { name: "standalone lowercase-weak quoted wildcard", header: () => 'w/"*"' },
+      { name: "standalone uppercase-weak quoted wildcard", header: () => 'W/"*"' }
     ])("serves current CSV for $name", async ({ header }) => {
       const current = await currentExport();
       const res = await callExport(spec.routes, spec.path, current.db, SECRET, header(current.hash));
