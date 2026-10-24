@@ -135,14 +135,16 @@ curl -H "Authorization: Bearer $TOKEN" \
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`. Every list response includes
-`nextCursor` (the last row's primary key, or `null` on the last page); pass it
+`nextCursor` (the last row's primary key on a full page, otherwise `null`);
+full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
 seek — `offset` re-scans everything before it, `cursor` does not:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=500&cursor=50000"
-# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor, or null at the end
+# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
+# Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
 Scanning pages without needing an exact count? Pass `includeTotal=false` to
@@ -156,6 +158,76 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=2&includeTotal=false"
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
+
+### Highest primary IDs first
+
+All three ordinary lists accept exact, case-sensitive `order=asc|desc`;
+omission and `asc` keep the existing ascending order. `desc` starts at the
+highest primary ID, **not necessarily the newest row in time**. Keep direction
+and cursor together; changing direction starts a new traversal. Cursor overrides
+offset in either direction. With counts enabled, `total` counts matching rows
+after the cursor, before limit/offset; with `includeTotal=false`, no COUNT runs.
+Follow-next `Link` targets preserve an explicitly requested `order`, so a
+`desc` traversal continues downward; omitted `order` keeps the default target.
+
+Synthetic IDs only; illustrative requests for a disposable local fixture:
+
+```text
+GET /api/v1/customer-snapshot?order=desc&limit=2&fields=company_name&includeTotal=false
+# IDs [91,58], nextCursor 58 for a matching fixture
+GET /api/v1/customer-snapshot?order=desc&cursor=58&limit=2&fields=company_name&includeTotal=false
+# IDs [42,37], nextCursor 37; total remains null
+GET /api/v1/address-snapshot?order=desc&limit=2&offset=2
+GET /api/v1/container-snapshot?order=desc&cursor=58&limit=2&customerId=11
+```
+
+Empty/repeated/other `order` values return a value-free 400 before D1
+(after auth); send one lowercase `asc` or `desc`, or omit it for `asc`.
+Full pages return their last integer ID even when terminal; stop on `null`
+from a partial or subsequent empty page. Concurrent writes are not a stable
+snapshot guarantee. Changes feeds, by-id reads and exports are unchanged.
+See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
+The focused check needs no credentials, running Worker or live tenant:
+
+```bash
+npm run check:snapshot-order
+```
+
+### Conditional JSON page reads (bandwidth only)
+
+The three ordinary snapshot list GETs return an `ETag`: quoted SHA-256 of
+exactly the served UTF-8 JSON envelope, **after** field projection, including
+`rows`, `total` and `nextCursor`. An authorized agent can send that quoted
+value in `If-None-Match`. An unchanged representation returns **304 with no
+body** and the same ETag; a nonmatch returns the current **200 JSON** and its
+ETag. Weak tags (`W/"…"`), comma-separated tag lists and standalone `*` work;
+unquoted hashes, lowercase `w/` prefixes and other malformed lists do not
+match. A quoted `"*"` is an ordinary opaque tag, not a wildcard.
+
+This saves **response bytes only, not D1 queries**: authentication, query
+validation and the usual D1 work still run on every request (two statements
+for counted pages, one with `includeTotal=false`). Auth/validation/D1 errors
+cannot turn into 304. `Cache-Control: no-store` is unchanged; this is **not a
+cache hit**, shared-cache permission or a TTL change. No response cache or
+persisted validator is added. CORS still exposes ETag and request IDs.
+Changing a selected value, total or nextCursor changes the tag; changing
+only selected-out values does not. Different requests serving identical
+bytes may share a tag. Detail, changes, CSV and hydrated-read contracts are
+unchanged.
+
+Synthetic, credential-free recipe (no running Worker or live tenant):
+
+```bash
+npx vitest run --maxWorkers=2 test/snapshotListConditional.acceptance.test.ts
+```
+
+The hermetic fixture calls the real app with local test D1 and makes any
+outbound fetch fail. For each resource it requests a projected page, computes
+the expected SHA-256 from the first 200's actual bytes, repeats the request
+with that ETag and checks a genuinely empty 304, then changes a selected
+synthetic value and checks a fresh 200. It also asserts identical executed
+SQL/binds on the 200/304 pair and preserved no-store/CORS/request-ID headers.
+These are synthetic regression results, not deployed performance measurements.
 
 ### Follow the server's next-page target
 
@@ -220,6 +292,65 @@ curl -H "Authorization: Bearer $TOKEN" \
 Empty `rows` with HTTP 200 means auth works but no snapshot has been synced
 yet — ask the operator to run `POST /api/v1/data-snapshot/sync` (or the daily
 cron), not a bug in your call.
+
+### Discover legal sparse-field selections
+
+Each supported operation's actual `fields` query parameter has
+`schema["x-snapshot-fieldset"]`. This **vendor extension**, not a standard
+OpenAPI keyword or an enum of whole comma-separated selectors, defines v1:
+
+| Key | Contract |
+|---|---|
+| `schemaVersion` | Integer `1`; stop selection for an unsupported version. |
+| `resource` | `customer`, `address` or `container`, for this operation only. |
+| `selectableFields` | Ordered array of all legal exact field names, including the primary identity. Generated from the same registry as validation, not record values. |
+| `alwaysIncludedFields` | Array containing the resource's primary identity, even when not selected. |
+| `delimiter` | `","`, also used by the parser. |
+| `rules` | `{caseSensitive: true, whitespace: "reject", emptySegments: "reject", duplicates: "reject", unknownNames: "reject", repeatedKeys: "reject"}`. |
+
+Use names exactly as advertised: no case folding, whitespace trimming, empty
+selector/segment, duplicate name or repeated `fields` key. Unadvertised names
+(including names exclusive to another resource) are invalid. An explicitly
+selected identity is legal once and returned once, not treated as a duplicate
+of the always-included identity. Invalid selectors yield the value-free 400
+before D1 work described in the [existing query policy](SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+
+Use `fields` only where the operation declares it. The six flat snapshot
+list/by-id reads project **each row** or the response object, retaining the
+primary identity without changing `total`, `nextCursor` or the envelope.
+The existing single-ID `GET /api/v1/data/customer`, `GET /api/v1/data/address`
+and `GET /api/v1/data/container` reads also declare `fields`: only the matching
+`.customer`, `.address` or `.container` root is projected, leaving related bundle
+data unchanged. Those hydrated reads still require the sync secret; their
+existing ETag and cache behavior is unchanged. Omitting `fields` preserves the
+full response. Exports, changes feeds and batch paths do not support `fields`.
+Inspect each operation's actual parameter and route description; the catalog
+does not grant authority. Operation IDs and access/effect metadata are unchanged.
+
+Given JSON saved from the existing enabled `/openapi.json` response as
+`openapi.json`, this offline example selects synthetic field names without
+reading records, trying invalid requests or invoking a data route:
+
+```bash
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const doc = JSON.parse(readFileSync(0, "utf8"));
+const op = doc.paths["/api/v1/customer-snapshot"].get;
+const p = op.parameters.find(p => p.in === "query" && p.name === "fields");
+const f = p?.schema?.["x-snapshot-fieldset"];
+if (f?.schemaVersion !== 1 || f.resource !== "customer") throw Error("Unsupported catalog");
+const wanted = ["company_name", "phone1"];
+if (!wanted.every(n => f.selectableFields.includes(n))) throw Error("Unavailable selection");
+const query = new URLSearchParams({ fields: wanted.join(f.delimiter) });
+console.log(JSON.stringify({ query: query.toString(), alwaysIncludedFields: f.alwaysIncludedFields }));
+' < openapi.json
+```
+
+Discovery itself needs no bearer, data bindings or upstream work;
+`OPENAPI_DOCS_ENABLED` still gates the document. Data reads still require the
+bearer from step 1. No separately published static spec is required. Run the
+credential-free, synthetic, network-denying discovery oracle plus existing
+projection/OpenAPI checks with `npm run check:snapshot-fieldset-discovery`.
 
 ## 2a. Upstream customer pagination: `skip`/`take` or `start`/`limit`
 
