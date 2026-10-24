@@ -10,13 +10,25 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   resolved `pickupAddressId` / `containerId`: upstream
   `data.PickupAddressID` / `data.ContainerID` first, else the singleton
   post-refresh D1 id (address ids for the owning customer, container ids
-  for the owning address). The id stays `null` only when that diff is empty
-  or ambiguous (0 or 2+ new ids). Updates keep echoing the posted id with
+  for the owning address). Without an upstream id, the id stays `null` when
+  that diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown
+  owner or failed baseline/refresh). Updates keep echoing the posted id with
   200; failed saves, customer saves and `localSync` codes are unchanged.
   There is deliberately no `Location` header: the by-id snapshot URL may
   not exist locally when the refresh fails. OpenAPI documents the 201/200
   split with resolved-id examples; dry-run saves echo posted ids while
   live saves resolve. See `docs/CONSUMER-QUICKSTART.md`.
+
+- #348: A rejected Workers `Cache.match` lookup in the shared entity-read
+  cache helper now counts as one miss and continues through the existing D1
+  bundle/ETag path, so customer, address and container reads keep their
+  normal 200, empty-body conditional 304 and 404 contract during a cache
+  outage instead of failing as 500s. Each rejected lookup emits one bounded
+  `cache.entityData` warn diagnostic (entity kind and error classification
+  only) alongside the usual count-only miss event. No TTL/policy change, no
+  retry, no stale or remote fallback; cache population stays best-effort and
+  delete/graph invalidation failures stay loud. Troubleshooting:
+  `docs/ENTITY-DATA-CACHE.md` and `docs/LOGGING.md`.
 
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
@@ -26,6 +38,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   printed. Redirects are refused and no retries are added. Output is bounded,
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+
+- #347: Conditional snapshot JSON reads: customer, address and container lists return
+  quoted SHA-256 ETags for the final projected JSON envelope and an empty 304
+  when `If-None-Match` matches. Malformed validators are misses; authentication,
+  query validation and D1 work remain unchanged. Bandwidth savings only, with
+  unchanged `no-store` and no shared response cache or persisted validators.
+  See `docs/CONSUMER-QUICKSTART.md` for the synthetic regression recipe.
 
 - #343: Snapshot customer/address/container lists now return optional
   `Link: <relative-target>; rel="next"` when `nextCursor` is non-null. Targets
