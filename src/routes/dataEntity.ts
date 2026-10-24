@@ -19,7 +19,10 @@ import {
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  dryRunQuery,
+  isDryRunRequested,
   parsePositiveIdParam,
+  rejectUnknownQueryKeys,
   requireSnapshotAuth,
   validationFailureHook
 } from "./shared";
@@ -227,9 +230,21 @@ function dataEntityPostResponse(
       : {}),
     400: { description: "Bad Request" },
     401: { description: "Unauthorized" },
-    502: { description: "Bad Gateway" }
+    502: { description: "Bad Gateway" },
+    503: {
+      description:
+        "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)"
+    }
   };
 }
+
+/**
+ * Only `dryRun` is an allowed query key on the POST saves. Invalid values
+ * 400 in the zod validator (before the inner auth gate); unknown keys pass
+ * the non-strict schema and are rejected after auth by
+ * `rejectUnknownQueryKeys`, so a wrong bearer still 401s first.
+ */
+const saveQueryKeys = ["dryRun"] as const;
 
 const localSyncExample = {
   done: true,
@@ -247,8 +262,9 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -291,7 +307,12 @@ const dataCustomerPostRoute = createRoute({
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataCustomer({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataCustomer(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });
 
 const dataAddressPostRoute = createRoute({
@@ -303,8 +324,9 @@ const dataAddressPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update address in Routeware + sync D1",
   description:
-    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved `pickupAddressId` — upstream `data.PickupAddressID` first, else the singleton post-refresh D1 id for the owning customer; `null` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No `Location` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
+    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved `pickupAddressId` — upstream `data.PickupAddressID` first, else the singleton post-refresh D1 id for the owning customer; `null` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No `Location` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveAddressForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -352,7 +374,12 @@ const dataAddressPostRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataAddress({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataAddress(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });
 
 const dataContainerPostRoute = createRoute({
@@ -364,8 +391,9 @@ const dataContainerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update container in Routeware + sync D1",
   description:
-    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved `containerId` — upstream `data.ContainerID` first, else the singleton post-refresh D1 id scoped to the owning address; `null` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No `Location` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
+    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved `containerId` — upstream `data.ContainerID` first, else the singleton post-refresh D1 id scoped to the owning address; `null` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No `Location` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveContainerForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -415,5 +443,10 @@ const dataContainerPostRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataContainer({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataContainer(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });

@@ -16,8 +16,30 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   200; failed saves, customer saves and `localSync` codes are unchanged.
   There is deliberately no `Location` header: the by-id snapshot URL may
   not exist locally when the refresh fails. OpenAPI documents the 201/200
-  split with resolved-id examples; dry-run saves echo posted ids while
-  live saves resolve. See `docs/CONSUMER-QUICKSTART.md`.
+  split with resolved-id examples; dry-run saves echo posted ids, live
+  creates resolve or return `null`, and live updates echo case-exact posted
+  ids. See `docs/CONSUMER-QUICKSTART.md`.
+
+- #353: The seven mutating snapshot POSTs (combined sync, three per-table
+  syncs, three imports) now reject any query key outside their declared set
+  (`dryRun` everywhere, plus `partialProgress` on the combined route) with a
+  fixed value-free 400 before any D1, R2 or upstream work. A mistyped
+  `?dryrun=true` fails loudly instead of running a real mutation. Sync-secret
+  401 precedence is preserved; invalid values and repeated known keys keep
+  their existing validator 400s. GET lists keep ignoring unknown names. See
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and `docs/PROBLEMS.md#bad-request`.
+
+- #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
+  to validate a save — form fields plus session health — without persisting
+  anything: no upstream POST, no D1 write, no cache invalidation, no login. A
+  dry-pass answers HTTP 200 with `dryRun: true`, `routewareStatus: null`,
+  `upstreamBytes: 0`, posted ids only and `localSync.not_attempted`;
+  validation failures return the identical 400/502 shapes as live. Without a
+  usable session the dry-run fails closed with 503 `failed-precondition`.
+  Only `dryRun` is an allowed query key (anything else is a value-free 400
+  after authentication);
+  an omitted flag or `?dryRun=false` writes exactly as before. Recipe:
+  `docs/CONSUMER-QUICKSTART.md`; problem pointers: `docs/PROBLEMS.md`.
 
 - #349: Every save-path error line in the customer, address and container
   flows now carries the once-per-request `requestId` adopted from inbound

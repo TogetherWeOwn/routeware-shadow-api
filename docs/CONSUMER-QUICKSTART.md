@@ -622,7 +622,7 @@ curl -X POST http://localhost:8787/api/v1/data/address \
 #   "localSync":{"done":true,"customerId":5,"addressIds":[10,77],"containerIds":[100]}}
 ```
 
-The id comes from upstream `data.PickupAddressID` / `data.ContainerID`
+For live creates, the id comes from upstream `data.PickupAddressID` / `data.ContainerID`
 first, else the singleton post-refresh D1 id (address ids for the owning
 customer, container ids for the owning address). The diff baseline is captured
 **before** the upstream POST so a concurrent refresh cannot put this request's
@@ -635,8 +635,9 @@ camelCase keys do not name an update. Upstream JSON ids must be positive safe
 integers (numbers or digit-only strings); invalid candidates do not mask valid
 fallback fields. There is deliberately no `Location`
 header: the by-id snapshot URL may not exist locally when the refresh fails,
-and a header that 404s is worse than none. Dry-run saves echo posted ids
-while live saves resolve (R21-02 convergence).
+and a header that 404s is worse than none. Dry-run saves echo posted ids;
+live creates resolve or return `null`, while live updates return the
+case-exact posted key.
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through
@@ -647,6 +648,33 @@ failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
 save envelope. See the [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
+
+### Dry-run recipe: validate, fix, save
+
+Append `?dryRun=true` to any of the three saves to validate — form fields
+plus session health — without risking a non-idempotent create landing
+upstream. Nothing is persisted: no upstream POST, no D1 write, no cache
+invalidation, no login.
+
+```bash
+# 1. Validate (HTTP 200: dryRun: true, routewareStatus: null, upstreamBytes: 0)
+curl -X POST "http://localhost:8787/api/v1/data/customer?dryRun=true" \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "CustomerID=0" \
+  --data-urlencode "CustomerTypeID=1" \
+  --data-urlencode "CompanyName=ExampleCo"
+# 2. Fix whatever 400/502 the dry-run reports (identical shapes to the live path)
+# 3. Save for real: drop the flag — or pass ?dryRun=false — and re-POST the body
+```
+
+Without a usable session the dry-run fails closed with 503
+`failed-precondition` and never logs in — run a live request first. Only
+`dryRun` is an allowed query key; after sync-secret authentication succeeds,
+anything else is a value-free 400. Missing or invalid authentication retains
+precedence over unknown-key rejection.
+`routewareStatus` is unknowable without posting and is never predicted.
+Run the hermetic proof: `npm run check:save-dry-run`.
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
