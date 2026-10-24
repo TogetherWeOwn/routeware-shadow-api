@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
+import { customerSnapshotListResponse, customerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
@@ -42,7 +43,6 @@ import {
   rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse,
   snapshotWriteResultExample,
   parsePositiveIdParam
 } from "./shared";
@@ -111,7 +111,7 @@ const customerSnapshotListRoute = createRoute({
       headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
-          schema: snapshotListResponse,
+          schema: customerSnapshotListResponse,
           example: { rows: [customerRowExample], total: 1, nextCursor: null }
         }
       }
@@ -234,7 +234,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
  * skip the same-timestamp rows past the page boundary (strict `>`), which is
  * why the resume key is the composite pair, never the timestamp alone.
  */
-// Own response schema, not `snapshotListResponse`: the changes cursor is the
+// Own response schema, not `customerSnapshotListResponse`: the changes cursor is the
 // composite `(synced_at, customer_id)` pair (`since` + `since_id`), never a
 // bare timestamp or a primary-key integer, so sharing the list schema would
 // publish (and typecheck) the wrong `nextCursor` type.
@@ -422,7 +422,7 @@ const customerSnapshotByIdRoute = createRoute({
       description: "Row",
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown()),
+          schema: customerSnapshotRowSchema,
           example: customerRowExample
         }
       }
