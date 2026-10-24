@@ -5,6 +5,80 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "components": {
     "parameters": {},
     "schemas": {
+      "AddressSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. A newly created address ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
+          "pickupAddressId",
+        ],
+        "type": "object",
+      },
       "AddressSaveOutcome": {
         "additionalProperties": false,
         "properties": {
@@ -46,6 +120,88 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "upstreamBytes",
           "localSync",
           "pickupAddressId",
+        ],
+        "type": "object",
+      },
+      "ContainerSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "containerId": {
+            "description": "Usable posted ContainerID, or null. A newly created container ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. A newly created address ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
+          "pickupAddressId",
+          "containerId",
         ],
         "type": "object",
       },
@@ -98,6 +254,72 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "localSync",
           "pickupAddressId",
           "containerId",
+        ],
+        "type": "object",
+      },
+      "CustomerSaveDryRun": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Posted customer ID, or null; not resolved from upstream or D1.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "dryRun": {
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "localSync": {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "enum": [
+                  "not_attempted",
+                ],
+                "type": "string",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          "ok": {
+            "description": "Validation passed only; no upstream write was attempted.",
+            "enum": [
+              true,
+            ],
+            "type": "boolean",
+          },
+          "routewareStatus": {
+            "description": "No upstream write was attempted, so no save status exists.",
+            "type": "null",
+          },
+          "upstreamBytes": {
+            "enum": [
+              0,
+            ],
+            "type": "number",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "dryRun",
         ],
         "type": "object",
       },
@@ -292,7 +514,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "type": "object",
       },
       "LocalSyncCode": {
-        "description": "not_attempted: upstream save was rejected, so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed.",
+        "description": "not_attempted: upstream save was rejected or this was validation-only (dryRun=true), so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed.",
         "enum": [
           "not_attempted",
           "unknown_customer_id",
@@ -951,12 +1173,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1035,12 +1257,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1421,12 +1643,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1505,12 +1727,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1951,12 +2173,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like \`{upserted: 2, rowCount: 2, deleted: 0}\` — imports never delete, so \`deleted\` is always 0. Run this before the address/container imports so their foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -2037,12 +2259,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** paste the sync secret once into the \`bearerAuth\` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: \`{upserted, rowCount, deleted}\` (\`skipped: true\` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -2313,12 +2535,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -2517,7 +2739,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2552,6 +2791,21 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": null,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
+                  },
                   "refreshed": {
                     "summary": "Upstream accepted; local graph refreshed (synthetic)",
                     "value": {
@@ -2616,11 +2870,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   },
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AddressSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/AddressSaveDryRun",
+                    },
+                  ],
                 },
               },
             },
-            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -2667,6 +2928,46 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "default": {
             "content": {
@@ -2822,7 +3123,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2856,6 +3174,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "containerId": null,
+                      "customerId": 345734,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
+                  },
                   "refreshed": {
                     "summary": "Upstream accepted; local graph refreshed (synthetic)",
                     "value": {
@@ -2924,11 +3258,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   },
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ContainerSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/ContainerSaveDryRun",
+                    },
+                  ],
                 },
               },
             },
-            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -2975,6 +3316,46 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "default": {
             "content": {
@@ -3134,7 +3515,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from \`GetCustomerDetailFull\` and invalidate related cache entries; this can fail independently of the write. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from \`GetCustomerDetailFull\` and invalidate related cache entries; this can fail independently of the write. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -3181,6 +3579,20 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "examples": {
+                  "dryRun": {
+                    "summary": "Validation passed only; no upstream write or local refresh (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "dryRun": true,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": null,
+                      "upstreamBytes": 0,
+                    },
+                  },
                   "refreshed": {
                     "summary": "Upstream accepted; local graph refreshed (synthetic)",
                     "value": {
@@ -3241,11 +3653,18 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   },
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/CustomerSaveOutcome",
+                    },
+                    {
+                      "$ref": "#/components/schemas/CustomerSaveDryRun",
+                    },
+                  ],
                 },
               },
             },
-            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
+            "description": "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -3292,6 +3711,46 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
           },
           "default": {
             "content": {

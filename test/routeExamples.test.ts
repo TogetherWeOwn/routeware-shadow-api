@@ -119,6 +119,15 @@ function assertValueMatchesSchema(
     ? schema.type.find((candidate) => candidate !== "null")
     : schema.type;
   if (Array.isArray(schema.type) && schema.type.includes("null") && value === null) return;
+  // Null-only schemas (`z.null()` renders as `{type: "null"}`): the value
+  // must be exactly null. Nullable unions are handled by the early return
+  // above; anything else reaching the dispatcher with a null-only type fails
+  // closed instead of falling into the `typeof` check (`typeof null` is
+  // "object", never "null").
+  if (type === "null" || (Array.isArray(schema.type) && schema.type.every((candidate) => candidate === "null"))) {
+    expect(value, label).toBeNull();
+    return;
+  }
   if (typeof value === "number") {
     if (schema.minimum !== undefined) expect(value, label).toBeGreaterThanOrEqual(schema.minimum);
     if (schema.maximum !== undefined) expect(value, label).toBeLessThanOrEqual(schema.maximum);
@@ -205,6 +214,32 @@ describe("media example schema checks", () => {
     expect(() => assertExampleMatchesSchema("fixture", "application/json", {
       schema: { type: "integer", nullable: true }, example: null
     })).not.toThrow();
+  });
+
+  it("accepts null-only type schemas with a null value", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: "null" }, example: null
+    })).not.toThrow();
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: ["null"] }, example: null
+    })).not.toThrow();
+  });
+
+  it("matches a null value against the null branch of a union", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { anyOf: [{ type: "integer" }, { type: "null" }] }, example: null
+    })).not.toThrow();
+  });
+
+  it.each([
+    ["a null-only type with an integer", { type: "null" }, 0],
+    ["a null-only type with a string", { type: "null" }, "null"],
+    ["a null-only type with false", { type: "null" }, false],
+    ["a null-only array type with an integer", { type: ["null"] }, 5]
+  ] as Array<[string, ExampleSchema, unknown]>)("rejects %s", (_name, schema, value) => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema, example: value
+    })).toThrow();
   });
 
   it("rejects a oneOf value matching more than one branch", () => {

@@ -27,7 +27,7 @@ type Schema = {
   items?: Schema;
   [key: string]: unknown;
 };
-type Media = { schema: Schema; example?: unknown; examples?: Record<string, { value?: unknown }> };
+type Media = { schema: Schema; example?: unknown; examples?: Record<string, { value?: unknown; summary?: string }> };
 type Operation = {
   operationId: string;
   description?: string;
@@ -99,6 +99,23 @@ function responseSchema(doc: Document, entity: Entity, status = 200, mediaType =
   return media!.schema;
 }
 
+// HTTP 200 application/json is `anyOf` the strict live entity outcome and a
+// named strict per-entity `*SaveDryRun` schema. Structural assertions must
+// select a branch honestly: the live branch is the one WITHOUT a dryRun
+// property, the dry-run branch the one WITH it. Selecting by position would
+// silently follow a reorder.
+function outcomeBranches(doc: Document, entity: Entity): { live: Schema; dryRun: Schema } {
+  const root = responseSchema(doc, entity);
+  const union = root.anyOf ?? root.oneOf;
+  expect(union, `${entity} 200 must be a live/dry-run union, not a single object`).toHaveLength(2);
+  const branches = union!.map((branch) => shape(branch, doc));
+  const live = branches.find((branch) => branch.properties?.dryRun === undefined);
+  const dryRun = branches.find((branch) => branch.properties?.dryRun !== undefined);
+  expect(live, `${entity} 200 must keep a live branch without dryRun`).toBeDefined();
+  expect(dryRun, `${entity} 200 must carry a dry-run branch`).toBeDefined();
+  return { live: live!, dryRun: dryRun! };
+}
+
 async function servedDocument(bindings = testEnv): Promise<Document> {
   const response = await app.fetch(new Request("https://worker.test/openapi.json"), bindings);
   expect(response.status).toBe(200);
@@ -124,6 +141,20 @@ const testEnv = {
   SHADOW_API_TOKEN: "save-contract-full",
   SHADOW_API_READ_TOKEN: "save-contract-read",
   AUTH_SESSION: { idFromName: (name: string) => name, get: () => sessionStub }
+} as unknown as Env;
+// Dry runs fail closed without a stored session cookie; they never log in to
+// establish one.
+const noSessionStub = {
+  fetch: async (input: RequestInfo | URL) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    if (path === "/get") return Response.json({ cookieHeader: null, expiresAtMs: null, refreshing: false });
+    if (path === "/throttle/failure" || path === "/throttle/clear") return Response.json({ blocked: false, retryAfterSec: 0 });
+    throw new Error(`Unexpected session operation: ${path}`);
+  }
+} as unknown as DurableObjectStub;
+const noSessionEnv = {
+  ...testEnv,
+  AUTH_SESSION: { idFromName: (name: string) => name, get: () => noSessionStub }
 } as unknown as Env;
 const db = env.CUSTOMER_DB;
 let document: Document;
@@ -162,15 +193,38 @@ afterEach(() => {
 describe("served entity-save outcome schemas", () => {
   for (const entity of entities) {
     it(`${entity}: publishes each runtime outcome field as required, without submitted fields or HTML`, () => {
-      const schema = shape(responseSchema(document, entity), document);
-      expect(schema.type, "unknown JSON is not an agent-consumable outcome contract").toBe("object");
-      expect(Object.keys(schema.properties ?? {}).sort()).toEqual([...fields[entity]].sort());
-      expect([...(schema.required ?? [])].sort()).toEqual([...fields[entity]].sort());
+      const { live } = outcomeBranches(document, entity);
+      expect(live.type, "unknown JSON is not an agent-consumable outcome contract").toBe("object");
+      expect(Object.keys(live.properties ?? {}).sort()).toEqual([...fields[entity]].sort());
+      expect([...(live.required ?? [])].sort()).toEqual([...fields[entity]].sort());
+      expect(live.properties?.dryRun, "live outcomes never carry dryRun").toBeUndefined();
+      expect(live.properties?.routewareStatus).toMatchObject({ type: "integer" });
       const op = operation(document, entity);
       expect(op.operationId).toBe(`saveData${entity[0].toUpperCase()}${entity.slice(1)}`);
       expect(op["x-access"]).toBe("sync-secret");
       expect(op["x-effect"]).toBe("upstream-write-local-refresh");
-      expect(Object.keys(op.responses)).toEqual(expect.arrayContaining(["200", "400", "401", "502"]));
+      expect(Object.keys(op.responses)).toEqual(expect.arrayContaining(["200", "400", "401", "502", "503", "default"]));
+    });
+
+    it(`${entity}: publishes a strict validation-only dry-run branch with null status and fixed not_attempted`, () => {
+      const { dryRun } = outcomeBranches(document, entity);
+      expect(dryRun.type).toBe("object");
+      const expected = [...fields[entity], "dryRun"];
+      expect(Object.keys(dryRun.properties ?? {}).sort()).toEqual([...expected].sort());
+      expect([...(dryRun.required ?? [])].sort()).toEqual([...expected].sort());
+      expect(dryRun.properties?.dryRun).toMatchObject({ type: "boolean", enum: [true] });
+      expect(dryRun.properties?.ok).toMatchObject({ type: "boolean", enum: [true] });
+      expect(dryRun.properties?.routewareStatus?.type).toBe("null");
+      expect(dryRun.properties?.upstreamBytes).toMatchObject({ type: "number", enum: [0] });
+      const local = shape(dryRun.properties!.localSync, document);
+      expect(local.type).toBe("object");
+      expect(Object.keys(local.properties ?? {}).sort()).toEqual(["code", "done"]);
+      expect([...(local.required ?? [])].sort()).toEqual(["code", "done"]);
+      expect(local.properties?.done).toMatchObject({ type: "boolean", enum: [false] });
+      expect(local.properties?.code).toMatchObject({ type: "string", enum: ["not_attempted"] });
+      for (const key of fields[entity].filter((field) => field.endsWith("Id"))) {
+        expect(dryRun.properties?.[key]?.type, `${key} stays nullable on dry runs`).toEqual(["number", "null"]);
+      }
     });
 
     it(`${entity}: advertises both forwarded JSON and preparation problem schemas for 502`, () => {
@@ -194,20 +248,42 @@ describe("served entity-save outcome schemas", () => {
       }
     });
 
+    it(`${entity}: advertises both forwarded JSON and session-precondition problem schemas for 503`, () => {
+      const content = operation(document, entity).responses["503"].content;
+      expect(Object.keys(content ?? {}).sort()).toEqual(["application/json", "application/problem+json"]);
+      expect(content!["application/json"].schema).toEqual({
+        $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
+      });
+      const problem = shape(content!["application/problem+json"].schema, document);
+      expect(problem.type).toBe("object");
+      expect([...(problem.required ?? [])].sort()).toEqual(["status", "title", "type"]);
+      expect(problem.properties).toEqual({
+        type: { type: "string" }, title: { type: "string" }, status: { type: "integer" },
+        detail: { type: "string" }, instance: { type: "string" }, requestId: { type: "string" }
+      });
+      const validate = validator(content!["application/problem+json"].schema, document);
+      const valid = { type: "about:blank", title: "Service Unavailable", status: 503 };
+      expect(validate.safeParse(valid).success).toBe(true);
+      for (const invalid of [{}, { ...valid, status: "503" }, { ...valid, status: 503.5 }, { ...valid, title: null }]) {
+        expect(validate.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false);
+      }
+    });
+
     it(`${entity}: advertises only its JSON save outcome for default forwarded rejection statuses`, () => {
       const responses = operation(document, entity).responses;
       expect(Object.keys(responses.default?.content ?? {})).toEqual(["application/json"]);
       expect(responses.default.content!["application/json"].schema).toEqual({
         $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
       });
-      expect(responseSchema(document, entity, 503)).toEqual(responses.default.content!["application/json"].schema);
+      // 503 is exact (pinned above); an undeclared status still routes to default.
+      expect(responseSchema(document, entity, 504)).toEqual(responses.default.content!["application/json"].schema);
       // Declared validation/auth failures remain separate from forwarded saves.
       expect(responses["400"]).not.toEqual(responses.default);
       expect(responses["401"]).not.toEqual(responses.default);
     });
 
     it(`${entity}: discovers the shared done-discriminated local refresh contract and exact fixed codes`, () => {
-      const envelope = shape(responseSchema(document, entity), document);
+      const envelope = outcomeBranches(document, entity).live;
       expect(envelope.properties?.localSync, "localSync must be typed, not just an example").toBeDefined();
       const local = shape(envelope.properties!.localSync, document);
       const branches = local.oneOf ?? local.anyOf;
@@ -263,6 +339,47 @@ describe("served entity-save outcome schemas", () => {
       }
     });
 
+    it(`${entity}: rejects invalid and mixed dry-run outcomes through the served 200 union`, () => {
+      const validate = validator(responseSchema(document, entity), document);
+      const dryValid = {
+        ok: true, dryRun: true, routewareStatus: null, customerId: 5, upstreamBytes: 0,
+        localSync: { done: false, code: "not_attempted" },
+        ...(entity !== "customer" ? { pickupAddressId: 10 } : {}),
+        ...(entity === "container" ? { containerId: 100 } : {})
+      };
+      expect(validate.safeParse(dryValid).success).toBe(true);
+      // Null-id creates validate: the runtime never resolves ids on dry runs.
+      const nullIds = {
+        ...dryValid, customerId: null,
+        ...(entity !== "customer" ? { pickupAddressId: null } : {}),
+        ...(entity === "container" ? { containerId: null } : {})
+      };
+      expect(validate.safeParse(nullIds).success).toBe(true);
+      const liveValid = { ...dryValid, routewareStatus: 200, upstreamBytes: 16, localSync: graph };
+      delete (liveValid as Record<string, unknown>).dryRun;
+      expect(validate.safeParse(liveValid).success).toBe(true);
+      for (const mixed of [
+        { ...liveValid, dryRun: true },
+        { ...dryValid, dryRun: false },
+        { ...dryValid, routewareStatus: 200 },
+        { ...dryValid, upstreamBytes: 16 },
+        { ...dryValid, ok: false },
+        { ...dryValid, localSync: graph },
+        { ...dryValid, localSync: { done: false, code: "sync_failed" } },
+        // A null live upstream status stays invalid: live needs an integer,
+        // dry-run needs the flag plus the fixed singleton fields.
+        { ...liveValid, routewareStatus: null },
+        { ...dryValid, customerId: "5" }
+      ]) {
+        expect(validate.safeParse(mixed).success, JSON.stringify(mixed)).toBe(false);
+      }
+      for (const key of [...fields[entity], "dryRun"]) {
+        const missing = { ...dryValid };
+        delete (missing as Record<string, unknown>)[key];
+        expect(validate.safeParse(missing).success, `dry-run missing ${key}`).toBe(false);
+      }
+    });
+
     it(`${entity}: serves schema-valid examples distinguishing landed writes, refresh failure and upstream rejection`, () => {
       const op = operation(document, entity);
       const examples = Object.values(op.responses).flatMap((response) => {
@@ -284,6 +401,25 @@ describe("served entity-save outcome schemas", () => {
       expect(guidance).toMatch(/(?:best.effort|not guaranteed|does not guarantee|may fail|can fail)/i);
       expect(guidance).toMatch(/(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)[^.\n]*creat|creat[^.\n]*(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)/i);
     });
+
+    it(`${entity}: names a synthetic validation-only dry-run example matching only the dry-run branch`, () => {
+      const media = operation(document, entity).responses["200"].content?.["application/json"];
+      const examples = media?.examples;
+      expect(Object.keys(examples ?? {}).sort()).toEqual(
+        ["dryRun", "refreshed", "rejected", "syncFailed", "unknownCustomer"].sort()
+      );
+      expect(examples!.dryRun.summary).toMatch(/synthetic/i);
+      const { live, dryRun } = outcomeBranches(document, entity);
+      expect(validator(dryRun, document).safeParse(examples!.dryRun.value).success).toBe(true);
+      expect(validator(live, document).safeParse(examples!.dryRun.value).success,
+        "dry-run example must not validate as a live outcome").toBe(false);
+      for (const name of ["refreshed", "syncFailed", "unknownCustomer", "rejected"]) {
+        const liveValue = examples![name].value;
+        expect(validator(live, document).safeParse(liveValue).success, name).toBe(true);
+        expect(validator(dryRun, document).safeParse(liveValue).success,
+          `${name} must not validate as a dry-run outcome`).toBe(false);
+      }
+    });
   }
 
   it("selects an exact status before default, even when the exact response lacks the requested media type", () => {
@@ -295,7 +431,10 @@ describe("served entity-save outcome schemas", () => {
     responses.default = { description: "Forwarded JSON", content: {
       "application/json": { schema: { type: "string" } }
     } };
-    expect(responseSchema(doc, "customer", 503)).toEqual({ type: "string" });
+    // 504 has no exact response, so it routes to default; 503 is exact and
+    // never falls through even though default advertises a different schema.
+    expect(responseSchema(doc, "customer", 504)).toEqual({ type: "string" });
+    expect(responseSchema(doc, "customer", 503)).toEqual({ $ref: "#/components/schemas/CustomerSaveOutcome" });
     expect(responseSchema(doc, "customer", 502, "application/problem+json")).toEqual({ type: "object" });
     expect(() => responseSchema(doc, "customer", 502)).toThrow("customer 502 must advertise application/json");
   });
@@ -311,12 +450,16 @@ describe("served entity-save outcome schemas", () => {
 
   it("describes one equivalent localSync contract for all three consumers", () => {
     const contracts = entities.map((entity) => {
-      const schema = shape(responseSchema(document, entity), document);
-      expect(schema.properties?.localSync).toBeDefined();
-      return resolve(schema.properties!.localSync, document);
+      const live = outcomeBranches(document, entity).live;
+      expect(live.properties?.localSync).toBeDefined();
+      return resolve(live.properties!.localSync, document);
     });
     expect(contracts[1]).toEqual(contracts[0]);
     expect(contracts[2]).toEqual(contracts[0]);
+    const dryContracts = entities.map((entity) =>
+      resolve(outcomeBranches(document, entity).dryRun.properties!.localSync, document));
+    expect(dryContracts[1]).toEqual(dryContracts[0]);
+    expect(dryContracts[2]).toEqual(dryContracts[0]);
   });
 });
 
@@ -375,15 +518,15 @@ async function localRows(): Promise<unknown[]> {
     (await db.prepare(`SELECT * FROM ${entity}_snapshot`).all()).results));
 }
 
-function post(entity: Entity, body: string, token: string | null = "save-contract-sync"): Promise<Response> {
-  return Promise.resolve(app.fetch(new Request(`https://worker.test/api/v1/data/${entity}`, {
+function post(entity: Entity, body: string, token: string | null = "save-contract-sync", query = "", bindings = testEnv): Promise<Response> {
+  return Promise.resolve(app.fetch(new Request(`https://worker.test/api/v1/data/${entity}${query}`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
       ...(token === null ? {} : { authorization: `Bearer ${token}` })
     },
     body
-  }), testEnv));
+  }), bindings));
 }
 
 function syntheticUpstream(entity: Entity, scenario: Scenario) {
@@ -551,4 +694,87 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
     expect(await servedDocument(isolated)).toEqual(document);
     expect(await servedDocument(isolated)).toEqual(document);
   });
+});
+
+describe("dry-run runtime outcomes validate against the served schemas", () => {
+  const dryEnvelopes: Record<Entity, Record<string, unknown>> = {
+    customer: {
+      ok: true, dryRun: true, routewareStatus: null, customerId: 5, upstreamBytes: 0,
+      localSync: { done: false, code: "not_attempted" }
+    },
+    address: {
+      ok: true, dryRun: true, routewareStatus: null, customerId: 5, pickupAddressId: 10,
+      upstreamBytes: 0, localSync: { done: false, code: "not_attempted" }
+    },
+    // No CustomerID is posted and dry runs never use the D1 owner fallback.
+    container: {
+      ok: true, dryRun: true, routewareStatus: null, customerId: null, pickupAddressId: 10,
+      containerId: 100, upstreamBytes: 0, localSync: { done: false, code: "not_attempted" }
+    }
+  };
+
+  for (const entity of entities) {
+    it(`${entity}: dry-run 200 envelope matches only the served dry-run branch, with no D1 mutation`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      // Explicit token: prep needs no modal fetch, so the hermetic denyNetwork
+      // stub proves zero upstream traffic on its own.
+      const response = await post(entity, updateForms[entity] + TOKEN, undefined, "?dryRun=true");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toEqual(dryEnvelopes[entity]);
+      expect(Object.keys(value).sort()).toEqual([...fields[entity], "dryRun"].sort());
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN/);
+      expect(await localRows(), "a dry run must not mutate any snapshot").toEqual(before);
+      const { live, dryRun } = outcomeBranches(document, entity);
+      expect(validator(dryRun, document).safeParse(value).success, bytes).toBe(true);
+      expect(validator(live, document).safeParse(value).success, "runtime dry-run is not a live outcome").toBe(false);
+      expect(validator(responseSchema(document, entity), document).safeParse(value).success, bytes).toBe(true);
+    });
+
+    it(`${entity}: dry-run without a session fails closed 503 validated by the served problem schema`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      const response = await post(entity, updateForms[entity] + TOKEN, undefined, "?dryRun=true", noSessionEnv);
+      expect(response.status).toBe(503);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/problem+json");
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toMatchObject({ title: "Service Unavailable", status: 503, instance: `/api/v1/data/${entity}` });
+      expect(String(value.detail)).toMatch(/session/i);
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN/);
+      expect(await localRows(), "a failed dry run must not mutate any snapshot").toEqual(before);
+      const validate = validator(responseSchema(document, entity, 503, mediaType), document);
+      expect(validate.safeParse(value).success, bytes).toBe(true);
+      expect(validator(responseSchema(document, entity, 503), document).safeParse(value).success,
+        "dry-run precondition problem is not a forwarded save outcome").toBe(false);
+    });
+
+    it(`${entity}: live upstream 503 forwards JSON validated by the exact 503 schema`, async () => {
+      await seedGraph();
+      const scenario: Scenario = {
+        name: "forwarded live 503",
+        body: updateForms[entity], upstreamStatus: 503, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
+        status: 503, ok: false, customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      };
+      syntheticUpstream(entity, scenario);
+      const response = await post(entity, scenario.body + TOKEN);
+      expect(response.status).toBe(503);
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/json");
+      const value = await response.json();
+      // Exact 503 JSON is the live outcome envelope, not the default route.
+      expect(responseSchema(document, entity, 503)).toEqual({
+        $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
+      });
+      expect(validator(responseSchema(document, entity, 503, mediaType), document).safeParse(value).success).toBe(true);
+      expect(value).toMatchObject({ ok: false, routewareStatus: 503 });
+    });
+  }
 });
