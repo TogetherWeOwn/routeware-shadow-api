@@ -62,7 +62,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text on street `q`, `enabled`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text `q` over street, city or zip (a match in any one column), `enabled`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -81,7 +81,7 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Opaque case-sensitive exact franchise equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
         .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" }),
-      q: snapshotSearchQuery.optional().describe("Address line substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
+      q: snapshotSearchQuery.optional().describe("Substring on street, city or zip — a match in any one column (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -150,8 +150,15 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     binds.push(p.franchiseId);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
-    where.push("instr(lower(coalesce(address, '')), lower(?)) > 0");
-    binds.push(p.q.trim());
+    // Locality search: one parenthesized OR across street, city and zip,
+    // AND-composed with every other filter by the shared where/binds join.
+    // Postcodes stay opaque text (leading zeros significant); no LIKE, no
+    // numeric conversion, no state or geographic expansion.
+    where.push(
+      "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)"
+    );
+    const needle = p.q.trim();
+    binds.push(needle, needle, needle);
   }
   if (p.enabled === "true") {
     where.push("enabled = 1");
@@ -217,6 +224,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     "address",
     {
       ...p,
+      // The continuation spells the effective trimmed needle: matching trims
+      // q, so the Link carries the value that actually filtered this page. A
+      // blank q filtered nothing and stays out of the target.
+      q: p.q === undefined || p.q.trim() === "" ? undefined : p.q.trim(),
       order: c.req.query("order") === undefined ? undefined : p.order,
       includeTotal: c.req.query("includeTotal") === undefined ? undefined : p.includeTotal
     },

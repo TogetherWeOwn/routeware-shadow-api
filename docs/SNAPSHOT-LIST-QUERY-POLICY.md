@@ -90,6 +90,40 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
 
+## Address street or locality search
+
+Only the address list searches `q` across three columns. The existing `q` is a
+single optional literal substring, trimmed before matching: a row matches when
+the street (`address`), `city` or `zip` contains the needle, case-insensitively
+under existing SQLite semantics. Empty and whitespace-only `q` behave exactly
+as omitted. Raw input over 100 Unicode code points (measured before trimming)
+or a repeated `q` key returns the existing value-free 400 after authentication
+and before D1. Quotes, `%`, `_`, backslashes and Unicode are literal bound
+data, never `LIKE` wildcards; postcodes stay opaque text with significant
+leading zeros. No state search, full-address parser, numeric conversion,
+geocoding or postal/geographic expansion is performed: locality `q` is not an
+exact postal or geographic scope filter.
+
+The match is one parenthesized three-column OR, AND-composed with
+`customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `enabled`
+and cursor/ceiling predicates by the shared WHERE join. Null and empty
+locality columns match nothing on their own legs. One row per
+`pickup_address_id`, ordering, offset/seek, cursor-relative counted totals,
+count-free zero-COUNT behavior, sparse projection and conditional ETags are
+unchanged; omitted `q` preserves old behavior. Continuation Links carry the
+trimmed needle with the same encoding as every other preserved selector.
+
+Query count is unchanged (one COUNT plus one SELECT, or one SELECT
+count-free). `q` alone still scans — `instr()` substring legs cannot seek a
+B-tree — while composed shapes keep their existing index plans
+(`test/snapshotTextFilterIndexes.test.ts` pins both). No join, index,
+migration or lookahead query is added. See the
+[synthetic follow-next recipe](CONSUMER-QUICKSTART.md#address-street-or-locality-search)
+and [fixed correction guidance](PROBLEMS.md#bad-request). Run
+`npm run check:address-locality` for the hermetic local-D1 contract, the
+SQL/bind/EXPLAIN oracles and relevant list/link/validation regressions; no
+live credentials, upstream calls or production-performance claims.
+
 ## Exact container asset lookup
 
 Only the existing container list accepts `serialNumber` and `rfid`. Each is a

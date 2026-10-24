@@ -973,12 +973,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
+            "description": "Substring on street, city or zip — a match in any one column (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
+              "description": "Substring on street, city or zip — a match in any one column (case-insensitive; maximum 100 Unicode code points)",
               "example": "Main",
               "maxLength": 100,
               "type": "string",
