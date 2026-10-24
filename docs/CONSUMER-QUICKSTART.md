@@ -723,9 +723,11 @@ upstream body are never echoed):
 ```
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
-for a new address; `ContainerID=0` + `PickupAddressID` for a new container),
-except creates answer **HTTP 201** with the resolved id while updates echo
-the posted id with 200 (customer saves stay 200 on creates):
+for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
+Their JSON envelopes additionally require nullable `pickupAddressId`, and the
+container envelope also requires nullable `containerId`. `customerId` is also
+nullable when unresolved. Creates answer **HTTP 201** with the resolved id
+while updates echo the posted id with 200 (customer saves stay 200 on creates):
 
 ```bash
 # Create address (PickupAddressID=0); the 201 body carries the created id
@@ -756,6 +758,48 @@ header: the by-id snapshot URL may not exist locally when the refresh fails,
 and a header that 404s is worse than none. Dry-run saves echo posted ids;
 live creates resolve or return `null`, while live updates return the
 case-exact posted key.
+
+`routewareStatus` is the original upstream status, not necessarily the wrapper
+status (for example, upstream 200 on a create returns wrapper 201 with the
+resolved id).
+
+**Read `dryRun`, `ok` and `localSync` separately.** On a live save (no `dryRun`
+response flag), `ok=true` means the upstream write was accepted, not that local
+data was refreshed. A `dryRun=true` response means validation passed only; no
+upstream write or local refresh was attempted. Local refresh and cache
+invalidation are best-effort; HTTP 200 does not guarantee a refreshed local graph.
+The shared, served OpenAPI `LocalSyncSummary` contract has two exclusive shapes:
+
+| `localSync` | Meaning and recovery |
+| --- | --- |
+| `{done:true, customerId, addressIds, containerIds}` | Graph refreshed and cache invalidation completed; arrays contain graph IDs, not submitted fields. |
+| `{done:false, code:"sync_failed"}` | Write accepted, but refresh or cache invalidation failed; local state may be stale or partially refreshed. Verify local state and arrange graph reconciliation rather than repeating the save. |
+| `{done:false, code:"unknown_customer_id"}` | Write accepted, but the owning customer was unresolved, so no graph refresh ran. Resolve the existing upstream identity before reconciling local state. |
+| `{done:false, code:"not_attempted"}` | Upstream rejected the live save (`ok=false`), or this was validation-only (`dryRun=true`); no local refresh ran. This is not a write-success claim. |
+
+Never blindly replay or retry creates after an ambiguous response or failed
+refresh: the upstream write may already have landed. Verify existing identities
+and reconcile local state without repeating the create; these codes do not
+provide idempotency or authorize retries. Error codes are fixed strings, never
+exception text, upstream HTML, form fields or PII. Inspect `application/json`
+examples on each save operation in `/openapi.json` for the four live outcomes,
+the validation-only dry-run outcome, and the 201 created-id outcome on address
+and container saves. HTTP 200 advertises a union of those strict live and
+dry-run schemas (live updates echo the posted id; live creates answer 201);
+null upstream status is valid only on dry runs.
+
+Runnable hermetic schema-vs-runtime check (no live provider, credentials or data):
+
+```bash
+npx vitest run test/saveOutcomeSchemas.acceptance.test.ts --maxWorkers=2
+```
+
+This serves OpenAPI via `app.fetch`, validates all three envelopes and synthetic
+outcomes, rejects malformed `localSync`, and checks unchanged forwarding,
+authentication, `no-store`, statuses and side effects. It exercises the behavior
+present at this implementation head, including the merged dry-run and created-ID
+resolution contracts; it does not introduce new save behavior.
+
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through
@@ -765,7 +809,14 @@ failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 `routewareStatus` and `upstreamBytes`) — check the `ok` field, not just the
 status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
-save envelope. See the [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
+save envelope. Likewise, HTTP 503 can carry a forwarded live rejection as
+JSON or a dry-run session precondition failure as problem+json. The exact
+400/401 responses and the default error response also publish both media
+schemas: a forwarded rejection is a JSON save outcome, while local validation,
+bearer denial, auth throttling (429) and unhandled failures (500) use
+problem+json. A problem response alone does not prove whether a write landed.
+Inspect the media type and payload, not only the status. See the
+[502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
 
 ### Dry-run recipe: validate, fix, save
 
