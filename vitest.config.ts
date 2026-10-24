@@ -187,10 +187,13 @@ export default defineConfig({
        * Ratcheted 2026-10-21 after the hermetic CI run at `5f1aee08`:
        * statements 98.07%, branches 94.54%, functions 98.86%, lines 98.34%.
        * Statements clears 98, so that floor rises to 98.
+       * Ratcheted 2026-10-24 after the hermetic full run at `dcc4ad55`:
+       * statements 98.18%, branches 95.01%, functions 98.61%, lines 98.49%.
+       * Branches clears 95, so that floor rises to 95.
        */
       thresholds: {
         statements: 98,
-        branches: 94,
+        branches: 95,
         functions: 98,
         lines: 98
       }
