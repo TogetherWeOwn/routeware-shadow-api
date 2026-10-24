@@ -62,6 +62,35 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
 
+## Customer personal or company name search
+
+Only the ordinary customer list matches `q` against personal names. The
+optional `q` stays a trimmed literal substring of at most 100 Unicode code
+points, validated before trimming; it now matches a row when the substring
+appears in any one of `company_name`, `first_name` or `last_name`. One bound
+value per column feeds the existing `instr(lower(coalesce(...)))` legs inside
+a single parenthesized OR group, so the whole group AND-composes with every
+other selector and cursor predicate. Quotes, `%` and `_` are literal data;
+there is no LIKE wildcard, name concatenation, token or fuzzy parsing, and no
+Unicode case folding beyond existing SQLite behavior. A null column never
+matches a nonempty `q`; empty or whitespace-only `q` still means no filter,
+and omitting `q` preserves prior matches and shape.
+
+One row per canonical `customer_id`, original ordering, offset/seek
+conventions, cursor-relative counted totals, `includeTotal=false` zero-COUNT
+behavior, sparse projection and conditional ETags are unchanged. Continuation
+Links retain the validated `q`; no query value enters logs or error detail.
+Other lists and the changes feed keep their existing `q` behavior.
+
+Run `npm run check:customer-name-search` for the focused acceptance and list
+regressions, with real local test D1, synthetic fixtures and forbidden
+outbound fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#personal-or-company-name-search)
+walks a name search to its empty terminal page. Synthetic `EXPLAIN QUERY PLAN`
+still seeks the customer enabled index for enabled-plus-`q` pages, scans for
+`q`-alone substring filtering, and seeks (primary key or enabled index, with
+no join or temp B-tree) when a cursor joins the filter; no new index,
+production latency or customer-demand claim is made.
+
 ## Address route and franchise scopes
 
 Only the address list recognizes `routeId` and `franchiseId`. Each is optional

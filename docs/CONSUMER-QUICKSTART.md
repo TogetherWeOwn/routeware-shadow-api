@@ -132,10 +132,14 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/container-snapshot?limit=2"
 ```
 
-List filters: `?q=<company-substring>`, `&enabled=true|false|any`
-(default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
-scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
+List filters: `?q=<customer-name-substring>`, `&enabled=true|false|any`
+(default `any`), `&limit=1..500` (default 50), `&offset=`. On the customer
+list, `q` matches a row when the substring appears in any one of
+`company_name`, `first_name` or `last_name` — substring search, not an exact
+identity lookup ([synthetic name-search recipe](#personal-or-company-name-search)).
+Address lists also accept `customerId` / `pickupAddressId` and exact `routeId` /
+`franchiseId` scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)).
+Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -166,7 +170,7 @@ Resolve an external account reference to canonical `customer_id` values on the
 existing `listCustomerSnapshot` operation (read token allowed, local D1 only).
 Optional `customerNumber` and `subCustomerNumber` are exact, case-sensitive opaque
 strings, not unique keys. Both together mean AND; they also compose with
-`customerId`, company-only `q`, `enabled`, sparse `fields` and pagination.
+`customerId`, name-substring `q`, `enabled`, sparse `fields` and pagination.
 Leading zeros and supplied nonblank whitespace are significant. Each key must
 occur once with 1..100 Unicode code points and not be whitespace-only. Do not
 trim, normalize or convert to numbers. Use URLSearchParams (or equivalent URL
@@ -207,6 +211,36 @@ upstream calls are involved. For a 400, correct or omit the named account field
 and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
+
+### Personal or company name search
+
+Find customer rows by personal name without downloading unrelated pages, on
+the existing `listCustomerSnapshot` operation (read token allowed, local D1
+only). Optional `q` is a literal case-insensitive substring of at most 100
+Unicode code points; a row matches when it appears in any one of
+`company_name`, `first_name` or `last_name`. Quotes, `%` and `_` are literal
+data, never wildcards. There is no full-name, token or fuzzy parsing: a query
+spanning first and last name does not match a split row, and a null column
+never matches a nonempty `q`. The match AND-composes with every other filter,
+and follow-next Links retain `q` verbatim.
+
+Synthetic multi-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:customer-name-search
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/customer-snapshot?q=needle&enabled=true&fields=first_name&order=asc&limit=2&includeTotal=false`.
+Its page IDs are `11,23`, then `42,58`, then the empty terminal page; each
+full page returns its last ID as `nextCursor` with a followable Link, and the
+empty page carries no Link. `total` is null on every page and each page
+executes one SELECT with no COUNT. Other fixtures prove trimmed matching,
+blank/omitted-`q` parity, ASCII-only case behavior, literal SQL-shaped text,
+100/101-code-point bounds, sparse fields that omit the matched column and
+conditional 304s on the final envelope. Synthetic `EXPLAIN QUERY PLAN` still
+seeks the customer enabled index for enabled-plus-`q` pages; no new index,
+migration or production latency claim is made.
 
 ### Address route and franchise scopes
 
