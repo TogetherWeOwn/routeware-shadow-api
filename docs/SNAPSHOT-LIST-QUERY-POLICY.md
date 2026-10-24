@@ -275,9 +275,10 @@ even percent-encoded) is the existing value-free 400 naming `upperId`
 before any D1 work, after read-role authentication. See
 [bad-request correction guidance](PROBLEMS.md#bad-request).
 
-Numeric IDs are not timestamps: inserts below the ceiling, updates and
-deletions remain visible within the chosen scope. The bound promises
-neither snapshot isolation, exact-once delivery nor automatic watermark
+Numeric IDs are not timestamps: inserts below the ceiling remain visible,
+and updates and deletions can change later pages, while deleted rows are
+omitted from the current snapshot lists. The bound promises neither
+snapshot isolation, exact-once delivery nor automatic watermark
 discovery. Synthetic resume with an explicitly supplied cap:
 
 ```text
