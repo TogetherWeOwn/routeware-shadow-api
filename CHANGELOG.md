@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #361: Exact external account lookup on the existing customer snapshot list: optional
+  `customerNumber` and `subCustomerNumber` use bound, case-sensitive equality and
+  AND-compose with existing filters. Opaque strings preserve zeros and nonblank
+  whitespace; invalid or repeated values fail before D1. Duplicate business
+  numbers return all matches, and next-page Links retain both selectors. No new
+  index, uniqueness assumption, upstream call or count-free COUNT query. See
+  `docs/CONSUMER-QUICKSTART.md` for the synthetic lookup-to-next-page recipe.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit

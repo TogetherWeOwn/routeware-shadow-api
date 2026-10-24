@@ -38,6 +38,23 @@ perform no data-handler, cache or D1 work. A valid but unknown ID remains 404.
 See the [synthetic consumer check](CONSUMER-QUICKSTART.md#3-nested-reads-apiv1data-sync-secret-only)
 for local, credential-free acceptance examples.
 
+## Customer account numbers (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `customerNumber` and `subCustomerNumber`
+are optional exact, case-sensitive strings of 1..100 Unicode code points; each
+may appear only once and must not be whitespace-only. Values are never trimmed
+or numerically coerced, so nonblank whitespace and leading zeros are preserved.
+After authentication, invalid filters return a stable, value-free 400 before
+D1 access or conditional 304 success. Correct the named field to a single
+nonblank value within the limit, or omit it, then retry.
+
+The existing detail remains fixed, for example:
+`Invalid request query (customerNumber). See docs/PROBLEMS.md#bad-request.`
+The field can instead be `subCustomerNumber` or multiple invalid fields; no
+supplied account value is echoed or logged. A valid lookup with zero matches
+is a successful empty collection, not a validation error. See the
+[synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
+
 ## Customer changes cursor (`bad-request`)
 
 For `GET /api/v1/customer-snapshot/changes`, send a valid UTC `Z` datetime
