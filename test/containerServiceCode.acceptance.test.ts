@@ -236,7 +236,7 @@ describe("serviceCode: exact stored opaque value", () => {
 describe("serviceCode strict lexical rejection and auth ordering", () => {
   it.each([
     ["empty", ""], ["spaces", "   "], ["tabs and newlines", " \t\r\n "],
-    ["Unicode whitespace", "  　"], ["101 ASCII code points", "private-marker-" + "x".repeat(87)],
+    ["Unicode whitespace", "  　"], ["101 ASCII code points", "private-marker-" + "x".repeat(86)],
     ["101 astral code points", "🚛".repeat(101)], ["100 ASCII plus one astral", "x".repeat(100) + "🚛"],
   ])("rejects %s with fixed value-free guidance before D1, even with a conditional wildcard", async (_name, value) => {
     const db = forbiddenDb();
