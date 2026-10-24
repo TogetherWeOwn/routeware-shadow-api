@@ -86,6 +86,10 @@ const PINNED_PRIVILEGED: string[] = [
   // `localeCompare`, so this GET lands with the GET group (after
   // `data/customer`, `data` < `snapshots`); probes carry a concrete table +
   // date.
+  // Archived-date listing: same /snapshots/ prefix, same inner gate; the
+  // shorter `:table` sorts before `:table/:date`. Probes carry a concrete
+  // table (the `:date` replacement is a no-op here).
+  "GET /api/v1/snapshots/:table",
   "GET /api/v1/snapshots/:table/:date",
   // Latest-pointer readback: same /snapshots/ prefix, same inner gate.
   // `localeCompare` sorts the literal `latest` after the `:date` param.
