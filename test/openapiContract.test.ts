@@ -152,7 +152,9 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. Every other response, header, schema and operation stays frozen.
+ * projected out. The optional upperId query on these same three lists is pinned
+ * independently by snapshotUpperId.acceptance.test.ts. Every other parameter,
+ * response, header, schema and operation stays frozen.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
@@ -187,7 +189,8 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
+        !(param.in === "query" && param.name === "upperId")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -470,6 +473,9 @@ describe("published OpenAPI document", () => {
     // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; unrelated golden contracts stay pinned.
+    // Only the three ordinary lists' upperId query parameters are also projected
+    // out: their bounds, strict validation, scope and authority are independently
+    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(doc)))).toMatchSnapshot();
   });
 });
