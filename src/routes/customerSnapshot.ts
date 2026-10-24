@@ -54,6 +54,12 @@ import {
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
 export const customerSnapshotRoutes = createRouteModule();
 
+// Keep account references opaque: trim only to detect blank input, never to
+// transform it. The UTF-16 guard bounds allocation before counting code points.
+const customerAccountNumberQuery = z.string()
+  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
+  .openapi({ minLength: 1, maxLength: 100 });
+
 const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
@@ -63,11 +69,17 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, company substring `q`, or `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, company substring `q`, or `enabled`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      customerNumber: customerAccountNumberQuery.optional()
+        .describe("Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
+        .openapi({ example: "00042" }),
+      subCustomerNumber: customerAccountNumberQuery.optional()
+        .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
+        .openapi({ example: "North" }),
       q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
@@ -105,7 +117,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before D1 or conditional 304 success. Errors name fields, never supplied values. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -119,6 +131,14 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.customerId !== undefined) {
     where.push("customer_id = ?");
     binds.push(p.customerId);
+  }
+  if (p.customerNumber !== undefined) {
+    where.push("customer_number = ?");
+    binds.push(p.customerNumber);
+  }
+  if (p.subCustomerNumber !== undefined) {
+    where.push("sub_customer_number = ?");
+    binds.push(p.subCustomerNumber);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     where.push("instr(lower(coalesce(company_name, '')), lower(?)) > 0");
