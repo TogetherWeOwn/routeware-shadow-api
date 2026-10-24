@@ -8,10 +8,12 @@ import {
 } from "../lib/d1SnapshotSync";
 import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 import {
+  DATA_SNAPSHOT_SYNC_QUERY_KEYS,
   createRouteModule,
   dataSnapshotSyncResultExample,
   dryRunQuery,
   isDryRunRequested,
+  rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret
 } from "./shared";
@@ -45,7 +47,8 @@ const dataSnapshotSyncQuery = dryRunQuery.extend({
     .enum(["true", "false"])
     .optional()
     .describe(
-      "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json"
+      "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json. " +
+        "Any other query key is rejected with a value-free 400 before any table runs."
     )
     .openapi({ example: "true" })
 });
@@ -147,6 +150,8 @@ dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   if (denied) return denied;
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, DATA_SNAPSHOT_SYNC_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   const origin = new URL(c.req.url).origin;
   const query = c.req.valid("query");
   // Forward `?dryRun=true` to every chained per-table subrequest.

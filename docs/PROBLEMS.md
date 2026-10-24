@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, disallowed CSV control characters, a snapshot row with a dangling foreign key, or an unexpected query key on a data-entity save (only `dryRun` is allowed; see below). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, disallowed CSV control characters, a snapshot row with a dangling foreign key, an unknown query key on a mutating snapshot POST, or an unexpected query key on a data-entity save (only `dryRun` is allowed; see below). |
 | `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
@@ -182,6 +182,25 @@ There is **no whole-upload rollback**. The rejected record is never written and
 parse failure never triggers end-of-import reconciliation; imports never delete.
 See the [strict import contract](../CUSTOMER_SNAPSHOT.md#strict-identities-on-operator-csv-imports)
 for the synthetic example and focused hermetic regression command.
+
+## Strict mutating-POST query keys (`bad-request`)
+
+The seven mutating snapshot POSTs (`...-snapshot/sync`,
+`...-snapshot/import`, `/api/v1/data-snapshot/sync`) reject any query key
+outside their declared set — `dryRun` everywhere, plus `partialProgress` on
+the combined route — with a fixed, value-free 400 before any D1, R2 or
+upstream work. A typo such as `?dryrun=true` fails loudly instead of running
+a real mutation:
+
+```
+Unknown query parameter. Allowed query parameters: dryRun. See docs/PROBLEMS.md#bad-request.
+```
+
+The combined route names both keys. No submitted key or value is echoed.
+Sync-secret 401 precedence is preserved; invalid values and repeated known
+keys keep their existing validator 400s. Fix the spelling to the exact
+documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#mutating-post-query-keys-are-strict).
+GET lists keep ignoring unknown names; only POSTs are strict.
 
 ## Dangling snapshot references (`bad-request`)
 
