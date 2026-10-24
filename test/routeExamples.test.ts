@@ -282,9 +282,10 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +3 for fields on the three hydrated single-ID GETs;
     // +2 for exact customerNumber/subCustomerNumber on the ordinary customer list;
     // +3 for order on the three ordinary lists;
+    // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
     // +1 for table on the latest-pointer readback.
-    expect(checked).toBe(68);
+    expect(checked).toBe(70);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
