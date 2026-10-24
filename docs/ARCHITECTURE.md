@@ -50,7 +50,7 @@ The prefix tells the reader which path follows:
 
 | Surface | Main path after authorization |
 |---|---|
-| `GET /api/v1/data/customer`, `/data/address`, `/data/container` | Hydrated JSON aggregate from Cache API or D1; no live upstream read on this path. Identity is an `id` query parameter or its entity-specific alias. |
+| `GET /api/v1/data/customer`, `/data/address`, `/data/container` | Hydrated JSON aggregate from Cache API or D1; a rejected cache lookup counts as one miss and falls through to normal D1 hydration, with no cache retry or live upstream read. Identity is an `id` query parameter or its entity-specific alias. |
 | `POST /api/v1/data/customer`, `/data/address`, `/data/container` | Upstream form save, then best-effort customer-graph refresh into D1 and cache invalidation; sanitized outcome JSON. |
 | `/api/v1/routeware/*` | Explicit upstream actions, not an arbitrary-path proxy. Raw save routes also attempt local refresh, but retain the upstream response and suppress local-refresh errors. |
 | `...-snapshot` reads, syncs and imports | Query the D1 mirror, fetch bulk report CSVs, or import supplied CSVs; see [Snapshot synchronization](#snapshot-synchronization). |
@@ -117,8 +117,12 @@ Failure boundaries matter when deciding whether to retry a write:
   roll back the Routeware write; blindly replaying a create can duplicate it.
 - An upstream failure can retain status 200 while the envelope says `ok=false`.
   Inspect `ok` and `localSync`, not just the HTTP status.
-- Some errors, including a failed fallback cache deletion, can escape to the
-  app error handler. There is no atomic rollback across upstream, D1 and cache.
+- After upstream success, fallback cache eviction failure is caught and logged;
+  it preserves the fixed `localSync` outcome and HTTP 200, not a retryable write
+  failure. Entries that survive eviction can remain stale until the shared
+  60-second TTL expires; expiry does not repair a failed D1 refresh.
+- Other errors can still reach the app error handler. There is no atomic
+  rollback across upstream, D1 and cache.
 
 Address and container saves follow the same sequence, with different forms:
 
@@ -227,10 +231,42 @@ measurements and tuning guidance are in [CUSTOMER_SNAPSHOT.md](../CUSTOMER_SNAPS
 
 A failed table stops later steps; earlier successful tables stay changed. The
 runner carries partial counts in `PartialDataSnapshotSyncError` for cron logs.
-The combined HTTP endpoint normally reaches the generic 500 handler on failure,
-not a partial-success response. On success its per-table values are only
-`{upserted, rowCount}` or `null`; deletion counts and R2 status are omitted.
-Use per-table results/cron evidence to inspect archive outcomes.
+The combined HTTP endpoint keeps generic errors by default (including
+`partialProgress=false`), and for unclassified failures even with the opt-in.
+With `partialProgress=true`, a classified chained table failure instead returns
+HTTP 500 `application/json` with sanitized completed-table counts and a fixed
+failure classification. This is failure reporting, **not** a partial-success
+status or rollback: completed writes remain applied, and a failed response
+observation does not prove that the failed table wrote nothing. See the
+canonical [partial-progress contract](../CUSTOMER_SNAPSHOT.md#partial-progress-on-combined-sync-failure)
+and [chained response boundary and recovery guidance](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary).
+On success its per-table values are only `{upserted, rowCount}` or `null`;
+deletion counts and R2 status are omitted. Use per-table results/cron evidence
+to inspect archive outcomes.
+
+### Failure, side effects and safe next action
+
+These boundaries do not add a retry policy. Read recovery is not write recovery;
+none provides isolation from concurrent saves or syncs, or a transaction across
+stores. Bulk sync/import still does not evict hydrated cache entries, so even a
+successful D1 sync can leave cached reads stale until expiry.
+
+| Failure boundary | Side effects / response | Safe next action | Canonical source / existing regression |
+|---|---|---|---|
+| Hydrated GET: `Cache.match` rejects | One lookup attempt, one miss; normal D1/ETag path still produces 200, conditional empty-body 304 or 404. Only the lookup rejection is contained; authorization, parsing and D1 errors remain errors. | No client replay is needed for the recovered lookup. For a real read error, correct the input, authorization or store failure before retrying the read-only GET; do not substitute a create or sync. See [cache lookup failures](ENTITY-DATA-CACHE.md#lookup-failures). | [getCachedDataEntity](../src/lib/entityDataCache.ts), [GET handlers](../src/lib/dataEntityHandlers.ts); [cache-read acceptance](../test/entityCacheReadFailure.acceptance.test.ts) |
+| Entity save succeeds upstream; fallback eviction after local-sync degradation fails | Fallback failure is logged and contained; HTTP 200 retains `localSync.done=false` with `sync_failed` or `unknown_customer_id`. Upstream and any completed D1 writes remain applied; surviving cache entries can last until the 60-second TTL expires. | Inspect the save outcome and correlated diagnostics before any further write. A local read may still be stale; neither a local-sync code nor TTL expiry proves upstream failure. Never blindly replay a successful create. See [cache freshness](ENTITY-DATA-CACHE.md#tuning). | [evictAfterSaveQuietly and POST handlers](../src/lib/dataEntitySave.ts); [post-save fallback regressions](../test/dataEntityPostHandlers.test.ts) |
+| Combined sync fails at a table | Later tables stop, earlier writes remain. Default/unclassified failures stay generic; classified opt-in failures expose sanitized counts with HTTP 500. A `null` table is not proof of no writes. | Inspect the failed table's invocation and persisted state before deciding whether to resubmit; never blindly replay the combined sync or treat cancellation as rollback. Follow the [canonical recovery guidance](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary). | [orchestrator](../src/lib/snapshot/orchestration.ts), [partial-progress handler](../src/routes/dataSnapshot.ts); [partial-progress acceptance](../test/combinedSyncPartialProgress.acceptance.test.ts), [unclassified-cause control](../test/combinedSyncUnknownCause.acceptance.test.ts) |
+
+For overview/link edits, with the repository's locked dev dependencies available,
+run these focused, effect-free checks (no credentials or live requests required):
+
+```sh
+npm run check:docs-links
+node --test scripts/check-docs-links.test.mjs
+```
+
+The linked regression suites are source evidence for existing runtime behavior;
+link checks alone do not execute them or verify an installed deployment.
 
 ## Data stores
 
