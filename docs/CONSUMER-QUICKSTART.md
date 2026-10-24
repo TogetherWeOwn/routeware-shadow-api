@@ -642,7 +642,39 @@ upstream body are never echoed):
 ```
 
 Address/container saves work the same way (`PickupAddressID=0` + `CustomerID`
-for a new address; `ContainerID=0` + `PickupAddressID` for a new container).
+for a new address; `ContainerID=0` + `PickupAddressID` for a new container),
+except creates answer **HTTP 201** with the resolved id while updates echo
+the posted id with 200 (customer saves stay 200 on creates):
+
+```bash
+# Create address (PickupAddressID=0); the 201 body carries the created id
+curl -X POST http://localhost:8787/api/v1/data/address \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "PickupAddressID=0" \
+  --data-urlencode "CustomerID=5" \
+  --data-urlencode "Address=1 Main St"
+# HTTP 201 {"ok":true,"routewareStatus":200,"customerId":5,
+#   "pickupAddressId":77,"upstreamBytes":46,
+#   "localSync":{"done":true,"customerId":5,"addressIds":[10,77],"containerIds":[100]}}
+```
+
+For live creates, the id comes from upstream `data.PickupAddressID` / `data.ContainerID`
+first, else the singleton post-refresh D1 id (address ids for the owning
+customer, container ids for the owning address). The diff baseline is captured
+**before** the upstream POST so a concurrent refresh cannot put this request's
+created row into the baseline. Without an upstream id, `null` remains when the
+diff is empty or ambiguous (0 or 2+ new ids), the owning graph is unknown, or
+the baseline/refresh is unavailable. A failed baseline read disables only
+id diffing: the save and normal refresh still run, and an upstream JSON id
+still wins. Posted save keys are case-exact (`PickupAddressID`, `ContainerID`);
+camelCase keys do not name an update. Upstream JSON ids must be positive safe
+integers (numbers or digit-only strings); invalid candidates do not mask valid
+fallback fields. There is deliberately no `Location`
+header: the by-id snapshot URL may not exist locally when the refresh fails,
+and a header that 404s is worse than none. Dry-run saves echo posted ids;
+live creates resolve or return `null`, while live updates return the
+case-exact posted key.
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through
