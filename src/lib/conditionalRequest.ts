@@ -38,8 +38,13 @@ export function matchesIfNoneMatch(
   if (!header) return false;
   const want = normalizeEtagToken(etag);
   if (syntax === "legacy") {
-    return legacyEtagTokens(header).map(normalizeEtagToken)
-      .some((token) => token === "*" || token === want);
+    // The RFC 7232 wildcard is only the raw token `*`. A quoted "*" (or
+    // weak-quoted w/"*") is an opaque entity-tag that must be compared, never
+    // treated as a wildcard, so test the raw token before normalization.
+    return legacyEtagTokens(header).some((raw) => {
+      if (raw.trim() === "*") return true;
+      return normalizeEtagToken(raw) === want;
+    });
   }
   if (/^[ \t]*\*[ \t]*$/.test(header)) return true;
   if (!ENTITY_TAG_LIST.test(header)) return false;
