@@ -351,8 +351,28 @@ describe.each(HYDRATED_SPECS)("$kind quoted-comma legacy route", (spec) => {
     finally { vi.unstubAllGlobals(); }
   });
 
+  it("refreshes from D1 on a warm full validator miss instead of serving stale cache", async () => {
+    const db = fakeDb(spec.rows);
+    const current = await getHydrated(spec.kind, spec.id, db);
+    expect(current.status).toBe(200);
+    const text = await current.text();
+    const etag = current.headers.get("etag");
+    expect(text.length).toBeGreaterThan(0);
+    expect(etag).toBeTruthy();
+    cacheState.entry = new Response('{"stale":true}', {
+      status: 200,
+      headers: { "X-Entity-ETag": "stale-cache-validator" }
+    });
+
+    // Returning the cached body on a miss would silently skip the D1 refresh.
+    const res = await getHydrated(spec.kind, spec.id, db, undefined, '"not-current"');
+    expect(res.status).toBe(200);
+    expect(res.headers.get("etag")).toBe(etag);
+    expect(await res.text()).toBe(text);
+  });
+
   describe.each(READ_PATHS)("$name", (path) => {
-    async function currentRead() {
+    async function currentRead(matches: boolean) {
       const db = fakeDb(spec.rows);
       const full = await getHydrated(spec.kind, spec.id, db);
       expect(full.status).toBe(200);
@@ -365,7 +385,9 @@ describe.each(HYDRATED_SPECS)("$kind quoted-comma legacy route", (spec) => {
       expect(text.length).toBeGreaterThan(0);
       const hash = current.headers.get("x-entity-etag")!;
       expect(hash).toMatch(/^[0-9a-f]{64}$/);
-      const readDb = path.warm ? {
+      // Full misses refresh from D1; warm matches and projections use the cache.
+      const cacheOnly = path.warm && (matches || path.projected);
+      const readDb = cacheOnly ? {
         prepare() { throw new Error("Warm hydrated read unexpectedly queried D1"); }
       } as unknown as D1Database : db;
       return {
@@ -379,7 +401,7 @@ describe.each(HYDRATED_SPECS)("$kind quoted-comma legacy route", (spec) => {
     }
 
     it.each(QUOTED_NONMATCHES)("serves the current body for $name", async ({ header }) => {
-      const current = await currentRead();
+      const current = await currentRead(false);
       const res = await current.read(header(current.hash));
       const text = await res.text();
       expect.soft(res.status).toBe(200);
@@ -389,7 +411,7 @@ describe.each(HYDRATED_SPECS)("$kind quoted-comma legacy route", (spec) => {
     });
 
     it.each(LEGACY_MATCHES)("preserves 304 for $name", async ({ header }) => {
-      const current = await currentRead();
+      const current = await currentRead(true);
       await expectEmpty304(await current.read(header(current.hash)), current.hash);
     });
   });
