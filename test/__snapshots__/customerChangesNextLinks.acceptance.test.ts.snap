@@ -1,0 +1,113 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: bare normalized timestamp 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":9204,"customer_type_id":null,"company_name":"Synthetic changes link 9204","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.500Z"},{"customer_id":9206,"customer_type_id":null,"company_name":"Synthetic changes link 9206","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.500Z"},{"customer_id":9205,"customer_type_id":null,"company_name":"Synthetic changes link 9205","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:01.000Z"}],"total":3,"nextCursor":{"since":"2026-09-01T00:00:01.000Z","since_id":9205}}",
+  "statements": [
+    {
+      "binds": [
+        "2026-09-01T00:00:00.100Z",
+        3,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE synced_at > ? ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: empty tail 1`] = `
+{
+  "bytes": "{"rows":[],"total":0,"nextCursor":null}",
+  "statements": [
+    {
+      "binds": [
+        "2026-09-01T00:00:01.000Z",
+        "2026-09-01T00:00:01.000Z",
+        9208,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE (synced_at > ? OR (synced_at = ? AND customer_id > ?)) ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: full terminal page 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":9205,"customer_type_id":null,"company_name":"Synthetic changes link 9205","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:01.000Z"},{"customer_id":9208,"customer_type_id":null,"company_name":"Synthetic changes link 9208","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:01.000Z"}],"total":2,"nextCursor":{"since":"2026-09-01T00:00:01.000Z","since_id":9208}}",
+  "statements": [
+    {
+      "binds": [
+        "2026-09-01T00:00:00.500Z",
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE synced_at > ? ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: initial 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":9201,"customer_type_id":null,"company_name":"Synthetic changes link 9201","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.000Z"},{"customer_id":9203,"customer_type_id":null,"company_name":"Synthetic changes link 9203","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.000Z"}],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":9203}}",
+  "statements": [
+    {
+      "binds": [
+        "0000-01-01T00:00:00.000Z",
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE synced_at > ? ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: short terminal page 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":9205,"customer_type_id":null,"company_name":"Synthetic changes link 9205","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:01.000Z"},{"customer_id":9208,"customer_type_id":null,"company_name":"Synthetic changes link 9208","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:01.000Z"}],"total":2,"nextCursor":null}",
+  "statements": [
+    {
+      "binds": [
+        "2026-09-01T00:00:00.500Z",
+        3,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE synced_at > ? ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
+
+exports[`customer changes: unchanged wire and database controls > preserves pre-feature JSON bytes and exact SQL/binds: tuple remainder 1`] = `
+{
+  "bytes": "{"rows":[{"customer_id":9207,"customer_type_id":null,"company_name":"Synthetic changes link 9207","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.100Z"},{"customer_id":9204,"customer_type_id":null,"company_name":"Synthetic changes link 9204","first_name":null,"middle_initial":null,"last_name":null,"name_suffix":null,"customer_number":null,"sub_customer_number":null,"phone1":null,"phone2":null,"comments":null,"enabled":1,"synced_at":"2026-09-01T00:00:00.500Z"}],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.500Z","since_id":9204}}",
+  "statements": [
+    {
+      "binds": [
+        "2026-09-01T00:00:00.100Z",
+        "2026-09-01T00:00:00.100Z",
+        9202,
+        2,
+      ],
+      "method": "all",
+      "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
+              name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
+       FROM customer_snapshot WHERE (synced_at > ? OR (synced_at = ? AND customer_id > ?)) ORDER BY synced_at, customer_id LIMIT ?",
+    },
+  ],
+}
+`;
