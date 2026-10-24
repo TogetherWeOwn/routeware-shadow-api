@@ -20,6 +20,25 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   or TTL changes. Synthetic examples and validator guidance:
   `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
 
+- #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
+  snapshot CSV for one table without naming its date, resolving the existing
+  `snapshot-latest/{table}.json` pointer the sync leg republishes after every
+  archive. Same sync-secret gate and 401 precedence, same spreadsheet-safe
+  re-encode (byte-identical to the explicit-date download, same content-hash
+  ETag with empty-body 304s, `{table}-latest.csv` filename). A missing pointer
+  or CSV is a fixed table-only 404; an unreadable pointer is a fixed sanitized
+  500. The `{date}` route is unchanged. See `docs/CONSUMER-QUICKSTART.md` and
+  `docs/R2-RETENTION.md`.
+
+- #353: The seven mutating snapshot POSTs (combined sync, three per-table
+  syncs, three imports) now reject any query key outside their declared set
+  (`dryRun` everywhere, plus `partialProgress` on the combined route) with a
+  fixed value-free 400 before any D1, R2 or upstream work. A mistyped
+  `?dryrun=true` fails loudly instead of running a real mutation. Sync-secret
+  401 precedence is preserved; invalid values and repeated known keys keep
+  their existing validator 400s. GET lists keep ignoring unknown names. See
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and `docs/PROBLEMS.md#bad-request`.
+
 - #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
   to validate a save — form fields plus session health — without persisting
   anything: no upstream POST, no D1 write, no cache invalidation, no login. A
