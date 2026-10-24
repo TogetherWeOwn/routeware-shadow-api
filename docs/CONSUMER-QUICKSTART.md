@@ -553,11 +553,14 @@ npx vitest run test/hydratedFields.acceptance.test.ts
 Syncs archive their raw CSV to R2 (`snapshots/YYYY-MM-DD/<table>.csv`, when
 the binding is configured). The sync secret streams it back re-encoded for
 spreadsheets (formula-leading cells quoted, `_shadow_csv_encoding` appended);
-compare the download with a fresh export by business values, not bytes:
+compare the download with a fresh export by business values, not bytes;
+swap the date for `latest` to fetch the newest archive without naming its date:
 
 ```bash
 curl -H "Authorization: Bearer $SYNC" \
   "http://localhost:8787/api/v1/snapshots/customer/2026-01-01" -o customer-2026-01-01.csv
+curl -H "Authorization: Bearer $SYNC" \
+  "http://localhost:8787/api/v1/snapshots/customer/latest" -o customer-latest.csv
 curl -H "Authorization: Bearer $SYNC" \
   "http://localhost:8787/api/v1/customer-snapshot/export" -o customer-fresh.csv
 # Same pair for address and container — swap the table name:
