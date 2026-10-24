@@ -421,7 +421,8 @@ describe("published OpenAPI document", () => {
   it("documents the id alias on all three data-entity GETs", async () => {
     // Arrange — customer GET accepted `id|customerId` while address
     // and container accepted only `id`. The alias must be visible on all three
-    // so generated clients offer the same spelling.
+    // so generated clients offer the same spelling. The batch `ids` param
+    // rides the same query contract (see the batch acceptance suite).
     const doc = await fetchOpenApiDocument();
 
     // Act
@@ -438,9 +439,9 @@ describe("published OpenAPI document", () => {
     // re-record a regression away. Per-type bundle selectors (R20-02) ride on
     // every data-entity GET alongside the flat root-only `fields`.
     const bundleFields = ["fields[address]", "fields[container]", "fields[customer]"];
-    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id", ...bundleFields].sort());
-    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "pickupAddressId", ...bundleFields].sort());
-    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id", ...bundleFields].sort());
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id", "ids", ...bundleFields].sort());
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "ids", "pickupAddressId", ...bundleFields].sort());
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id", "ids", ...bundleFields].sort());
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {

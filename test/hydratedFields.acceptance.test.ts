@@ -522,7 +522,7 @@ describe.each(specs)("$kind root-only hydrated fields", (spec) => {
   });
 });
 
-it("runtime OpenAPI exposes root-only fields, representation validators and no batch selector on all hydrated GETs", async () => {
+it("runtime OpenAPI exposes root-only fields, representation validators and batch ids selector on all hydrated GETs", async () => {
   type Parameter = { name: string; in: string; required?: boolean; description?: string; schema?: { type?: string; description?: string } };
   type Operation = { operationId: string; description?: string; parameters: Parameter[];
     responses: Record<string, { description?: string }>; "x-access": string; "x-effect": string };
@@ -536,8 +536,9 @@ it("runtime OpenAPI exposes root-only fields, representation validators and no b
     expect(op["x-effect"]).toBe("local-read");
     // Per-type bundle selectors (R20-02) ride on every data-entity GET; flat
     // `fields` below keeps its root-only meaning with relations unchanged.
+    // Batch `ids` rides the same query contract (see the batch acceptance suite).
     expect(op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(
-      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", spec.alias].sort());
+      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", "ids", spec.alias].sort());
     const fields = op.parameters.find((p) => p.name === "fields");
     expect(fields).toMatchObject({ in: "query", required: false, schema: { type: "string" } });
     const selectorDocs = `${fields?.description ?? ""} ${fields?.schema?.description ?? ""}`;

@@ -60,6 +60,12 @@ const DB = (env as unknown as Env).CUSTOMER_DB;
 const SECRET = "synthetic-bundle-fields-secret";
 const ORIGIN = "https://synthetic-bundle-fields-client.invalid";
 const PROBLEMS = "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md";
+// Unchanged #339 fixed batch rejection: `ids` mixed with `id`/alias or any
+// field selector (flat or typed) fails with this value-free detail and zero reads.
+const BATCH_IDS_BAD_REQUEST_DETAIL =
+  "Query `ids` must be one comma-separated list of 1 to 50 canonical " +
+  "positive decimal safe integers without leading zeros, and cannot be combined " +
+  "with `id` or the alias. See docs/PROBLEMS.md#bad-request.";
 type Row = Record<string, string | number | null>;
 type Bundle = Record<string, unknown>;
 
@@ -333,6 +339,21 @@ async function expectTyped400(response: Response, expectedKey: string): Promise<
   expect(body).toMatchObject({
     type: `${PROBLEMS}#bad-request`, title: "Bad Request", status: 400,
     detail: `Invalid request query (${expectedKey}). See docs/PROBLEMS.md#bad-request.`
+  });
+  expect(Object.keys(body).filter((key) => key !== "instance").sort()).toEqual(["detail", "status", "title", "type"]);
+  if (body.instance !== undefined) expect(body.instance).toMatch(/^\/api\/v1\/data\/(?:customer|address|container)$/);
+  expect(JSON.stringify(body)).not.toMatch(/SYNTHETIC-MARKER|received|invalid_type|"input"/i);
+  expectNoWork();
+}
+async function expectBatchComposition400(response: Response): Promise<void> {
+  expect(response.status).toBe(400);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("access-control-allow-origin")).toBe(ORIGIN);
+  expect(response.headers.get("content-type")).toMatch(/^application\/problem\+json\b/);
+  const body = await response.json() as Record<string, unknown>;
+  expect(body).toMatchObject({
+    type: `${PROBLEMS}#bad-request`, title: "Bad Request", status: 400,
+    detail: BATCH_IDS_BAD_REQUEST_DETAIL
   });
   expect(Object.keys(body).filter((key) => key !== "instance").sort()).toEqual(["detail", "status", "title", "type"]);
   if (body.instance !== undefined) expect(body.instance).toMatch(/^\/api\/v1\/data\/(?:customer|address|container)$/);
@@ -706,6 +727,49 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
     }
   });
 
+  it("batch ids with flat fields fails closed with the fixed batch 400 and zero reads", async () => {
+    await expectBatchComposition400(
+      await request(`/api/v1/data/${spec.kind}?${new URLSearchParams([
+        ["ids", "95101,95102"],
+        ["fields", TYPE_SAMPLES[spec.kind].first]
+      ])}`)
+    );
+  });
+
+  it.each(["customer", "address", "container"] as const)(
+    "batch ids with fields[%s] fails closed with the fixed batch 400 and zero reads",
+    async (type) => {
+      await expectBatchComposition400(
+        await request(`/api/v1/data/${spec.kind}?${new URLSearchParams([
+          ["ids", "95101,95102"],
+          [`fields[${type}]`, TYPE_SAMPLES[type].first]
+        ])}`)
+      );
+    }
+  );
+
+  describe.each([
+    { label: "no bearer", authorization: "", gate: "SHADOW_API_TOKEN" },
+    { label: "wrong bearer", authorization: "Bearer synthetic-wrong", gate: "SHADOW_API_TOKEN" },
+    { label: "API token", authorization: "Bearer synthetic-api-token", gate: "CUSTOMER_SNAPSHOT_SYNC_SECRET" },
+    { label: "read token", authorization: "Bearer synthetic-read-token", gate: "CUSTOMER_SNAPSHOT_SYNC_SECRET" }
+  ])("$label preserves auth before batch-field composition 400", ({ authorization, gate }) => {
+    it.each([
+      { label: "flat fields", pairs: [["ids", "95101,95102"], ["fields", TYPE_SAMPLES[spec.kind].first]] },
+      { label: "typed fields", pairs: [["ids", "95101,95102"], [`fields[${others[0]}]`, TYPE_SAMPLES[others[0]].first]] }
+    ])("401s for $label instead of the batch 400", async ({ pairs }) => {
+      const response = await request(
+        `/api/v1/data/${spec.kind}?${new URLSearchParams(pairs as Array<[string, string]>)}`,
+        { authorization }
+      );
+      expect(response.status).toBe(401);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toMatchObject({ type: `${PROBLEMS}#unauthorized`, status: 401,
+        detail: `Send Authorization: Bearer <${gate}>. See docs/PROBLEMS.md#unauthorized.` });
+      expectNoWork();
+    });
+  });
+
   describe.each(["customer", "address", "container"] as const)("malformed typed %s selector", (type) => {
     const sample = TYPE_SAMPLES[type];
     const id = TYPE_IDS[type];
@@ -930,7 +994,7 @@ function applyChangedValue(bundle: Bundle, kind: RouteKind, type: string, column
   if (type === "customer" && b.customer) patch(b.customer);
 }
 
-it("runtime OpenAPI exposes per-type bundle selectors, representation validators and no batch selector on all hydrated GETs", async () => {
+it("runtime OpenAPI exposes per-type bundle selectors, representation validators and batch ids selector on all hydrated GETs", async () => {
   type Parameter = { name: string; in: string; required?: boolean; description?: string; schema?: { type?: string; description?: string } };
   type Operation = { operationId: string; description?: string; parameters: Parameter[];
     responses: Record<string, { description?: string }>; "x-access": string; "x-effect": string };
@@ -944,7 +1008,7 @@ it("runtime OpenAPI exposes per-type bundle selectors, representation validators
     expect(op["x-effect"]).toBe("local-read");
     const queryNames = op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort();
     expect(queryNames).toEqual(
-      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", spec.alias].sort());
+      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", "ids", spec.alias].sort());
     for (const type of ["customer", "address", "container"] as const) {
       const param = op.parameters.find((p) => p.name === `fields[${type}]`);
       expect(param).toMatchObject({ in: "query", required: false, schema: { type: "string" } });
