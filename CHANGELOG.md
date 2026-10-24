@@ -24,6 +24,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `npm run check:snapshot-upper-id`. Update Zod from 4.3.6 to 4.6.7 to fix
   GHSA-mrhx-c7xc-m3w5 (oversized constrained-collection memory exhaustion)
   without changing the dependency audit gate or its allowlist.
+- #339: `GET /api/v1/data/customer|address|container` accept one comma-separated
+  `ids` list of 1 to 50 canonical positive decimal safe-integer IDs for
+  single-round-trip detail hydration. Every entry is validated before any read;
+  any malformed or empty entry, mixing `ids` with `id`/alias, or more than 50
+  ids fails the whole request with the fixed value-free 400 and zero
+  handler/cache/D1 work. The 200 body is `{entries}` in request order — found
+  entries carry the single-GET bundle, missing ids are exactly
+  `{id, found: false}` — sent `no-store` with no ETag. Single-id behavior, auth
+  ordering and single-GET ETag/304 are unchanged. `ids` is a declared key under
+  the #357 strict-query guard. Documented in
+  `docs/CONSUMER-QUICKSTART.md` and `docs/PROBLEMS.md`; pinned by
+  `test/batchHydratedReadIds.acceptance.test.ts`.
 - #358: New `GET /api/v1/snapshots/{table}` lists newest-first archived dates
   for `customer|address|container` from the per-day manifest sidecars, each
   entry carrying `{date, bytes, sha256}` (hashes/sizes only, never row data).

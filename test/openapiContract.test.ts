@@ -153,9 +153,7 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. Every other parameter,
- * response, header, schema and operation stays frozen.
+ * projected out. Every other response, header, schema and operation stays frozen.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
@@ -190,8 +188,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -424,7 +421,8 @@ describe("published OpenAPI document", () => {
   it("documents the id alias on all three data-entity GETs", async () => {
     // Arrange — customer GET accepted `id|customerId` while address
     // and container accepted only `id`. The alias must be visible on all three
-    // so generated clients offer the same spelling.
+    // so generated clients offer the same spelling. The batch `ids` param
+    // rides the same query contract (see the batch acceptance suite).
     const doc = await fetchOpenApiDocument();
 
     // Act
@@ -439,9 +437,9 @@ describe("published OpenAPI document", () => {
 
     // Assert — hand-written (not a snapshot) so `vitest -u` cannot silently
     // re-record a regression away.
-    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id"]);
-    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "pickupAddressId"]);
-    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id"]);
+    expect(paramsOf("/api/v1/data/customer").sort()).toEqual(["customerId", "fields", "id", "ids"]);
+    expect(paramsOf("/api/v1/data/address").sort()).toEqual(["fields", "id", "ids", "pickupAddressId"]);
+    expect(paramsOf("/api/v1/data/container").sort()).toEqual(["containerId", "fields", "id", "ids"]);
   });
 
   it("tags the routeware meta routes and documents their 401", async () => {
@@ -509,9 +507,6 @@ describe("published OpenAPI document", () => {
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // unrelated golden contracts stay pinned.
-    // Only the three ordinary lists' upperId query parameters are also projected
-    // out: their bounds, strict validation, scope and authority are independently
-    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))).toMatchSnapshot();
   });
 });

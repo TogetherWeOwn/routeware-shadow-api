@@ -2605,7 +2605,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
@@ -2631,6 +2631,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "example": "1,2,3",
+              "type": "string",
             },
           },
           {
@@ -3123,7 +3134,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
@@ -3149,6 +3160,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "example": "1,2,3",
+              "type": "string",
             },
           },
           {
@@ -3644,7 +3666,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/customer": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Batch: \`ids=1,2,3\` hydrates up to 50 records as \`{entries}\` in request order (\`no-store\`, no ETag); \`ids\` cannot be combined with \`id\`/alias. Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\` on single-ID reads; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. \`fields\` applies to single-ID reads; combining \`ids\` with \`fields\` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
             "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
@@ -3670,6 +3692,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "maximum": 9007199254740991,
               "minimum": 1,
               "type": "integer",
+            },
+          },
+          {
+            "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "description": "Batch lookup as one comma-separated \`ids\` value: 1 to 50 canonical positive decimal safe integers (1 to 9007199254740991) without leading zeros, whitespace, signs, fractions, exponents or hex. Every entry is validated before any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than 50 ids fails the whole request 400 with zero partial reads. Batch 200s return \`{entries}\` in request order with \`no-store\` and no ETag.",
+              "example": "1,2,3",
+              "type": "string",
             },
           },
           {
