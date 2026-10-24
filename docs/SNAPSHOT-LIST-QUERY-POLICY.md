@@ -251,9 +251,9 @@ tried to trim.
 
 | GET route | Declared query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/data/customer` | `id`, `customerId`, `fields` | Reject (400) |
-| `/api/v1/data/address` | `id`, `pickupAddressId`, `fields` | Reject (400) |
-| `/api/v1/data/container` | `id`, `containerId`, `fields` | Reject (400) |
+| `/api/v1/data/customer` | `id`, `customerId`, `fields`, `ids` | Reject (400) |
+| `/api/v1/data/address` | `id`, `pickupAddressId`, `fields`, `ids` | Reject (400) |
+| `/api/v1/data/container` | `id`, `containerId`, `fields`, `ids` | Reject (400) |
 
 Route validators run before handlers and may return 400 for invalid values
 such as `?fields=bogus` or repeated known keys. After validation succeeds,
@@ -270,7 +270,7 @@ GET /api/v1/data/customer?id=94101&field=company_name
 
 {"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
  "title":"Bad Request","status":400,
- "detail":"Unknown query parameter. Allowed query parameters: id, customerId, fields. See docs/PROBLEMS.md#bad-request."}
+ "detail":"Unknown query parameter. Allowed query parameters: id, customerId, fields, ids. See docs/PROBLEMS.md#bad-request."}
 ```
 
 Operator recovery is a corrected retry — fix the spelling to the exact
