@@ -152,9 +152,7 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. Every other parameter,
- * response, header, schema and operation stays frozen.
+ * projected out. Every other response, header, schema and operation stays frozen.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
@@ -189,8 +187,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -221,6 +218,31 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
     parameter.in !== "query" || !["routeId", "franchiseId"].includes(parameter.name));
+  return copy;
+}
+
+// Exact identifiers supersede this route's old query/error narrative. Their
+// schema, composition and error discovery are asserted independently in
+// containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
+// or parameter position. All legacy parameters and unrelated operations remain frozen.
+function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{ name?: string; in?: string }>;
+      responses?: Record<string, { description?: string }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    if (operation.responses?.["400"]) delete operation.responses["400"].description;
+    if (operation.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || !["serialNumber", "rfid"].includes(parameter.name ?? "")
+      );
+    }
+  }
   return copy;
 }
 
@@ -472,11 +494,10 @@ describe("published OpenAPI document", () => {
     // If-None-Match, 200 ETag and 304 declarations are separately pinned by
     // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
     // Only the two new scope selectors and address filter/recovery prose move
-    // to behavioral/semantic ownership; unrelated golden contracts stay pinned.
-    // Only the three ordinary lists' upperId query parameters are also projected
-    // out: their bounds, strict validation, scope and authority are independently
-    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(doc)))).toMatchSnapshot();
+    // to behavioral/semantic ownership; the container exact-identifier
+    // additions move to containerIdentifierFilters.acceptance.test.ts;
+    // unrelated golden contracts stay pinned.
+    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))).toMatchSnapshot();
   });
 });
 

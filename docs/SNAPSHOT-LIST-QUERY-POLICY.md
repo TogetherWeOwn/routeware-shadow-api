@@ -13,7 +13,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -60,6 +60,50 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
+
+## Exact container asset lookup
+
+Only the existing container list accepts `serialNumber` and `rfid`. Each is a
+single optional, case-sensitive opaque exact string of 1..100 Unicode code
+points, not a number or substring. Leading zeros and nonblank whitespace are
+preserved; no trimming, case folding or Unicode normalization occurs. Empty,
+whitespace-only, repeated and overlength selectors receive a stable value-free
+400 before D1: `Invalid request query (serialNumber). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `rfid` key). Correct the named selector and retry; do not log asset
+identifiers. Quotes, `%` and `_` are literal bound data, never SQL/wildcards.
+
+The selectors compose with AND with one another and every existing filter.
+Stored nulls do not match; identifiers need not be unique. Counts and rows use
+the same scope; `includeTotal=false` issues zero COUNT statements. Filtering
+never changes canonical `container_id`, sparse fields or conditional JSON-read
+semantics. Unknown keys remain ignored.
+
+Synthetic fixture recipe (not a production request): seed matching containers
+101, 104 and 105 locally, then request:
+
+```text
+GET /api/v1/container-snapshot?serialNumber=00123&rfid=RF-0007&fields=rfid&limit=1&includeTotal=false
+
+{"rows":[{"container_id":101,"rfid":"RF-0007"}],"total":null,"nextCursor":101}
+Link: </api/v1/container-snapshot?serialNumber=00123&rfid=RF-0007&fields=rfid&limit=1&includeTotal=false&cursor=101>; rel="next"
+```
+
+Follow the returned same-origin Link exactly rather than reconstructing it.
+Both selectors are URL-encoded independently, including whitespace, quotes,
+Unicode and delimiters. The next IDs in this fixture are 104, then 105, then
+an empty terminal page; a full last page can still emit a continuation. With
+counts enabled, totals remain cursor-relative. For a serial-only lookup omit
+`rfid`; do not stop at the first duplicate match.
+
+Run `npm run check:container-identifiers` for synthetic local-D1 lookup,
+validation/auth precedence, composition, count, field, conditional-read and
+followed-link checks. Network/R2/browser doubles deny unexpected access; a
+read-only recorder and before/after fixture/schema comparison prove zero writes.
+The suite executes `EXPLAIN QUERY PLAN` on emitted COUNT/row SELECTs with the
+qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
+predicates. This demonstrates executable synthetic query shape only, not a
+runtime latency improvement. No new indexes, migrations, bindings or upstream
+requests are introduced.
 
 ## Mutating POST query keys are strict
 
