@@ -199,14 +199,18 @@ it("publishes aligned query constraints and 400 descriptions for all three hydra
   for (const spec of specs) {
     const operation = doc.paths[`/api/v1/data/${spec.kind}`].get;
     const parameters = operation.parameters.filter((parameter) => parameter.in === "query");
-    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(["fields", "id", spec.alias, "ids"].sort());
+    // Per-type bundle selectors (R20-02) ride on every data-entity GET; the ID
+    // constraint alignment below still covers only the id/alias pair.
+    expect(parameters.map((parameter) => parameter.name).sort()).toEqual(
+      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", "ids", spec.alias].sort());
     // Batch `ids` is a comma-separated string, not a coerced integer: it is
     // pinned for presence and shape here while the single-ID spellings below
     // keep their aligned integer constraints.
     const ids = parameters.find((parameter) => parameter.name === "ids");
     expect(ids?.required).not.toBe(true);
     expect(ids?.schema).toMatchObject({ type: "string" });
-    for (const parameter of parameters.filter((candidate) => candidate.name !== "ids" && candidate.name !== "fields")) {
+    for (const parameter of parameters.filter((parameter) =>
+      parameter.name !== "fields" && parameter.name !== "ids" && !parameter.name.startsWith("fields["))) {
       expect(parameter.required).not.toBe(true);
       expect(parameter.schema).toBeDefined();
       constraints.push(Object.fromEntries(Object.entries(parameter.schema).filter(([key]) =>

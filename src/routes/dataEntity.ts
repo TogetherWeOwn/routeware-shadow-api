@@ -1,6 +1,12 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import type { RouteConfig } from "@hono/zod-openapi";
-import { snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import {
+  BUNDLE_TYPED_FIELD_KEYS,
+  findUnknownTypedBundleFieldKeys,
+  snapshotFieldsQuery,
+  typedBundleFieldsQuery,
+  type SnapshotFieldsetResource
+} from "../lib/sparseFieldsets";
 import {
   customerBundleExample,
   addressBundleExample,
@@ -64,21 +70,92 @@ const hydratedReadIdQuery = z.coerce.number().int().optional().openapi({
 });
 const hydratedReadBadRequest = {
   description:
-    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors and unknown query keys are value-free 400s before cache or D1 reads."
+    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid `fields` or `fields[type]` selectors — including unknown `fields[TYPE]` keys and flat-plus-typed-root pairs — and unknown query keys are value-free 400s before cache or D1 reads. Batch `ids` cannot be combined with `id`/alias or any field selector."
 };
 
-function hydratedReadValidationHook(
-  result: Parameters<typeof validationFailureHook>[0],
-  c: Parameters<typeof requireSnapshotAuth>[0]
-): Response | undefined {
-  // Any fields failure, including mixed ID/fields errors, must pass the inner
-  // auth gate. Keep ID-only preliminary validation in its old order.
-  if (!result.success && result.target === "query" &&
-      result.error?.issues.some((issue) => issue.path[0] === "fields")) {
-    const denied = requireSnapshotAuth(c);
-    if (denied) return denied;
+function hydratedReadValidationHook(root: SnapshotFieldsetResource) {
+  return (
+    result: Parameters<typeof validationFailureHook>[0],
+    c: Parameters<typeof requireSnapshotAuth>[0]
+  ): Response | undefined => {
+    // Any fields failure, including mixed ID/fields errors, must pass the inner
+    // auth gate. Keep ID-only preliminary validation in its old order.
+    if (!result.success && result.target === "query") {
+      const raw = new URL(c.req.url).searchParams;
+      // Unknown keys are stripped by zod; individually valid flat/typed-root
+      // selectors also produce no fields issue. Detect both before ID errors
+      // can prevent the in-handler selector checks from running.
+      const invalidSelectors = findUnknownTypedBundleFieldKeys([...raw.keys()]).length > 0 ||
+        (raw.has("fields") && raw.has(BUNDLE_TYPED_FIELD_KEYS[root])) ||
+        result.error?.issues.some((issue) => {
+          const head = issue.path[0];
+          return typeof head === "string" && (head === "fields" || head.startsWith("fields["));
+        });
+      if (invalidSelectors) {
+        const denied = requireSnapshotAuth(c);
+        if (denied) return denied;
+      }
+    }
+    return validationFailureHook(result, c);
+  };
+}
+
+type HydratedReadFieldsQuery = {
+  fields?: string[];
+  "fields[customer]"?: string[];
+  "fields[address]"?: string[];
+  "fields[container]"?: string[];
+};
+
+/**
+ * Reject unknown `fields[TYPE]` keys and ambiguous flat-plus-typed-root pairs
+ * with the anchored value-free 400. Runs in-handler, after auth and before ID
+ * parsing, cache or D1: the schema strips unknown keys before validation, and
+ * the flat/typed-root pair is only ambiguous once both parse. Returns the 400
+ * response, or null when the selectors may proceed.
+ */
+function rejectInvalidBundleSelectors(
+  env: Env,
+  url: string,
+  queryKeys: string[],
+  root: SnapshotFieldsetResource,
+  query: HydratedReadFieldsQuery
+): Response | null {
+  const unknown = findUnknownTypedBundleFieldKeys(queryKeys);
+  if (unknown.length > 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request", env),
+      title: "Bad Request",
+      status: 400,
+      detail: `Invalid request query (${unknown.join(", ")}). See docs/PROBLEMS.md#bad-request.`,
+      instance: new URL(url).pathname
+    });
   }
-  return validationFailureHook(result, c);
+  const rootKey = BUNDLE_TYPED_FIELD_KEYS[root];
+  if (query.fields !== undefined && query[rootKey] !== undefined) {
+    return problemJsonResponse({
+      type: problemType("bad-request", env),
+      title: "Bad Request",
+      status: 400,
+      detail: `Invalid request query (fields, ${rootKey}). See docs/PROBLEMS.md#bad-request.`,
+      instance: new URL(url).pathname
+    });
+  }
+  return null;
+}
+
+/** Collect the validated per-type selections, or undefined when none were sent. */
+function typedBundleSelection(
+  query: HydratedReadFieldsQuery
+): Partial<Record<SnapshotFieldsetResource, string[]>> | undefined {
+  const typed: Partial<Record<SnapshotFieldsetResource, string[]>> = {
+    customer: query["fields[customer]"],
+    address: query["fields[address]"],
+    container: query["fields[container]"]
+  };
+  return typed.customer === undefined && typed.address === undefined && typed.container === undefined
+    ? undefined
+    : typed;
 }
 
 // Batch `ids` is a single comma-separated string, never repeated `?ids=`
@@ -89,7 +166,7 @@ const hydratedReadIdsQuery = z.string().optional().openapi({
     `Batch lookup as one comma-separated \`ids\` value: 1 to ${BATCH_MAX_IDS} canonical ` +
     "positive decimal safe integers (1 to 9007199254740991) without leading zeros, " +
     "whitespace, signs, fractions, exponents or hex. Every entry is validated before " +
-    `any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`, or more than ${BATCH_MAX_IDS} ` +
+    `any read; any malformed or empty entry, mixing with \`id\`/alias/\`fields\`/\`fields[type]\`, or more than ${BATCH_MAX_IDS} ` +
     "ids fails the whole request 400 with zero partial reads. Batch 200s return " +
     "`{entries}` in request order with `no-store` and no ETag.",
   example: "1,2,3"
@@ -111,21 +188,33 @@ function parseHydratedReadId(rawId: string | undefined, rawAlias: string | undef
 }
 
 /**
+ * Raw presence of any typed `fields[TYPE]` selector. Batch `ids` rejects every
+ * field selector (flat or typed) with the fixed value-free batch 400:
+ * projected batch entries are unimplemented, so the combination fails closed
+ * instead of silently ignoring the selectors.
+ */
+function hasTypedBundleSelectors(query: (name: string) => string | undefined): boolean {
+  return (Object.values(BUNDLE_TYPED_FIELD_KEYS) as string[]).some((key) => query(key) !== undefined);
+}
+
+/**
  * Parse a batch `ids` value into canonical ids in request order. Returns
- * `null` (→ the fixed value-free batch 400) when `id`/alias/`fields` is also
- * present — `?fields=` on batch is an unimplemented follow-up, so the
- * combination fails closed instead of silently ignoring `fields` — when the
- * list is empty or longer than `BATCH_MAX_IDS`, or when any entry fails the
- * canonical positive-safe-ID contract — before any read, so a malformed
- * batch performs zero handler/cache/D1 work.
+ * `null` (→ the fixed value-free batch 400) when `id`/alias, flat `fields`,
+ * or any typed `fields[TYPE]` selector is also present — field selectors on
+ * batch are an unimplemented follow-up, so the combination fails closed
+ * instead of silently ignoring them — when the list is empty or longer than
+ * `BATCH_MAX_IDS`, or when any entry fails the canonical positive-safe-ID
+ * contract — before any read, so a malformed batch performs zero
+ * handler/cache/D1 work.
  */
 function parseBatchIds(
   rawIds: string,
   rawId: string | undefined,
   rawAlias: string | undefined,
-  rawFields: string | undefined
+  rawFields: string | undefined,
+  hasTypedFields: boolean
 ): number[] | null {
-  if (rawId !== undefined || rawAlias !== undefined || rawFields !== undefined) return null;
+  if (rawId !== undefined || rawAlias !== undefined || rawFields !== undefined || hasTypedFields) return null;
   const parts = rawIds.split(",");
   if (parts.length > BATCH_MAX_IDS) return null;
   const ids: number[] = [];
@@ -156,13 +245,16 @@ const dataCustomerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get customer (D1) with addresses and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=company_name,phone1` projects only the `.customer` root plus `customer_id` on single-ID reads; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. `fields` applies to single-ID reads; combining `ids` with `fields` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=company_name,phone1` projects only the `.customer` root plus `customer_id` on single-ID reads; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[customer]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Field selectors apply to single-ID reads; combining `ids` with `fields` or any `fields[type]` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
       customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("customer")
+      fields: snapshotFieldsQuery("customer"),
+      "fields[customer]": typedBundleFieldsQuery("customer"),
+      "fields[address]": typedBundleFieldsQuery("address"),
+      "fields[container]": typedBundleFieldsQuery("container")
     })
   },
   responses: {
@@ -184,10 +276,16 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   if (unknownQuery) return unknownQuery;
   const rawIds = c.req.query("ids");
   if (rawIds !== undefined) {
-    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("customerId"), c.req.query("fields"));
+    const batchIds = parseBatchIds(
+      rawIds, c.req.query("id"), c.req.query("customerId"), c.req.query("fields"),
+      hasTypedBundleSelectors((name) => c.req.query(name)));
     if (batchIds === null) return batchBadRequest(c);
     return handleGetDataCustomerBatch(c.env.CUSTOMER_DB, batchIds);
   }
+  const fieldsQuery = c.req.valid("query");
+  const rejected = rejectInvalidBundleSelectors(
+    c.env, c.req.url, Object.keys(c.req.query()), "customer", fieldsQuery);
+  if (rejected) return rejected;
   const rawId = c.req.query("id");
   const rawAlias = c.req.query("customerId");
   const id = parseHydratedReadId(rawId, rawAlias);
@@ -202,8 +300,9 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataCustomer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
-}, hydratedReadValidationHook);
+  return handleGetDataCustomer(
+    { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
+}, hydratedReadValidationHook("customer"));
 
 const dataAddressGetRoute = createRoute({
   method: "get",
@@ -214,13 +313,16 @@ const dataAddressGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=city,address` projects only the `.address` root plus `pickup_address_id` on single-ID reads; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. `fields` applies to single-ID reads; combining `ids` with `fields` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=city,address` projects only the `.address` root plus `pickup_address_id` on single-ID reads; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[address]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Field selectors apply to single-ID reads; combining `ids` with `fields` or any `fields[type]` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
       pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("address")
+      fields: snapshotFieldsQuery("address"),
+      "fields[customer]": typedBundleFieldsQuery("customer"),
+      "fields[address]": typedBundleFieldsQuery("address"),
+      "fields[container]": typedBundleFieldsQuery("container")
     })
   },
   responses: {
@@ -242,10 +344,16 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   if (unknownQuery) return unknownQuery;
   const rawIds = c.req.query("ids");
   if (rawIds !== undefined) {
-    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("pickupAddressId"), c.req.query("fields"));
+    const batchIds = parseBatchIds(
+      rawIds, c.req.query("id"), c.req.query("pickupAddressId"), c.req.query("fields"),
+      hasTypedBundleSelectors((name) => c.req.query(name)));
     if (batchIds === null) return batchBadRequest(c);
     return handleGetDataAddressBatch(c.env.CUSTOMER_DB, batchIds);
   }
+  const fieldsQuery = c.req.valid("query");
+  const rejected = rejectInvalidBundleSelectors(
+    c.env, c.req.url, Object.keys(c.req.query()), "address", fieldsQuery);
+  if (rejected) return rejected;
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("pickupAddressId"));
   if (id === null) {
     return problemJsonResponse({
@@ -257,8 +365,9 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataAddress({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
-}, hydratedReadValidationHook);
+  return handleGetDataAddress(
+    { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
+}, hydratedReadValidationHook("address"));
 
 const dataContainerGetRoute = createRoute({
   method: "get",
@@ -269,13 +378,16 @@ const dataContainerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=serial_number,location_address` projects only the `.container` root plus `container_id` on single-ID reads; related data remains unchanged. Omitted `fields` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. `fields` applies to single-ID reads; combining `ids` with `fields` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Batch: `ids=1,2,3` hydrates up to 50 records as `{entries}` in request order (`no-store`, no ETag); `ids` cannot be combined with `id`/alias. Optional `fields=serial_number,location_address` projects only the `.container` root plus `container_id` on single-ID reads; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[container]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Field selectors apply to single-ID reads; combining `ids` with `fields` or any `fields[type]` is a value-free 400. Unknown query keys are a value-free 400 before any cache or D1 work.",
   request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
       containerId: hydratedReadIdQuery.openapi({ example: 100 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("container")
+      fields: snapshotFieldsQuery("container"),
+      "fields[customer]": typedBundleFieldsQuery("customer"),
+      "fields[address]": typedBundleFieldsQuery("address"),
+      "fields[container]": typedBundleFieldsQuery("container")
     })
   },
   responses: {
@@ -297,10 +409,16 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   if (unknownQuery) return unknownQuery;
   const rawIds = c.req.query("ids");
   if (rawIds !== undefined) {
-    const batchIds = parseBatchIds(rawIds, c.req.query("id"), c.req.query("containerId"), c.req.query("fields"));
+    const batchIds = parseBatchIds(
+      rawIds, c.req.query("id"), c.req.query("containerId"), c.req.query("fields"),
+      hasTypedBundleSelectors((name) => c.req.query(name)));
     if (batchIds === null) return batchBadRequest(c);
     return handleGetDataContainerBatch(c.env.CUSTOMER_DB, batchIds);
   }
+  const fieldsQuery = c.req.valid("query");
+  const rejected = rejectInvalidBundleSelectors(
+    c.env, c.req.url, Object.keys(c.req.query()), "container", fieldsQuery);
+  if (rejected) return rejected;
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("containerId"));
   if (id === null) {
     return problemJsonResponse({
@@ -312,8 +430,9 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
       instance: new URL(c.req.url).pathname
     });
   }
-  return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
-}, hydratedReadValidationHook);
+  return handleGetDataContainer(
+    { env: c.env, var: c.var, req: c.req }, id, fieldsQuery.fields, typedBundleSelection(fieldsQuery));
+}, hydratedReadValidationHook("container"));
 
 const saveRecoveryGuidance =
   "Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.";

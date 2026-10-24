@@ -12,6 +12,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   numbers return all matches, and next-page Links retain both selectors. No new
   index, uniqueness assumption, upstream call or count-free COUNT query. See
   `docs/CONSUMER-QUICKSTART.md` for the synthetic lookup-to-next-page recipe.
+- #351: Hydrated single-ID
+  `GET /api/v1/data/customer|address|container` accepts optional per-type
+  `fields[customer]`, `fields[address]` and `fields[container]` selectors from
+  the shared snapshot allowlists, projecting the listed type everywhere it
+  appears — root and nested relations — while omitted types stay full and
+  every projected object retains its primary ID. Flat `fields=` keeps its
+  root-only meaning and composes with non-root typed keys; flat plus
+  `fields[<root>]` together, unknown `fields[TYPE]` keys and malformed
+  selectors are value-free 400s before cache/D1 access, with existing auth
+  precedence. Projected ETags hash served bytes per typed combination with
+  empty-body 304s, never reusing full-only validators or overwriting the
+  canonical full cache. Composes with the #339 batch `ids` contract (batch
+  entries stay full; `ids` plus any field selector is a 400); no
+  nested-path selectors, SQL optimization or TTL changes. Synthetic examples
+  and validator guidance: `docs/CONSUMER-QUICKSTART.md` and
+  `docs/ENTITY-DATA-CACHE.md`.
 - #339: `GET /api/v1/data/customer|address|container` accept one comma-separated
   `ids` list of 1 to 50 canonical positive decimal safe-integer IDs for
   single-round-trip detail hydration. Every entry is validated before any read;
