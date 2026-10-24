@@ -16,9 +16,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   selectors are value-free 400s before cache/D1 access, with existing auth
   precedence. Projected ETags hash served bytes per typed combination with
   empty-body 304s, never reusing full-only validators or overwriting the
-  canonical full cache. No batch IDs, nested-path selectors, SQL optimization
-  or TTL changes. Synthetic examples and validator guidance:
-  `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
+  canonical full cache. Composes with the #339 batch `ids` contract (batch
+  entries stay full; `ids` plus any field selector is a 400); no
+  nested-path selectors, SQL optimization or TTL changes. Synthetic examples
+  and validator guidance: `docs/CONSUMER-QUICKSTART.md` and
+  `docs/ENTITY-DATA-CACHE.md`.
+- #339: `GET /api/v1/data/customer|address|container` accept one comma-separated
+  `ids` list of 1 to 50 canonical positive decimal safe-integer IDs for
+  single-round-trip detail hydration. Every entry is validated before any read;
+  any malformed or empty entry, mixing `ids` with `id`/alias, or more than 50
+  ids fails the whole request with the fixed value-free 400 and zero
+  handler/cache/D1 work. The 200 body is `{entries}` in request order — found
+  entries carry the single-GET bundle, missing ids are exactly
+  `{id, found: false}` — sent `no-store` with no ETag. Single-id behavior, auth
+  ordering and single-GET ETag/304 are unchanged. `ids` is a declared key under
+  the #357 strict-query guard. Documented in
+  `docs/CONSUMER-QUICKSTART.md` and `docs/PROBLEMS.md`; pinned by
+  `test/batchHydratedReadIds.acceptance.test.ts`.
+
 - #358: New `GET /api/v1/snapshots/{table}` lists newest-first archived dates
   for `customer|address|container` from the per-day manifest sidecars, each
   entry carrying `{date, bytes, sha256}` (hashes/sizes only, never row data).

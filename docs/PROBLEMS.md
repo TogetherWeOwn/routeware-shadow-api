@@ -36,6 +36,14 @@ A 400 names fields, never their submitted values. Legacy missing-ID and
 positive-integer detail strings are retained; this section supplies the full
 correction policy for those messages and for schema rejections. Rejections
 perform no data-handler, cache or D1 work. A valid but unknown ID remains 404.
+
+For batch hydration the same routes accept one comma-separated `ids` list of
+1 to 50 canonical ids (`?ids=1,2,3`, never repeated `?ids=` keys and never
+mixed with `id`/alias). Any malformed or empty entry, any mixing, or more
+than 50 ids fails the whole request with the fixed value-free batch 400
+before any read. A batch 200 returns `{entries}` in request order — found
+entries carry the single-GET bundle, missing ids are exactly
+`{id, found: false}` — with `no-store` and no ETag.
 See the [synthetic consumer check](CONSUMER-QUICKSTART.md#3-nested-reads-apiv1data-sync-secret-only)
 for local, credential-free acceptance examples.
 
@@ -44,13 +52,13 @@ for local, credential-free acceptance examples.
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
 reject any query key outside their declared set — `id`, the route's alias
 (`customerId` / `pickupAddressId` / `containerId`), the optional `fields`
-selector, and the optional typed `fields[customer]` / `fields[address]` /
-`fields[container]` selectors — with a fixed, value-free 400 before any
-cache or D1 work. A typo such as `?field=` fails loudly instead of serving
-the full bundle:
+selector, the batch `ids` selector, and the optional typed
+`fields[customer]` / `fields[address]` / `fields[container]` selectors — with
+a fixed, value-free 400 before any cache or D1 work. A typo such as `?field=`
+fails loudly instead of serving the full bundle:
 
 ```
-Invalid request query (fields selectors). Unknown query parameter. Allowed query parameters: id, customerId, fields, fields[customer], fields[address], fields[container]. See docs/PROBLEMS.md#bad-request.
+Invalid request query (fields selectors). Unknown query parameter. Allowed query parameters: id, customerId, ids, fields, fields[customer], fields[address], fields[container]. See docs/PROBLEMS.md#bad-request.
 ```
 
 Each route names its own alias. No submitted key or value is echoed.
