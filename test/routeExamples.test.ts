@@ -283,9 +283,11 @@ describe("snapshot, data-entity and Routeware examples", () => {
     }
     // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
-    // +3 for order on the three ordinary lists;
-    // +3 for fields on the three hydrated single-ID GETs; +1 for fields on the customer changes feed.
-    expect(checked).toBe(63);
+    // +3 for fields on the three hydrated single-ID GETs;
+    // +3 for order on the customer, address and container snapshot lists;
+    // +3 for dryRun on the three data-entity POST saves;
+    // +1 for fields on the customer changes feed.
+    expect(checked).toBe(66);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
