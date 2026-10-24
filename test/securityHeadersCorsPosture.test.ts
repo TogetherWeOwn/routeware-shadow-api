@@ -146,7 +146,8 @@ describe("security-header + CORS posture acceptance (R9-08)", () => {
 
   it("pins the swept route set so a new route without coverage fails", () => {
     const routes = apiRoutes();
-    expect(routes).toHaveLength(42);
+    // 42 prior + GET /api/v1/snapshots/:table/latest (R2 latest-pointer readback).
+    expect(routes).toHaveLength(43);
     for (const { path } of routes) {
       expect(path).not.toMatch(/[:{}]/);
     }
