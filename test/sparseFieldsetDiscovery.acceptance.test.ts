@@ -212,10 +212,32 @@ describe("mounted sparse-fieldset discovery contract", () => {
     expect(doc.security).toEqual([{ bearerAuth: [] }]);
   });
 
-  it("advertises fields on exactly nine supported flat and single-ID hydrated reads, never on exports, feeds, POSTs or batches", async () => {
+  it("customer changes: publishes the canonical customer catalog, identity and strict rules without changing read authority", async () => {
     const doc = await document();
-    const supported = SPECS.flatMap((s) => [s.listPath, s.detailPath, s.hydratedPath]).map((p) => `get ${p}`).sort();
-    expect(supported).toHaveLength(9);
+    const path = "/api/v1/customer-snapshot/changes";
+    const param = fieldsParameter(doc, path);
+    const meta = fieldset(param, path);
+    assertCatalog(meta, "customer");
+    expect(meta).toEqual(fieldset(fieldsParameter(doc, "/api/v1/customer-snapshot"), "customer list"));
+    expect(meta.alwaysIncludedFields).toEqual(["customer_id"]);
+    expect(param.required).toBe(false);
+    expect(param.schema?.type).toBe("string");
+    expect(param.schema).not.toHaveProperty("enum");
+    expect(param).not.toHaveProperty("enum");
+    expect(doc.paths[path].get).toMatchObject({
+      operationId: "listCustomerSnapshotChanges", "x-access": "read", "x-effect": "local-read"
+    });
+    expect(doc.paths[path].get.security).toBeUndefined();
+    expect(doc.security).toEqual([{ bearerAuth: [] }]);
+  });
+
+  it("advertises fields on exactly ten supported flat, single-ID hydrated and customer changes reads, never on exports, other feeds, POSTs or batches", async () => {
+    const doc = await document();
+    const supported = [
+      ...SPECS.flatMap((s) => [s.listPath, s.detailPath, s.hydratedPath]),
+      "/api/v1/customer-snapshot/changes"
+    ].map((p) => `get ${p}`).sort();
+    expect(supported).toHaveLength(10);
     const advertised: string[] = [];
     for (const [path, item] of Object.entries(doc.paths)) {
       for (const [method, op] of Object.entries(item)) {

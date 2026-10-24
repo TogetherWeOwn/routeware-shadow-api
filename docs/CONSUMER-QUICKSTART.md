@@ -360,8 +360,12 @@ The existing single-ID `GET /api/v1/data/customer`, `GET /api/v1/data/address`
 and `GET /api/v1/data/container` reads also declare `fields`: only the matching
 `.customer`, `.address` or `.container` root is projected, leaving related bundle
 data unchanged. Those hydrated reads still require the sync secret; their
-existing ETag and cache behavior is unchanged. Omitting `fields` preserves the
-full response. Exports, changes feeds and batch paths do not support `fields`.
+existing ETag and cache behavior is unchanged. The customer changes feed,
+`GET /api/v1/customer-snapshot/changes`, declares the same customer catalog and
+projects each row only after computing its page-length `total` and composite
+`nextCursor`; keep the same selector when following the cursor. Omitting `fields`
+preserves the full response. Exports, other changes feeds and batch paths do not
+support `fields`.
 Inspect each operation's actual parameter and route description; the catalog
 does not grant authority. Operation IDs and access/effect metadata are unchanged.
 
@@ -467,11 +471,12 @@ curl -s -w '\nHTTP %{http_code}\n' \
 
 `GET /api/v1/customer-snapshot/changes` replays only rows touched after your
 cursor — the incremental counterpart to the full list in step 2. Omit the
-cursor for the first page (every row is newer than the epoch):
+cursor initially. Optional `fields=company_name` keeps `customer_id` and the
+selected column; omit `fields` for full rows. Cursors are unchanged:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2"
+  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2&fields=company_name"
 # {"rows":[...],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":7101}}
 ```
 
@@ -482,7 +487,7 @@ upserted row in one sync run shares that run's stamp:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2"
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2&fields=company_name"
 ```
 
 `since` is UTC `Z` with seconds or 1–3 fractional digits, compared at
@@ -495,11 +500,13 @@ never appear as tombstones, so re-list to detect disappearance.
 
 Prefer the server's `Link: <relative-target>; rel="next"` to rebuilding the
 pair from JSON. It appears exactly when `nextCursor` is non-null, replaces
-both cursor halves and retains the effective limit (1..500, default 50).
+both cursor halves and retains the effective limit (1..500, default 50) and
+the validated `fields` selector, so sparse traversal keeps sparse pages.
 The target is always `/api/v1/customer-snapshot/changes` with URL-encoded
-`since`, `since_id` and `limit` only: unknown keys, origins and credentials
-are never echoed. This feed does not recognize `fields` or `until`; neither
-selector is introduced here. Other unknown keys remain ignored.
+`since`, `since_id`, `limit` and, when requested, `fields`: unknown keys,
+origins and credentials are never echoed. This feed recognizes optional
+`fields` (sparse stored-column projection after cursor derivation; omit for
+full rows) but not `until`. Other unknown keys remain ignored.
 
 Omission means stop. A full terminal page may link to an empty page; short,
 empty and error pages have no next link. JSON bytes/shape, row ordering,
