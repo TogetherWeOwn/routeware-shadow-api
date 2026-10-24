@@ -16,6 +16,16 @@ import {
   handlePostDataContainer,
   handlePostDataCustomer
 } from "../lib/dataEntitySave";
+import {
+  addressSaveOutcomeSchema,
+  addressSaveDryRunSchema,
+  containerSaveOutcomeSchema,
+  containerSaveDryRunSchema,
+  customerSaveOutcomeSchema,
+  customerSaveDryRunSchema,
+  type EntitySaveOutcome,
+  type LocalSyncSummary
+} from "../lib/dataEntitySaveSchemas";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   DATA_ADDRESS_QUERY_KEYS,
@@ -219,30 +229,96 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   return handleGetDataContainer({ env: c.env, var: c.var, req: c.req }, id, c.req.valid("query").fields);
 }, hydratedReadValidationHook);
 
+const saveRecoveryGuidance =
+  "Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.";
+
 function dataEntityPostResponse(
-  example: Record<string, unknown>,
-  created?: { description: string; example: Record<string, unknown> }
+  schema: z.ZodType,
+  dryRunSchema: z.ZodType,
+  example: EntitySaveOutcome,
+  created?: { description: string; example: EntitySaveOutcome }
 ): RouteConfig["responses"] {
+  const forwardedOrProblemResponse = {
+    description:
+      "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+    content: {
+      "application/json": { schema },
+      "application/problem+json": {
+        schema: {
+          type: "object",
+          required: ["type", "title", "status"],
+          properties: {
+            type: { type: "string" },
+            title: { type: "string" },
+            status: { type: "integer" },
+            detail: { type: "string" },
+            instance: { type: "string" },
+            requestId: { type: "string" }
+          }
+        }
+      }
+    }
+  } satisfies RouteConfig["responses"][string];
   return {
     200: {
       description:
-        "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
-      content: { "application/json": { schema: z.unknown(), example } }
+        "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. " + saveRecoveryGuidance,
+      content: {
+        "application/json": {
+          schema: z.union([schema, dryRunSchema]),
+          examples: {
+            dryRun: {
+              summary: "Validation passed only; no upstream write or local refresh (synthetic)",
+              value: {
+                ...example, ok: true, dryRun: true, routewareStatus: null, upstreamBytes: 0,
+                localSync: { done: false, code: "not_attempted" }
+              }
+            },
+            refreshed: { summary: "Upstream accepted; local graph refreshed (synthetic)", value: example },
+            syncFailed: {
+              summary: "Upstream accepted; local refresh or invalidation failed (synthetic)",
+              value: { ...example, localSync: { done: false, code: "sync_failed" } }
+            },
+            unknownCustomer: {
+              summary: "Upstream accepted; owning customer unresolved (synthetic)",
+              value: { ...example, customerId: null, localSync: { done: false, code: "unknown_customer_id" } }
+            },
+            rejected: {
+              summary: "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+              value: { ...example, ok: false, upstreamBytes: 17, localSync: { done: false, code: "not_attempted" } }
+            }
+          }
+        }
+      }
     },
     ...(created
       ? {
           201: {
             description: created.description,
-            content: { "application/json": { schema: z.unknown(), example: created.example } }
+            content: { "application/json": { schema, example: created.example } }
           }
         }
       : {}),
-    400: { description: "Bad Request" },
-    401: { description: "Unauthorized" },
-    502: { description: "Bad Gateway" },
-    503: {
+    400: {
+      ...forwardedOrProblemResponse,
       description:
-        "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)"
+        "Local validation failure uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Inspect the media type, not only the status."
+    },
+    401: {
+      ...forwardedOrProblemResponse,
+      description:
+        "Local bearer denial uses application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. An upstream 401 does not mean the caller's bearer is invalid."
+    },
+    502: forwardedOrProblemResponse,
+    503: {
+      ...forwardedOrProblemResponse,
+      description:
+        "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim."
+    },
+    default: {
+      ...forwardedOrProblemResponse,
+      description:
+        "Forwarded upstream rejection uses application/json with ok=false and localSync.code=not_attempted. Local failures, including auth throttling (429) and unhandled errors (500), use application/problem+json. An ambiguous create may have landed; verify existing records rather than blindly replaying it."
     }
   };
 }
@@ -255,7 +331,7 @@ function dataEntityPostResponse(
  */
 const saveQueryKeys = ["dryRun"] as const;
 
-const localSyncExample = {
+const localSyncExample: LocalSyncSummary = {
   done: true,
   customerId: 345734,
   addressIds: [10],
@@ -271,7 +347,7 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On success, refreshes D1 for that customer from `GetCustomerDetailFull` and invalidates related cache entries. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from `GetCustomerDetailFull` and invalidate related cache entries; this can fail independently of the write. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
     query: dryRunQuery,
     body: {
@@ -304,7 +380,7 @@ const dataCustomerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse({
+  responses: dataEntityPostResponse(customerSaveOutcomeSchema, customerSaveDryRunSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 345734,
@@ -356,28 +432,25 @@ const dataAddressPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse(
-    {
+  responses: dataEntityPostResponse(addressSaveOutcomeSchema, addressSaveDryRunSchema, {
+    ok: true,
+    routewareStatus: 200,
+    customerId: 5,
+    pickupAddressId: 10,
+    upstreamBytes: 16,
+    localSync: { ...localSyncExample, customerId: 5 }
+  }, {
+    description:
+      "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
+    example: {
       ok: true,
       routewareStatus: 200,
       customerId: 5,
-      pickupAddressId: 10,
-      upstreamBytes: 16,
-      localSync: { ...localSyncExample, customerId: 5 }
-    },
-    {
-      description:
-        "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
-      example: {
-        ok: true,
-        routewareStatus: 200,
-        customerId: 5,
-        pickupAddressId: 77,
-        upstreamBytes: 46,
-        localSync: { done: true, customerId: 5, addressIds: [10, 77], containerIds: [100] }
-      }
+      pickupAddressId: 77,
+      upstreamBytes: 46,
+      localSync: { ...localSyncExample, customerId: 5, addressIds: [10, 77] }
     }
-  )
+  })
 });
 
 dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
@@ -423,30 +496,27 @@ const dataContainerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse(
-    {
+  responses: dataEntityPostResponse(containerSaveOutcomeSchema, containerSaveDryRunSchema, {
+    ok: true,
+    routewareStatus: 200,
+    customerId: 345734,
+    pickupAddressId: 10,
+    containerId: 100,
+    upstreamBytes: 16,
+    localSync: localSyncExample
+  }, {
+    description:
+      "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
+    example: {
       ok: true,
       routewareStatus: 200,
       customerId: 345734,
       pickupAddressId: 10,
-      containerId: 100,
-      upstreamBytes: 16,
-      localSync: localSyncExample
-    },
-    {
-      description:
-        "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
-      example: {
-        ok: true,
-        routewareStatus: 200,
-        customerId: 345734,
-        pickupAddressId: 10,
-        containerId: 177,
-        upstreamBytes: 43,
-        localSync: { ...localSyncExample, containerIds: [100, 177] }
-      }
+      containerId: 177,
+      upstreamBytes: 43,
+      localSync: { ...localSyncExample, containerIds: [100, 177] }
     }
-  )
+  })
 });
 
 dataEntityRoutes.openapi(dataContainerPostRoute, async (c) => {
