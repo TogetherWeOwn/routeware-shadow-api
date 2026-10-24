@@ -24,6 +24,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `npm run check:snapshot-upper-id`. Update Zod from 4.3.6 to 4.6.7 to fix
   GHSA-mrhx-c7xc-m3w5 (oversized constrained-collection memory exhaustion)
   without changing the dependency audit gate or its allowlist.
+- #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
+  snapshot CSV for one table without naming its date, resolving the existing
+  `snapshot-latest/{table}.json` pointer the sync leg republishes after every
+  archive. Same sync-secret gate and 401 precedence, same spreadsheet-safe
+  re-encode (byte-identical to the explicit-date download, same content-hash
+  ETag with empty-body 304s, `{table}-latest.csv` filename). A missing pointer
+  or CSV is a fixed table-only 404; an unreadable pointer is a fixed sanitized
+  500. The `{date}` route is unchanged. See `docs/CONSUMER-QUICKSTART.md` and
+  `docs/R2-RETENTION.md`.
 
 - #353: The seven mutating snapshot POSTs (combined sync, three per-table
   syncs, three imports) now reject any query key outside their declared set
