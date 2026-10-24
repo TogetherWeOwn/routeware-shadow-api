@@ -5,6 +5,7 @@ import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
   snapshotListConditionalHeaders,
   snapshotListEtagHeaders,
@@ -67,6 +68,7 @@ const addressSnapshotListRoute = createRoute({
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      ids: snapshotIdSelectionQuery(),
       routeId: z.string()
         .regex(/^(0|[1-9][0-9]*)$/)
         .refine((value) => Number.isSafeInteger(Number(value)) && String(Number(value)) === value)
@@ -116,7 +118,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order`. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -134,6 +136,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.pickupAddressId !== undefined) {
     where.push("pickup_address_id = ?");
     binds.push(p.pickupAddressId);
+  }
+  if (p.ids !== undefined) {
+    where.push(snapshotIdSelectionPredicate("address", p.ids.length));
+    binds.push(...p.ids);
   }
   if (p.routeId !== undefined) {
     where.push("route_id = ?");

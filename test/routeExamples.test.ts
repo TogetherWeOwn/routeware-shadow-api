@@ -414,17 +414,16 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
     // +3 for the batch `ids` param on the three data-entity GETs.
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
-    // +3 for fields on the three hydrated single-ID GETs;
+    // +3 for fields on the three hydrated single-ID GETs; +3 for ids on the three ordinary lists;
+    // +9 for fields[customer]/fields[address]/fields[container] on those GETs (R20-02);
     // +2 for exact customerNumber/subCustomerNumber on the ordinary customer list;
-    // +3 for order on the three ordinary lists;
+    // +3 for order on the customer, address and container snapshot lists;
     // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
     // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
     // +1 for fields on the customer changes feed;
-    // +2 for serialNumber and rfid on the container snapshot list;
-    // +3 for upperId on the customer, address and container snapshot lists;
-    // +9 for per-type bundle selectors (fields[customer|address|container]) on the three data-entity GETs.
+    // +2 for serialNumber and rfid on the container snapshot list.
     expect(checked).toBe(90);
   });
 

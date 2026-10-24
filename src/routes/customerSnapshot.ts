@@ -6,6 +6,7 @@ import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLin
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
   snapshotListConditionalHeaders,
   snapshotListEtagHeaders,
@@ -74,6 +75,7 @@ const customerSnapshotListRoute = createRoute({
     headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      ids: snapshotIdSelectionQuery(),
       customerNumber: customerAccountNumberQuery.optional()
         .describe("Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
         .openapi({ example: "00042" }),
@@ -117,7 +119,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before D1 or conditional 304 success. Errors name fields, never supplied values. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -131,6 +133,10 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.customerId !== undefined) {
     where.push("customer_id = ?");
     binds.push(p.customerId);
+  }
+  if (p.ids !== undefined) {
+    where.push(snapshotIdSelectionPredicate("customer", p.ids.length));
+    binds.push(...p.ids);
   }
   if (p.customerNumber !== undefined) {
     where.push("customer_number = ?");

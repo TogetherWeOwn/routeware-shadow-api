@@ -6,6 +6,7 @@ type SnapshotListQuery = {
   subCustomerNumber?: string;
   pickupAddressId?: number;
   containerId?: number;
+  ids?: number[];
   serialNumber?: string;
   rfid?: string;
   routeId?: number;
@@ -48,6 +49,9 @@ export function snapshotNextLink(
   for (const key of list.selectors) {
     if (query[key] !== undefined) params.set(key, String(query[key]));
   }
+  // Validated ids are canonical integers, so rejoining reproduces the single
+  // canonical selector; unknown keys are still never copied.
+  if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));

@@ -153,12 +153,10 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. The changes operation/400
- * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
- * so only those two strings are excluded here. Its fields schema and all
- * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
- * parameter, response, header, schema and operation.
+ * projected out. The changes operation/400 descriptions are asserted semantically
+ * in customerChangesFields.acceptance.test.ts, so only those two strings are
+ * excluded here. Its fields schema and all cursor/limit/response structure stay
+ * snapshot-frozen, as does every unrelated response, header, schema and operation.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
@@ -200,8 +198,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -212,6 +209,25 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
       }
       if (Object.keys(headers).length === 0) delete operation.responses!["200"].headers;
     }
+  }
+  return copy;
+}
+
+/**
+ * The bounded `ids` extension has independent behavioral/schema assertions in
+ * snapshotIdSelection.acceptance.test.ts. Project out only its new parameter
+ * and the three evolving 400 descriptions; freeze all pre-existing structure.
+ */
+function withoutIdSelectionExtension(doc: unknown): unknown {
+  const copy = structuredClone(doc) as {
+    paths: Record<string, { get?: { parameters?: Param[]; responses?: Record<string, { description?: string }> } }>;
+  };
+  type Param = { name?: string };
+  for (const resource of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/${resource}-snapshot`]?.get;
+    if (!get) continue;
+    if (get.parameters) get.parameters = get.parameters.filter((p) => p.name !== "ids");
+    if (get.responses?.["400"]) delete get.responses["400"].description;
   }
   return copy;
 }
@@ -518,14 +534,12 @@ describe("published OpenAPI document", () => {
     // no other fields parameter property is projected out. Conditional list
     // If-None-Match, 200 ETag and 304 declarations are separately pinned by
     // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
+    // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // unrelated golden contracts stay pinned.
-    // Only the three ordinary lists' upperId query parameters are also projected
-    // out: their bounds, strict validation, scope and authority are independently
-    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
   });
 });
 
