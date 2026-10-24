@@ -125,18 +125,22 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
 }
 
 /**
- * `?dryRun=true` query flag for the snapshot sync/import routes.
- * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
- * string (including `"false"`) to `true`, which would turn a cautious
- * `?dryRun=false` probe into a real write. Only the exact string `"true"`
- * dry-runs; anything else is rejected with the anchored 400 below.
+ * `?dryRun=true` query flag for the snapshot sync/import routes and the
+ * data-entity saves. An enum, not a coerced boolean: `z.coerce.boolean()`
+ * maps every non-empty string (including `"false"`) to `true`, which would
+ * turn a cautious `?dryRun=false` probe into a real write. Only the exact
+ * string `"true"` dry-runs; anything else is rejected with the anchored 400
+ * below. The object is intentionally non-strict: unknown keys pass the
+ * validator and are rejected after auth by `rejectUnknownQueryKeys`, so an
+ * inner 401 precedes an unknown-key 400 while an invalid `dryRun` value
+ * 400s first.
  */
 export const dryRunQuery = z.object({
   dryRun: z
     .enum(["true", "false"])
     .optional()
     .describe(
-      "Dry run: validate the CSV and return the would-be counts without writing D1 or R2"
+      "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation"
     )
     .openapi({ example: "true" })
 });
@@ -167,55 +171,40 @@ export const DATA_CONTAINER_QUERY_KEYS = [
 ] as const;
 
 /**
- * Strict unknown-key guard for the three hydrated entity GETs. Returns a
- * 400 `bad-request` problem+json response to return as-is, or `null` when
- * every submitted query key is in `allowed`.
+ * Strict-query tail for routes whose zod query schema is non-strict on
+ * purpose: reject every raw query key outside `allowed` with a value-free
+ * 400 `bad-request` problem+json, or `null` when the query is clean.
  *
- * Call this in the handler immediately after the snapshot-auth gate and
- * before any other check or work, so a mistyped `?field=` fails loudly
- * instead of stripping to a full PII bundle. Placement is load-bearing: the
- * zod validator still owns known-key VALUES (an invalid `?fields=bogus`
- * 400s before the handler's inner auth check), while unknown KEYS are
- * checked here, after auth — a bad bearer with a typo'd key keeps the
- * sync-secret 401. Repeated known keys likewise keep failing in the
- * validator's string schema before this runs.
+ * Call this AFTER `requireSnapshotAuth`: known-key values and repeats stay
+ * with the existing validator, while unknown keys must 401 first for a
+ * wrong bearer and 400 only once authorized. Raw searchParams retain empty
+ * names (`?=x`) that Hono's c.req.query() drops; a bare `&` carries no key.
  *
- * Raw `searchParams` keys are enumerated, not `c.req.query()`: Hono drops
- * empty-string names, so `?=x` would slip past a `c.req.query()`-based
- * helper while the contract demands a 400. A trailing bare `&` carries no
- * key and stays 200.
- *
- * The 400 is fixed guidance naming only the `allowed` keys, never the
- * submitted names or values: unknown key bytes can carry PII probes, so they
- * must not echo — which is also why this does not route through
- * `validationFailureHook` (the hook forwards rejected field paths, safe only
- * for allowlisted schema keys). Same `bad-request` type, title, status and
- * `docs/PROBLEMS.md#bad-request` anchor as validator rejections, with a
- * pathname-only instance (query stripped). Wording converges with R20-04's
- * mutating-POST guard so the two merge cleanly.
+ * Hydrated GETs select `allowed-only`: fixed guidance must never echo
+ * submitted names or values, including names carrying PII. This bypasses
+ * validationFailureHook, which forwards rejected field paths. The default
+ * retains the existing POST guidance (key names, never values). Both use
+ * the same problem type and pathname-only instance, with no query echo.
  */
-export function rejectUnknownDataEntityQuery(
-  c: { req: { url: string }; env?: Env },
-  allowed: readonly string[]
+export function rejectUnknownQueryKeys(
+  c: { env?: Env; req: { url: string } },
+  allowed: readonly string[],
+  guidance: "submitted-keys" | "allowed-only" = "submitted-keys"
 ): Response | null {
-  const keys = new Set(new URL(c.req.url).searchParams.keys());
-  let unknown = false;
-  for (const key of keys) {
-    if (!allowed.includes(key)) {
-      unknown = true;
-      break;
-    }
-  }
-  if (!unknown) {
+  const names = new Set(new URL(c.req.url).searchParams.keys());
+  const unknown = [...names].filter((name) => !allowed.includes(name)).sort();
+  if (unknown.length === 0) {
     return null;
   }
   return problemJsonResponse({
     type: problemType("bad-request", c.env),
     title: "Bad Request",
     status: 400,
-    detail:
-      `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
-      "See docs/PROBLEMS.md#bad-request.",
+    detail: guidance === "allowed-only"
+      ? `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
+        "See docs/PROBLEMS.md#bad-request."
+      : `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
+        `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
     instance: new URL(c.req.url).pathname
   });
 }

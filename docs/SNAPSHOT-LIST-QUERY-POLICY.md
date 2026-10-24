@@ -100,10 +100,12 @@ tried to trim.
 | `/api/v1/data/address` | `id`, `pickupAddressId`, `fields` | Reject (400) |
 | `/api/v1/data/container` | `id`, `containerId`, `fields` | Reject (400) |
 
-One shared guard (`rejectUnknownDataEntityQuery` in `src/routes/shared.ts`)
-serves all three routes, immediately after the sync-secret gate and before
-any other check. Sync-secret 401 precedence is preserved (a bad bearer with
-a typo'd key keeps the 401), while invalid values such as `?fields=bogus`
+One shared guard (`rejectUnknownQueryKeys` in `src/routes/shared.ts`, with
+`allowed-only` guidance) serves all three routes, immediately after the
+sync-secret gate and before any other check. The POST saves share the guard
+but retain their existing key-name guidance. Sync-secret 401 precedence is
+preserved (a bad bearer with a typo'd key keeps the 401), while invalid values
+such as `?fields=bogus`
 and repeated known keys keep their existing validator-first 400. The 400
 carries fixed allowed-keys guidance and never echoes submitted keys or
 values:

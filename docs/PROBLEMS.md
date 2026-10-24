@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, an unknown query key on a hydrated entity read, disallowed CSV control characters, or a snapshot row with a dangling foreign key (see below). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, an unknown query key on a hydrated entity read, disallowed CSV control characters, a snapshot row with a dangling foreign key, or an unexpected query key on a data-entity save (only `dryRun` is allowed; see below). |
 | `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
@@ -17,6 +17,7 @@ section below.
 | `conflict` | 409 | <a name="conflict"></a>The snapshot archive changed while a readback was being read. Retry the download. See below. |
 | `misconfigured` | 503 | <a name="misconfigured"></a>A required var/secret or report path is not set on the Worker. |
 | `snapshot-export-query-budget` | 503 | The snapshot export cannot fit its reserved D1 query allowance. See the page-sizing remedy below. |
+| `failed-precondition` | 503 | <a name="failed-precondition"></a>A save dry-run has no usable Routeware session to validate against, and dry runs never log in. Establish a session with a live request first. See below. |
 | `bad-gateway` | 502 | <a name="bad-gateway"></a>The Worker could not complete an upstream step (e.g. anti-forgery token preparation). |
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
@@ -99,6 +100,17 @@ for the contract and a synthetic example.
 Validation happens before D1 and returns fixed, value-free guidance:
 `Invalid request query (fields). See docs/PROBLEMS.md#bad-request.`
 No submitted name is echoed. Authentication still precedes validation.
+
+## Save dry-run query (`bad-request`)
+
+For `POST /api/v1/data/customer|address|container`, `dryRun` is the only
+allowed query key, and its value must be exactly `true` or `false`:
+`?dryRun=true` validates without writing, `?dryRun=false` (or no query)
+runs the live write. Unknown keys, typos (`dryrun`), empty values and
+repeated keys are 400s before any session, upstream, D1 or cache work, with
+key names (never values) in the detail. An invalid `dryRun` value 400s
+before the inner sync-secret gate; an unknown key 401s first for a wrong
+bearer. See the [dry-run recipe](CONSUMER-QUICKSTART.md#dry-run-recipe-validate-fix-save).
 
 ## CSV control characters (`bad-request`)
 
@@ -694,6 +706,15 @@ the browser would burn Browser Rendering budget misdiagnosed as a markup
 change. A genuine 200 page with no token keeps the old behavior (treated as a
 markup change, browser fallback in auto mode). The 502 detail carries only the
 status number — never URL, body, or PII.
+
+## Save dry-run without a session (`failed-precondition`)
+
+A `POST /api/v1/data/*?dryRun=true` with no usable Routeware session fails
+closed as 503 `failed-precondition` problem+json: dry runs validate against
+the stored session only and never establish one (no login POST, no
+`establishSession` call). Run any live request first to establish a session,
+then retry the dry-run; an empty body still 400s before the session check.
+See the [dry-run recipe](CONSUMER-QUICKSTART.md#dry-run-recipe-validate-fix-save).
 
 ## Missing Set-Cookie capability (`misconfigured`, title "Service Unavailable")
 
