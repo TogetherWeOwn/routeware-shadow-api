@@ -4,6 +4,7 @@ import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
@@ -82,6 +83,7 @@ const containerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 99 }),
+      upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
         .optional()
@@ -163,6 +165,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive ceiling on the container primary key (never the
+  // joined address key): a fixed bound shared with the COUNT below through
+  // the same where/binds. An ascending cursor at or above the cap matches
+  // nothing; descending seeks retain this same inclusive cap.
+  if (p.upperId !== undefined) {
+    where.push("c.container_id <= ?");
+    binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
   // Count-free page: zero COUNT statements. `total: null` means the count was

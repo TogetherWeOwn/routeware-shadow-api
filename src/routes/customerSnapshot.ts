@@ -3,6 +3,7 @@ import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -91,6 +92,7 @@ const customerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
+      upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
         .optional()
@@ -157,6 +159,13 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive ceiling: a fixed primary-key bound shared with the
+  // COUNT below through the same where/binds. An ascending cursor at or above
+  // the cap matches nothing; descending seeks retain this same inclusive cap.
+  if (p.upperId !== undefined) {
+    where.push("customer_id <= ?");
+    binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
   // Count-free page: zero COUNT statements. `total: null` means the count was

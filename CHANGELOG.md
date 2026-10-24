@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #350: Three ordinary snapshot lists (`GET
+  /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
+  caller-held inclusive ceiling: only rows whose resource primary key is at or
+  below the cap are listed and counted. The caller retains the cap unchanged
+  across pages, so higher-ID arrivals cannot extend the traversal; an ascending
+  cursor at or above the cap yields an empty page with cursor-relative totals.
+  Descending traversals retain the same inclusive cap while seeking lower IDs.
+  The cap composes with all filters, `q`, `enabled`, `fields=`, offset/cursor
+  and `includeTotal=false`, is preserved verbatim in `Link` next targets, needs
+  no migration or index, and omission preserves existing behavior with no `MAX`
+  query. Values are one canonical unpadded ASCII decimal integer from `1` to
+  `9007199254740991`; anything else is a value-free 400 before D1, after
+  read-role authentication. Numeric IDs are not timestamps: inserts below the
+  ceiling, updates and deletions remain visible, with no snapshot isolation,
+  exact-once or watermark promises. Synthetic resume example:
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
+  `npm run check:snapshot-upper-id`.
 - #361: Exact external account lookup on the existing customer snapshot list: optional
   `customerNumber` and `subCustomerNumber` use bound, case-sensitive equality and
   AND-compose with existing filters. Opaque strings preserve zeros and nonblank
@@ -40,7 +57,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the #357 strict-query guard. Documented in
   `docs/CONSUMER-QUICKSTART.md` and `docs/PROBLEMS.md`; pinned by
   `test/batchHydratedReadIds.acceptance.test.ts`.
-
 - #358: New `GET /api/v1/snapshots/{table}` lists newest-first archived dates
   for `customer|address|container` from the per-day manifest sidecars, each
   entry carrying `{date, bytes, sha256}` (hashes/sizes only, never row data).

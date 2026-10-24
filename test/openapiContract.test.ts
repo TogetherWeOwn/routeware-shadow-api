@@ -153,10 +153,12 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The changes operation/400 descriptions are asserted semantically
- * in customerChangesFields.acceptance.test.ts, so only those two strings are
- * excluded here. Its fields schema and all cursor/limit/response structure stay
- * snapshot-frozen, as does every unrelated response, header, schema and operation.
+ * projected out. The optional upperId query on these same three lists is pinned
+ * independently by snapshotUpperId.acceptance.test.ts. The changes operation/400
+ * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
+ * so only those two strings are excluded here. Its fields schema and all
+ * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
+ * parameter, response, header, schema and operation.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
@@ -198,7 +200,8 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
+        !(param.in === "query" && param.name === "upperId")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -539,6 +542,9 @@ describe("published OpenAPI document", () => {
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // unrelated golden contracts stay pinned.
+    // Only the three ordinary lists' upperId query parameters are also projected
+    // out: their bounds, strict validation, scope and authority are independently
+    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
   });
 });
