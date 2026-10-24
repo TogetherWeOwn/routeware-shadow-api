@@ -151,7 +151,12 @@ function next(response: Response, current: URL, expected: Record<string, string>
   expect(target.searchParams.has("offset")).toBe(false);
   for (const [key, value] of Object.entries(expected)) {
     if (key === "includeTotal" && value === "true") continue;
+    if (key === "enabled" && value === "any") continue;
     expect(target.searchParams.getAll(key), key).toEqual([value]);
+  }
+  if (expected.enabled === "any") {
+    expect([null, "any"]).toContain(target.searchParams.get("enabled"));
+    expect(target.searchParams.getAll("enabled").length).toBeLessThanOrEqual(1);
   }
   if (expected.includeTotal !== "false") {
     expect([null, "true"]).toContain(target.searchParams.get("includeTotal"));
