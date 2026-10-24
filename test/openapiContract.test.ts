@@ -139,12 +139,20 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
 /**
  * Copy of the document with the free-text `description`/`example` of the
  * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
+ * The changes operation/400 descriptions are also asserted semantically in
+ * customerChangesFields.acceptance.test.ts, so its new selector guidance need
+ * not duplicate exact prose here. Only those two strings are excluded; fields
+ * schema and all existing cursor/limit/response structure stay snapshot-frozen.
  * Everything else, including the parameter's position, enum, default and the
  * nullable `total` type, still goes through the byte-for-byte snapshot.
  */
 function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
-    paths?: Record<string, Record<string, { parameters?: Array<Record<string, unknown>> }>>;
+    paths?: Record<string, Record<string, {
+      description?: string;
+      parameters?: Array<Record<string, unknown>>;
+      responses?: Record<string, { description?: string }>;
+    }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
   for (const item of Object.values(copy.paths ?? {})) {
@@ -163,6 +171,12 @@ function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
   }
   const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
   if (total) delete total.description;
+  const changes = copy.paths?.["/api/v1/customer-snapshot/changes"]?.get;
+  if (changes) {
+    delete changes.description;
+    const badRequest = changes.responses?.["400"];
+    if (badRequest) delete badRequest.description;
+  }
   return copy;
 }
 
