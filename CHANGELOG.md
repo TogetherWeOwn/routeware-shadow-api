@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer changes feed accepts optional strict `fields` from the shared customer
+- #364: Customer changes feed accepts optional strict `fields` from the shared customer
   allowlist, always retaining `customer_id`. Only response-row keys shrink:
   page membership, order, page-length `total` and composite `nextCursor` remain
   unchanged even when `synced_at` is omitted. Invalid selectors fail before D1
