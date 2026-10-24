@@ -334,11 +334,12 @@ curl -s -w '\nHTTP %{http_code}\n' \
 
 `GET /api/v1/customer-snapshot/changes` replays only rows touched after your
 cursor — the incremental counterpart to the full list in step 2. Omit the
-cursor for the first page (every row is newer than the epoch):
+cursor initially. Optional `fields=company_name` keeps `customer_id` and the
+selected column; omit `fields` for full rows. Cursors are unchanged:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2"
+  "http://localhost:8787/api/v1/customer-snapshot/changes?limit=2&fields=company_name"
 # {"rows":[...],"total":2,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":7101}}
 ```
 
@@ -349,7 +350,7 @@ upserted row in one sync run shares that run's stamp:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2"
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.000Z&since_id=7101&limit=2&fields=company_name"
 ```
 
 `since` is UTC `Z` with seconds or 1–3 fractional digits, compared at

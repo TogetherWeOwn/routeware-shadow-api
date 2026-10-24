@@ -1,7 +1,7 @@
 import { z } from "@hono/zod-openapi";
 
 /**
- * Sparse fieldsets (`?fields=`) for the six flat snapshot reads.
+ * Sparse fieldsets (`?fields=`) for flat snapshot reads and customer changes.
  *
  * Single source of truth for which response keys a client may select: each
  * whitelist below mirrors the route's D1 SELECT list exactly (id + stored
@@ -23,7 +23,7 @@ import { z } from "@hono/zod-openapi";
 
 export type SnapshotFieldsetResource = "customer" | "address" | "container";
 
-/** Exact `SELECT` column list of the customer snapshot list/detail reads. */
+/** Exact `SELECT` column list of customer snapshot list/detail/changes reads. */
 const CUSTOMER_SNAPSHOT_FIELDS = [
   "customer_id",
   "customer_type_id",
@@ -154,7 +154,7 @@ export function projectSnapshotRow(
 }
 
 /**
- * The `fields` query fragment for one resource's list and by-id routes.
+ * The `fields` query fragment for snapshot list/by-id and customer changes routes.
  * Invalid selectors fail the string schema in the hook (`Invalid request
  * query (fields)`); valid selectors arrive in the handler as parsed columns.
  */

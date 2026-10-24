@@ -301,7 +301,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 |--------|------|--------|
 | GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
-| GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows) |
+| GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
@@ -340,6 +340,14 @@ Whitespace, signs, prefixes, exponents, decimal points and repeated cursor
 keys are invalid. The value-free anchored 400 names only fields; see
 [query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
 
+Optional `fields=company_name` returns only `customer_id` and `company_name`;
+omit `fields` for all customer columns. Selection uses the shared strict
+customer allowlist: unknown/empty/duplicate names or repeated keys fail
+before D1 with value-free guidance. Membership, order, page-length `total`
+and composite `nextCursor` are computed from full rows before projection,
+even if `synced_at` is not selected. Keep `fields` on continuation requests.
+See the [synthetic two-page example](docs/SNAPSHOT-LIST-QUERY-POLICY.md#sparse-fieldsets-fields).
+
 Synthetic example: rows `(8402, 2026-09-01T00:00:00.100Z)` and
 `(8407, 2026-09-01T00:00:00.100Z)` share a timestamp. A `limit=1` page ending
 at `8402` returns:
@@ -360,6 +368,7 @@ Hermetic regression check, also listed by `npm run help`:
 
 ```bash
 npm run check:customer-changes-cursor
+npx vitest run test/customerChangesFields.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/openapiContract.test.ts --maxWorkers=2
 ```
 
 This uses synthetic local D1 rows only; no credentials, upstream requests,

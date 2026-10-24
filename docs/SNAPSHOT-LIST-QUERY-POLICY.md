@@ -14,7 +14,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
@@ -35,17 +35,21 @@ the exact documented query names; this API does not detect those typos.
 
 ## Sparse fieldsets (`fields=`)
 
-The three ordinary lists and their by-id reads accept an optional
-`fields=` comma-separated selector that trims each response object to
-exactly the requested stored columns plus the resource id. The id is
-always present even when omitted from the selector; naming it explicitly
-is not a duplicate. Lists keep the `{rows, total, nextCursor}` envelope —
-only each row's keys shrink — and `fields=` composes with filters,
-pagination and `includeTotal=false` without changing matches, counts or
-cursors. The selectable set is an explicit per-resource allowlist in
-`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else);
-hydrated `/api/v1/data/*` reads, CSV exports and the changes feed ignore
-`fields=` as an unknown name.
+The three ordinary lists, their by-id reads and the customer changes feed
+accept an optional `fields=` comma-separated selector that trims each row to
+exactly the requested stored columns plus the resource id. Omit `fields`
+for full rows. The id is always present even when omitted from the selector;
+naming it explicitly is not a duplicate. Lists keep the
+`{rows, total, nextCursor}` envelope — only each row's keys shrink — and
+`fields=` composes with filters, pagination and ordinary-list
+`includeTotal=false` without changing matches, counts or cursors.
+The customer changes feed computes membership, order, page-length `total`
+and the composite cursor from full rows **before** projection, even when
+`fields` omits `synced_at`. This does not add `includeTotal` to changes.
+The selectable set is the canonical per-resource allowlist in
+`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else).
+Hydrated `/api/v1/data/*` reads project only the requested root with the same
+allowlist; related objects remain full. CSV exports still ignore `fields=`.
 
 The selector is strict: exact column names, no spaces, no empty segments,
 no duplicates, and a single `fields` key. Anything else is the existing
@@ -57,9 +61,32 @@ GET /api/v1/customer-snapshot?fields=company_name,phone1&limit=1
 {"rows":[{"customer_id":9101,"company_name":"synthetic-fields-co-9101","phone1":"555-9101"}],"total":1,"nextCursor":null}
 ```
 
-Run `npx vitest run test/sparseFieldsets.acceptance.test.ts` for the
-focused valid-selection, rejection, pagination-composition and ETag
-regressions. No live replay.
+Synthetic two-page customer changes example (three rows share the first
+page's boundary timestamp; unselected phone/comments are not returned):
+
+```text
+GET /api/v1/customer-snapshot/changes?limit=3&fields=company_name
+{"rows":[{"customer_id":8751,"company_name":"Synthetic company 8751"},{"customer_id":8752,"company_name":"Synthetic company 8752"},{"customer_id":8754,"company_name":"Synthetic company 8754"}],"total":3,"nextCursor":{"since":"2026-09-01T00:00:00.000Z","since_id":8754}}
+
+GET /api/v1/customer-snapshot/changes?limit=3&fields=company_name&since=2026-09-01T00%3A00%3A00.000Z&since_id=8754
+{"rows":[{"customer_id":8753,"company_name":"Synthetic company 8753"},{"customer_id":8750,"company_name":"Synthetic company 8750"}],"total":2,"nextCursor":null}
+```
+
+Keep the selector when following both cursor halves. Full and sparse pages
+have the same IDs, total and cursor; no `synced_at` response key is needed
+to resume. A full terminal page still emits a maybe-more cursor, so continue
+until `nextCursor` is null. The feed remains upserts-only, not deletion CDC
+or historical isolation; auth, `no-store` and unrelated unknown-key ignore
+behavior are unchanged.
+
+Focused hermetic valid-selection, rejection, auth and cursor regressions:
+
+```sh
+npx vitest run test/customerChangesFields.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/openapiContract.test.ts --maxWorkers=2
+npm run check:customer-changes-cursor
+```
+
+No live replay or upstream calls.
 
 ## Customer changes cursor validation
 

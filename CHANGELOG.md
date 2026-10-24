@@ -5,6 +5,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Customer changes feed accepts optional strict `fields` from the shared customer
+  allowlist, always retaining `customer_id`. Only response-row keys shrink:
+  page membership, order, page-length `total` and composite `nextCursor` remain
+  unchanged even when `synced_at` is omitted. Invalid selectors fail before D1
+  with value-free guidance; absent fields preserves full rows. See the synthetic
+  two-page example and focused check in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit
