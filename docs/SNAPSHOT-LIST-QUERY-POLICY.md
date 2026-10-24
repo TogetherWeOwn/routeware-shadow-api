@@ -13,7 +13,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -60,6 +60,50 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
+
+## Exact container asset lookup
+
+Only the existing container list accepts `serialNumber` and `rfid`. Each is a
+single optional, case-sensitive opaque exact string of 1..100 Unicode code
+points, not a number or substring. Leading zeros and nonblank whitespace are
+preserved; no trimming, case folding or Unicode normalization occurs. Empty,
+whitespace-only, repeated and overlength selectors receive a stable value-free
+400 before D1: `Invalid request query (serialNumber). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `rfid` key). Correct the named selector and retry; do not log asset
+identifiers. Quotes, `%` and `_` are literal bound data, never SQL/wildcards.
+
+The selectors compose with AND with one another and every existing filter.
+Stored nulls do not match; identifiers need not be unique. Counts and rows use
+the same scope; `includeTotal=false` issues zero COUNT statements. Filtering
+never changes canonical `container_id`, sparse fields or conditional JSON-read
+semantics. Unknown keys remain ignored.
+
+Synthetic fixture recipe (not a production request): seed matching containers
+101, 104 and 105 locally, then request:
+
+```text
+GET /api/v1/container-snapshot?serialNumber=00123&rfid=RF-0007&fields=rfid&limit=1&includeTotal=false
+
+{"rows":[{"container_id":101,"rfid":"RF-0007"}],"total":null,"nextCursor":101}
+Link: </api/v1/container-snapshot?serialNumber=00123&rfid=RF-0007&fields=rfid&limit=1&includeTotal=false&cursor=101>; rel="next"
+```
+
+Follow the returned same-origin Link exactly rather than reconstructing it.
+Both selectors are URL-encoded independently, including whitespace, quotes,
+Unicode and delimiters. The next IDs in this fixture are 104, then 105, then
+an empty terminal page; a full last page can still emit a continuation. With
+counts enabled, totals remain cursor-relative. For a serial-only lookup omit
+`rfid`; do not stop at the first duplicate match.
+
+Run `npm run check:container-identifiers` for synthetic local-D1 lookup,
+validation/auth precedence, composition, count, field, conditional-read and
+followed-link checks. Network/R2/browser doubles deny unexpected access; a
+read-only recorder and before/after fixture/schema comparison prove zero writes.
+The suite executes `EXPLAIN QUERY PLAN` on emitted COUNT/row SELECTs with the
+qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
+predicates. This demonstrates executable synthetic query shape only, not a
+runtime latency improvement. No new indexes, migrations, bindings or upstream
+requests are introduced.
 
 ## Mutating POST query keys are strict
 
@@ -151,9 +195,10 @@ is not a duplicate. Lists keep the `{rows, total, nextCursor}` envelope —
 only each row's keys shrink — and `fields=` composes with filters,
 pagination and `includeTotal=false` without changing matches, counts or
 cursors. The selectable set is an explicit per-resource allowlist in
-`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else);
-hydrated `/api/v1/data/*` reads, CSV exports and the changes feed ignore
-`fields=` as an unknown name.
+`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else).
+Hydrated `/api/v1/data/*` reads accept the same `fields=` selector on their
+entity root and reject any other query key (see below); CSV exports and the
+changes feed ignore `fields=` as an unknown name.
 
 The selector is strict: exact column names, no spaces, no empty segments,
 no duplicates, and a single `fields` key. Anything else is the existing
@@ -168,6 +213,61 @@ GET /api/v1/customer-snapshot?fields=company_name,phone1&limit=1
 Run `npx vitest run test/sparseFieldsets.acceptance.test.ts` for the
 focused valid-selection, rejection, pagination-composition and ETag
 regressions. No live replay.
+
+## Hydrated entity reads are strict
+
+The three hydrated single-entity GETs do the opposite of the GET lists
+above: any query key outside the route's declared set is a 400
+`application/problem+json` before any cache or D1 work. A mistyped
+`?field=` fails loudly instead of stripping to a full PII bundle the caller
+tried to trim.
+
+| GET route | Declared query keys | Unknown-name policy |
+| --- | --- | --- |
+| `/api/v1/data/customer` | `id`, `customerId`, `fields`, `ids` | Reject (400) |
+| `/api/v1/data/address` | `id`, `pickupAddressId`, `fields`, `ids` | Reject (400) |
+| `/api/v1/data/container` | `id`, `containerId`, `fields`, `ids` | Reject (400) |
+
+Route validators run before handlers and may return 400 for invalid values
+such as `?fields=bogus` or repeated known keys. After validation succeeds,
+one shared guard (`rejectUnknownQueryKeys` in `src/routes/shared.ts`, with
+`allowed-only` guidance) serves all three routes after the sync-secret gate
+and before handler-level ID parsing, cache, or D1 work. The POST saves share
+the guard but retain their existing key-name guidance. Sync-secret 401
+precedence is preserved (a bad bearer with a typo'd key keeps the 401). The
+unknown-key 400 carries fixed allowed-keys guidance and never echoes
+submitted keys or values:
+
+```text
+GET /api/v1/data/customer?id=94101&field=company_name
+
+{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+ "title":"Bad Request","status":400,
+ "detail":"Unknown query parameter. Allowed query parameters: id, customerId, fields, ids. See docs/PROBLEMS.md#bad-request."}
+```
+
+Operator recovery is a corrected retry — fix the spelling to the exact
+documented key and re-send:
+
+```text
+GET /api/v1/data/customer?id=94101&fields=company_name   # projected root only
+GET /api/v1/data/customer?id=94101                       # omitted selector: full bundle
+```
+
+See [bad-request correction guidance](PROBLEMS.md#bad-request). Pinned by
+`test/hydratedReadStrictQuery.acceptance.test.ts`. The GET-list ignore
+behavior above and its ratchet stay byte-identical; this policy changes no
+list route.
+
+Run the focused hermetic check (synthetic local D1, unexpected outbound fetch
+fails, no network):
+
+```bash
+npx vitest run test/hydratedReadStrictQuery.acceptance.test.ts \
+  test/hydratedFields.acceptance.test.ts test/hydratedReadIds.acceptance.test.ts \
+  test/entityDataCache.test.ts test/snapshotListUnknownParams.test.ts \
+  test/snapshotAuth.test.ts test/dataEntityEtagRoundTrip.test.ts
+```
 
 ## Customer changes cursor validation
 

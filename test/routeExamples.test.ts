@@ -284,7 +284,8 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +3 for order on the three ordinary lists;
     // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
-    // +1 for table on the latest-pointer readback.
+    // +1 for table on the latest-pointer readback;
+    // +2 for serialNumber and rfid on the container snapshot list.
     expect(checked).toBe(71);
   });
 
