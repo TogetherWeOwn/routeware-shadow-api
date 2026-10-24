@@ -167,6 +167,33 @@ contains a synthetic tie-resume example and response conventions.
 Run `npm run check:customer-changes-cursor` for the focused synthetic-local-D1
 precision, pair, multi-page, auth and header regressions. No live replay.
 
+### Composite follow-next links
+
+Every successful changes page with non-null `nextCursor` also advertises
+`Link: <relative-target>; rel="next"`. The fixed path is
+`/api/v1/customer-snapshot/changes`; `URLSearchParams` encodes the returned
+`since` and `since_id` pair and the validated effective `limit` (default 50).
+Both cursor halves replace the previous boundary together, including when
+starting with bare/omitted `since`. No unknown key, request origin, forwarded
+host, credential or arbitrary path is copied. This feed recognizes neither
+`fields` nor `until`; both keep the existing unknown-name ignore policy.
+The ordinary-list helper and its integer cursor contract are unchanged.
+
+A full terminal page can link to an empty page; short/empty pages have null
+cursors and no Link. Error responses have no Link. Omission means stop.
+JSON bytes/shape, `(synced_at, customer_id)` membership/order, composite cursor,
+`total` (returned page length), SQL/binds and the one-query budget are unchanged.
+No COUNT or lookahead is added, and this is not a completeness or snapshot-isolation
+promise across concurrent writes. Read-token auth, auth-before-D1, no-store,
+request ID and all existing CORS-exposed headers (including Link) are retained.
+Mounted OpenAPI declares the optional string header on `listCustomerSnapshotChanges`.
+
+Run `npm run check:customer-changes-next-links` for the focused hermetic D1
+traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
+prove zero application writes and fail on any unexpected outbound fetch.
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
+Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
+
 ## Coverage boundary and non-list classifications
 
 `test/snapshotListUnknownParams.test.ts` discovers GET routes from the mounted

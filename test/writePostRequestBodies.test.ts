@@ -252,10 +252,12 @@ describe("write POST schemas install no runtime validators", () => {
       SYNC_SECRET
     );
 
-    // Assert — the proxy path validates nothing; upstream decides.
+    // Assert — the proxy path validates nothing; upstream decides. A body
+    // with no usable entity id marks an address/container create, which
+    // answers 201 on upstream success (R21-05); customer saves stay 200.
     expect(customer.status).toBe(200);
-    expect(address.status).toBe(200);
-    expect(container.status).toBe(200);
+    expect(address.status).toBe(201);
+    expect(container.status).toBe(201);
     expect(forwarded.some((u) => u.includes("/WebRW/Customer/SaveCustomerLongForm"))).toBe(true);
     expect(forwarded.some((u) => u.includes("/WebRW/PickupAddress/SaveAddressForm"))).toBe(true);
     expect(forwarded.some((u) => u.includes("/WebRW/Container/SaveContainerForm"))).toBe(true);
