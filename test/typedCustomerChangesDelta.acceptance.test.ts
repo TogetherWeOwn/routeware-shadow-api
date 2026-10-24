@@ -12,8 +12,9 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  * SCOPE: the EXISTING `GET /api/v1/customer-snapshot/changes` 200 only. Flat
  * lists/by-ID (R25-04), hydrated /data bundles, combined-sync/save outcomes,
  * exports, error-policy work and new surfaces are explicitly out of scope and
- * must not move. The builder must NOT implement `fields` or `until` to satisfy
- * this file: unknown query keys stay ignored (controls below pin that).
+ * must not move. Sparse `fields=` merged per #364: it projects rows and Link
+ * retains the selector; `until` and unknown keys stay ignored (controls pin that).
+ * The builder must NOT implement `until` to satisfy this file.
  *
  * Each test is labeled RED (must fail before the paired build for the
  * documented missing declaration) or control (must already pass: behavior the
