@@ -44,6 +44,16 @@ Strict selector validation occurs after authorization and before any cache
 lookup or D1 read, including requests with a matching full validator. Invalid
 selectors cannot return a cached full body or 304.
 
+Per-type `fields[customer]` / `fields[address]` / `fields[container]`
+selectors extend the same shaping to nested relations: a listed type projects
+everywhere it appears (root and relations) while omitted types stay full.
+Flat `fields` plus `fields[<root>]` together is a 400, so a request carries at
+most one root selector. Unknown `fields[TYPE]` keys are value-free 400s after
+auth and before any cache lookup. The canonical full cache, the single-cache
+invariant and per-representation validators above apply unchanged to every
+typed combination; there is still no second cache and no reduction in cold D1
+query work.
+
 ## Tuning
 
 - **Lower the TTL** (e.g. 30 s) if clients report seeing pre-write data after a
