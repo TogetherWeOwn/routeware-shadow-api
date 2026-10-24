@@ -1,8 +1,15 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import {
+  snapshotListConditionalHeaders,
+  snapshotListEtagHeaders,
+  snapshotListNotModifiedResponse,
+  snapshotListJsonResponse
+} from "../lib/snapshotListConditional";
 import {
   runContainerSnapshotSync,
   syncContainerSnapshotFromStream
@@ -53,6 +60,7 @@ const containerSnapshotListRoute = createRoute({
   description:
     "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
+    headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
@@ -65,7 +73,7 @@ const containerSnapshotListRoute = createRoute({
         .number()
         .int()
         .optional()
-        .describe("Last container_id from the previous page's nextCursor; takes precedence over offset")
+        .describe("Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 99 }),
       includeTotal: z
         .enum(["true", "false"])
@@ -75,13 +83,14 @@ const containerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("container")
     })
   },
   responses: {
     200: {
       description: "Rows and total",
-      headers: { Link: snapshotNextLinkHeader },
+      headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
           schema: snapshotListResponse,
@@ -89,15 +98,17 @@ const containerSnapshotListRoute = createRoute({
         }
       }
     },
+    304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const fromJoin =
     p.customerId !== undefined
@@ -131,7 +142,7 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     where.push("c.enabled = 0");
   }
   if (p.cursor !== undefined) {
-    where.push("c.container_id > ?");
+    where.push(`c.container_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
   const whereSql = where.join(" AND ");
@@ -151,8 +162,8 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   }
   const pageSql =
     p.cursor !== undefined
-      ? "ORDER BY c.container_id LIMIT ?"
-      : "ORDER BY c.container_id LIMIT ? OFFSET ?";
+      ? `ORDER BY c.container_id${order.suffix} LIMIT ?`
+      : `ORDER BY c.container_id${order.suffix} LIMIT ? OFFSET ?`;
   const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
@@ -176,9 +187,20 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("container", row as Record<string, unknown>, fields)
         );
-  const nextLink = snapshotNextLink("container", p, nextCursor);
+  // Echo an explicitly requested direction/count-mode into the follow-next
+  // target. Raw presence is safe here: validation already rejected
+  // repeated/invalid values, while the zod defaults erase explicitness.
+  const nextLink = snapshotNextLink(
+    "container",
+    {
+      ...p,
+      order: c.req.query("order") === undefined ? undefined : p.order,
+      includeTotal: c.req.query("includeTotal") === undefined ? undefined : p.includeTotal
+    },
+    nextCursor
+  );
   if (nextLink !== null) c.header("Link", nextLink);
-  return c.json({ rows: out, total, nextCursor });
+  return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
 
 const containerSnapshotExportRoute = createRoute({

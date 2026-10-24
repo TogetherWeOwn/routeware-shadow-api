@@ -105,8 +105,9 @@ const EXPECTED_TAGS = [
 ];
 
 /**
- * Projection of the document without the agent-metadata layer pinned in
- * `test/openapiAgentMetadata.test.ts`. Everything else stays frozen.
+ * Projection without agent metadata pinned in `openapiAgentMetadata.test.ts`
+ * and the fields vendor extension owned by `sparseFieldsetDiscovery.acceptance.test.ts`.
+ * Everything else, including fields schema/prose/defaults, stays frozen.
  */
 function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
@@ -122,6 +123,14 @@ function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
         if (key.startsWith("x-")) delete op[key];
       }
       if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
+      if (Array.isArray(op.parameters)) {
+        for (const param of op.parameters as Array<Record<string, unknown>>) {
+          if (param.name !== "fields" || param.in !== "query") continue;
+          delete param["x-snapshot-fieldset"];
+          const schema = param.schema as Record<string, unknown> | undefined;
+          if (schema) delete schema["x-snapshot-fieldset"];
+        }
+      }
     }
   }
   const bearer = copy.components?.securitySchemes?.["bearerAuth"] as
@@ -140,12 +149,17 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
 /**
  * Copy of the document with the free-text `description`/`example` of the
  * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
- * Everything else, including the parameter's position, enum, default and the
- * nullable `total` type, still goes through the byte-for-byte snapshot.
+ * Conditional list declarations are owned by the behavioral/structured oracle
+ * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
+ * Only its three new header params, 200 ETags and bodyless 304 declarations are
+ * projected out. Every other response, header, schema and operation stays frozen.
  */
-function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
+function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
-    paths?: Record<string, Record<string, { parameters?: Array<Record<string, unknown>> }>>;
+    paths?: Record<string, Record<string, {
+      parameters?: Array<Record<string, unknown>>;
+      responses?: Record<string, { headers?: Record<string, unknown> }>;
+    }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
   for (const item of Object.values(copy.paths ?? {})) {
@@ -164,6 +178,27 @@ function withoutIncludeTotalProse(doc: OpenApiDocument): unknown {
   }
   const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
   if (total) delete total.description;
+  for (const path of [
+    "/api/v1/customer-snapshot",
+    "/api/v1/address-snapshot",
+    "/api/v1/container-snapshot"
+  ]) {
+    const operation = copy.paths?.[path]?.get;
+    if (!operation) continue;
+    if (operation.parameters) {
+      operation.parameters = operation.parameters.filter((param) =>
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
+      );
+    }
+    if (operation.responses) delete operation.responses["304"];
+    const headers = operation.responses?.["200"]?.headers;
+    if (headers) {
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() === "etag") delete headers[name];
+      }
+      if (Object.keys(headers).length === 0) delete operation.responses!["200"].headers;
+    }
+  }
   return copy;
 }
 
@@ -409,8 +444,12 @@ describe("published OpenAPI document", () => {
     // The agent-metadata layer (operationId, x-* extensions, the empty `security`
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
-    // enriching it never re-records this frozen document.
-    expect(withoutIncludeTotalProse(withoutAgentMetadata(doc))).toMatchSnapshot();
+    // enriching it never re-records this frozen document. The fields-only
+    // x-snapshot-fieldset extension is likewise pinned by the discovery oracle;
+    // no other fields parameter property is projected out. Conditional list
+    // If-None-Match, 200 ETag and 304 declarations are separately pinned by
+    // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
+    expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
   });
 });
 
