@@ -5,7 +5,7 @@ import {
 } from "./customerSaveAutoToken";
 import type { DataEntityCtx } from "./dataEntityHandlers";
 import { detailFullInvalidateAttempts, syncCustomerDetailFullToD1 } from "./detailFullSync";
-import { errorKind, logEvent } from "./logger";
+import { errorKind, logEvent, requestIdField } from "./logger";
 import {
   invalidateCustomerGraphWithRetry,
   invalidateDataEntity
@@ -70,7 +70,8 @@ async function invalidatePostedIds(
  */
 async function evictAfterSaveQuietly(
   route: string,
-  work: () => Promise<void>
+  work: () => Promise<void>,
+  requestId?: string
 ): Promise<void> {
   try {
     await work();
@@ -79,7 +80,8 @@ async function evictAfterSaveQuietly(
       level: "error",
       msg: "Post-save fallback cache eviction failed",
       route,
-      kind: errorKind(evictErr)
+      kind: errorKind(evictErr),
+      ...requestIdField(requestId)
     });
   }
 }
@@ -172,6 +174,9 @@ export async function handlePostDataCustomer(
 ): Promise<Response> {
   const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -282,11 +287,14 @@ export async function handlePostDataCustomer(
           level: "error",
           msg: "Local customer snapshot sync failed",
           route: "POST /api/v1/data/customer",
-          kind: errorKind(syncErr)
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
         });
         localSync = syncFailed();
-        await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
-          invalidateDataEntity("customer", customerId)
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/customer",
+          () => invalidateDataEntity("customer", customerId),
+          requestId
         );
       }
     } else {
@@ -296,10 +304,13 @@ export async function handlePostDataCustomer(
       // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
       // only returns null when the posted form carried no usable id, so this is
       // usually a no-op; it guards future parse drift, not today's shape.
-      await evictAfterSaveQuietly("POST /api/v1/data/customer", () =>
-        invalidatePostedIds([
-          { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
-        ])
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/customer",
+        () =>
+          invalidatePostedIds([
+            { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
+          ]),
+        requestId
       );
     }
   }
@@ -324,6 +335,9 @@ export async function handlePostDataAddress(
 ): Promise<Response> {
   const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -445,15 +459,20 @@ export async function handlePostDataAddress(
           level: "error",
           msg: "Local address snapshot sync failed",
           route: "POST /api/v1/data/address",
-          kind: errorKind(syncErr)
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
         });
         localSync = syncFailed();
-        await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
-          invalidateDataEntity("customer", customerId)
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/address",
+          () => invalidateDataEntity("customer", customerId),
+          requestId
         );
         if (pickupAddressId !== null) {
-          await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
-            invalidateDataEntity("address", pickupAddressId)
+          await evictAfterSaveQuietly(
+            "POST /api/v1/data/address",
+            () => invalidateDataEntity("address", pickupAddressId),
+            requestId
           );
         }
       }
@@ -462,10 +481,13 @@ export async function handlePostDataAddress(
       // The upstream write succeeded but there is no usable
       // CustomerID to sync on — still invalidate the posted address id so the
       // pre-edit cached bundle is not served as current.
-      await evictAfterSaveQuietly("POST /api/v1/data/address", () =>
-        invalidatePostedIds([
-          { entity: "address", id: postedId(posted.PickupAddressID) }
-        ])
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/address",
+        () =>
+          invalidatePostedIds([
+            { entity: "address", id: postedId(posted.PickupAddressID) }
+          ]),
+        requestId
       );
     }
   }
@@ -488,6 +510,9 @@ export async function handlePostDataContainer(
 ): Promise<Response> {
   const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
   if (!buf || buf.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -624,15 +649,20 @@ export async function handlePostDataContainer(
           level: "error",
           msg: "Local container snapshot sync failed",
           route: "POST /api/v1/data/container",
-          kind: errorKind(syncErr)
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
         });
         localSync = syncFailed();
-        await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
-          invalidateDataEntity("customer", ownerId)
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/container",
+          () => invalidateDataEntity("customer", ownerId),
+          requestId
         );
         if (postedContainerId !== null) {
-          await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
-            invalidateDataEntity("container", postedContainerId)
+          await evictAfterSaveQuietly(
+            "POST /api/v1/data/container",
+            () => invalidateDataEntity("container", postedContainerId),
+            requestId
           );
         }
       }
@@ -642,11 +672,14 @@ export async function handlePostDataContainer(
       // resolved (neither posted nor via the address-snapshot fallback) — still
       // invalidate the posted address/container ids so pre-edit cached bundles
       // are not served as current.
-      await evictAfterSaveQuietly("POST /api/v1/data/container", () =>
-        invalidatePostedIds([
-          { entity: "address", id: postedId(posted.PickupAddressID) },
-          { entity: "container", id: postedId(posted.ContainerID) }
-        ])
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/container",
+        () =>
+          invalidatePostedIds([
+            { entity: "address", id: postedId(posted.PickupAddressID) },
+            { entity: "container", id: postedId(posted.ContainerID) }
+          ]),
+        requestId
       );
     }
   }
