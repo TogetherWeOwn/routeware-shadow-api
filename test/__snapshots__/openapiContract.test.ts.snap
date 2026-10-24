@@ -527,7 +527,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "paths": {
     "/api/v1/address-snapshot": {
       "get": {
-        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
