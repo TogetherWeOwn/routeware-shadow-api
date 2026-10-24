@@ -190,6 +190,8 @@ export default defineConfig({
        * Ratcheted 2026-10-23 after a hermetic full run:
        * statements 98.16% (3905/3978), branches 95.07% (2744/2886),
        * functions 98.62% (575/583), lines 98.47% (3751/3809).
+       * Ratcheted 2026-10-24 after the hermetic full run at `dcc4ad55`:
+       * statements 98.18%, branches 95.01%, functions 98.61%, lines 98.49%.
        * Branches clears 95, so that floor rises to 95.
        */
       thresholds: {
