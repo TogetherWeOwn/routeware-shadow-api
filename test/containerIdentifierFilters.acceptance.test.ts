@@ -241,7 +241,7 @@ describe.each(["serialNumber", "rfid"] as const)("%s: opaque exact identifier", 
   ])("rejects %s before any D1 access, without logging or reflecting the value", async (_name, value) => {
     const db = forbiddenDb();
     const logs = (["error", "warn", "info", "log", "debug"] as const).map((method) => vi.spyOn(console, method));
-    const { response } = await request({ [selector]: value }, { db: db.db });
+    const { response } = await request({ [selector]: value }, { db: db.db, headers: { "if-none-match": "*" } });
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     expect(await response.json()).toEqual({
@@ -263,7 +263,7 @@ describe.each(["serialNumber", "rfid"] as const)("%s: opaque exact identifier", 
   ])("rejects repeated keys (%s) before D1 with the same fixed recovery guidance", async (_name, first, second) => {
     const db = forbiddenDb();
     const logs = (["error", "warn", "info", "log", "debug"] as const).map((method) => vi.spyOn(console, method));
-    const { response } = await request(new URLSearchParams([[selector, first], [selector, second]]), { db: db.db });
+    const { response } = await request(new URLSearchParams([[selector, first], [selector, second]]), { db: db.db, headers: { "if-none-match": "*" } });
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     expect(await response.json()).toEqual({
@@ -345,7 +345,7 @@ describe("identifier composition and existing list behavior", () => {
 
   it.each([null, "not-a-valid-token"])("authenticates before malformed selector validation (token %s)", async (token) => {
     const db = forbiddenDb();
-    const { response } = await request(new URLSearchParams([["serialNumber", ""], ["rfid", "private-first"], ["rfid", "private-second"]]), { token, db: db.db });
+    const { response } = await request(new URLSearchParams([["serialNumber", ""], ["rfid", "private-first"], ["rfid", "private-second"]]), { token, db: db.db, headers: { "if-none-match": "*" } });
     expect(response.status).toBe(401);
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     const problem = await response.json() as Record<string, unknown>;
@@ -440,6 +440,36 @@ describe("followable identifier lookup pages", () => {
     const second = await page(next(first.response, first.url, { ...filters, cursor: "101" }));
     expect(second.body.rows).toEqual([{ container_id: 104, enabled: 0 }]);
   });
+});
+
+// Preserve the conditional JSON-list contract already published at the build
+// head, even though it landed after this suite's original RED baseline.
+it.each(["true", "false"])("keeps conditional reads scoped to the filtered representation (includeTotal=%s)", async (includeTotal) => {
+  const query = { serialNumber: SPECIAL, rfid: SPECIAL, fields: "rfid", limit: "1", includeTotal };
+  const first = await request(query);
+  expect(first.response.status).toBe(200);
+  const bytes = await first.response.text();
+  expect(ids(JSON.parse(bytes) as Body)).toEqual([111]);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes));
+  const tag = `"${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}"`;
+  expect(first.response.headers.get("etag")).toBe(tag);
+  const link = first.response.headers.get("link");
+  expect(link).not.toBeNull();
+  for (const validator of [tag, `W/${tag}`, "*"]) {
+    const same = await request(query, { headers: { "if-none-match": validator } });
+    expect(same.response.status).toBe(304);
+    expect(same.response.body).toBeNull();
+    expect((await same.response.arrayBuffer()).byteLength).toBe(0);
+    expect(same.response.headers.get("etag")).toBe(tag);
+    expect(same.response.headers.get("cache-control")).toBe("no-store");
+    expect(same.response.headers.get("link")).toBe(link);
+    expect(same.recorder.statements).toHaveLength(includeTotal === "false" ? 1 : 2);
+    expect(same.recorder.statements.filter((s) => /\bCOUNT\s*\(/i.test(s.sql))).toHaveLength(includeTotal === "false" ? 0 : 1);
+  }
+  const different = await request({ ...query, serialNumber: SERIAL, rfid: RFID }, { headers: { "if-none-match": tag } });
+  expect(different.response.status).toBe(200);
+  expect(different.response.headers.get("etag")).not.toBe(tag);
+  expect(ids(await different.response.json() as Body)).toEqual([101]);
 });
 
 it("uses bound equality for both identifiers and yields executable synthetic EXPLAIN plans without new schema", async () => {

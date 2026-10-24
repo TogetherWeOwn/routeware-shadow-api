@@ -423,7 +423,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutContainerIdentifierAdditions(await fetchOpenApiDocument());
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -434,7 +434,7 @@ describe("published OpenAPI document", () => {
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
     // enriching it never re-records this frozen document.
-    expect(withoutIncludeTotalProse(withoutContainerIdentifierAdditions(withoutAgentMetadata(doc)))).toMatchSnapshot();
+    expect(withoutIncludeTotalProse(withoutAgentMetadata(doc))).toMatchSnapshot();
   });
 });
 
