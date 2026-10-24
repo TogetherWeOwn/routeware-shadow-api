@@ -24,6 +24,9 @@ import {
 } from "../lib/dataEntitySave";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
+  DATA_ADDRESS_QUERY_KEYS,
+  DATA_CONTAINER_QUERY_KEYS,
+  DATA_CUSTOMER_QUERY_KEYS,
   createRouteModule,
   dryRunQuery,
   isDryRunRequested,
@@ -47,11 +50,11 @@ const hydratedReadIdQuery = z.coerce.number().int().optional().openapi({
   minimum: 1,
   maximum: Number.MAX_SAFE_INTEGER,
   description:
-    "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias."
+    "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work."
 });
 const hydratedReadBadRequest = {
   description:
-    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid `fields` or `fields[type]` selectors — including unknown `fields[TYPE]` keys and flat-plus-typed-root pairs — are value-free 400s before cache or D1 reads."
+    "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid `fields` or `fields[type]` selectors — including unknown `fields[TYPE]` keys and flat-plus-typed-root pairs — and unknown query keys are value-free 400s before cache or D1 reads."
 };
 
 function hydratedReadValidationHook(root: SnapshotFieldsetResource) {
@@ -155,8 +158,7 @@ const dataCustomerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get customer (D1) with addresses and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Optional `fields=company_name,phone1` projects only the `.customer` root plus `customer_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[customer]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
-  request: {
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `customer_id` (alias `customerId`). Optional `fields=company_name,phone1` projects only the `.customer` root plus `customer_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[customer]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`. Unknown query keys are a value-free 400 before any cache or D1 work.",  request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
       customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
@@ -181,6 +183,8 @@ const dataCustomerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const unknownQuery = rejectUnknownQueryKeys(c, DATA_CUSTOMER_QUERY_KEYS, "allowed-only");
+  if (unknownQuery) return unknownQuery;
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
     c.env, c.req.url, Object.keys(c.req.query()), "customer", fieldsQuery);
@@ -212,8 +216,7 @@ const dataAddressGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get address (D1) with customer and containers",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Optional `fields=city,address` projects only the `.address` root plus `pickup_address_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[address]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
-  request: {
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `pickup_address_id` (alias `pickupAddressId`). Optional `fields=city,address` projects only the `.address` root plus `pickup_address_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[address]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`. Unknown query keys are a value-free 400 before any cache or D1 work.",  request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
       pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
@@ -238,6 +241,8 @@ const dataAddressGetRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const unknownQuery = rejectUnknownQueryKeys(c, DATA_ADDRESS_QUERY_KEYS, "allowed-only");
+  if (unknownQuery) return unknownQuery;
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
     c.env, c.req.url, Object.keys(c.req.query()), "address", fieldsQuery);
@@ -266,8 +271,7 @@ const dataContainerGetRoute = createRoute({
   tags: ["data-entity"],
   summary: "Get container (D1) with address and customer",
   description:
-    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Optional `fields=serial_number,location_address` projects only the `.container` root plus `container_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[container]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`.",
-  request: {
+    "Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Read aggregate from the daily snapshot DB. Caching: `ETag` / `If-None-Match` and the Workers **Cache** API; invalidated after successful POST. Query: `id` = `container_id` (alias `containerId`). Optional `fields=serial_number,location_address` projects only the `.container` root plus `container_id`; related data remains unchanged unless a typed selector below names its type. Optional `fields[customer]`, `fields[address]`, `fields[container]` project every object of that type — the root and all nested relations — from the same per-type allowlists; omitted types stay full, every projected object keeps its primary id, and `fields` plus `fields[container]` together are a 400. Omitted selectors preserve the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch `ids`. Unknown query keys are a value-free 400 before any cache or D1 work.",  request: {
     query: z.object({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
       containerId: hydratedReadIdQuery.openapi({ example: 100 }),
@@ -292,6 +296,8 @@ const dataContainerGetRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const unknownQuery = rejectUnknownQueryKeys(c, DATA_CONTAINER_QUERY_KEYS, "allowed-only");
+  if (unknownQuery) return unknownQuery;
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
     c.env, c.req.url, Object.keys(c.req.query()), "container", fieldsQuery);

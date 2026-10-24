@@ -20,6 +20,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   or TTL changes. Synthetic examples and validator guidance:
   `docs/CONSUMER-QUICKSTART.md` and `docs/ENTITY-DATA-CACHE.md`.
 
+- #363: Container snapshot lists accept optional `serialNumber` and `rfid` exact,
+  case-sensitive filters (1..100 Unicode code points). Opaque values retain
+  leading zeros and nonblank whitespace; invalid/repeated selectors return
+  value-free 400s before D1. Filters compose with AND, preserve duplicate matches
+  and travel in encoded next-page links. Existing count-free, sparse and
+  conditional reads are preserved. Local read-only D1 only; no schema/index,
+  upstream or auth changes. Synthetic lookup recipe and focused check:
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
+- #357: Hydrated single-ID `GET /api/v1/data/customer|address|container` now
+  rejects unknown query keys with a value-free 400 before cache/D1 work.
+  Allowed keys are `id`, the route alias and `fields`; the guidance is fixed
+  and never echoes submitted keys or values. Sync-secret 401 precedence,
+  repeated-key/invalid-value validator 400s, ETags, cache behavior and the
+  list routes are unchanged. Typo-to-retry example:
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #362: `GET /api/v1/address-snapshot` accepts exact `routeId` and opaque,
   case-sensitive `franchiseId` scopes, intersected by AND with existing filters.
   Route zero is literal; franchise leading zeros and nonblank whitespace are

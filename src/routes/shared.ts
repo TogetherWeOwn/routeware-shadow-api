@@ -152,6 +152,41 @@ export function isDryRunRequested(query: { dryRun?: string }): boolean {
 }
 
 /**
+ * Declared query keys for the three hydrated single-entity GETs
+ * (`GET /api/v1/data/customer|address|container`): `id`, the route's alias,
+ * the optional `fields` sparse-fieldset selector, and the optional typed
+ * `fields[customer]` / `fields[address]` / `fields[container]` selectors
+ * (every typed key is valid on every route). Single source of truth for the
+ * strict-query guard below — route handlers pass one of these, never an
+ * inline list. The remaining additive key owned by an unmerged card (`ids`)
+ * joins the matching list when it merges.
+ */
+export const DATA_CUSTOMER_QUERY_KEYS = [
+  "id",
+  "customerId",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+export const DATA_ADDRESS_QUERY_KEYS = [
+  "id",
+  "pickupAddressId",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+export const DATA_CONTAINER_QUERY_KEYS = [
+  "id",
+  "containerId",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+
+/**
  * Declared query keys for the mutating snapshot POSTs: `dryRun` on the six
  * per-table sync/import routes, plus the combined-only `partialProgress`
  * opt-in on `POST /api/v1/data-snapshot/sync`. Single source of truth for
@@ -217,14 +252,25 @@ export function rejectUnknownSnapshotPostQuery(
  * purpose: reject every raw query key outside `allowed` with a value-free
  * 400 `bad-request` problem+json, or `null` when the query is clean.
  *
- * Call this AFTER `requireSnapshotAuth`: the validator already rejected bad
- * values for known keys (validator-first 400s precede the inner 401), while
- * unknown keys must 401 first for a wrong bearer and 400 only once
- * authorized. Key names (never values) are echoed so a typo is actionable.
+ * Call this AFTER `requireSnapshotAuth`: known-key values and repeats stay
+ * with the existing validator, while unknown keys must 401 first for a
+ * wrong bearer and 400 only once authorized. Raw searchParams retain empty
+ * names (`?=x`) that Hono's c.req.query() drops; a bare `&` carries no key.
+ *
+ * Hydrated GETs select `allowed-only`: fixed guidance must never echo
+ * submitted names or values, including names carrying PII. This bypasses
+ * validationFailureHook, which forwards rejected field paths. The detail
+ * keeps the shared `Invalid request query (fields selectors)` anchor: the
+ * bundle-selector contract pins that anchor shape for selector-bearing
+ * rejections, while the strict-key contract pins the allowed-keys clause
+ * and the no-echo rule. The default retains the existing POST guidance
+ * (key names, never values). Both use the same problem type and
+ * pathname-only instance, with no query echo.
  */
 export function rejectUnknownQueryKeys(
   c: { env?: Env; req: { url: string } },
-  allowed: readonly string[]
+  allowed: readonly string[],
+  guidance: "submitted-keys" | "allowed-only" = "submitted-keys"
 ): Response | null {
   const names = new Set(new URL(c.req.url).searchParams.keys());
   const unknown = [...names].filter((name) => !allowed.includes(name)).sort();
@@ -235,9 +281,11 @@ export function rejectUnknownQueryKeys(
     type: problemType("bad-request", c.env),
     title: "Bad Request",
     status: 400,
-    detail:
-      `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
-      `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
+    detail: guidance === "allowed-only"
+      ? `Invalid request query (fields selectors). Unknown query parameter. ` +
+        `Allowed query parameters: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`
+      : `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
+        `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
     instance: new URL(c.req.url).pathname
   });
 }
