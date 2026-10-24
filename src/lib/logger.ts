@@ -209,6 +209,23 @@ export function logEvent(event: LogEventInput): void {
   console[level](record);
 }
 
+/**
+ * Save-path correlation field for `logEvent`.
+ *
+ * One source of truth for attaching the once-per-request id to save-path
+ * error lines: returns `{ requestId }` when the handler read one from the
+ * request var, else `{}` so a defensively-missing var omits the field without
+ * crashing or logging an `undefined` sentinel. The id is the token/UUID the
+ * earliest middleware adopted-or-minted, safe to log as-is.
+ */
+export function requestIdField(requestId: string | undefined): {
+  requestId?: string;
+} {
+  return typeof requestId === "string" && requestId.length > 0
+    ? { requestId }
+    : {};
+}
+
 export function errorKind(err: unknown): string {
   const seen = new Set<Error>();
   let kind = "unknown";
