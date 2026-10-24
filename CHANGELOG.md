@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #0: `GET /api/v1/address-snapshot` accepts an optional stored
+- #376: `GET /api/v1/address-snapshot` accepts an optional stored
   `extrasAllowed=true|false|any` selector (default `any`), intersected by AND
   with existing filters in both `COUNT` and page reads. `true` matches stored
   `extras_allowed = 1`, `false` matches stored `0`, and `any`/omission adds no
