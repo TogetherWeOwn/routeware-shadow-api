@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #334: mounted OpenAPI now describes the existing combined-sync
+  failure contract instead of only 200/401. HTTP 500 declares both
+  `application/problem+json` (default and unclassified failures) and
+  `application/json` (opt-in partial progress with the named
+  `DataSnapshotSyncPartialProgress` and `ChainedSyncFailureClassification`
+  schemas, fixed table/code enums, HTTP-only optional `status`, and synthetic
+  per-classification examples), plus the existing 400 validation, 401 auth,
+  and 503 pre-work-secret shapes. Recovery guidance — completed tables keep
+  counts, `null` means failed/unattempted/skipped, unknown outcomes stay
+  generic, and partial counts neither authorize blind POST retries nor prove
+  a full consistent sync — is in the 500 description and
+  `CUSTOMER_SNAPSHOT.md`. No runtime, status, or byte changes.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
