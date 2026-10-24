@@ -2185,15 +2185,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/address": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`pickup_address_id\` (alias \`pickupAddressId\`). Optional \`fields=city,address\` projects only the \`.address\` root plus \`pickup_address_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 10,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2201,12 +2201,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "pickupAddressId",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 10,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2307,7 +2307,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors and unknown query keys are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2442,15 +2442,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/container": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`container_id\` (alias \`containerId\`). Optional \`fields=serial_number,location_address\` projects only the \`.container\` root plus \`container_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 100,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2458,12 +2458,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "containerId",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 100,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2562,7 +2562,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors and unknown query keys are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
@@ -2698,15 +2698,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/data/customer": {
       "get": {
-        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`.",
+        "description": "Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Read aggregate from the daily snapshot DB. Caching: \`ETag\` / \`If-None-Match\` and the Workers **Cache** API; invalidated after successful POST. Query: \`id\` = \`customer_id\` (alias \`customerId\`). Optional \`fields=company_name,phone1\` projects only the \`.customer\` root plus \`customer_id\`; related data remains unchanged. Omitted \`fields\` preserves the full response. ETags hash the served bytes for each representation; projected validators never reuse a full-only validator, and the canonical full cache is never overwritten by a projection. Single-ID only; no batch \`ids\`. Unknown query keys are a value-free 400 before any cache or D1 work.",
         "parameters": [
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "id",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 345734,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2714,12 +2714,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+            "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
             "in": "query",
             "name": "customerId",
             "required": false,
             "schema": {
-              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias.",
+              "description": "Canonical positive decimal safe integer, from 1 to 9007199254740991, without leading zeros, whitespace, signs, fractions, exponents or hex. Every supplied spelling must be valid; id wins over the alias. Hydrated entity reads reject any other query key with a value-free 400 before any work.",
               "example": 345734,
               "maximum": 9007199254740991,
               "minimum": 1,
@@ -2822,7 +2822,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Not modified",
           },
           "400": {
-            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors are value-free 400s before cache or D1 reads.",
+            "description": "Missing or invalid id or alias: every supplied ID must be a canonical positive decimal safe integer (application/problem+json). Invalid fields selectors and unknown query keys are value-free 400s before cache or D1 reads.",
           },
           "401": {
             "description": "Unauthorized",
