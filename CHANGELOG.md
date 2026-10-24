@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #368: Optional `containerTypeId` on the existing container snapshot list:
+- #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
   downloading the whole inventory. One unpadded ASCII decimal safe integer
