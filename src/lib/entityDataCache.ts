@@ -58,13 +58,35 @@ function cacheKeyUrl(entity: EntityKind, id: number): string {
   return `https://routeware-shadow-entity/v1/${entity}/${id}`;
 }
 
+/**
+ * Read one cached entity. Only a *rejected* `Cache.match` lookup falls back:
+ * it counts as exactly one miss and execution continues through the normal
+ * D1 bundle/ETag path, so a transient cache outage cannot turn healthy D1
+ * data into a 500. One attempt only — no retry. The catch is scoped to the
+ * lookup alone: population stays best-effort (`putCachedDataEntity`) and
+ * invalidation stays loud (`invalidateDataEntity`), and D1/auth/parse errors
+ * are untouched.
+ */
 export async function getCachedDataEntity(
   entity: EntityKind,
   id: number
 ): Promise<Response | undefined> {
-  const entry = await workersCache.match(
-    new Request(cacheKeyUrl(entity, id), { method: "GET" })
-  );
+  let entry: Response | undefined;
+  try {
+    entry = await workersCache.match(
+      new Request(cacheKeyUrl(entity, id), { method: "GET" })
+    );
+  } catch (err) {
+    // Diagnostic carries the error kind only — never the key, id, URL, or
+    // exception text. The shared miss event below records the counters.
+    logEvent({
+      level: "warn",
+      msg: "Cache lookup failed; reading from D1 instead",
+      route: "cache.entityData",
+      entity,
+      kind: errorKind(err)
+    });
+  }
   const counters = stats[entity];
   if (entry) {
     counters.hits += 1;
