@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #370: Stored phone fragment lookup on the existing customer snapshot list:
+  optional `phone` is a case-insensitive substring of 1..100 Unicode code
+  points matched against stored `phone1`/`phone2` text as stored (no
+  normalization or digit-stripping), bound twice across the two-term OR and
+  AND-composed with existing filters. A last-seven-digits fragment resolves
+  its owner without downloading every customer. Blank, repeated or overlength
+  fragments fail value-free before D1; null or empty stored phones never
+  match. Next-page Links retain the selector with URL encoding. No new index,
+  migration, upstream call or count-free COUNT query; fragment-only reads
+  scan like `q`-alone. See `docs/CONSUMER-QUICKSTART.md` for the synthetic
+  lookup-to-next-page recipe; focused check:
+  `npm run check:customer-phone-search`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
