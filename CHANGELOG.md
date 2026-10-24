@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Container snapshot lists accept optional `serialNumber` and `rfid` exact,
+- #363: Container snapshot lists accept optional `serialNumber` and `rfid` exact,
   case-sensitive filters (1..100 Unicode code points). Opaque values retain
   leading zeros and nonblank whitespace; invalid/repeated selectors return
   value-free 400s before D1. Filters compose with AND, preserve duplicate matches
