@@ -290,6 +290,88 @@ function dateRange(start: string, count: number): string[] {
   return out;
 }
 
+/** Mixed sidecars/CSVs, listed oldest-first with opaque continuation cursors. */
+function paginatedArchiveFixture(
+  count: number,
+  opts: {
+    start?: string;
+    pageSize?: number;
+    failOnPage?: number;
+    tableForDate?: (date: string) => SnapshotArchiveTable;
+  } = {}
+) {
+  const dates = dateRange(opts.start ?? "2025-03-01", count);
+  const manifests: Record<string, string> = {};
+  const csvKeys: string[] = [];
+  for (const date of dates) {
+    const table = opts.tableForDate?.(date) ?? "customer";
+    manifests[`snapshots/${date}.manifest.json`] = manifestJson(date, {
+      [csvBasename(table)]: entryFor(table, date, 123)
+    });
+    for (const csvTable of ["customer", "address", "container"]) {
+      csvKeys.push(`snapshots/${date}/${csvTable}.csv`);
+    }
+  }
+
+  // R2 sorts all keys together, not manifests separately or newest-first.
+  const keys = [...csvKeys, ...Object.keys(manifests)].sort();
+  const cursorOffsets = new Map<string, number>();
+  const listCalls: R2ListOptions[] = [];
+  const getKeys: string[] = [];
+  const contents = fakeSnapshotsBucket(manifests, {
+    getThrowsFor: (key) => key.endsWith(".csv")
+  });
+  const snapshots = {
+    async list(options: R2ListOptions = {}): Promise<R2Objects> {
+      listCalls.push({ ...options });
+      if (listCalls.length === opts.failOnPage) {
+        throw new Error("private R2 driver failure: cursor bytes must not escape");
+      }
+      if (options.prefix !== "snapshots/") {
+        throw new Error("Archive listing must be scoped to snapshots/");
+      }
+      const requested = options.limit ?? 1000;
+      if (!Number.isInteger(requested) || requested < 1 || requested > 1000) {
+        throw new Error("R2 accepts at most 1000 keys per list call");
+      }
+      const offset = options.cursor === undefined ? 0 : cursorOffsets.get(options.cursor);
+      if (offset === undefined) {
+        throw new Error("Unknown R2 continuation cursor");
+      }
+      const end = Math.min(offset + Math.min(requested, opts.pageSize ?? 1000), keys.length);
+      const objects = keys.slice(offset, end).map((key) => ({
+        key,
+        version: "fixture-version",
+        size: new TextEncoder().encode(manifests[key] ?? "csv fixture").byteLength,
+        etag: "fixture-etag",
+        httpEtag: '"fixture-etag"',
+        checksums: { toJSON: () => ({}) },
+        uploaded: new Date("2025-12-25T00:00:00.000Z"),
+        httpMetadata: {},
+        customMetadata: {},
+        writeHttpMetadata(_headers: Headers) {},
+        storageClass: "Standard"
+      }));
+      if (end < keys.length) {
+        const cursor = `opaque-r2-continuation-${cursorOffsets.size}`;
+        cursorOffsets.set(cursor, end);
+        return { objects, delimitedPrefixes: [], truncated: true, cursor };
+      }
+      return { objects, delimitedPrefixes: [], truncated: false };
+    },
+    async get(key: string) {
+      getKeys.push(key);
+      return contents.get(key);
+    }
+  } as unknown as R2Bucket;
+  return {
+    env: { ...testEnv(), SNAPSHOTS: snapshots } as unknown as Env,
+    dates,
+    listCalls,
+    getKeys
+  };
+}
+
 describe("archived-date listing acceptance (R21-01)", () => {
   const originalFetch = globalThis.fetch;
 
@@ -439,6 +521,152 @@ describe("archived-date listing acceptance (R21-01)", () => {
     const body = (await res.json()) as DatesResponse;
     expect(body.dates).toEqual([{ date, bytes: 77, sha256: hexFor(`customer:${date}`) }]);
     expect(body.truncated).toBe(false);
+  });
+
+  describe("R2 cursor pagination regressions", () => {
+    it.each([30, 366])(
+      "includes the true newest archive across 1200 mixed keys at limit=%s",
+      async (limit) => {
+        // One 1000-key page only reaches 2025-11-05; 50 newer dates follow.
+        const fixture = paginatedArchiveFixture(300);
+        const res = await getDates("customer", SYNC_SECRET, `?limit=${limit}`, fixture.env);
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as DatesResponse;
+        expect(body.table).toBe("customer");
+        expect(body.dates[0]).toEqual({
+          date: "2025-12-25", bytes: 123, sha256: hexFor("customer:2025-12-25")
+        });
+        expect(body.dates.map((entry) => entry.date)).toEqual(
+          [...fixture.dates].reverse().slice(0, limit)
+        );
+        expect(body.dates).toHaveLength(limit === 30 ? 30 : 300);
+        expect(body.truncated).toBe(limit === 30);
+        expect(fixture.listCalls).toHaveLength(2);
+        expect(fixture.getKeys).toHaveLength(limit === 30 ? 30 : 300);
+        expect(fixture.getKeys.every((key) => key.endsWith(".manifest.json"))).toBe(true);
+      }
+    );
+
+    it("continues through short non-final R2 pages until all 300 dates are available", async () => {
+      // 97 is below the requested page size; it is not an exhaustion signal.
+      const fixture = paginatedArchiveFixture(300, { pageSize: 97 });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(body.dates[0]?.date).toBe("2025-12-25");
+      expect(body.dates.at(-1)?.date).toBe("2025-03-01");
+      expect(body.dates.map((entry) => entry.date)).toEqual([...fixture.dates].reverse());
+      expect(body.truncated).toBe(false);
+      expect(fixture.listCalls).toHaveLength(13);
+      expect(fixture.listCalls[0]?.cursor).toBeUndefined();
+      const cursors = fixture.listCalls.slice(1).map((call) => call.cursor);
+      expect(cursors.every((cursor) => typeof cursor === "string" && cursor.length > 0)).toBe(true);
+      expect(new Set(cursors).size).toBe(12);
+      expect(fixture.getKeys).toHaveLength(300);
+      expect(fixture.getKeys.some((key) => key.endsWith(".csv"))).toBe(false);
+    });
+
+    it("returns the fixed sanitized 500 if a later list page fails, even at limit=1", async () => {
+      const fixture = paginatedArchiveFixture(300, { pageSize: 97, failOnPage: 2 });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=1", fixture.env);
+
+      // Never return a successful but stale oldest-page result, or leak the
+      // driver error/cursor/query through the generic onError fallback.
+      expect(res.status).toBe(500);
+      expect(res.headers.get("content-type")).toContain("problem+json");
+      expect(await res.json()).toEqual({
+        type: problemType("internal"),
+        title: "Internal Server Error",
+        status: 500,
+        detail: datesUnreadableDetail("customer"),
+        instance: "/api/v1/snapshots/customer"
+      });
+      expect(fixture.listCalls).toHaveLength(2);
+    });
+
+    it("stops after 20 list calls and preserves truncated when keys remain", async () => {
+      // Six dates = 24 keys, served one key at a time. The first 20 keys
+      // cover five complete dates, below the independent manifest budget.
+      // Attempting the forbidden 21st page throws instead of hiding overrun.
+      const fixture = paginatedArchiveFixture(6, { pageSize: 1, failOnPage: 21 });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(fixture.listCalls).toHaveLength(20);
+      expect(body.dates.map((entry) => entry.date)).toEqual([
+        "2025-03-05", "2025-03-04", "2025-03-03", "2025-03-02", "2025-03-01"
+      ]);
+      expect(body.truncated).toBe(true);
+      expect(fixture.getKeys).toHaveLength(5);
+      expect(fixture.getKeys.some((key) => key.endsWith(".csv"))).toBe(false);
+    });
+
+    it("clears truncated when the 20th list call exhausts the keys exactly", async () => {
+      const fixture = paginatedArchiveFixture(5, { pageSize: 1, failOnPage: 21 });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(fixture.listCalls).toHaveLength(20);
+      expect(body.dates.map((entry) => entry.date)).toEqual([
+        "2025-03-05", "2025-03-04", "2025-03-03", "2025-03-02", "2025-03-01"
+      ]);
+      expect(body.truncated).toBe(false);
+      expect(fixture.getKeys).toHaveLength(5);
+    });
+
+    it("reads exactly 366 newest manifests when mixed keys span multiple pages", async () => {
+      const fixture = paginatedArchiveFixture(367, { start: "2025-01-01", pageSize: 97 });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(body.dates[0]?.date).toBe("2026-01-02");
+      expect(body.dates.at(-1)?.date).toBe("2025-01-02");
+      expect(body.dates).toHaveLength(366);
+      expect(body.truncated).toBe(true);
+      expect(fixture.listCalls).toHaveLength(16);
+      expect(fixture.getKeys).toHaveLength(366);
+      expect(fixture.getKeys).not.toContain("snapshots/2025-01-01.manifest.json");
+      expect(fixture.getKeys.some((key) => key.endsWith(".csv"))).toBe(false);
+    });
+
+    it("does not read a 367th manifest to find a table match after pagination", async () => {
+      const fixture = paginatedArchiveFixture(367, {
+        start: "2025-01-01",
+        pageSize: 97,
+        tableForDate: (date) => date === "2025-01-01" ? "customer" : "address"
+      });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(body.dates).toEqual([]);
+      expect(body.truncated).toBe(true);
+      expect(fixture.listCalls).toHaveLength(16);
+      expect(fixture.getKeys).toHaveLength(366);
+      expect(fixture.getKeys[0]).toBe("snapshots/2026-01-02.manifest.json");
+      expect(fixture.getKeys).not.toContain("snapshots/2025-01-01.manifest.json");
+      expect(fixture.getKeys.some((key) => key.endsWith(".csv"))).toBe(false);
+    });
+
+    it("returns all 366 dates with truncated=false when the paginated manifest budget fits exactly", async () => {
+      const fixture = paginatedArchiveFixture(366, { start: "2025-01-01" });
+      const res = await getDates("customer", SYNC_SECRET, "?limit=366", fixture.env);
+
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DatesResponse;
+      expect(body.dates.map((entry) => entry.date)).toEqual([...fixture.dates].reverse());
+      expect(body.dates[0]?.date).toBe("2026-01-01");
+      expect(body.dates.at(-1)?.date).toBe("2025-01-01");
+      expect(body.dates).toHaveLength(366);
+      expect(body.truncated).toBe(false);
+      expect(fixture.listCalls).toHaveLength(2);
+      expect(fixture.getKeys).toHaveLength(366);
+    });
   });
 
   it("slices newest-first to limit and flags truncated when more dates remain", async () => {
