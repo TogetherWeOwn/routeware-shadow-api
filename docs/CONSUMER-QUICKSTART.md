@@ -143,7 +143,8 @@ seek — `offset` re-scans everything before it, `cursor` does not:
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/customer-snapshot?limit=500&cursor=50000"
-# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor, or null at the end
+# {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
+# Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
 Scanning pages without needing an exact count? Pass `includeTotal=false` to
