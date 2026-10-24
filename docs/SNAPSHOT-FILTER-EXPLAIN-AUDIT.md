@@ -31,6 +31,36 @@ Without statistics, the synthetic 609k-row run chose the container `enabled` com
 
 SQLite recommends `PRAGMA optimize` for maintaining planner statistics ([SQLite PRAGMA optimize](https://www.sqlite.org/pragma.html#pragma_optimize)). The rerun used it only against the in-memory database. No production or remote D1 was queried, and no production migration or `PRAGMA` was run. Whether deployed D1 has comparable statistics was not verified here.
 
+## Address scope predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 15 synthetic addresses (no tenant data). Used the
+address route's SELECT column template and COUNT template with bound scope
+predicates, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek without
+OFFSET). Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `route_id = ?` | `SCAN address_snapshot` |
+| `franchise_id = ?` | `SCAN address_snapshot` |
+| `route_id = ? AND franchise_id = ?` | `SCAN address_snapshot` |
+| Both scopes plus `pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+| `customer_id = ? AND route_id = ? AND franchise_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+
+Each scope uses an equality placeholder, never interpolation, LIKE, a new
+join or a deduplication step. Bind order follows WHERE order, followed by
+limit/offset only for SELECT. The executable
+`test/addressScopeFilters.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements with an opaque quote/Unicode/percent fixture, and asserts exact
+matches, read-only execution and denied network. Run
+`npm run check:address-scope` to repeat that bounded check.
+
+Scope-only reads may still scan; this feature bounds returned data, not
+query cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.
