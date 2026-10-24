@@ -20,7 +20,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ceiling, updates and deletions remain visible, with no snapshot isolation,
   exact-once or watermark promises. Synthetic resume example:
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
-  `npm run check:snapshot-upper-id`.
+  `npm run check:snapshot-upper-id`. Update Zod from 4.3.6 to 4.6.6 to fix
+  GHSA-mrhx-c7xc-m3w5 (oversized constrained-collection memory exhaustion)
+  without changing the dependency audit gate or its allowlist.
 
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
