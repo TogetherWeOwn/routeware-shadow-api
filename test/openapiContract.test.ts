@@ -192,6 +192,66 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   return copy;
 }
 
+/**
+ * Failure declarations are owned by combinedSyncFailureOpenapi.acceptance.
+ * Permit only their reachable new component schemas, not arbitrary additions.
+ * Inline those refs before removing them so a shared completed-count definition
+ * can be reused by the existing 200 schema without re-recording its contract.
+ * The 200 response, query params and all unrelated operations stay frozen.
+ */
+function withoutDedicatedSyncFailureMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/data-snapshot/sync"]?.post as {
+    responses?: Record<string, unknown>;
+  } | undefined;
+  const schemas = copy.components?.schemas ?? {};
+  const legacySchemas = new Set([
+    "CustomerSnapshotChanges", "CustomerSnapshotList", "DataSnapshotSyncResult",
+    "HealthResponse", "ReadinessResponse", "ShadowHealthResponse",
+    "SnapshotOrphanReport", "SnapshotOrphanSample"
+  ]);
+  const owned = new Set<string>();
+  function collect(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(collect); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+      const name = node.$ref.slice("#/components/schemas/".length);
+      if (!legacySchemas.has(name) && !owned.has(name)) {
+        owned.add(name);
+        collect(schemas[name]);
+      }
+    }
+    Object.values(node).forEach(collect);
+  }
+  for (const status of ["400", "401", "500", "503"]) collect(operation?.responses?.[status]);
+  function inline(value: unknown, seen: string[] = []): unknown {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((entry) => inline(entry, seen));
+    const node = value as Record<string, unknown>;
+    const ref = node.$ref;
+    if (typeof ref === "string" && owned.has(ref.slice("#/components/schemas/".length))) {
+      expect(seen, "combined-sync schema refs must not cycle").not.toContain(ref);
+      const name = ref.slice("#/components/schemas/".length);
+      expect(schemas[name], `missing combined-sync schema ${name}`).toBeDefined();
+      const { $ref: _ref, ...siblings } = node;
+      return { ...inline(schemas[name], [...seen, ref]) as object, ...inline(siblings, seen) as object };
+    }
+    return Object.fromEntries(Object.entries(node).map(([key, entry]) => [key, inline(entry, seen)]));
+  }
+  const result = inline(copy) as OpenApiDocument;
+  for (const name of owned) delete result.components!.schemas![name];
+  const responses = (result.paths["/api/v1/data-snapshot/sync"]?.post as typeof operation)?.responses;
+  if (responses) {
+    delete responses["400"];
+    delete responses["500"];
+    delete responses["503"];
+    // This response was description-only before the dedicated failure oracle.
+    if (responses["401"]) responses["401"] = { description: "Unauthorized" };
+  }
+  return result;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -238,7 +298,7 @@ describe("published OpenAPI document", () => {
     // address and container snapshot list routes, and `CustomerSnapshotChanges`
     // carries the composite `{since, since_id}` cursor instead of
     // the integer primary-key cursor.
-    expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+    expect(Object.keys(withoutDedicatedSyncFailureMetadata(doc).components?.schemas ?? {}).sort()).toEqual([
       "CustomerSnapshotChanges",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
@@ -435,7 +495,7 @@ describe("published OpenAPI document", () => {
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
     // enriching it never re-records this frozen document.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
+    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutDedicatedSyncFailureMetadata(doc)))).toMatchSnapshot();
   });
 });
 
