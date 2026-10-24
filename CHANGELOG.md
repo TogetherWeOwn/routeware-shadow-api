@@ -5,6 +5,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #379: Customer changes feed accepts an optional `until` inclusive upper
+  bound (`synced_at <= until`) for finite caller-chosen time windows. Both
+  endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
+  fraction digits normalize before comparison, while empty, repeated,
+  calendar-invalid, offset and overprecise bounds — plus normalized `since`
+  past `until` — fail with the existing value-free 400 before D1, after
+  read-role authentication. `since == until` stays valid for composite
+  resume; legacy empty-`since` semantics, ordering, limits, page-length
+  totals, maybe-more cursors and cursor-before-projection derivation are
+  unchanged, as are omitted-bound SQL/binds/JSON/Link bytes. Follow-next
+  Links retain the normalized bound; unknown keys stay ignored. Current-row
+  upserts only: overwrites can move rows outside the window and bulk imports
+  advance timestamps, with no delete events, versions, isolation or
+  completeness promise. No index or migration. See the synthetic bounded
+  two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
