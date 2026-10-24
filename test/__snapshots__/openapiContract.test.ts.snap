@@ -606,12 +606,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Last pickup_address_id from the previous page's nextCursor; takes precedence over offset",
+            "description": "Last pickup_address_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
             "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
-              "description": "Last pickup_address_id from the previous page's nextCursor; takes precedence over offset",
+              "description": "Last pickup_address_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
               "example": 9,
               "type": [
                 "integer",
@@ -629,6 +629,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "type": "string",
+            },
+          },
+          {
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "example": "desc",
               "type": "string",
             },
           },
@@ -1045,12 +1061,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Last container_id from the previous page's nextCursor; takes precedence over offset",
+            "description": "Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
             "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
-              "description": "Last container_id from the previous page's nextCursor; takes precedence over offset",
+              "description": "Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
               "example": 99,
               "type": [
                 "integer",
@@ -1068,6 +1084,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "type": "string",
+            },
+          },
+          {
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "example": "desc",
               "type": "string",
             },
           },
@@ -1141,7 +1173,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, an unknown/empty/duplicate \`fields\` selector, or invalid/repeated \`order\` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request.",
           },
         },
         "summary": "List container snapshot rows (D1)",
@@ -1488,12 +1520,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Last customer_id from the previous page's nextCursor; takes precedence over offset",
+            "description": "Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
             "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
-              "description": "Last customer_id from the previous page's nextCursor; takes precedence over offset",
+              "description": "Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.",
               "example": 345733,
               "type": [
                 "integer",
@@ -1511,6 +1543,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "true",
                 "false",
               ],
+              "type": "string",
+            },
+          },
+          {
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "enum": [
+                "asc",
+                "desc",
+              ],
+              "example": "desc",
               "type": "string",
             },
           },
@@ -1569,7 +1617,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
+            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, an unknown/empty/duplicate \`fields\` selector, or invalid/repeated \`order\` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request.",
           },
         },
         "summary": "List customer snapshot rows (D1)",
