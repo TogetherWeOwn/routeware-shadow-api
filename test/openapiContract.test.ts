@@ -192,6 +192,25 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   return copy;
 }
 
+/**
+ * Scope parameters and the address list's evolving filter/recovery prose have
+ * semantic checks in addressScopeFilters.acceptance.test.ts. Keep all existing
+ * parameter schemas, responses, tags and other operations in the legacy golden.
+ */
+function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"].get as {
+    description?: string;
+    parameters: Array<{ name: string; in: string }>;
+    responses: Record<string, { description?: string }>;
+  };
+  delete operation.description;
+  delete operation.responses["400"].description;
+  operation.parameters = operation.parameters.filter(parameter =>
+    parameter.in !== "query" || !["routeId", "franchiseId"].includes(parameter.name));
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -435,7 +454,9 @@ describe("published OpenAPI document", () => {
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
     // enriching it never re-records this frozen document.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
+    // Only the two new scope selectors and address filter/recovery prose move
+    // to behavioral/semantic ownership; unrelated golden contracts stay pinned.
+    expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(doc)))).toMatchSnapshot();
   });
 });
 
