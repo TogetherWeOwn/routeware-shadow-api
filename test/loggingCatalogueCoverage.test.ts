@@ -47,6 +47,14 @@ const COMPUTED_CALL_SITES: ReadonlyArray<{
       "SNAPSHOT_EXPORT_PAGE_SIZE ignored (quote an integer from 1 to ${SNAPSHOT_EXPORT_MAX_PAGE_SIZE}); using ${SNAPSHOT_EXPORT_PAGE_SIZE}",
     ],
   },
+  {
+    // `msg` parameter of snapshotIdsQuietly (src/lib/saveCreatedIdDiff.ts):
+    // one fixed string per call site, covering pre-save baselines and the
+    // container post-refresh read.
+    file: "src/lib/saveCreatedIdDiff.ts",
+    expression: "msg",
+    messages: ["Pre-save id snapshot unavailable", "Post-refresh id snapshot unavailable"],
+  },
 ];
 
 /** Log calls that the lexical scanner could not inspect as inline objects. */

@@ -527,7 +527,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "paths": {
     "/api/v1/address-snapshot": {
       "get": {
-        "description": "Routeware addresses (\`PickupAddressID\` → \`CustomerID\`). Optional filters: \`customerId\`, \`pickupAddressId\`, free-text on street \`q\`, \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
@@ -705,9 +704,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, an unknown/empty/duplicate \`fields\` selector, or invalid/repeated \`order\` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request.",
-          },
+          "400": {},
         },
         "summary": "List address snapshot rows (D1)",
         "tags": [
@@ -1628,7 +1625,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/changes": {
       "get": {
-        "description": "Incremental-sync feed: returns rows with \`synced_at > since\` in \`(synced_at, customer_id)\` keyset order. Omit \`since\` for the first page (equivalent to the epoch — every row is newer). A bare \`since\` replays every later run whole. To page a chunked delta, pass the previous page's \`nextCursor\` back as \`since\` + \`since_id\`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. \`limit\` caps the page at 1..500 (default 50). Rows carry only the stored snapshot columns — no fields beyond the row payload.",
+        "description": "Incremental-sync feed: returns rows with \`synced_at > since\` in \`(synced_at, customer_id)\` keyset order. Omit \`since\` for the first page (equivalent to the epoch — every row is newer). A bare \`since\` replays every later run whole. To page a chunked delta, pass the previous page's \`nextCursor\` back as \`since\` + \`since_id\`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. \`limit\` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; fields and until are not supported. Rows carry only the stored snapshot columns — no fields beyond the row payload.",
         "parameters": [
           {
             "description": "UTC Z datetime cursor with seconds or 1–3 fractional digits, normalized to milliseconds before comparison. More than 3 digits is rejected, never rounded/truncated. Only later synced_at values qualify (plus the since_id tiebreak). Omit or leave empty for the first page without since_id.",
@@ -1699,6 +1696,15 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Changed rows in (synced_at, customer_id) order with nextCursor",
+            "headers": {
+              "Link": {
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Replaces since and since_id together and retains the effective limit. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path.",
+                "required": false,
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request.",
@@ -2316,7 +2322,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`pickupAddressId\` — upstream \`data.PickupAddressID\` first, else the singleton post-refresh D1 id for the owning customer; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
         "parameters": [
           {
             "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
@@ -2380,7 +2386,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                     "done": true,
                   },
                   "ok": true,
-                  "pickupAddressId": null,
+                  "pickupAddressId": 10,
                   "routewareStatus": 200,
                   "upstreamBytes": 16,
                 },
@@ -2388,6 +2394,32 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "customerId": 5,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                      77,
+                    ],
+                    "containerIds": [
+                      100,
+                    ],
+                    "customerId": 5,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": 77,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 46,
+                },
+                "schema": {},
+              },
+            },
+            "description": "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
@@ -2545,7 +2577,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`containerId\` — upstream \`data.ContainerID\` first, else the singleton post-refresh D1 id scoped to the owning address; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
         "parameters": [
           {
             "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
@@ -2596,7 +2628,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "example": {
-                  "containerId": null,
+                  "containerId": 100,
                   "customerId": 345734,
                   "localSync": {
                     "addressIds": [
@@ -2617,6 +2649,33 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "containerId": 177,
+                  "customerId": 345734,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                    ],
+                    "containerIds": [
+                      100,
+                      177,
+                    ],
+                    "customerId": 345734,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": 10,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 43,
+                },
+                "schema": {},
+              },
+            },
+            "description": "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
