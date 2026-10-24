@@ -91,6 +91,9 @@ const PINNED_PRIVILEGED: string[] = [
   // table (the `:date` replacement is a no-op here).
   "GET /api/v1/snapshots/:table",
   "GET /api/v1/snapshots/:table/:date",
+  // Latest-pointer readback: same /snapshots/ prefix, same inner gate.
+  // `localeCompare` sorts the literal `latest` after the `:date` param.
+  "GET /api/v1/snapshots/:table/latest",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",

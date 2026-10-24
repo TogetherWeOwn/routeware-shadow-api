@@ -14,6 +14,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   date route, fixed 503 when SNAPSHOTS is unbound, sanitized fixed 500s on R2
   or manifest failures, and content-hash ETags with empty-body 304s. No
   lifecycle, CSV, binding or auth changes. Recipe: `docs/CONSUMER-QUICKSTART.md` §3b.
+
+- #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
+  snapshot CSV for one table without naming its date, resolving the existing
+  `snapshot-latest/{table}.json` pointer the sync leg republishes after every
+  archive. Same sync-secret gate and 401 precedence, same spreadsheet-safe
+  re-encode (byte-identical to the explicit-date download, same content-hash
+  ETag with empty-body 304s, `{table}-latest.csv` filename). A missing pointer
+  or CSV is a fixed table-only 404; an unreadable pointer is a fixed sanitized
+  500. The `{date}` route is unchanged. See `docs/CONSUMER-QUICKSTART.md` and
+  `docs/R2-RETENTION.md`.
+
 - #353: The seven mutating snapshot POSTs (combined sync, three per-table
   syncs, three imports) now reject any query key outside their declared set
   (`dryRun` everywhere, plus `partialProgress` on the combined route) with a
