@@ -1,7 +1,9 @@
 import { z } from "@hono/zod-openapi";
 
 /**
- * Sparse fieldsets (`?fields=`) for the six flat snapshot reads.
+ * Sparse fieldsets (`?fields=`) for the six flat snapshot reads, and per-type
+ * selectors (`?fields[customer]=`, `?fields[address]=`, `?fields[container]=`)
+ * for the three hydrated `/api/v1/data/*` bundles.
  *
  * Single source of truth for which response keys a client may select: each
  * whitelist below mirrors the route's D1 SELECT list exactly (id + stored
@@ -12,13 +14,16 @@ import { z } from "@hono/zod-openapi";
  *
  * Parsing is strict by design: exact snake_case names, comma-separated, no
  * whitespace trimming, no case folding, no empty segments, no duplicates, and
- * a single `fields` key (a repeated key reaches zod as an array and fails the
- * string schema). The resource id is always present in responses even when
+ * a single key per selector (a repeated key reaches zod as an array and fails
+ * the string schema). The resource id is always present in responses even when
  * omitted from the selector; naming it explicitly is not a duplicate.
  *
  * Validation lives in the query zod schema so the module `defaultHook`
  * (`validationFailureHook`) answers rejections with the existing anchored
  * 400 before the handler — and therefore before any D1 work — runs.
+ * Unknown `fields[TYPE]` keys are not visible to the schema (zod strips
+ * unknown keys), so the data routes reject them in-handler with the same
+ * anchored shape, after auth and before cache/D1.
  */
 
 export type SnapshotFieldsetResource = "customer" | "address" | "container";
@@ -191,4 +196,52 @@ export function snapshotFieldsQuery(resource: SnapshotFieldsetResource) {
         }
       }
     });
+}
+
+/** The three hydrated-bundle per-type selector keys, one per projectable type. */
+export const BUNDLE_TYPED_FIELD_KEYS = {
+  customer: "fields[customer]",
+  address: "fields[address]",
+  container: "fields[container]"
+} as const satisfies Record<SnapshotFieldsetResource, string>;
+
+/**
+ * The `fields[TYPE]` query fragment for the hydrated `/api/v1/data/*` reads.
+ * Strictness is identical to the flat root selector: the same per-type
+ * allowlist, the same `parseSnapshotFields` rejection set, and a repeated key
+ * failing the string schema. Invalid selectors fail in the hook (`Invalid
+ * request query (fields[TYPE])`); valid selectors arrive as parsed columns.
+ * Omitted keys leave their type full; projection applies to every object of
+ * the listed type — the route root when it serves this type, plus all nested
+ * relations — with the primary id always retained.
+ */
+export function typedBundleFieldsQuery(resource: SnapshotFieldsetResource) {
+  return z
+    .string()
+    .refine((v) => parseSnapshotFields(resource, v) !== null)
+    .transform((v) => parseSnapshotFields(resource, v) as string[])
+    .optional()
+    .describe(
+      `Comma-separated sparse fieldset for every \`${resource}\` object in the served bundle: ` +
+        `exact stored column names from the \`${resource}\` allowlist ` +
+        "(case-sensitive, no spaces, no empty segments, no duplicates, single key only). " +
+        "Each projected object contains exactly these fields plus its primary id, which is always " +
+        "present even when omitted. Unknown names are a value-free 400 before any cache or D1 work."
+    )
+    .openapi({ example: FIELDS_EXAMPLES[resource] });
+}
+
+/**
+ * Unknown `fields[...]` keys among raw query keys, sorted for a stable 400
+ * detail. The query schema strips unknown keys before validation, so the data
+ * routes call this in-handler — after auth, before the ID parse and before
+ * any cache/D1 work — and answer non-empty results with the anchored
+ * value-free 400. Non-`fields[` keys are untouched: other unknown params keep
+ * their existing strip-and-ignore behavior.
+ */
+export function findUnknownTypedBundleFieldKeys(queryKeys: readonly string[]): string[] {
+  const known = new Set<string>(Object.values(BUNDLE_TYPED_FIELD_KEYS));
+  return queryKeys
+    .filter((key) => key.startsWith("fields[") && !known.has(key))
+    .sort();
 }

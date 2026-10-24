@@ -534,7 +534,11 @@ it("runtime OpenAPI exposes root-only fields, representation validators and batc
     expect(op.operationId).toBe(`getData${spec.kind[0].toUpperCase()}${spec.kind.slice(1)}`);
     expect(op["x-access"]).toBe("sync-secret");
     expect(op["x-effect"]).toBe("local-read");
-    expect(op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(["fields", "id", "ids", spec.alias].sort());
+    // Per-type bundle selectors (R20-02) ride on every data-entity GET; flat
+    // `fields` below keeps its root-only meaning with relations unchanged.
+    // Batch `ids` rides the same query contract (see the batch acceptance suite).
+    expect(op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(
+      ["fields", "fields[address]", "fields[container]", "fields[customer]", "id", "ids", spec.alias].sort());
     const fields = op.parameters.find((p) => p.name === "fields");
     expect(fields).toMatchObject({ in: "query", required: false, schema: { type: "string" } });
     const selectorDocs = `${fields?.description ?? ""} ${fields?.schema?.description ?? ""}`;

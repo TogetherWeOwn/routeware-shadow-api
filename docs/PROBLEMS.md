@@ -52,12 +52,13 @@ for local, credential-free acceptance examples.
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
 reject any query key outside their declared set — `id`, the route's alias
 (`customerId` / `pickupAddressId` / `containerId`), the optional `fields`
-selector, and the batch `ids` selector — with a fixed, value-free 400 before
-any cache or D1 work. A typo such as `?field=` fails loudly instead of
-serving the full bundle:
+selector, the batch `ids` selector, and the optional typed
+`fields[customer]` / `fields[address]` / `fields[container]` selectors — with
+a fixed, value-free 400 before any cache or D1 work. A typo such as `?field=`
+fails loudly instead of serving the full bundle:
 
 ```
-Unknown query parameter. Allowed query parameters: id, customerId, fields, ids. See docs/PROBLEMS.md#bad-request.
+Invalid request query (fields selectors). Unknown query parameter. Allowed query parameters: id, customerId, ids, fields, fields[customer], fields[address], fields[container]. See docs/PROBLEMS.md#bad-request.
 ```
 
 Each route names its own alias. No submitted key or value is echoed.
