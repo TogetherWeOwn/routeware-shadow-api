@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #378: The three flat snapshot by-ID GETs (`GET
+  /api/v1/customer|address|container-snapshot/{id}`) return a quoted SHA-256
+  `ETag` over exactly the served row bytes, after `fields` projection, and
+  answer a matching `If-None-Match` with a bodyless 304 carrying the current
+  tag. Weak tags, comma-separated tag lists and standalone `*` match;
+  malformed validators miss. Authentication, id/`fields` validation and the
+  single D1 lookup still run first, so absent rows stay 404, invalid input
+  stays 400 and errors never become 304. Bare responses keep byte-identical
+  bodies, operationIds and `application/json`; a selected-value change
+  invalidates the tag while selected-out changes leave sparse tags alone.
+  Bandwidth-only optimization with unchanged D1 work and `no-store`, not a
+  cache hit or measured performance gain: served OpenAPI declares the
+  optional header plus `ETag`/`304`, CORS exposure is unchanged, and the
+  synthetic recipe lives in `docs/CONSUMER-QUICKSTART.md`. Focused check:
+  `npx vitest run test/snapshotByIdConditional.acceptance.test.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
