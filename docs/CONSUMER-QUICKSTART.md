@@ -493,8 +493,16 @@ curl -X POST http://localhost:8787/api/v1/data/address \
 
 The id comes from upstream `data.PickupAddressID` / `data.ContainerID`
 first, else the singleton post-refresh D1 id (address ids for the owning
-customer, container ids for the owning address); `null` only when that diff
-is empty or ambiguous (0 or 2+ new ids). There is deliberately no `Location`
+customer, container ids for the owning address). The diff baseline is captured
+**before** the upstream POST so a concurrent refresh cannot put this request's
+created row into the baseline. Without an upstream id, `null` remains when the
+diff is empty or ambiguous (0 or 2+ new ids), the owning graph is unknown, or
+the baseline/refresh is unavailable. A failed baseline read disables only
+id diffing: the save and normal refresh still run, and an upstream JSON id
+still wins. Posted save keys are case-exact (`PickupAddressID`, `ContainerID`);
+camelCase keys do not name an update. Upstream JSON ids must be positive safe
+integers (numbers or digit-only strings); invalid candidates do not mask valid
+fallback fields. There is deliberately no `Location`
 header: the by-id snapshot URL may not exist locally when the refresh fails,
 and a header that 404s is worse than none. Dry-run saves echo posted ids
 while live saves resolve (R21-02 convergence).

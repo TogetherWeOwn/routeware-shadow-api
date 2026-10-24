@@ -138,6 +138,24 @@ async function columnIds(db: D1Database, sql: string, owner: number): Promise<nu
   return out.results.map((row) => row.id);
 }
 
+/** An unavailable baseline disables diffing, not the upstream save or its refresh. */
+async function preSaveIdsQuietly(
+  route: string,
+  work: () => Promise<number[]>
+): Promise<number[] | null> {
+  try {
+    return await work();
+  } catch (snapshotErr) {
+    logEvent({
+      level: "error",
+      msg: "Pre-save id snapshot unavailable",
+      route,
+      kind: errorKind(snapshotErr)
+    });
+    return null;
+  }
+}
+
 /** Pre-save address ids for the owning customer (R21-05 create diff input). */
 function queryCustomerAddressIds(db: D1Database, customerId: number): Promise<number[]> {
   return columnIds(
@@ -348,6 +366,19 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       instance: new URL(c.req.raw.url).pathname
     });
   }
+  // Capture the baseline before this request can create a row upstream. A
+  // concurrent refresh after the POST must not hide our row in the baseline.
+  const posted = urlEncodedToObject(buf);
+  const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
+  const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
+  const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
+  const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
+  const isCreate = pickupAddressId === null;
+  const preAddressIds = isCreate && customerId !== null
+    ? await preSaveIdsQuietly("POST /api/v1/data/address", () =>
+        queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
+      )
+    : null;
   const url = routewareWebRwUrl(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
@@ -362,29 +393,15 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // `posted` is parsed for ids only and never echoed.
-  const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
-  const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
-  const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
-  const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
-  const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
   // R21-05: creates (posted id 0/absent) resolve their id — upstream JSON
   // first, else the singleton post-refresh D1 id. Updates keep echoing the
   // posted id, and failed saves keep today's null/echo semantics.
-  const isCreate = pickupAddressId === null;
   let resolvedAddressId = ok ? parseAddressIdFromSaveResponse(posted, upText) : pickupAddressId;
   let localSync: LocalSyncSummary = notAttempted();
   if (ok) {
     if (customerId !== null) {
       try {
-        // Pre-save snapshot for the create D1 diff; skipped unless this
-        // create missed upstream JSON. Inside the sync try so a D1 failure
-        // keeps the sync_failed outcome instead of becoming a 500.
-        const preAddressIds =
-          isCreate && resolvedAddressId === null
-            ? await queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
-            : null;
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
         localSync = {
           done: true,
@@ -392,7 +409,7 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        if (preAddressIds !== null) {
+        if (resolvedAddressId === null && preAddressIds !== null) {
           const created = diffSingleton(preAddressIds, g.addressIds);
           if (created !== null) {
             resolvedAddressId = created;
@@ -508,6 +525,18 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       instance: new URL(c.req.raw.url).pathname
     });
   }
+  // As with addresses, snapshot before the upstream mutation; scope the diff
+  // to the owning address, not every container under the customer.
+  const posted = urlEncodedToObject(buf);
+  const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
+  const postedPickupAddressId = postedId(posted.PickupAddressID);
+  const postedContainerId = postedId(posted.ContainerID);
+  const isCreate = postedContainerId === null;
+  const preContainerIds = isCreate && postedPickupAddressId !== null
+    ? await preSaveIdsQuietly("POST /api/v1/data/container", () =>
+        queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+      )
+    : null;
   const url = routewareWebRwUrl(
     c.env.TARGET_ORIGIN,
     c.env.TARGET_BASE_PATH,
@@ -522,14 +551,8 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     establishSession
   );
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
-  // `posted` is parsed for ids only and never echoed.
-  const posted = urlEncodedToObject(buf);
   const ok = routewarePostLooksSuccessful(up.status, upText);
-  const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
-  const postedPickupAddressId = postedId(posted.PickupAddressID);
-  const postedContainerId = postedId(posted.ContainerID);
   // R21-05: same resolution shape as addresses, scoped to the owning address.
-  const isCreate = postedContainerId === null;
   let resolvedContainerId = ok
     ? parseContainerIdFromSaveResponse(posted, upText)
     : postedContainerId;
@@ -551,16 +574,6 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       // lookup above), so closures would lose the non-null narrowing.
       const ownerId = customerId;
       try {
-        // Pre-save snapshot for the create D1 diff, scoped to the owning
-        // address; skipped unless this create missed upstream JSON. The scope
-        // rides along so the post-refresh read needs no second null check.
-        const preDiff =
-          isCreate && resolvedContainerId === null && postedPickupAddressId !== null
-            ? {
-                addressId: postedPickupAddressId,
-                ids: await queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
-              }
-            : null;
         const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, ownerId);
         localSync = {
           done: true,
@@ -568,9 +581,9 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
           addressIds: g.addressIds,
           containerIds: g.containerIds
         };
-        if (preDiff !== null) {
-          const postIds = await queryAddressContainerIds(c.env.CUSTOMER_DB, preDiff.addressId);
-          const created = diffSingleton(preDiff.ids, postIds);
+        if (resolvedContainerId === null && preContainerIds !== null && postedPickupAddressId !== null) {
+          const postIds = await queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId);
+          const created = diffSingleton(preContainerIds, postIds);
           if (created !== null) {
             resolvedContainerId = created;
           }
