@@ -698,6 +698,10 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
     ];
     if (entity !== "customer") scenarios.push({
       ...happy, name: "unresolved new child ID remains nullable after graph refresh", nullableChild: true,
+      // Creates (posted id 0, upstream ok) answer 201; the child id stays null
+      // when unresolvable. The generic validator below then checks the payload
+      // against the served 201 schema for this entity.
+      status: 201,
       body: entity === "address" ? "PickupAddressID=0&CustomerID=5" : "ContainerID=0&PickupAddressID=10&CustomerID=5"
     });
 
