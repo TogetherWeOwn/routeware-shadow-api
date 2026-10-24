@@ -1389,7 +1389,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/container-snapshot": {
       "get": {
-        "description": "Routeware containers link to an address via \`pickup_address_id\` (and thus to a customer). Filter by \`customerId\` (joins through address), \`pickupAddressId\`, or \`containerId\`, text \`q\` on \`location_address\` or \`serial_number\`, and \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
         "parameters": [
           {
             "in": "query",
@@ -1592,9 +1591,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, an unknown/empty/duplicate \`fields\` selector, or invalid/repeated \`order\` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request.",
-          },
+          "400": {},
         },
         "summary": "List container snapshot rows (D1)",
         "tags": [
