@@ -297,7 +297,7 @@ cache hit**, shared-cache permission or a TTL change. No response cache or
 persisted validator is added. CORS still exposes ETag and request IDs.
 Changing a selected value, total or nextCursor changes the tag; changing
 only selected-out values does not. Different requests serving identical
-bytes may share a tag. Detail, changes, CSV and hydrated-read contracts are
+bytes may share a tag. Changes, CSV and hydrated-read contracts are
 unchanged.
 
 Synthetic, credential-free recipe (no running Worker or live tenant):
@@ -313,6 +313,28 @@ with that ETag and checks a genuinely empty 304, then changes a selected
 synthetic value and checks a fresh 200. It also asserts identical executed
 SQL/binds on the 200/304 pair and preserved no-store/CORS/request-ID headers.
 These are synthetic regression results, not deployed performance measurements.
+
+### Conditional flat by-ID reads (bandwidth only)
+
+The three flat snapshot by-ID GETs (`/api/v1/customer|address|container-snapshot/{id}`)
+return the same quoted SHA-256 `ETag` over exactly the served UTF-8 JSON row,
+after `fields` projection. Send it back as `If-None-Match` for a bodyless 304;
+weak tags, tag lists and standalone `*` match, malformed validators do not.
+Auth, id/`fields` validation and the single D1 lookup still run first — a
+missing row stays 404 even for `*`, and a 304 performs the same single read
+as its 200. `Cache-Control: no-store` is unchanged; this is a
+bandwidth-only optimization, not a cache hit or a measured performance gain.
+
+Synthetic, credential-free recipe (no running Worker or live tenant):
+
+```bash
+npx vitest run test/snapshotByIdConditional.acceptance.test.ts
+```
+
+The hermetic fixture covers all three resources against local test D1 with
+outbound fetch disabled: 200 to empty 304 to changed-row 200, sparse
+selected-out stability, the quoted-token grammar, error precedence
+(401/400/404/500 before any 304), and the mounted OpenAPI 304 declarations.
 
 ### Follow the server's next-page target
 

@@ -13,6 +13,7 @@ import {
   snapshotListNotModifiedResponse,
   snapshotListJsonResponse
 } from "../lib/snapshotListConditional";
+import { snapshotByIdConditional } from "../lib/snapshotByIdConditional";
 import {
   runCustomerSnapshotSync,
   syncCustomerSnapshotFromStream
@@ -415,11 +416,13 @@ const customerSnapshotByIdRoute = createRoute({
     "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) }),
+    headers: snapshotByIdConditional.headers,
     query: z.object({ fields: snapshotFieldsQuery("customer") })
   },
   responses: {
     200: {
       description: "Row",
+      headers: { ...snapshotByIdConditional.etagHeaders },
       content: {
         "application/json": {
           schema: z.record(z.string(), z.unknown()),
@@ -427,6 +430,7 @@ const customerSnapshotByIdRoute = createRoute({
         }
       }
     },
+    304: snapshotByIdConditional.notModified,
     400: {
       description:
         "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
@@ -466,10 +470,7 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
     });
   }
   const fields = c.req.valid("query").fields;
-  return c.json(
-    fields === undefined ? row : projectSnapshotRow("customer", row, fields),
-    200
-  );
+  return snapshotByIdConditional.jsonResponse(c, fields === undefined ? row : projectSnapshotRow("customer", row, fields));
 });
 
 const customerSnapshotSyncRoute = createRoute({
