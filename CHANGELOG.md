@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #381: The existing customer snapshot list `q` filter now matches a literal,
+  trimmed substring in any one of `company_name`, `first_name` or `last_name`
+  (previously company name only), so residential records without a company
+  name can be found. Matching stays bound `instr`/`lower` substring search with
+  existing SQLite ASCII case behavior: no full-name or cross-column matching, no
+  `LIKE` wildcards, no Unicode folding. The whole OR group ANDs with every other
+  selector and cursor predicate, omitted or blank `q` is unchanged, and `Link`
+  next targets keep `q`. No new query, index or migration. Synthetic multi-page
+  recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-name-search`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
