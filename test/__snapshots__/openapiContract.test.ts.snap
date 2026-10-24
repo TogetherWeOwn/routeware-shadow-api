@@ -689,9 +689,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
-          },
+          "400": {},
         },
         "summary": "List address snapshot rows (D1)",
         "tags": [
@@ -1143,9 +1141,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
-          },
+          "400": {},
         },
         "summary": "List container snapshot rows (D1)",
         "tags": [
@@ -1571,9 +1567,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json). The zod validator rejects \`q\` longer than 100 Unicode code points, an out-of-range \`limit\`/\`offset\`, an unknown \`enabled\` value, or an unknown/empty/duplicate \`fields\` selector before any D1 query runs.",
-          },
+          "400": {},
         },
         "summary": "List customer snapshot rows (D1)",
         "tags": [

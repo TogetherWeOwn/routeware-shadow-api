@@ -5,6 +5,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #352: `GET /api/v1/customer|address|container-snapshot` accepts an optional
+  `ids` selector restricting the page to 1–50 distinct canonical ASCII
+  positive safe-integer primary IDs (unpadded digits through
+  `9007199254740991`; no whitespace, signs, fractions, exponents, empty
+  segments, duplicates or repeated keys). One shared parser validates all
+  three lists; each selected ID travels as a bound `IN` placeholder on the
+  page and COUNT statements with identical predicates and binds.
+  Selection AND-composes with singular/relationship filters, `enabled`, `q`,
+  `fields`, `includeTotal` and cursor/offset paging; result order and the
+  `{rows, total, nextCursor}` envelope are unchanged, missing IDs simply do
+  not match, and `includeTotal=false` still issues zero COUNTs. Invalid
+  selectors are value-free 400s before any D1 work with existing auth
+  precedence. Requests that previously carried an ignored `ids` on these
+  three lists now filter by it; by-id reads, CSV exports and the changes
+  feed still ignore `ids`. Next-page `Link` targets retain the canonical
+  selection as a single `ids` key. Synthetic examples and the focused command:
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit

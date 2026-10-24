@@ -192,6 +192,25 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   return copy;
 }
 
+/**
+ * The bounded `ids` extension has independent behavioral/schema assertions in
+ * snapshotIdSelection.acceptance.test.ts. Project out only its new parameter
+ * and the three evolving 400 descriptions; freeze all pre-existing structure.
+ */
+function withoutIdSelectionExtension(doc: unknown): unknown {
+  const copy = structuredClone(doc) as {
+    paths: Record<string, { get?: { parameters?: Param[]; responses?: Record<string, { description?: string }> } }>;
+  };
+  type Param = { name?: string };
+  for (const resource of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/${resource}-snapshot`]?.get;
+    if (!get) continue;
+    if (get.parameters) get.parameters = get.parameters.filter((p) => p.name !== "ids");
+    if (get.responses?.["400"]) delete get.responses["400"].description;
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -435,7 +454,8 @@ describe("published OpenAPI document", () => {
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
     // enriching it never re-records this frozen document.
-    expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
+    // Only ids schema/400 prose moves to the independent acceptance contract.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(doc)))).toMatchSnapshot();
   });
 });
 

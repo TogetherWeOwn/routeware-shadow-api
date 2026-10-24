@@ -3,6 +3,7 @@ import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
+import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
   snapshotListConditionalHeaders,
   snapshotListEtagHeaders,
@@ -63,6 +64,7 @@ const addressSnapshotListRoute = createRoute({
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      ids: snapshotIdSelectionQuery(),
       q: snapshotSearchQuery.optional().describe("Address line substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
@@ -98,7 +100,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, or an unknown/empty/duplicate `fields` selector before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs."
     }
   }
 });
@@ -115,6 +117,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.pickupAddressId !== undefined) {
     where.push("pickup_address_id = ?");
     binds.push(p.pickupAddressId);
+  }
+  if (p.ids !== undefined) {
+    where.push(snapshotIdSelectionPredicate("address", p.ids.length));
+    binds.push(...p.ids);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     where.push("instr(lower(coalesce(address, '')), lower(?)) > 0");
