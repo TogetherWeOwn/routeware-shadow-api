@@ -5,6 +5,7 @@ import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
+import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
 import {
@@ -240,14 +241,14 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
 // publish (and typecheck) the wrong `nextCursor` type.
 const customerSnapshotChangesResponse = z
   .object({
-    rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int(),
+    rows: z.array(customerSnapshotChangesRow),
+    total: z.number().int().describe("Returned page length: rows.length for this page, never a COUNT query; 0 on an empty tail page."),
     nextCursor: z
       .object({
         since: z.string().datetime(),
         since_id: z.number().int()
       })
-      .nullable()
+      .nullable().describe("Composite resume cursor: pass the whole {since, since_id} pair back as the next request's since + since_id to continue the (synced_at, customer_id) traversal without skipping same-timestamp rows; null at the tail.")
   })
   .openapi("CustomerSnapshotChanges");
 

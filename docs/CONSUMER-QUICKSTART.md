@@ -605,6 +605,16 @@ executes this exact block with synthetic responses and no real network. Both
 run in normal `npm test`/CI. These are source regressions, not installed or
 production verification.
 
+Delta rows are typed in `/openapi.json` (`CustomerSnapshotChangesRow`): every
+stored customer column with storage-faithful integer/text/null types.
+`customer_id` and `synced_at` are always required (replay/cursor identity);
+every other column is optional so sparse `fields=` pages stay valid, with
+nullability exactly as stored. Flags stay integers (`enabled` is `0`/`1`,
+never boolean); text carries no format/enum/minimum promises. `total` is the
+returned page length (never a COUNT); `nextCursor` is the composite resume
+pair, or `null` at the tail. Focused check:
+`npm run check:customer-changes-delta`.
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with
