@@ -6,7 +6,7 @@ section below.
 
 | Slug (`type` anchor) | HTTP status | Meaning |
 |----------------------|-------------|---------|
-| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, disallowed CSV control characters, a snapshot row with a dangling foreign key, an unknown query key on a mutating snapshot POST, or an unexpected query key on a data-entity save (only `dryRun` is allowed; see below). |
+| `bad-request` | 400 | <a name="bad-request"></a>The request was malformed — a missing/invalid id, an empty body where one is required, an invalid `fields=` sparse-fieldset selector, an unknown query key on a hydrated entity read, disallowed CSV control characters, a snapshot row with a dangling foreign key, an unknown query key on a mutating snapshot POST, or an unexpected query key on a data-entity save (only `dryRun` is allowed; see below). |
 | `unauthorized` | 401 | <a name="unauthorized"></a>Missing or invalid `Authorization: Bearer <token>`. See below. |
 | `forbidden` | 404 | <a name="forbidden"></a>A feature is disabled by configuration (e.g. OpenAPI docs when `OPENAPI_DOCS_ENABLED` is not `true`). Returned as 404 to avoid advertising the surface. |
 | `not-found` | 404 | <a name="not-found"></a>No matching route, or no snapshot row/graph for the requested id. |
@@ -38,6 +38,24 @@ correction policy for those messages and for schema rejections. Rejections
 perform no data-handler, cache or D1 work. A valid but unknown ID remains 404.
 See the [synthetic consumer check](CONSUMER-QUICKSTART.md#3-nested-reads-apiv1data-sync-secret-only)
 for local, credential-free acceptance examples.
+
+## Strict hydrated-read query keys (`bad-request`)
+
+The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
+reject any query key outside their declared set — `id`, the route's alias
+(`customerId` / `pickupAddressId` / `containerId`), and the optional `fields`
+selector — with a fixed, value-free 400 before any cache or D1 work. A typo
+such as `?field=` fails loudly instead of serving the full bundle:
+
+```
+Unknown query parameter. Allowed query parameters: id, customerId, fields. See docs/PROBLEMS.md#bad-request.
+```
+
+Each route names its own alias. No submitted key or value is echoed.
+Sync-secret 401 precedence is preserved; invalid values and repeated known
+keys keep their existing validator 400s. Fix the spelling to the exact
+documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#hydrated-entity-reads-are-strict).
+GET lists keep ignoring unknown names; only entity reads are strict.
 
 ## Customer changes cursor (`bad-request`)
 
