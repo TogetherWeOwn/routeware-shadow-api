@@ -160,6 +160,54 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Exact external account lookup
+
+Resolve an external account reference to canonical `customer_id` values on the
+existing `listCustomerSnapshot` operation (read token allowed, local D1 only).
+Optional `customerNumber` and `subCustomerNumber` are exact, case-sensitive opaque
+strings, not unique keys. Both together mean AND; they also compose with
+`customerId`, company-only `q`, `enabled`, sparse `fields` and pagination.
+Leading zeros and supplied nonblank whitespace are significant. Each key must
+occur once with 1..100 Unicode code points and not be whitespace-only. Do not
+trim, normalize or convert to numbers. Use URLSearchParams (or equivalent URL
+encoding) so quotes, `%`, `_`, `+` and `&` remain literal data.
+
+**Synthetic lookup-to-next-page recipe:** the hermetic fixture has two customers,
+IDs 1 and 2, with `customer_number` `00042` and `sub_customer_number` `North`.
+Request a single ID per page without computing totals:
+
+```text
+GET /api/v1/customer-snapshot?customerNumber=00042&subCustomerNumber=North&fields=customer_id&limit=1&includeTotal=false
+200 {"rows":[{"customer_id":1}],"total":null,"nextCursor":1}
+Link: </api/v1/customer-snapshot?customerNumber=00042&subCustomerNumber=North&fields=customer_id&limit=1&includeTotal=false&cursor=1>; rel="next"
+```
+
+Follow that relative Link against the same origin using the follow-next recipe
+below. The next page returns ID 2 with `nextCursor: 2` and a Link with `cursor=2`.
+Follow it once more: `{"rows":[],"total":null,"nextCursor":null}` with no Link.
+A full final page may link to this empty page; stop only when Link is absent.
+Do not select an arbitrary first match: business numbers can be duplicated, and
+null stored numbers do not match strings. A valid lookup with no matches is
+also an HTTP 200 empty collection, not a reason to sync or retry writes.
+Omit `includeTotal=false` for the unchanged exact cursor-relative count.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:customer-account-filters
+npx vitest run --maxWorkers=2 --disableConsoleIntercept test/customerAccountFilters.acceptance.test.ts -t 'is idempotent, read-only'
+```
+
+The second command records bound SELECT shapes and synthetic EXPLAIN plans,
+without logging account values; it compares stored rows before/after repeated
+reads. The fixture also follows safely encoded Links containing punctuation
+and checks zero COUNTs in count-free mode. Current plans scan the synthetic
+table; no indexed equality or production latency is claimed. No migrations or
+upstream calls are involved. For a 400, correct or omit the named account field
+and retry; errors are fixed and value-free even with If-None-Match. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
+
 ### Address route and franchise scopes
 
 Use the existing `listAddressSnapshot` operation to avoid fetching unrelated
