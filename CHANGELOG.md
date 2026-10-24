@@ -14,6 +14,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   No new endpoint, index, migration, access or write behavior. Synthetic recipe:
   `npm run check:address-scope` and `docs/CONSUMER-QUICKSTART.md`.
 
+- #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
+  creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
+  resolved `pickupAddressId` / `containerId`: upstream
+  `data.PickupAddressID` / `data.ContainerID` first, else the singleton
+  post-refresh D1 id (address ids for the owning customer, container ids
+  for the owning address). Without an upstream id, the id stays `null` when
+  that diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown
+  owner or failed baseline/refresh). Updates keep echoing the posted id with
+  200; failed saves, customer saves and `localSync` codes are unchanged.
+  There is deliberately no `Location` header: the by-id snapshot URL may
+  not exist locally when the refresh fails. OpenAPI documents the 201/200
+  split with resolved-id examples; dry-run saves echo posted ids, live
+  creates resolve or return `null`, and live updates echo case-exact posted
+  ids. See `docs/CONSUMER-QUICKSTART.md`.
+
 - #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
   snapshot CSV for one table without naming its date, resolving the existing
   `snapshot-latest/{table}.json` pointer the sync leg republishes after every
