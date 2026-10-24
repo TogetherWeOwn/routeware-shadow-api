@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
+  selector, intersected by AND with existing filters. The opaque
+  case-sensitive string (1..100 Unicode code points) preserves leading zeros
+  and nonblank whitespace; invalid/repeated values reject before D1 with
+  value-free guidance. One bound `zip = ?` equality applies in both the page
+  and COUNT SQL, served by the existing `idx_address_snapshot_zip`. Next
+  links preserve the encoded selector; pagination, projection, count-free
+  and conditional reads remain compatible. No new endpoint, index, migration,
+  access or write behavior. Synthetic recipe: `npm run check:address-zip`
+  and `docs/CONSUMER-QUICKSTART.md`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
