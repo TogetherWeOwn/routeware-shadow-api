@@ -61,12 +61,24 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, free-text on street `q`, `enabled`. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text on street `q`, `enabled`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
+      routeId: z.string()
+        .regex(/^(0|[1-9][0-9]*)$/)
+        .refine((value) => Number.isSafeInteger(Number(value)) && String(Number(value)) === value)
+        .transform(Number)
+        .optional()
+        .describe("Exact route equality: one unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, not all routes. No signs, whitespace, fractions, exponents or repeated keys. Correct the format and retry.")
+        .openapi({ type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, example: 7 }),
+      franchiseId: z.string()
+        .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+        .optional()
+        .describe("Opaque case-sensitive exact franchise equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
+        .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" }),
       q: snapshotSearchQuery.optional().describe("Address line substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
@@ -104,7 +116,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order` before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or invalid/repeated `order`. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -122,6 +134,14 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.pickupAddressId !== undefined) {
     where.push("pickup_address_id = ?");
     binds.push(p.pickupAddressId);
+  }
+  if (p.routeId !== undefined) {
+    where.push("route_id = ?");
+    binds.push(p.routeId);
+  }
+  if (p.franchiseId !== undefined) {
+    where.push("franchise_id = ?");
+    binds.push(p.franchiseId);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     where.push("instr(lower(coalesce(address, '')), lower(?)) > 0");
