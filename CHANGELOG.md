@@ -5,6 +5,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #372: The existing address snapshot list `q` matches a literal
+  case-insensitive substring against street, city or postcode: a row matches
+  when any one column contains the trimmed needle. The parenthesized OR uses
+  bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
+  and repeated-key rules and AND-composes with every other selector; omitted
+  `q` preserves old behavior. Postcodes stay opaque text with significant
+  leading zeros; quotes, `%` and `_` are literal, never wildcards. Continuation
+  Links carry the trimmed needle. Locality `q` is not an exact postal or
+  geographic scope filter — for exact membership use the exact selectors.
+  Query count, ordering, totals, count-free/conditional semantics, auth order
+  and value-free errors are unchanged; no new parameter, index or migration.
+  Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:address-locality`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
