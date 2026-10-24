@@ -8,6 +8,22 @@ function normalizeEtagToken(token: string): string {
   return token.trim().replace(/^W\//i, "").replace(/^"(.*)"$/, "$1");
 }
 
+function legacyEtagTokens(header: string): string[] {
+  const tokens: string[] = [];
+  let quoted = false;
+  let start = 0;
+  for (let i = 0; i < header.length; i += 1) {
+    // Backslashes are literal in an opaque tag, not quote escapes.
+    if (header[i] === '"') quoted = !quoted;
+    if (header[i] === "," && !quoted) {
+      tokens.push(header.slice(start, i));
+      start = i + 1;
+    }
+  }
+  tokens.push(header.slice(start));
+  return tokens;
+}
+
 /**
  * Weak comparison for GET If-None-Match: exact opaque tokens, never substrings.
  * New callers require quoted tags (or standalone `*`); malformed lists miss.
@@ -22,7 +38,7 @@ export function matchesIfNoneMatch(
   if (!header) return false;
   const want = normalizeEtagToken(etag);
   if (syntax === "legacy") {
-    return header.split(",").map(normalizeEtagToken)
+    return legacyEtagTokens(header).map(normalizeEtagToken)
       .some((token) => token === "*" || token === want);
   }
   if (/^[ \t]*\*[ \t]*$/.test(header)) return true;

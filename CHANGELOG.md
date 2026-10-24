@@ -22,6 +22,10 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   feed still ignore `ids`. Next-page `Link` targets retain the canonical
   selection as a single `ids` key. Synthetic examples and the focused command:
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+  Hydrated and CSV conditional reads now split validator lists only outside
+  quoted tags, preventing false 304s for a different tag containing the current
+  hash or `*` between commas. Bare tags and lowercase weak prefixes remain
+  supported on those legacy reads; strict snapshot-list syntax is unchanged.
 
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated

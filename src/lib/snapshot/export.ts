@@ -22,6 +22,7 @@
  * in logs rather than buffering the table to pre-validate it.
  */
 
+import { matchesIfNoneMatch } from "../conditionalRequest";
 import { logEvent } from "../logger";
 import { problemJsonResponse, problemType } from "../problem";
 import {
@@ -387,14 +388,7 @@ export function matchesSnapshotIfNoneMatch(
   header: string | null | undefined,
   etag: string
 ): boolean {
-  if (!header) return false;
-  const norm = (t: string) =>
-    t.trim().replace(/^W\//i, "").replace(/^"(.*)"$/, "$1");
-  const want = norm(etag);
-  return header
-    .split(",")
-    .map(norm)
-    .some((t) => t === "*" || t === want);
+  return matchesIfNoneMatch(header, etag, "legacy");
 }
 
 /**
