@@ -120,15 +120,15 @@ function commonHeaders(response: Response) {
   expect(response.headers.get("x-request-id")).toBe(REQUEST_ID);
 }
 
-async function page(spec: Spec, query: Query = {}) {
+async function page(spec: Spec, query: Query = {}, headers: Record<string, string> = {}) {
   const observed = observeDb();
   const response = await request(spec, new URLSearchParams(
     Object.entries(query).map(([key, value]) => [key, String(value)])
-  ).toString(), { db: observed.db });
+  ).toString(), { db: observed.db, headers });
   expect(response.status).toBe(200);
   commonHeaders(response);
-  // Ordinary JSON lists have no conditional representation/ETag at this head.
-  expect(response.headers.get("etag")).toBeNull();
+  expect(response.headers.get("content-type")).toContain("application/json");
+  // ETag presence belongs to the conditional-list contract, not the ID ceiling.
   const body = await response.clone().json() as Body;
   expect(Object.keys(body).sort()).toEqual(["nextCursor", "rows", "total"]);
   return { response, body, ...observed };
@@ -322,14 +322,20 @@ describe.each(SPECS)("$name: caller-held upperId", (spec) => {
     expect(observed.statements).toHaveLength(2);
   });
 
-  it("does not turn an If-None-Match on an ordinary list into a 304", async () => {
-    const response = await request(spec, "upperId=6&fields=synced_at", { headers: { "if-none-match": "*" } });
-    expect(response.status).toBe(200);
-    commonHeaders(response);
-    expect(response.headers.get("etag")).toBeNull();
-    expect((await response.json() as Body).rows).toEqual([
+  it.each(MODES)("serves the same capped envelope for a nonmatching validator in %s total mode", async (mode) => {
+    const query = { ...modeQuery(mode), upperId: 6, fields: "synced_at" };
+    const plain = await page(spec, query);
+    // A valid opaque token that cannot match a SHA-256 representation validator.
+    // Unlike '*', this must serve 200 both before and after conditional GETs land.
+    const result = await page(spec, query, { "if-none-match": '"synthetic-nonmatching-upper-id-validator"' });
+    expectPage(result, spec, [2, 4, 6], mode === "false" ? null : 3, null);
+    expect(result.body.rows).toEqual([
       { [spec.key]: 2, synced_at: "test" }, { [spec.key]: 4, synced_at: "test" }, { [spec.key]: 6, synced_at: "test" }
     ]);
+    expectQueries(result, spec, mode !== "false", 6);
+    expect(await result.response.text()).toBe(await plain.response.text());
+    expect(result.response.headers.get("link")).toBe(plain.response.headers.get("link"));
+    expect(result.executions).toEqual(plain.executions);
   });
 
   it.each([null, "synthetic-invalid-token"])("auth precedes invalid upperId for token %s", async (token) => {
