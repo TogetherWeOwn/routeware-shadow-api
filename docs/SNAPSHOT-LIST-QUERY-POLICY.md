@@ -151,9 +151,10 @@ is not a duplicate. Lists keep the `{rows, total, nextCursor}` envelope —
 only each row's keys shrink — and `fields=` composes with filters,
 pagination and `includeTotal=false` without changing matches, counts or
 cursors. The selectable set is an explicit per-resource allowlist in
-`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else);
-hydrated `/api/v1/data/*` reads, CSV exports and the changes feed ignore
-`fields=` as an unknown name.
+`src/lib/sparseFieldsets.ts` (the route's `SELECT` columns, nothing else).
+Hydrated `/api/v1/data/*` reads accept the same `fields=` selector on their
+entity root and reject any other query key (see below); CSV exports and the
+changes feed ignore `fields=` as an unknown name.
 
 The selector is strict: exact column names, no spaces, no empty segments,
 no duplicates, and a single `fields` key. Anything else is the existing
@@ -168,6 +169,61 @@ GET /api/v1/customer-snapshot?fields=company_name,phone1&limit=1
 Run `npx vitest run test/sparseFieldsets.acceptance.test.ts` for the
 focused valid-selection, rejection, pagination-composition and ETag
 regressions. No live replay.
+
+## Hydrated entity reads are strict
+
+The three hydrated single-entity GETs do the opposite of the GET lists
+above: any query key outside the route's declared set is a 400
+`application/problem+json` before any cache or D1 work. A mistyped
+`?field=` fails loudly instead of stripping to a full PII bundle the caller
+tried to trim.
+
+| GET route | Declared query keys | Unknown-name policy |
+| --- | --- | --- |
+| `/api/v1/data/customer` | `id`, `customerId`, `fields` | Reject (400) |
+| `/api/v1/data/address` | `id`, `pickupAddressId`, `fields` | Reject (400) |
+| `/api/v1/data/container` | `id`, `containerId`, `fields` | Reject (400) |
+
+Route validators run before handlers and may return 400 for invalid values
+such as `?fields=bogus` or repeated known keys. After validation succeeds,
+one shared guard (`rejectUnknownQueryKeys` in `src/routes/shared.ts`, with
+`allowed-only` guidance) serves all three routes after the sync-secret gate
+and before handler-level ID parsing, cache, or D1 work. The POST saves share
+the guard but retain their existing key-name guidance. Sync-secret 401
+precedence is preserved (a bad bearer with a typo'd key keeps the 401). The
+unknown-key 400 carries fixed allowed-keys guidance and never echoes
+submitted keys or values:
+
+```text
+GET /api/v1/data/customer?id=94101&field=company_name
+
+{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+ "title":"Bad Request","status":400,
+ "detail":"Unknown query parameter. Allowed query parameters: id, customerId, fields. See docs/PROBLEMS.md#bad-request."}
+```
+
+Operator recovery is a corrected retry — fix the spelling to the exact
+documented key and re-send:
+
+```text
+GET /api/v1/data/customer?id=94101&fields=company_name   # projected root only
+GET /api/v1/data/customer?id=94101                       # omitted selector: full bundle
+```
+
+See [bad-request correction guidance](PROBLEMS.md#bad-request). Pinned by
+`test/hydratedReadStrictQuery.acceptance.test.ts`. The GET-list ignore
+behavior above and its ratchet stay byte-identical; this policy changes no
+list route.
+
+Run the focused hermetic check (synthetic local D1, unexpected outbound fetch
+fails, no network):
+
+```bash
+npx vitest run test/hydratedReadStrictQuery.acceptance.test.ts \
+  test/hydratedFields.acceptance.test.ts test/hydratedReadIds.acceptance.test.ts \
+  test/entityDataCache.test.ts test/snapshotListUnknownParams.test.ts \
+  test/snapshotAuth.test.ts test/dataEntityEtagRoundTrip.test.ts
+```
 
 ## Customer changes cursor validation
 
