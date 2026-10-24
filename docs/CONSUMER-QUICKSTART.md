@@ -781,6 +781,7 @@ outcomes, rejects malformed `localSync`, and checks unchanged forwarding,
 authentication, `no-store`, statuses and side effects. It exercises the behavior
 present at this implementation head, including the merged dry-run and created-ID
 resolution contracts; it does not introduce new save behavior.
+
 On the `/api/v1/routeware/*` passthrough save routes, a silent Routeware-side
 failure surfaces as `502` problem+json (Routeware reports failed saves as an
 HTML page with HTTP 200 — the Worker converts that, never passes it through

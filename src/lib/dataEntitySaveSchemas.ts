@@ -42,7 +42,7 @@ const saveOutcomeFields = {
   localSync: localSyncSummarySchema
 };
 const pickupAddressId = z.number().nullable().openapi({
-  description: "Usable posted PickupAddressID, or null. A newly created address ID is not resolved by this response."
+  description: "Usable posted PickupAddressID, or null. On a live address create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Container outcomes and validation-only (dryRun) responses echo the posted value only."
 });
 
 // Documentation/type contracts only: do not parse or transform live responses.
@@ -54,7 +54,7 @@ export const containerSaveOutcomeSchema = z.strictObject({
   ...saveOutcomeFields,
   pickupAddressId,
   containerId: z.number().nullable().openapi({
-    description: "Usable posted ContainerID, or null. A newly created container ID is not resolved by this response."
+    description: "Usable posted ContainerID, or null. On a live container create (HTTP 201) this carries the resolved new ID; null when neither posted nor resolvable. Validation-only (dryRun) responses echo the posted value only."
   })
 }).openapi("ContainerSaveOutcome");
 
