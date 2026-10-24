@@ -18,7 +18,9 @@
     "check:openapi-drift": "node scripts/check-openapi-drift.mjs",
     "check:openapi-agent-metadata": "vitest run test/openapiAgentMetadata.test.ts",
     "check:container-identifiers": "vitest run test/containerIdentifierFilters.acceptance.test.ts",
+    "check:snapshot-fieldset-discovery": "vitest run test/sparseFieldsetDiscovery.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/hydratedFields.acceptance.test.ts test/openapiContract.test.ts test/openapiAgentMetadata.test.ts test/openapiDriftCheck.test.ts",
     "check:customer-changes-cursor": "vitest run test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts",
+    "check:snapshot-order": "vitest run test/snapshotDescendingPagination.acceptance.test.ts",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:coverage-ratchet": "node scripts/check-coverage-ratchet.mjs",
     "check:per-file-coverage": "node scripts/check-per-file-coverage.mjs",
@@ -69,7 +71,7 @@
     "@hono/zod-openapi": "^1.3.0",
     "@scalar/hono-api-reference": "^0.9.48",
     "hono": "^4.13.7",
-    "zod": "^4.3.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.14.9",

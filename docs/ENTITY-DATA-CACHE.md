@@ -59,8 +59,9 @@ selectors cannot return a cached full body or 304.
 
 ## Observability
 
-Every `getCachedDataEntity` call emits one structured event, passed as a single
-object to `console.info`:
+Every successful `getCachedDataEntity` lookup emits one structured event,
+passed as a single object to `console.info` (a rejected lookup emits one extra
+`warn` diagnostic plus the usual miss event — see Lookup failures below):
 
 ```json
 {"level":"info","msg":"Entity data cache hit","route":"cache.entityData","ms":null,"entity":"customer","hits":3,"misses":1}
@@ -75,3 +76,24 @@ keys). In `wrangler dev`, repeat `GET /api/v1/data/customer?id=<id>` calls
 show `miss` then `hit`; a POST to the matching save route evicts the entry, so
 the next GET logs `miss` again. `getEntityDataCacheStats()` exposes the same
 counters programmatically; `resetEntityDataCacheStats()` clears them.
+
+### Lookup failures
+
+When `Cache.match` itself rejects (a transient platform error, not an absent
+entry), the read is not failed: the rejection counts as exactly one miss and
+the request continues through the normal D1 bundle/ETag path, returning the
+same 200/304/404 the miss would have produced. The call emits one extra
+`warn` diagnostic alongside the usual miss event:
+
+```json
+{"level":"warn","msg":"Cache lookup failed; reading from D1 instead","route":"cache.entityData","ms":null,"entity":"customer","kind":"Error"}
+```
+
+`kind` is the `errorKind` classification only (`Error`, a subclass name, or
+`unknown`) — never the key, id, URL, or exception text. Troubleshooting: a
+single line needs no action (the D1 read still served); a burst of them with
+`misses` climbing and `hits` flat means lookups are failing and every read is
+paying a D1 round trip — check Cloudflare status and Workers Cache health, not
+the D1 data. Genuine D1 errors still surface as sanitized 500 problems, and
+invalidation failures still fail loud; only the lookup is contained. Hermetic
+regression: `npx vitest run test/entityCacheReadFailure.acceptance.test.ts`.

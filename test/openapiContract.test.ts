@@ -104,8 +104,9 @@ const EXPECTED_TAGS = [
 ];
 
 /**
- * Projection of the document without the agent-metadata layer pinned in
- * `test/openapiAgentMetadata.test.ts`. Everything else stays frozen.
+ * Projection without agent metadata pinned in `openapiAgentMetadata.test.ts`
+ * and the fields vendor extension owned by `sparseFieldsetDiscovery.acceptance.test.ts`.
+ * Everything else, including fields schema/prose/defaults, stays frozen.
  */
 function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
@@ -121,6 +122,14 @@ function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
         if (key.startsWith("x-")) delete op[key];
       }
       if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
+      if (Array.isArray(op.parameters)) {
+        for (const param of op.parameters as Array<Record<string, unknown>>) {
+          if (param.name !== "fields" || param.in !== "query") continue;
+          delete param["x-snapshot-fieldset"];
+          const schema = param.schema as Record<string, unknown> | undefined;
+          if (schema) delete schema["x-snapshot-fieldset"];
+        }
+      }
     }
   }
   const bearer = copy.components?.securitySchemes?.["bearerAuth"] as
@@ -459,7 +468,11 @@ describe("published OpenAPI document", () => {
     // The agent-metadata layer (operationId, x-* extensions, the empty `security`
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
-    // enriching it never re-records this frozen document.
+    // enriching it never re-records this frozen document. The fields-only
+    // x-snapshot-fieldset extension is likewise pinned by the discovery oracle;
+    // no other fields parameter property is projected out. Conditional list
+    // If-None-Match, 200 ETag and 304 declarations are separately pinned by
+    // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
     expect(withoutDedicatedListMetadata(withoutAgentMetadata(doc))).toMatchSnapshot();
   });
 });
