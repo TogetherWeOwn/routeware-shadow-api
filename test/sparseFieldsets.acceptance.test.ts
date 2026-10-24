@@ -370,7 +370,7 @@ describe.each(SPECS)("$name detail: valid selection trims the row", (spec) => {
     const res = await get(spec.detailPath(detailId()));
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
-    expect(res.headers.get("etag")).toBeNull();
+    expect.soft(res.headers.get("etag")).toEqual(expect.stringMatching(/^"[0-9a-f]{64}"$/));
     const row = (await res.json()) as Record<string, unknown>;
     expect(Object.keys(row).sort()).toEqual([...spec.allColumns].sort());
     expect(row[spec.idColumn]).toBe(detailId());
@@ -380,7 +380,7 @@ describe.each(SPECS)("$name detail: valid selection trims the row", (spec) => {
     const res = await get(`${spec.detailPath(detailId())}?fields=${spec.allColumns.join(",")}`);
     expect(res.status).toBe(200);
     expectNoStoreCors(res);
-    expect(res.headers.get("etag")).toBeNull();
+    expect.soft(res.headers.get("etag")).toEqual(expect.stringMatching(/^"[0-9a-f]{64}"$/));
     const row = (await res.json()) as Record<string, unknown>;
     expect(Object.keys(row).sort()).toEqual([...spec.allColumns].sort());
     expect(row[spec.idColumn]).toBe(detailId());

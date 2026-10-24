@@ -426,11 +426,17 @@ describe.each(SPECS)("$name conditional success cannot outrun errors", (spec) =>
     }
   });
 
-  it("does not introduce conditional responses on flat details", async () => {
-    const res = await get(`${pathOf(spec)}/101`, { headers: { "if-none-match": "*" } });
-    expect(res.status).toBe(200);
-    expect(res.headers.get("etag")).toBeNull();
-    expect((await res.json()) as object).toMatchObject({ [spec.id]: 101 });
+  it("flat details now support conditional responses after their own lookup", async () => {
+    const path = `${pathOf(spec)}/101`;
+    const first = await get(path);
+    expect(first.status).toBe(200);
+    const bytes = await first.text();
+    expect(JSON.parse(bytes)).toMatchObject({ [spec.id]: 101 });
+    const { db, statements } = recordedDb();
+    await expect304(await get(path, { db, headers: { "if-none-match": "*" } }), await validator(bytes));
+    expect(statements).toHaveLength(1);
+    expect(statements[0].sql).toMatch(/^\s*SELECT\b/i);
+    expect(statements[0].binds).toEqual([101]);
   });
 });
 
