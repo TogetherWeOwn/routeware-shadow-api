@@ -234,7 +234,7 @@ const customerSnapshotChangesRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows changed since a cursor (D1)",
   description:
-    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; fields and until are not supported. Rows carry only the stored snapshot columns — no fields beyond the row payload.",
+    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit and the validated fields selector. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; until is not supported. Optional `fields` selects stored customer columns, always retaining `customer_id`; omit it for full rows. Page membership, total (returned page length), order and composite `nextCursor` are computed from full rows before projection, even when `synced_at` is not selected. This is an upserts-only feed, not historical isolation or a deletion log.",
   request: {
     query: z.object({
       since: z
@@ -265,7 +265,8 @@ const customerSnapshotChangesRoute = createRoute({
         .optional()
         .describe("Tiebreak half of the composite cursor; requires a nonempty valid since. Exact unpadded ASCII decimal integer from 0 through 9007199254740991 (0 is the boundary sentinel); no signs, whitespace, exponent, fractions or prefixes. Omit for first pages and bare-since whole-run replays.")
         .openapi({ example: "345733" }),
-      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 })
+      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
+      fields: snapshotFieldsQuery("customer")
     }).refine((p) => p.since_id === undefined || p.since !== undefined, { path: ["since_id"] })
   },
   responses: {
@@ -281,7 +282,7 @@ const customerSnapshotChangesRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. For the fields selector, use exact stored customer column names once each: no empty names, spaces, duplicates or repeated keys. Omit fields for full rows. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -323,9 +324,19 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
     last === null
       ? null
       : { since: String(last.synced_at), since_id: Number(last.customer_id) };
-  const nextLink = customerChangesNextLink(nextCursor, p.limit);
+  // Project only after deriving the cursor from full rows: synced_at may be omitted.
+  const fields = p.fields;
+  const out =
+    fields === undefined
+      ? rows
+      : rows.map((row) =>
+          projectSnapshotRow("customer", row as Record<string, unknown>, fields)
+        );
+  // The next link retains the validated projection so sparse traversal keeps
+  // sparse pages; an absent selector keeps the pre-existing three-key target.
+  const nextLink = customerChangesNextLink(nextCursor, p.limit, fields);
   if (nextLink !== null) c.header("Link", nextLink);
-  return c.json({ rows, total: rows.length, nextCursor });
+  return c.json({ rows: out, total: rows.length, nextCursor });
 });
 
 const customerSnapshotExportRoute = createRoute({

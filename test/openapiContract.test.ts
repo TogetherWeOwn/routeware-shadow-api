@@ -153,15 +153,17 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. Every other parameter,
- * response, header, schema and operation stays frozen.
+ * projected out. The changes operation/400 descriptions are asserted semantically
+ * in customerChangesFields.acceptance.test.ts, so only those two strings are
+ * excluded here. Its fields schema and all cursor/limit/response structure stay
+ * snapshot-frozen, as does every unrelated response, header, schema and operation.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
     paths?: Record<string, Record<string, {
+      description?: string;
       parameters?: Array<Record<string, unknown>>;
-      responses?: Record<string, { headers?: Record<string, unknown> }>;
+      responses?: Record<string, { description?: string; headers?: Record<string, unknown> }>;
     }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
@@ -181,6 +183,12 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   }
   const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
   if (total) delete total.description;
+  const changes = copy.paths?.["/api/v1/customer-snapshot/changes"]?.get;
+  if (changes) {
+    delete changes.description;
+    const badRequest = changes.responses?.["400"];
+    if (badRequest) delete badRequest.description;
+  }
   for (const path of [
     "/api/v1/customer-snapshot",
     "/api/v1/address-snapshot",
@@ -190,8 +198,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (!operation) continue;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
-        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match")
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -512,9 +519,6 @@ describe("published OpenAPI document", () => {
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // unrelated golden contracts stay pinned.
-    // Only the three ordinary lists' upperId query parameters are also projected
-    // out: their bounds, strict validation, scope and authority are independently
-    // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     expect(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))).toMatchSnapshot();
   });
 });
