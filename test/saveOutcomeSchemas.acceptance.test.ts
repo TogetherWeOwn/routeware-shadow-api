@@ -156,6 +156,21 @@ const noSessionEnv = {
   ...testEnv,
   AUTH_SESSION: { idFromName: (name: string) => name, get: () => noSessionStub }
 } as unknown as Env;
+// Blocked outer throttle: the gate's recordAuthFailure sees blocked:true and
+// answers 429 before the save handler runs. No login, no upstream, no D1.
+const blockedThrottleStub = {
+  fetch: async (input: RequestInfo | URL) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    if (path === "/get") return Response.json({ cookieHeader: "session=SYNTHETIC", expiresAtMs: Date.now() + 600_000, refreshing: false });
+    if (path === "/throttle/failure") return Response.json({ blocked: true, retryAfterSec: 34 });
+    if (path === "/throttle/clear") return Response.json({ blocked: false, retryAfterSec: 0 });
+    throw new Error(`Unexpected session operation: ${path}`);
+  }
+} as unknown as DurableObjectStub;
+const blockedThrottleEnv = {
+  ...testEnv,
+  AUTH_SESSION: { idFromName: (name: string) => name, get: () => blockedThrottleStub }
+} as unknown as Env;
 const db = env.CUSTOMER_DB;
 let document: Document;
 let unexpectedNetwork: string[] = [];
@@ -269,15 +284,98 @@ describe("served entity-save outcome schemas", () => {
       }
     });
 
-    it(`${entity}: advertises only its JSON save outcome for default forwarded rejection statuses`, () => {
+    it(`${entity}: advertises both forwarded JSON and local problem schemas for default`, () => {
       const responses = operation(document, entity).responses;
-      expect(Object.keys(responses.default?.content ?? {})).toEqual(["application/json"]);
-      expect(responses.default.content!["application/json"].schema).toEqual({
+      const content = responses.default?.content;
+      expect(Object.keys(content ?? {}).sort()).toEqual(["application/json", "application/problem+json"]);
+      expect(content!["application/json"].schema).toEqual({
         $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
       });
-      // 503 is exact (pinned above); an undeclared status still routes to default.
-      expect(responseSchema(document, entity, 504)).toEqual(responses.default.content!["application/json"].schema);
-      // Declared validation/auth failures remain separate from forwarded saves.
+      const problem = shape(content!["application/problem+json"].schema, document);
+      expect(problem.type).toBe("object");
+      expect([...(problem.required ?? [])].sort()).toEqual(["status", "title", "type"]);
+      expect(problem.properties).toEqual({
+        type: { type: "string" }, title: { type: "string" }, status: { type: "integer" },
+        detail: { type: "string" }, instance: { type: "string" }, requestId: { type: "string" }
+      });
+      const validate = validator(content!["application/problem+json"].schema, document);
+      const valid = { type: "about:blank", title: "Internal Server Error", status: 500 };
+      expect(validate.safeParse(valid).success).toBe(true);
+      for (const invalid of [{}, { ...valid, status: "500" }, { ...valid, status: 500.5 }, { ...valid, title: null }]) {
+        expect(validate.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false);
+      }
+      // Default covers two reachable families: forwarded rejections (any
+      // undeclared status) and local throttle/unhandled failures.
+      expect(responses.default.description).toMatch(/application\/json/);
+      expect(responses.default.description).toMatch(/application\/problem\+json/);
+      expect(responses.default.description).toMatch(/ok=false/);
+      expect(responses.default.description).toMatch(/not_attempted/);
+      expect(responses.default.description).toMatch(/429/);
+      expect(responses.default.description).toMatch(/500/);
+      // 503 is exact (pinned above); undeclared statuses route to default.
+      expect(responseSchema(document, entity, 504)).toEqual(content!["application/json"].schema);
+      expect(responseSchema(document, entity, 429, "application/problem+json")).toEqual(content!["application/problem+json"].schema);
+      expect(responseSchema(document, entity, 500, "application/problem+json")).toEqual(content!["application/problem+json"].schema);
+      // JSON outcome and problem are distinct decoders, not interchangeable.
+      const jsonValidate = validator(content!["application/json"].schema, document);
+      const outcome = {
+        ok: false, routewareStatus: 504, customerId: 5, upstreamBytes: 17,
+        localSync: { done: false, code: "not_attempted" },
+        ...(entity !== "customer" ? { pickupAddressId: 10 } : {}),
+        ...(entity === "container" ? { containerId: 100 } : {})
+      };
+      expect(jsonValidate.safeParse(outcome).success).toBe(true);
+      expect(jsonValidate.safeParse(valid).success, "problem is not a save outcome").toBe(false);
+      expect(validate.safeParse(outcome).success, "save outcome is not a problem").toBe(false);
+    });
+
+    it(`${entity}: advertises both forwarded JSON and local problem schemas for exact 400 and 401`, () => {
+      const responses = operation(document, entity).responses;
+      for (const status of ["400", "401"] as const) {
+        const content = responses[status]?.content;
+        expect(Object.keys(content ?? {}).sort(), `${entity} ${status}`).toEqual(["application/json", "application/problem+json"]);
+        expect(content!["application/json"].schema).toEqual({
+          $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
+        });
+        const problem = shape(content!["application/problem+json"].schema, document);
+        expect(problem.type, `${entity} ${status} problem`).toBe("object");
+        expect([...(problem.required ?? [])].sort()).toEqual(["status", "title", "type"]);
+        expect(problem.properties).toEqual({
+          type: { type: "string" }, title: { type: "string" }, status: { type: "integer" },
+          detail: { type: "string" }, instance: { type: "string" }, requestId: { type: "string" }
+        });
+        const validate = validator(content!["application/problem+json"].schema, document);
+        const valid = { type: "about:blank", title: status === "400" ? "Bad Request" : "Unauthorized", status: Number(status) };
+        expect(validate.safeParse(valid).success).toBe(true);
+        for (const invalid of [{}, { ...valid, status: String(status) }, { ...valid, status: Number(status) + 0.5 }, { ...valid, title: null }]) {
+          expect(validate.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false);
+        }
+        if (status === "400") {
+          expect(responses[status].description).toMatch(/Local validation/);
+          expect(responses[status].description).toMatch(/forwarded/);
+          expect(responses[status].description).toMatch(/media type/);
+        } else {
+          expect(responses[status].description).toMatch(/Local bearer/);
+          expect(responses[status].description).toMatch(/forwarded/);
+          expect(responses[status].description).toMatch(/bearer is invalid/);
+        }
+        // Exact selects exact, never default: a forwarded 400/401 outcome
+        // must resolve here even though default advertises the same shapes.
+        expect(responseSchema(document, entity, Number(status))).toEqual(content!["application/json"].schema);
+        expect(responseSchema(document, entity, Number(status), "application/problem+json")).toEqual(content!["application/problem+json"].schema);
+        const jsonValidate = validator(content!["application/json"].schema, document);
+        const outcome = {
+          ok: false, routewareStatus: Number(status), customerId: entity === "container" ? null : 5,
+          upstreamBytes: 17, localSync: { done: false, code: "not_attempted" },
+          ...(entity !== "customer" ? { pickupAddressId: 10 } : {}),
+          ...(entity === "container" ? { containerId: 100 } : {})
+        };
+        expect(jsonValidate.safeParse(outcome).success, `${entity} ${status} outcome`).toBe(true);
+        expect(jsonValidate.safeParse(valid).success, "problem is not a save outcome").toBe(false);
+        expect(validate.safeParse(outcome).success, "save outcome is not a problem").toBe(false);
+      }
+      // Exact entries stay distinct from default (descriptions differ), so
+      // exact-before-default selection remains observable in the document.
       expect(responses["400"]).not.toEqual(responses.default);
       expect(responses["401"]).not.toEqual(responses.default);
     });
@@ -518,12 +616,13 @@ async function localRows(): Promise<unknown[]> {
     (await db.prepare(`SELECT * FROM ${entity}_snapshot`).all()).results));
 }
 
-function post(entity: Entity, body: string, token: string | null = "save-contract-sync", query = "", bindings = testEnv): Promise<Response> {
+function post(entity: Entity, body: string, token: string | null = "save-contract-sync", query = "", bindings = testEnv, extraHeaders: Record<string, string> = {}): Promise<Response> {
   return Promise.resolve(app.fetch(new Request(`https://worker.test/api/v1/data/${entity}${query}`, {
     method: "POST",
     headers: {
       "content-type": "application/x-www-form-urlencoded",
-      ...(token === null ? {} : { authorization: `Bearer ${token}` })
+      ...(token === null ? {} : { authorization: `Bearer ${token}` }),
+      ...extraHeaders
     },
     body
   }), bindings));
@@ -582,6 +681,18 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
         customerId: entity === "container" ? null : 5,
         localSync: { done: false, code: "not_attempted" }, detailCalls: 0
       },
+      {
+        ...happy, name: "forwarded upstream 400 uses the exact JSON envelope", ok: false,
+        upstreamStatus: 400, status: 400, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
+        customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      },
+      {
+        ...happy, name: "forwarded upstream 401 uses the exact JSON envelope, not a bearer denial", ok: false,
+        upstreamStatus: 401, status: 401, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
+        customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      },
       { ...happy, name: "upstream status remains separate from wrapper status", upstreamStatus: 201 },
       { ...happy, name: "counts UTF-8 upstream bytes without echoing the upstream body", upstreamBody: '{"success":true,"note":"é🔒SYNTHETIC_UPSTREAM_ONLY"}' }
     ];
@@ -619,11 +730,21 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
           expect(await db.prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = 5").first()).toEqual({ company_name: "Synthetic saved customer" });
         }
         const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+        // Route-level outcomes correlate by header only: no requestId in the body.
+        expect(response.headers.get("x-request-id"), "route responses echo a request id").toBeTruthy();
+        expect(value, "route outcomes carry no body requestId").not.toHaveProperty("requestId");
         const validate = validator(responseSchema(document, entity, response.status, mediaType), document);
         expect(validate.safeParse(value).success, bytes).toBe(true);
         if (response.status === 502) {
           const problem = validator(responseSchema(document, entity, 502, "application/problem+json"), document);
           expect(problem.safeParse(value).success, "forwarded rejection is an outcome, not a preparation problem").toBe(false);
+        }
+        if (response.status === 400 || response.status === 401) {
+          // Forwarded 400/401 select the exact status entry, not default.
+          const exact = operation(document, entity).responses[String(response.status)].content!["application/json"].schema;
+          expect(responseSchema(document, entity, response.status, mediaType)).toEqual(exact);
+          const problem = validator(responseSchema(document, entity, response.status, "application/problem+json"), document);
+          expect(problem.safeParse(value).success, `forwarded ${response.status} is an outcome, not a local problem`).toBe(false);
         }
       });
     }
@@ -672,8 +793,33 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
         expect(response.status).toBe(401);
         expect(response.headers.get("cache-control")).toBe("no-store");
         expect(response.headers.get("content-type")).toContain("application/problem+json");
-        expect(await response.json()).toMatchObject({ title: "Unauthorized", status: 401, instance: `/api/v1/data/${entity}` });
+        const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+        expect(mediaType).toBe("application/problem+json");
+        const bytes = await response.text();
+        const value = JSON.parse(bytes);
+        expect(value).toMatchObject({ title: "Unauthorized", status: 401, instance: `/api/v1/data/${entity}` });
+        expect(value).not.toHaveProperty("ok");
+        expect(value).not.toHaveProperty("localSync");
+        expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN/);
+        if (token !== null) expect(bytes, "401 bodies never echo the submitted bearer").not.toContain(token);
+        // Outer gate (missing/invalid/read) carries requestId in body + header;
+        // inner sync-secret denial (full token) correlates by header only.
+        const headerId = response.headers.get("x-request-id");
+        expect(headerId, "401 echoes a request id").toBeTruthy();
+        if (token === "save-contract-full") {
+          expect(value, "inner denial carries no body requestId").not.toHaveProperty("requestId");
+        } else {
+          expect(value.requestId, "outer denial joins header and body").toBe(headerId);
+        }
         expect(await localRows()).toEqual(before);
+        // Exact 401 problem, not the default route and not a forwarded outcome.
+        const validate = validator(responseSchema(document, entity, 401, mediaType), document);
+        expect(validate.safeParse(value).success, bytes).toBe(true);
+        expect(responseSchema(document, entity, 401, mediaType)).toEqual(
+          operation(document, entity).responses["401"].content!["application/problem+json"].schema
+        );
+        expect(validator(responseSchema(document, entity, 401), document).safeParse(value).success,
+          "local denial is a problem, not a forwarded save outcome").toBe(false);
       });
     }
 
@@ -683,8 +829,111 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
       const response = await post(entity, "");
       expect(response.status).toBe(400);
       expect(response.headers.get("cache-control")).toBe("no-store");
-      expect(await response.json()).toMatchObject({ status: 400, instance: `/api/v1/data/${entity}` });
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/problem+json");
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toMatchObject({ status: 400, instance: `/api/v1/data/${entity}` });
+      expect(value.title).toBe("Bad Request");
+      expect(value).not.toHaveProperty("ok");
+      expect(value).not.toHaveProperty("localSync");
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN/);
+      // Handler-level 400 correlates by header only, like other route bodies.
+      expect(response.headers.get("x-request-id"), "400 echoes a request id").toBeTruthy();
+      expect(value, "handler 400 carries no body requestId").not.toHaveProperty("requestId");
       expect(await localRows()).toEqual(before);
+      const validate = validator(responseSchema(document, entity, 400, mediaType), document);
+      expect(validate.safeParse(value).success, bytes).toBe(true);
+      expect(responseSchema(document, entity, 400, mediaType)).toEqual(
+        operation(document, entity).responses["400"].content!["application/problem+json"].schema
+      );
+      expect(validator(responseSchema(document, entity, 400), document).safeParse(value).success,
+        "local validation failure is a problem, not a forwarded save outcome").toBe(false);
+    });
+
+    it(`${entity}: blocked outer auth-throttle 429 validates against the default problem schema`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      const requestId = `save-outcome-429-${entity}-1`;
+      const response = await post(entity, updateForms[entity] + TOKEN, "invalid-token", "", blockedThrottleEnv, {
+        "X-Request-Id": requestId,
+        "CF-Connecting-IP": `198.51.100.${entity === "customer" ? 231 : entity === "address" ? 232 : 233}`
+      });
+      expect(response.status).toBe(429);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/problem+json");
+      const retryAfter = response.headers.get("retry-after");
+      expect(retryAfter).toMatch(/^\d+$/);
+      expect(Number(retryAfter)).toBe(34);
+      expect(response.headers.get("x-ratelimit-remaining")).toBe("0");
+      expect(response.headers.get("x-request-id")).toBe(requestId);
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toMatchObject({ title: "Too Many Requests", status: 429, instance: `/api/v1/data/${entity}`, requestId });
+      expect(value).not.toHaveProperty("ok");
+      expect(value).not.toHaveProperty("localSync");
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN/);
+      expect(bytes, "429 bodies never echo the submitted bearer").not.toContain("invalid-token");
+      expect(await localRows(), "throttled request must not mutate any snapshot").toEqual(before);
+      // 429 has no exact entry: it selects default's problem media.
+      const validate = validator(responseSchema(document, entity, 429, mediaType), document);
+      expect(validate.safeParse(value).success, bytes).toBe(true);
+      expect(responseSchema(document, entity, 429, mediaType)).toEqual(
+        operation(document, entity).responses.default.content!["application/problem+json"].schema
+      );
+      expect(validator(responseSchema(document, entity, 429), document).safeParse(value).success,
+        "throttle problem is not a forwarded save outcome").toBe(false);
+    });
+
+    it(`${entity}: escaping upstream transport error 500 validates against the default problem schema`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const requestId = `save-outcome-500-${entity}-1`;
+      const attempted: string[] = [];
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.origin !== testEnv.TARGET_ORIGIN) return denyNetwork(input);
+        if (url.pathname === savePaths[entity]) {
+          expect(init?.method ?? "GET").toBe("POST");
+          attempted.push(url.pathname);
+          throw new TypeError("SYNTHETIC_TRANSPORT_FAILURE");
+        }
+        return denyNetwork(input);
+      });
+      // Explicit token: prep needs no modal fetch, so the throw provably
+      // escapes the save forward itself, not preparation.
+      const response = await post(entity, updateForms[entity] + TOKEN, undefined, "", testEnv, {
+        "X-Request-Id": requestId
+      });
+      expect(response.status).toBe(500);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/problem+json");
+      expect(response.headers.get("x-request-id")).toBe(requestId);
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toMatchObject({ title: "Internal Server Error", status: 500, requestId });
+      expect(String(value.type)).toContain("internal");
+      expect(String(value.detail)).toContain("PROBLEMS.md#internal");
+      expect(value).not.toHaveProperty("ok");
+      expect(value).not.toHaveProperty("localSync");
+      expect(value).not.toHaveProperty("instance");
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_TOKEN|SYNTHETIC_TRANSPORT_FAILURE/);
+      expect(attempted, "transport failure escapes the single save forward").toEqual([savePaths[entity]]);
+      expect(await localRows(), "unhandled error must not mutate any snapshot").toEqual(before);
+      // 500 has no exact entry: it selects default's problem media.
+      const validate = validator(responseSchema(document, entity, 500, mediaType), document);
+      expect(validate.safeParse(value).success, bytes).toBe(true);
+      expect(responseSchema(document, entity, 500, mediaType)).toEqual(
+        operation(document, entity).responses.default.content!["application/problem+json"].schema
+      );
+      expect(validator(responseSchema(document, entity, 500), document).safeParse(value).success,
+        "unhandled-error problem is not a forwarded save outcome").toBe(false);
+      const logged = errorSpy.mock.calls.map(([event]) => event as { msg?: string; requestId?: string });
+      expect(logged.find((event) => event.msg === "Unhandled request error")).toMatchObject({ requestId });
+      expect(JSON.stringify(logged)).not.toMatch(/SYNTHETIC_TRANSPORT_FAILURE/);
     });
   }
 
