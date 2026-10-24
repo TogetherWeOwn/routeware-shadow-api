@@ -59,7 +59,7 @@ function probePath(path: string): string {
     .replace(":date", "2026-09-27");
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 19 share the canonical inner 401 body. */
+/** Every route guarded by the narrower snapshot-secret check. All 20 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
@@ -81,7 +81,10 @@ const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "POST", path: "/api/v1/data/container" },
   // R2 archive readback (sync secret only), probed with a concrete
   // table/date by probePath just like the customer erasure route above.
-  { method: "GET", path: "/api/v1/snapshots/:table/:date" }
+  { method: "GET", path: "/api/v1/snapshots/:table/:date" },
+  // Latest-pointer readback (sync secret only): same inner gate, probed
+  // with a concrete table (probePath's :date replacement is a no-op here).
+  { method: "GET", path: "/api/v1/snapshots/:table/latest" }
 ];
 
 describe("snapshot-secret auth gate", () => {
@@ -131,7 +134,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(19);
+    expect(GUARDED_ROUTES).toHaveLength(20);
   });
 
   for (const route of GUARDED_ROUTES) {
