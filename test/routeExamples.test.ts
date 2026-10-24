@@ -282,8 +282,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +3 for fields on the three hydrated single-ID GETs;
     // +3 for order on the customer, address and container snapshot lists;
     // +3 for dryRun on the three data-entity POST saves;
-    // +1 for table on the latest-pointer readback.
-    expect(checked).toBe(66);
+    // +1 for table on the latest-pointer readback;
+    // +3 for upperId on the customer, address and container snapshot lists.
+    expect(checked).toBe(69);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
