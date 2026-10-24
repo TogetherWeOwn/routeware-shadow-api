@@ -108,6 +108,8 @@ export const SNAPSHOT_FIELDSETS: Record<
   container: { idColumn: "container_id", columns: CONTAINER_SNAPSHOT_FIELDS }
 };
 
+const FIELDSET_DELIMITER = ",";
+
 const FIELDS_EXAMPLES: Record<SnapshotFieldsetResource, string> = {
   customer: "company_name,phone1",
   address: "city,address",
@@ -127,7 +129,7 @@ export function parseSnapshotFields(
 ): string[] | null {
   const allowed = new Set<string>(SNAPSHOT_FIELDSETS[resource].columns);
   const seen = new Set<string>();
-  const names = raw.split(",");
+  const names = raw.split(FIELDSET_DELIMITER);
   for (const name of names) {
     if (name === "" || seen.has(name) || !allowed.has(name)) {
       return null;
@@ -175,7 +177,25 @@ export function snapshotFieldsQuery(resource: SnapshotFieldsetResource) {
         "Response rows contain exactly these fields plus the resource id, which is always " +
         "present even when omitted. Unknown names are a value-free 400 before any D1 work."
     )
-    .openapi({ example: FIELDS_EXAMPLES[resource] });
+    .openapi({
+      example: FIELDS_EXAMPLES[resource],
+      // Vendor extension v1: registry-derived discovery, not an enum of selectors.
+      "x-snapshot-fieldset": {
+        schemaVersion: 1,
+        resource,
+        selectableFields: [...SNAPSHOT_FIELDSETS[resource].columns],
+        alwaysIncludedFields: [SNAPSHOT_FIELDSETS[resource].idColumn],
+        delimiter: FIELDSET_DELIMITER,
+        rules: {
+          caseSensitive: true,
+          whitespace: "reject",
+          emptySegments: "reject",
+          duplicates: "reject",
+          unknownNames: "reject",
+          repeatedKeys: "reject"
+        }
+      }
+    });
 }
 
 /** The three hydrated-bundle per-type selector keys, one per projectable type. */
