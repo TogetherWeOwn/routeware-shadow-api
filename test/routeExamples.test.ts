@@ -280,8 +280,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
     // +3 for fields on the three hydrated single-ID GETs;
     // +3 for order on the customer, address and container snapshot lists;
-    // +3 for dryRun on the three data-entity POST saves.
-    expect(checked).toBe(65);
+    // +3 for dryRun on the three data-entity POST saves;
+    // +3 for upperId on the customer, address and container snapshot lists.
+    expect(checked).toBe(68);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
