@@ -553,6 +553,9 @@ export async function restoreSnapshotCsvFromR2(
  */
 export const SNAPSHOT_DATE_LIST_SCAN_BUDGET = 366;
 
+/** Bound key discovery separately from manifest reads (R2 lists at most 1000 keys per page). */
+export const SNAPSHOT_DATE_LIST_MAX_PAGES = 20;
+
 /**
  * One `{date, bytes, sha256}` entry: manifest hashes/sizes only, never row
  * data — safe to log, print and commit as a fixture, like the manifest itself.
@@ -608,8 +611,9 @@ export function snapshotManifestDateFromKey(key: string): string | null {
  * List the dates holding an archive for `table`, newest-first, from the date
  * manifests (`snapshots/YYYY-MM-DD.manifest.json`).
  *
- * One `list` over the `snapshots/` prefix; only well-formed sidecars are read
- * (CSVs, other prefixes and malformed names are ignored, never errors) and
+ * Follow R2 list cursors over `snapshots/` up to the page cap before sorting:
+ * R2 pages are oldest-first, so sorting only page one hides newer archives.
+ * Only well-formed sidecars are read (CSVs and malformed names are ignored) and
  * each is validated whole by `isSnapshotManifest` BEFORE table filtering — a
  * corrupt sidecar fails the listing even when it never held this table.
  * Integrity fields are read, never re-verified, and CSV objects are never
@@ -626,11 +630,27 @@ export async function listSnapshotArchiveDatesForTable(
   table: SnapshotArchiveTable,
   limit: number
 ): Promise<SnapshotArchiveDateListing> {
-  const listed = await bucket.list({ prefix: "snapshots/" });
-  const sidecars = listed.objects
-    .map((obj) => ({ key: obj.key, date: snapshotManifestDateFromKey(obj.key) }))
-    .filter((entry): entry is { key: string; date: string } => entry.date !== null)
-    .sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
+  const sidecars: Array<{ key: string; date: string }> = [];
+  let cursor: string | undefined;
+  let listTruncated = false;
+  for (let page = 0; page < SNAPSHOT_DATE_LIST_MAX_PAGES; page++) {
+    const listed = await bucket.list({ prefix: "snapshots/", ...(cursor ? { cursor } : {}) });
+    for (const { key } of listed.objects) {
+      const date = snapshotManifestDateFromKey(key);
+      if (date !== null) {
+        sidecars.push({ key, date });
+      }
+    }
+    listTruncated = listed.truncated;
+    if (!listed.truncated) {
+      break;
+    }
+    cursor = listed.cursor;
+    if (!cursor) {
+      break;
+    }
+  }
+  sidecars.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
   const basename = csvBasename(table);
   const dates: SnapshotArchiveDateEntry[] = [];
   let examined = 0;
@@ -652,5 +672,5 @@ export async function listSnapshotArchiveDatesForTable(
       dates.push({ date, bytes: entry.bytes, sha256: entry.sha256 });
     }
   }
-  return { dates, truncated: examined < sidecars.length || listed.truncated };
+  return { dates, truncated: examined < sidecars.length || listTruncated };
 }

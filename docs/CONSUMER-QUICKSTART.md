@@ -452,7 +452,11 @@ curl -H "Authorization: Bearer $SYNC" \
 ```
 
 `limit` is 1..366 (default 30); `truncated` means more dates may exist.
-Zero archives is 200 with `"dates": []`, never 404. Entries carry manifest
+Discovery follows up to 20 R2 key-list pages before sorting newest-first, then
+reads at most 366 manifests. If the key-list cap is reached, newer dates may
+remain outside the discovered keys; `truncated: true` is not proof that the
+first returned date is the bucket's newest. Zero archives is 200 with
+`"dates": []`, never 404. Entries carry manifest
 hashes/sizes only, never row data. Replays carry a content-hash `ETag`;
 send it back for a 304, exactly like the §3a download.
 
