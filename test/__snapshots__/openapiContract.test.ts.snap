@@ -753,12 +753,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV (Routeware Address Details custom report); \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret; import **customers** first to satisfy \`customer_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -837,12 +837,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer as \`customer-snapshot\` sync. Requires \`ADDRESS_REPORT_EXPORT_PATH\` or \`ADDRESS_REPORT_QUERY_ID\`. Customers should exist in D1 (run customer import/sync first) so \`customer_id\` foreign keys are satisfied. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1223,12 +1223,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Raw CSV; \`Content-Type: text/csv\` or \`application/octet-stream\`. Bear the same secret. Import or sync **addresses** (and **customers**) first for \`pickup_address_id\` foreign keys. Pass \`?dryRun=true\` to validate and return the would-be counts without writing D1.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1307,12 +1307,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "description": "Same bearer. Requires \`CONTAINER_REPORT_EXPORT_PATH\` or \`CONTAINER_REPORT_QUERY_ID\`. Address rows for each \`pickup_address_id\` should exist in D1 first. Pass \`?dryRun=true\` to run the full parse/validate path, return the counts that WOULD apply, and write nothing (no D1, no R2).",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1753,12 +1753,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, paste the request example below as the raw body, then Send. A 200 looks like \`{upserted: 2, rowCount: 2, deleted: 0}\` — imports never delete, so \`deleted\` is always 0. Run this before the address/container imports so their foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -1839,12 +1839,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** paste the sync secret once into the \`bearerAuth\` Authorize dialog (it persists across calls), then Send with an empty body. A 200 looks like the example: \`{upserted, rowCount, deleted}\` (\`skipped: true\` instead when no export source is configured). Import customers before addresses/containers so foreign keys resolve.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -2115,12 +2115,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
 **Try it in \`/docs\`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry \`{upserted, rowCount}\` only (no \`deleted\` leak); a table with no export source comes back \`null\`, not zeros.",
         "parameters": [
           {
-            "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
             "in": "query",
             "name": "dryRun",
             "required": false,
             "schema": {
-              "description": "Dry run: validate the CSV and return the would-be counts without writing D1 or R2",
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
               "enum": [
                 "true",
                 "false",
@@ -2352,7 +2352,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2416,6 +2433,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "502": {
             "description": "Bad Gateway",
+          },
+          "503": {
+            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
           },
         },
         "summary": "Create/update address in Routeware + sync D1",
@@ -2594,7 +2614,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2658,6 +2695,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "502": {
             "description": "Bad Gateway",
+          },
+          "503": {
+            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
           },
         },
         "summary": "Create/update container in Routeware + sync D1",
@@ -2840,7 +2880,24 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "parameters": [
+          {
+            "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+            "in": "query",
+            "name": "dryRun",
+            "required": false,
+            "schema": {
+              "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
+        ],
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2915,6 +2972,9 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "502": {
             "description": "Bad Gateway",
+          },
+          "503": {
+            "description": "Dry-run without a usable Routeware session (failed-precondition problem+json; dry runs never log in)",
           },
         },
         "summary": "Create/update customer in Routeware + sync D1",
