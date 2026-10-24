@@ -16,8 +16,11 @@ import { z } from "@hono/zod-openapi";
  * this declaration, so the check stays independent of this source.
  *
  * Only the replay/cursor identities (`customer_id`, `synced_at`) are
- * required; every other column is optional so sparse `fields=` pages stay
- * valid, with storage-faithful nullability when present. Stored flags stay
+ * required: this schema describes the full delta row. Sparse `fields=`
+ * pages project to the resource id plus the selector (`synced_at` omitted
+ * unless selected), so validate sparse pages against the projection, not
+ * this full-row shape. Other columns are optional with storage-faithful
+ * nullability when present. Stored flags stay
  * integers (`enabled` is `0`/`1`, never boolean). Text stays text: no
  * format, pattern, enum, range or safe-integer promises the writers never
  * made — `synced_at` is deliberately a plain string, not a datetime.

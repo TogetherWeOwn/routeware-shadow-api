@@ -299,8 +299,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   (`CustomerSnapshotChangesRow` in `/openapi.json`): every stored customer
   column with storage-faithful integer/text/null types. `customer_id` and
   `synced_at` are always required (replay/cursor identity); every other
-  column is optional with stored nullability so sparse `fields=` pages stay
-  valid. Stored flags stay integers (`enabled` is `0`/`1`, never boolean);
+  column is optional with stored nullability. The schema describes full
+  rows: sparse `fields=` pages carry only the resource id plus the selector.
+  Stored flags stay integers (`enabled` is `0`/`1`, never boolean);
   text carries no invented format/enum/minimum promises. `total` documents
   its returned-page-length meaning and `nextCursor` its composite-resume
   meaning; operationId, headers, examples and response codes are unchanged.

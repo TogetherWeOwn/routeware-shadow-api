@@ -608,8 +608,10 @@ production verification.
 Delta rows are typed in `/openapi.json` (`CustomerSnapshotChangesRow`): every
 stored customer column with storage-faithful integer/text/null types.
 `customer_id` and `synced_at` are always required (replay/cursor identity);
-every other column is optional so sparse `fields=` pages stay valid, with
-nullability exactly as stored. Flags stay integers (`enabled` is `0`/`1`,
+every other column is optional with nullability exactly as stored. This
+describes full rows: sparse `fields=` pages carry only the resource id plus
+the selector (`synced_at` omitted unless selected), so validate sparse pages
+against the projection. Flags stay integers (`enabled` is `0`/`1`,
 never boolean); text carries no format/enum/minimum promises. `total` is the
 returned page length (never a COUNT); `nextCursor` is the composite resume
 pair, or `null` at the tail. Focused check:
