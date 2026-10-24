@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #382: Optional `customerTypeId` exact filter on the existing customer
+  snapshot list: one canonical unpadded ASCII decimal integer from `0` to
+  `9007199254740991`, AND-composed with every existing filter and cursor
+  clause. `0` matches literal stored classification `0`, never null or all
+  rows; stored NULL classifications never match. Invalid or repeated values
+  fail with the existing value-free 400 before D1, after read-role
+  authentication. Omission preserves previous matches; follow-next Links
+  retain the selector across offset/cursor, asc/desc and count-free
+  traversals. No new index, migration, join or upstream call; the value
+  filters the cached snapshot, not live Routeware state. See
+  `docs/CONSUMER-QUICKSTART.md` for the synthetic multi-page recipe;
+  focused check: `npm run check:customer-type-filter`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
