@@ -11,7 +11,7 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
@@ -32,6 +32,35 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Exact customer account numbers
+
+Only the ordinary customer list recognizes `customerNumber` and
+`subCustomerNumber`. Each is an optional exact, case-sensitive opaque string:
+1..100 Unicode code points, including at least one non-whitespace character,
+with a single occurrence of the key. Leading zeros and all supplied nonblank
+whitespace are preserved. No numeric coercion, case folding, trimming or Unicode
+normalization occurs; literal quotes, `%` and `_` are data, not SQL or wildcards.
+Empty, whitespace-only, repeated and overlength values return the existing
+value-free 400 before D1 or conditional 304 success; authentication remains first.
+See [fixed correction guidance](PROBLEMS.md#bad-request).
+
+Both selectors use bound SQL equality, AND-composed with each other and every
+existing selector. Stored nulls never match strings. Business numbers are not
+unique: all matching customer IDs are returned across pages, and zero matches is
+an HTTP 200 empty collection. Sparse fields, offset/keyset conventions,
+cursor-relative totals, count-free zero-COUNT behavior, ETags and no-store remain
+unchanged. Continuation Links retain both selectors using URLSearchParams
+encoding and still replace cursor/drop offset. Unknown unrelated keys remain
+ignored. Other lists and the changes feed do not gain these selectors.
+
+Run `npm run check:customer-account-filters` for the focused acceptance and list
+regressions, with real local test D1, synthetic fixtures and forbidden outbound
+fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup)
+walks an exact lookup to its empty terminal page. Synthetic equality-query
+`EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for both COUNT and page
+reads on the 23-row fixture; no account-number index or production latency claim
+is made. No new index, migration or binding is introduced.
 
 ## Address route and franchise scopes
 

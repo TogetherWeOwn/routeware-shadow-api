@@ -1869,7 +1869,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, company substring \`q\`, or \`enabled\`. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, exact \`customerNumber\` and/or \`subCustomerNumber\`, company substring \`q\`, or \`enabled\`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
         "parameters": [
           {
             "in": "query",
@@ -1881,6 +1881,32 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "integer",
                 "null",
               ],
+            },
+          },
+          {
+            "description": "Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.",
+            "in": "query",
+            "name": "customerNumber",
+            "required": false,
+            "schema": {
+              "description": "Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.",
+              "example": "00042",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.",
+            "in": "query",
+            "name": "subCustomerNumber",
+            "required": false,
+            "schema": {
+              "description": "Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.",
+              "example": "North",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string",
             },
           },
           {
