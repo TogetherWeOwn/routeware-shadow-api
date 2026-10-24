@@ -454,7 +454,7 @@ lossless millisecond precision — more than 3 digits is a 400, never rounded.
 valid `since`. The feed surfaces upserts only: reconciled-away or erased rows
 never appear as tombstones, so re-list to detect disappearance.
 
-### Follow the composite next link
+## 2c. Follow the composite next link
 
 Prefer the server's `Link: <relative-target>; rel="next"` to rebuilding the
 pair from JSON. It appears exactly when `nextCursor` is non-null, replaces

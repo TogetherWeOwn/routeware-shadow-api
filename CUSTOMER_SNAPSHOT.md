@@ -390,7 +390,7 @@ pages have no next link, and omission means stop. JSON bytes/shape, SQL/binds
 and the single SELECT are unchanged: no COUNT or lookahead is added. Auth,
 read-token access, no-store, request ID and existing CORS exposure (including
 Link) stay intact. Mounted OpenAPI declares the optional header. See the
-[safe synthetic client recipe](docs/CONSUMER-QUICKSTART.md#follow-the-composite-next-link)
+[safe synthetic client recipe](docs/CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link)
 for same-origin/fixed-path checks, manual redirects and non-2xx refusal
 before parsing JSON. No completeness or snapshot-isolation promise is added.
 

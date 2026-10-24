@@ -135,7 +135,7 @@ Mounted OpenAPI declares the optional string header on `listCustomerSnapshotChan
 Run `npm run check:customer-changes-next-links` for the focused hermetic D1
 traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
 prove zero application writes and fail on any unexpected outbound fetch.
-See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2b-incremental-sync-the-customer-changes-feed).
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
 Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
 
 ## Coverage boundary and non-list classifications
