@@ -208,6 +208,56 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Stored phone fragment lookup
+
+Resolve which customer owns a phone number from a stored fragment (for
+example its last seven digits) on the existing `listCustomerSnapshot`
+operation (read token allowed, local D1 only). Optional `phone` is a
+case-insensitive substring over the stored `phone1`/`phone2` text, matched
+as stored: no normalization, digit-stripping, trimming or equality fallback.
+It AND-composes with `customerId`, company-only `q`, `enabled`, sparse
+`fields` and pagination. Send the key once with 1..100 Unicode code points
+and at least one non-whitespace character. Use URLSearchParams (or
+equivalent URL encoding) so spaces, quotes, `%`, `_`, `+` and `&` remain
+literal data.
+
+**Synthetic lookup-to-next-page recipe:** the hermetic fixture has four
+customers whose stored phones contain `5550107`, IDs 11, 23, 37 and 42.
+Request two IDs per page without computing totals:
+
+```text
+GET /api/v1/customer-snapshot?phone=5550107&fields=phone1&limit=2&includeTotal=false
+200 {"rows":[{"customer_id":11,"phone1":"+1 (202) 5550107"},{"customer_id":23,"phone1":null}],"total":null,"nextCursor":23}
+Link: </api/v1/customer-snapshot?phone=5550107&fields=phone1&limit=2&includeTotal=false&cursor=23>; rel="next"
+```
+
+Follow that relative Link against the same origin using the follow-next recipe
+below. The next page returns IDs 37 and 42 with `nextCursor: 42` and a Link
+with `cursor=42`. Follow it once more: `{"rows":[],"total":null,"nextCursor":null}`
+with no Link. A full final page may link to this empty page; stop only when
+Link is absent. Do not stop at the first match: several customers can share
+one fragment, and null or empty stored phones never match. A valid lookup
+with no matches is also an HTTP 200 empty collection, not a reason to sync
+or retry writes. Omit `includeTotal=false` for the unchanged exact
+cursor-relative count.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:customer-phone-search
+```
+
+The focused command walks encoded continuations to terminal and empty pages,
+checks zero COUNTs in count-free mode, replays conditional 304s with the
+selector in the URL, and records bound SELECT shapes with synthetic EXPLAIN
+plans, without logging phone values; it compares stored rows before/after
+repeated reads. Current plans scan the synthetic table; no phone index or
+production latency is claimed. No migrations or upstream calls are involved.
+For a 400, correct or omit the named phone field and retry; errors are fixed
+and value-free even with If-None-Match. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-phone-fragment).
+
 ### Address route and franchise scopes
 
 Use the existing `listAddressSnapshot` operation to avoid fetching unrelated

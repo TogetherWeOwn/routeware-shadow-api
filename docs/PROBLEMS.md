@@ -64,6 +64,24 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored phone fragment (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `phone` is an optional case-insensitive
+substring of 1..100 Unicode code points over the stored `phone1`/`phone2`
+text; it may appear only once and must not be blank or whitespace-only.
+The fragment is never trimmed, normalized or digit-stripped, so nonblank
+whitespace and punctuation are significant. After authentication, invalid
+fragments return a stable, value-free 400 before D1 access or conditional
+304 success. Correct the named field to a single nonblank value within the
+limit, or omit it, then retry.
+
+The existing detail remains fixed, for example:
+`Invalid request query (phone). See docs/PROBLEMS.md#bad-request.`
+The field can instead be another invalid selector or multiple invalid
+fields; no supplied phone value is echoed or logged. A valid lookup with
+zero matches is a successful empty collection, not a validation error. See
+the [synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)

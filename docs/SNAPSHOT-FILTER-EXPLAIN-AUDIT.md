@@ -61,6 +61,38 @@ query cost. No migration/index, remote D1 probe, latency measurement or
 production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
 
+## Stored phone predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 3 synthetic customers (no tenant data). Used the
+customer route's COUNT template and page-SELECT template with the bound
+two-term OR predicate
+`(instr(lower(coalesce(phone1, '')), lower(?)) > 0 OR
+instr(lower(coalesce(phone2, '')), lower(?)) > 0)`, one value bound twice,
+`ORDER BY customer_id LIMIT ? OFFSET ?`. Observed plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| phone fragment only | `SCAN customer_snapshot` |
+| `customer_id = ?` plus fragment | `SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid=?)` |
+| fragment plus `enabled = 1` | `SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)` |
+
+The fragment-only shape honestly scans: a mid-string `instr(lower(...))`
+substring match cannot seek a B-tree, exactly the `q`-alone boundary pinned
+by `migrations/d1/0003_text_filter_indexes.sql`. Composing with a selective
+predicate keeps that predicate's existing index. The predicate uses bound
+placeholders, never interpolation, LIKE, a new join or a deduplication step.
+The executable `test/customerPhoneSearch.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on both statements with a quote/Unicode/percent fixture, and asserts
+exact matches, read-only execution and denied network. Run
+`npm run check:customer-phone-search` to repeat that bounded check.
+
+Fragment-only reads may still scan; this feature bounds returned data, not
+query cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.
