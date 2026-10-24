@@ -122,6 +122,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   500. The `{date}` route is unchanged. See `docs/CONSUMER-QUICKSTART.md` and
   `docs/R2-RETENTION.md`.
 
+- #364: Customer changes feed accepts optional strict `fields` from the shared customer
+  allowlist, always retaining `customer_id`. Only response-row keys shrink:
+  page membership, order, page-length `total` and composite `nextCursor` remain
+  unchanged even when `synced_at` is omitted. Invalid selectors fail before D1
+  with value-free guidance; absent fields preserves full rows. The shared OpenAPI
+  `x-snapshot-fieldset` catalog also applies to this feed. The composite
+  follow-next Link retains the validated selector so sparse traversal keeps
+  sparse pages; an omitted selector keeps the three-key target. See the synthetic
+  two-page example and focused check in `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #353: The seven mutating snapshot POSTs (combined sync, three per-table
   syncs, three imports) now reject any query key outside their declared set
   (`dryRun` everywhere, plus `partialProgress` on the combined route) with a

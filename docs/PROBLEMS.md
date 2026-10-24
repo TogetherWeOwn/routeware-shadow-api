@@ -133,7 +133,7 @@ correlate the response using the `X-Request-Id` header.
 
 ## Sparse fieldsets (`bad-request`)
 
-For the snapshot lists and by-id reads, `fields=` must be a single
+For the snapshot lists, by-id reads and customer changes feed, `fields=` must be a single
 comma-separated list of exact stored column names from the route's
 allowlist (`src/lib/sparseFieldsets.ts`): no spaces, no case folding, no
 empty segments, no duplicates, no repeated `fields` key. Columns from
