@@ -89,9 +89,13 @@ function operation(doc: Document, entity: Entity): Operation {
   return doc.paths[`/api/v1/data/${entity}`].post;
 }
 
-function responseSchema(doc: Document, entity: Entity, status = 200): Schema {
-  const media = operation(doc, entity).responses[String(status)]?.content?.["application/json"];
-  expect(media, `${entity} ${status} must advertise its JSON outcome`).toBeDefined();
+function responseSchema(doc: Document, entity: Entity, status = 200, mediaType = "application/json"): Schema {
+  const responses = operation(doc, entity).responses;
+  // OpenAPI selects an exact status before default; an undocumented media type
+  // on an exact response must not fall through to default (or a 200 outcome).
+  const response = responses[String(status)] ?? responses.default;
+  const media = response?.content?.[mediaType];
+  expect(media, `${entity} ${status} must advertise ${mediaType}`).toBeDefined();
   return media!.schema;
 }
 
@@ -167,6 +171,39 @@ describe("served entity-save outcome schemas", () => {
       expect(op["x-access"]).toBe("sync-secret");
       expect(op["x-effect"]).toBe("upstream-write-local-refresh");
       expect(Object.keys(op.responses)).toEqual(expect.arrayContaining(["200", "400", "401", "502"]));
+    });
+
+    it(`${entity}: advertises both forwarded JSON and preparation problem schemas for 502`, () => {
+      const content = operation(document, entity).responses["502"].content;
+      expect(Object.keys(content ?? {}).sort()).toEqual(["application/json", "application/problem+json"]);
+      expect(content!["application/json"].schema).toEqual({
+        $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
+      });
+      const problem = shape(content!["application/problem+json"].schema, document);
+      expect(problem.type).toBe("object");
+      expect([...(problem.required ?? [])].sort()).toEqual(["status", "title", "type"]);
+      expect(problem.properties).toEqual({
+        type: { type: "string" }, title: { type: "string" }, status: { type: "integer" },
+        detail: { type: "string" }, instance: { type: "string" }, requestId: { type: "string" }
+      });
+      const validate = validator(content!["application/problem+json"].schema, document);
+      const valid = { type: "about:blank", title: "Bad Gateway", status: 502 };
+      expect(validate.safeParse(valid).success).toBe(true);
+      for (const invalid of [{}, { ...valid, status: "502" }, { ...valid, status: 502.5 }, { ...valid, title: null }]) {
+        expect(validate.safeParse(invalid).success, JSON.stringify(invalid)).toBe(false);
+      }
+    });
+
+    it(`${entity}: advertises only its JSON save outcome for default forwarded rejection statuses`, () => {
+      const responses = operation(document, entity).responses;
+      expect(Object.keys(responses.default?.content ?? {})).toEqual(["application/json"]);
+      expect(responses.default.content!["application/json"].schema).toEqual({
+        $ref: `#/components/schemas/${entity[0].toUpperCase()}${entity.slice(1)}SaveOutcome`
+      });
+      expect(responseSchema(document, entity, 503)).toEqual(responses.default.content!["application/json"].schema);
+      // Declared validation/auth failures remain separate from forwarded saves.
+      expect(responses["400"]).not.toEqual(responses.default);
+      expect(responses["401"]).not.toEqual(responses.default);
     });
 
     it(`${entity}: discovers the shared done-discriminated local refresh contract and exact fixed codes`, () => {
@@ -248,6 +285,29 @@ describe("served entity-save outcome schemas", () => {
       expect(guidance).toMatch(/(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)[^.\n]*creat|creat[^.\n]*(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)/i);
     });
   }
+
+  it("selects an exact status before default, even when the exact response lacks the requested media type", () => {
+    const doc = structuredClone(document);
+    const responses = operation(doc, "customer").responses;
+    responses["502"] = { description: "Problem only", content: {
+      "application/problem+json": { schema: { type: "object" } }
+    } };
+    responses.default = { description: "Forwarded JSON", content: {
+      "application/json": { schema: { type: "string" } }
+    } };
+    expect(responseSchema(doc, "customer", 503)).toEqual({ type: "string" });
+    expect(responseSchema(doc, "customer", 502, "application/problem+json")).toEqual({ type: "object" });
+    expect(() => responseSchema(doc, "customer", 502)).toThrow("customer 502 must advertise application/json");
+  });
+
+  it("refuses an undocumented status rather than borrowing the HTTP 200 outcome schema", () => {
+    const doc = structuredClone(document);
+    const responses = operation(doc, "customer").responses;
+    delete responses.default;
+    delete responses["503"];
+    expect(responses["200"].content?.["application/json"]).toBeDefined();
+    expect(() => responseSchema(doc, "customer", 503)).toThrow("customer 503 must advertise application/json");
+  });
 
   it("describes one equivalent localSync contract for all three consumers", () => {
     const contracts = entities.map((entity) => {
@@ -368,6 +428,12 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
         localSync: { done: false, code: "not_attempted" }, detailCalls: 0
       },
       {
+        ...happy, name: "explicit upstream 502 rejection uses the advertised JSON envelope", ok: false,
+        upstreamStatus: 502, status: 502, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
+        customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      },
+      {
         ...happy, name: "loud upstream rejection preserves its status", ok: false,
         upstreamStatus: 503, status: 503, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
         customerId: entity === "container" ? null : 5,
@@ -409,16 +475,51 @@ describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)
         } else {
           expect(await db.prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = 5").first()).toEqual({ company_name: "Synthetic saved customer" });
         }
-        // The baseline only advertises its outcome envelope under 200; loud
-        // upstream rejections still carry that envelope, not a success claim.
-        // Validate a status-specific schema if supplied, otherwise the shared
-        // envelope, without requiring a new error/status documentation audit.
-        const advertised = operation(document, entity).responses[String(response.status)]?.content?.["application/json"];
-        const schemaStatus = advertised ? response.status : 200;
-        const validate = validator(responseSchema(document, entity, schemaStatus), document);
+        const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+        const validate = validator(responseSchema(document, entity, response.status, mediaType), document);
         expect(validate.safeParse(value).success, bytes).toBe(true);
+        if (response.status === 502) {
+          const problem = validator(responseSchema(document, entity, 502, "application/problem+json"), document);
+          expect(problem.safeParse(value).success, "forwarded rejection is an outcome, not a preparation problem").toBe(false);
+        }
       });
     }
+
+    it(`${entity}: preparation failure uses the advertised 502 problem schema without saving or refreshing`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      const modalPaths: Record<Entity, string> = {
+        customer: "/WebRW/Customer/LoadLongCustomerModal?customerID=5",
+        address: "/WebRW/PickupAddress/LoadAddressModal?PickupAddressID=10",
+        container: "/WebRW/Container/LoadContainerModal?ContainerID=100"
+      };
+      const calls: string[] = [];
+      vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.origin !== testEnv.TARGET_ORIGIN || url.pathname + url.search !== modalPaths[entity]) return denyNetwork(input);
+        expect(init?.method ?? "GET").toBe("GET");
+        calls.push(url.pathname + url.search);
+        return new Response("SYNTHETIC_UPSTREAM_ONLY", { status: 500, headers: { "content-type": "text/html" } });
+      });
+      // No supplied token: exercise the real preparation path, not a stub of it.
+      const response = await post(entity, updateForms[entity]);
+      expect(response.status).toBe(502);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      const mediaType = response.headers.get("content-type")!.split(";")[0].trim();
+      expect(mediaType).toBe("application/problem+json");
+      const bytes = await response.text();
+      const value = JSON.parse(bytes);
+      expect(value).toMatchObject({ title: "Bad Gateway", status: 502, instance: `/api/v1/data/${entity}` });
+      expect(value.detail).toContain("HTTP 500");
+      expect(value).not.toHaveProperty("localSync");
+      expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_UPSTREAM_ONLY|SYNTHETIC_TOKEN/);
+      expect(calls).toEqual([modalPaths[entity]]);
+      expect(await localRows(), "failed preparation must not mutate any snapshot").toEqual(before);
+      const validate = validator(responseSchema(document, entity, response.status, mediaType), document);
+      expect(validate.safeParse(value).success, bytes).toBe(true);
+      expect(validator(responseSchema(document, entity, 502), document).safeParse(value).success,
+        "preparation problem is not a forwarded save outcome").toBe(false);
+    });
 
     for (const token of [null, "invalid-token", "save-contract-read", "save-contract-full"]) {
       it(`${entity}: denies ${token ?? "missing bearer"} before forwarding or D1 mutations`, async () => {

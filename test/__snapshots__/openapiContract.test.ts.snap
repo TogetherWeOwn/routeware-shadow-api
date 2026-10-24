@@ -2581,7 +2581,54 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection with its original status and the JSON save-outcome envelope: ok=false and localSync.code=not_attempted. Not a success claim.",
           },
         },
         "summary": "Create/update address in Routeware + sync D1",
@@ -2842,7 +2889,54 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection with its original status and the JSON save-outcome envelope: ok=false and localSync.code=not_attempted. Not a success claim.",
           },
         },
         "summary": "Create/update container in Routeware + sync D1",
@@ -3112,7 +3206,54 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+              "application/problem+json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string",
+                    },
+                    "instance": {
+                      "type": "string",
+                    },
+                    "requestId": {
+                      "type": "string",
+                    },
+                    "status": {
+                      "type": "integer",
+                    },
+                    "title": {
+                      "type": "string",
+                    },
+                    "type": {
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "type",
+                    "title",
+                    "status",
+                  ],
+                  "type": "object",
+                },
+              },
+            },
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
+              },
+            },
+            "description": "Forwarded upstream rejection with its original status and the JSON save-outcome envelope: ok=false and localSync.code=not_attempted. Not a success claim.",
           },
         },
         "summary": "Create/update customer in Routeware + sync D1",
