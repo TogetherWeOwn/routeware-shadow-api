@@ -7,7 +7,7 @@ export const localSyncCodeSchema = z.enum([
   "sync_failed"
 ]).openapi("LocalSyncCode", {
   description:
-    "not_attempted: upstream save was rejected, so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed."
+    "not_attempted: upstream save was rejected or this was validation-only (dryRun=true), so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed."
 });
 
 export const localSyncSummarySchema = z.discriminatedUnion("done", [
@@ -57,6 +57,29 @@ export const containerSaveOutcomeSchema = z.strictObject({
     description: "Usable posted ContainerID, or null. A newly created container ID is not resolved by this response."
   })
 }).openapi("ContainerSaveOutcome");
+
+const dryRunOutcomeFields = {
+  ...saveOutcomeFields,
+  ok: z.literal(true).openapi({ description: "Validation passed only; no upstream write was attempted." }),
+  dryRun: z.literal(true),
+  routewareStatus: z.null().openapi({ description: "No upstream write was attempted, so no save status exists." }),
+  customerId: z.number().nullable().openapi({ description: "Posted customer ID, or null; not resolved from upstream or D1." }),
+  upstreamBytes: z.literal(0),
+  localSync: z.strictObject({
+    done: z.literal(false),
+    code: z.literal(localSyncCodeSchema.enum.not_attempted)
+  })
+};
+
+export const customerSaveDryRunSchema = z.strictObject(dryRunOutcomeFields)
+  .openapi("CustomerSaveDryRun");
+export const addressSaveDryRunSchema = z.strictObject({ ...dryRunOutcomeFields, pickupAddressId })
+  .openapi("AddressSaveDryRun");
+export const containerSaveDryRunSchema = z.strictObject({
+  ...dryRunOutcomeFields,
+  pickupAddressId,
+  containerId: containerSaveOutcomeSchema.shape.containerId
+}).openapi("ContainerSaveDryRun");
 
 export type EntitySaveOutcome = z.infer<typeof customerSaveOutcomeSchema>
   | z.infer<typeof addressSaveOutcomeSchema>

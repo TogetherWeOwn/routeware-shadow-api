@@ -613,8 +613,10 @@ the local graph refresh succeeds. `customerId` is also nullable when unresolved.
 `routewareStatus` is the original upstream status, not necessarily the wrapper
 status (for example, accepted upstream 201 currently returns wrapper 200).
 
-**Read `ok` and `localSync` separately.** An `ok=true` response means the upstream
-write was accepted, not that local data was refreshed. Local refresh and cache
+**Read `dryRun`, `ok` and `localSync` separately.** On a live save (no `dryRun`
+response flag), `ok=true` means the upstream write was accepted, not that local
+data was refreshed. A `dryRun=true` response means validation passed only; no
+upstream write or local refresh was attempted. Local refresh and cache
 invalidation are best-effort; HTTP 200 does not guarantee a refreshed local graph.
 The shared, served OpenAPI `LocalSyncSummary` contract has two exclusive shapes:
 
@@ -623,14 +625,16 @@ The shared, served OpenAPI `LocalSyncSummary` contract has two exclusive shapes:
 | `{done:true, customerId, addressIds, containerIds}` | Graph refreshed and cache invalidation completed; arrays contain graph IDs, not submitted fields. |
 | `{done:false, code:"sync_failed"}` | Write accepted, but refresh or cache invalidation failed; local state may be stale or partially refreshed. Verify local state and arrange graph reconciliation rather than repeating the save. |
 | `{done:false, code:"unknown_customer_id"}` | Write accepted, but the owning customer was unresolved, so no graph refresh ran. Resolve the existing upstream identity before reconciling local state. |
-| `{done:false, code:"not_attempted"}` | Upstream rejected the save (`ok=false`), so no local refresh ran; this is not a success claim. |
+| `{done:false, code:"not_attempted"}` | Upstream rejected the live save (`ok=false`), or this was validation-only (`dryRun=true`); no local refresh ran. This is not a write-success claim. |
 
 Never blindly replay or retry creates after an ambiguous response or failed
 refresh: the upstream write may already have landed. Verify existing identities
 and reconcile local state without repeating the create; these codes do not
 provide idempotency or authorize retries. Error codes are fixed strings, never
 exception text, upstream HTML, form fields or PII. Inspect `application/json`
-examples on each save operation in `/openapi.json` for all four synthetic outcomes.
+examples on each save operation in `/openapi.json` for the four live outcomes
+and the validation-only dry-run outcome. HTTP 200 advertises a union of those
+strict live and dry-run schemas; null upstream status is valid only on dry runs.
 
 Runnable hermetic schema-vs-runtime check (no live provider, credentials or data):
 
@@ -653,7 +657,37 @@ failure instead returns **HTTP 200 with `"ok": false`** (plus the upstream
 `routewareStatus` and `upstreamBytes`) — check the `ok` field, not just the
 status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
-save envelope. See the [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
+save envelope. Likewise, HTTP 503 can carry a forwarded live rejection as
+JSON or a dry-run session precondition failure as problem+json; inspect the
+media type and payload, not only the status. See the
+[502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
+
+### Dry-run recipe: validate, fix, save
+
+Append `?dryRun=true` to any of the three saves to validate — form fields
+plus session health — without risking a non-idempotent create landing
+upstream. Nothing is persisted: no upstream POST, no D1 write, no cache
+invalidation, no login.
+
+```bash
+# 1. Validate (HTTP 200: dryRun: true, routewareStatus: null, upstreamBytes: 0)
+curl -X POST "http://localhost:8787/api/v1/data/customer?dryRun=true" \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "CustomerID=0" \
+  --data-urlencode "CustomerTypeID=1" \
+  --data-urlencode "CompanyName=ExampleCo"
+# 2. Fix whatever 400/502 the dry-run reports (identical shapes to the live path)
+# 3. Save for real: drop the flag — or pass ?dryRun=false — and re-POST the body
+```
+
+Without a usable session the dry-run fails closed with 503
+`failed-precondition` and never logs in — run a live request first. Only
+`dryRun` is an allowed query key; after sync-secret authentication succeeds,
+anything else is a value-free 400. Missing or invalid authentication retains
+precedence over unknown-key rejection.
+`routewareStatus` is unknowable without posting and is never predicted.
+Run the hermetic proof: `npm run check:save-dry-run`.
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 

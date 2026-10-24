@@ -18,15 +18,21 @@ import {
 } from "../lib/dataEntitySave";
 import {
   addressSaveOutcomeSchema,
+  addressSaveDryRunSchema,
   containerSaveOutcomeSchema,
+  containerSaveDryRunSchema,
   customerSaveOutcomeSchema,
+  customerSaveDryRunSchema,
   type EntitySaveOutcome,
   type LocalSyncSummary
 } from "../lib/dataEntitySaveSchemas";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
   createRouteModule,
+  dryRunQuery,
+  isDryRunRequested,
   parsePositiveIdParam,
+  rejectUnknownQueryKeys,
   requireSnapshotAuth,
   validationFailureHook
 } from "./shared";
@@ -217,15 +223,47 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
 const saveRecoveryGuidance =
   "Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.";
 
-function dataEntityPostResponse(schema: z.ZodType, example: EntitySaveOutcome): RouteConfig["responses"] {
+function dataEntityPostResponse(
+  schema: z.ZodType,
+  dryRunSchema: z.ZodType,
+  example: EntitySaveOutcome
+): RouteConfig["responses"] {
+  const forwardedOrProblemResponse = {
+    description:
+      "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+    content: {
+      "application/json": { schema },
+      "application/problem+json": {
+        schema: {
+          type: "object",
+          required: ["type", "title", "status"],
+          properties: {
+            type: { type: "string" },
+            title: { type: "string" },
+            status: { type: "integer" },
+            detail: { type: "string" },
+            instance: { type: "string" },
+            requestId: { type: "string" }
+          }
+        }
+      }
+    }
+  } satisfies RouteConfig["responses"][string];
   return {
     200: {
       description:
-        "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. " + saveRecoveryGuidance,
+        "Save or validation-only outcome, not an unconditional success claim. dryRun=true means validation passed with no upstream write, routewareStatus=null, upstreamBytes=0 and localSync.code=not_attempted. On live saves, ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. " + saveRecoveryGuidance,
       content: {
         "application/json": {
-          schema,
+          schema: z.union([schema, dryRunSchema]),
           examples: {
+            dryRun: {
+              summary: "Validation passed only; no upstream write or local refresh (synthetic)",
+              value: {
+                ...example, ok: true, dryRun: true, routewareStatus: null, upstreamBytes: 0,
+                localSync: { done: false, code: "not_attempted" }
+              }
+            },
             refreshed: { summary: "Upstream accepted; local graph refreshed (synthetic)", value: example },
             syncFailed: {
               summary: "Upstream accepted; local refresh or invalidation failed (synthetic)",
@@ -245,26 +283,11 @@ function dataEntityPostResponse(schema: z.ZodType, example: EntitySaveOutcome): 
     },
     400: { description: "Bad Request" },
     401: { description: "Unauthorized" },
-    502: {
+    502: forwardedOrProblemResponse,
+    503: {
+      ...forwardedOrProblemResponse,
       description:
-        "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
-      content: {
-        "application/json": { schema },
-        "application/problem+json": {
-          schema: {
-            type: "object",
-            required: ["type", "title", "status"],
-            properties: {
-              type: { type: "string" },
-              title: { type: "string" },
-              status: { type: "integer" },
-              detail: { type: "string" },
-              instance: { type: "string" },
-              requestId: { type: "string" }
-            }
-          }
-        }
-      }
+        "Dry-run without a usable Routeware session uses failed-precondition application/problem+json; dry runs never log in. A forwarded live upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim."
     },
     default: {
       description:
@@ -273,6 +296,14 @@ function dataEntityPostResponse(schema: z.ZodType, example: EntitySaveOutcome): 
     }
   };
 }
+
+/**
+ * Only `dryRun` is an allowed query key on the POST saves. Invalid values
+ * 400 in the zod validator (before the inner auth gate); unknown keys pass
+ * the non-strict schema and are rejected after auth by
+ * `rejectUnknownQueryKeys`, so a wrong bearer still 401s first.
+ */
+const saveQueryKeys = ["dryRun"] as const;
 
 const localSyncExample: LocalSyncSummary = {
   done: true,
@@ -290,8 +321,9 @@ const dataCustomerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update customer in Routeware + sync D1",
   description:
-    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from `GetCustomerDetailFull` and invalidate related cache entries; this can fail independently of the write. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `SaveCustomerLongForm` (same as `/api/v1/routeware/customer/save-long-form`) with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. `CustomerID=0` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from `GetCustomerDetailFull` and invalidate related cache entries; this can fail independently of the write. Response: `ok`, `routewareStatus`, `customerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveCustomerLongForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -322,7 +354,7 @@ const dataCustomerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse(customerSaveOutcomeSchema, {
+  responses: dataEntityPostResponse(customerSaveOutcomeSchema, customerSaveDryRunSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 345734,
@@ -334,7 +366,12 @@ const dataCustomerPostRoute = createRoute({
 dataEntityRoutes.openapi(dataCustomerPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataCustomer({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataCustomer(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });
 
 const dataAddressPostRoute = createRoute({
@@ -346,8 +383,9 @@ const dataAddressPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update address in Routeware + sync D1",
   description:
-    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `PickupAddress/SaveAddressForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New address: `PickupAddressID=0` and `CustomerID` set; anti-forgery from `CreateBlankAddress`. Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveAddressForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -368,7 +406,7 @@ const dataAddressPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse(addressSaveOutcomeSchema, {
+  responses: dataEntityPostResponse(addressSaveOutcomeSchema, addressSaveDryRunSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 5,
@@ -381,7 +419,12 @@ const dataAddressPostRoute = createRoute({
 dataEntityRoutes.openapi(dataAddressPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataAddress({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataAddress(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });
 
 const dataContainerPostRoute = createRoute({
@@ -393,8 +436,9 @@ const dataContainerPostRoute = createRoute({
   tags: ["data-entity"],
   summary: "Create/update container in Routeware + sync D1",
   description:
-    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body).",
+    "Proxies to `Container/SaveContainerForm` with **application/x-www-form-urlencoded**. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. New container: `ContainerID=0` and `PickupAddressID`; `CustomerID` optional (resolved from D1 address row). Response: `ok`, `routewareStatus`, `customerId`, `pickupAddressId`, `containerId`, `upstreamBytes`, `localSync` (ids + fixed `code` outcomes only — no submitted fields, no upstream body). Pass `?dryRun=true` to validate only — same admission and validation, zero upstream/D1/cache writes, `dryRun: true` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only `dryRun` is an allowed query key.",
   request: {
+    query: dryRunQuery,
     body: {
       description: "SaveContainerForm fields — token injected server-side when omitted (see example)",
       content: {
@@ -415,7 +459,7 @@ const dataContainerPostRoute = createRoute({
       }
     }
   },
-  responses: dataEntityPostResponse(containerSaveOutcomeSchema, {
+  responses: dataEntityPostResponse(containerSaveOutcomeSchema, containerSaveDryRunSchema, {
     ok: true,
     routewareStatus: 200,
     customerId: 345734,
@@ -429,5 +473,10 @@ const dataContainerPostRoute = createRoute({
 dataEntityRoutes.openapi(dataContainerPostRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
-  return handlePostDataContainer({ env: c.env, var: c.var, req: c.req });
+  const unknown = rejectUnknownQueryKeys(c, saveQueryKeys);
+  if (unknown) return unknown;
+  return handlePostDataContainer(
+    { env: c.env, var: c.var, req: c.req },
+    { dryRun: isDryRunRequested(c.req.valid("query")) }
+  );
 });

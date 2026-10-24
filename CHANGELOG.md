@@ -8,11 +8,25 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 - #360: Entity-save outcomes: served OpenAPI now types the customer/address/container
   save envelopes and shared done-discriminated `localSync` with fixed failure
   codes. Synthetic examples distinguish refreshed graphs, accepted writes with
-  failed/skipped refresh, and upstream rejection even on HTTP 200. Read `ok`
-  and `localSync` separately; never blindly replay ambiguous creates. Runtime
+  failed/skipped refresh, upstream rejection even on HTTP 200, and the existing
+  validation-only dry-run envelope. HTTP 503 documents both forwarded JSON and
+  dry-run precondition problems. Read `dryRun`, `ok` and `localSync` separately;
+  never blindly replay ambiguous creates. Runtime
   payloads/statuses, forwarding, auth and cache behavior are unchanged.
   See `docs/CONSUMER-QUICKSTART.md` for recovery guidance and the hermetic
   schema-vs-runtime check.
+
+- #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
+  to validate a save — form fields plus session health — without persisting
+  anything: no upstream POST, no D1 write, no cache invalidation, no login. A
+  dry-pass answers HTTP 200 with `dryRun: true`, `routewareStatus: null`,
+  `upstreamBytes: 0`, posted ids only and `localSync.not_attempted`;
+  validation failures return the identical 400/502 shapes as live. Without a
+  usable session the dry-run fails closed with 503 `failed-precondition`.
+  Only `dryRun` is an allowed query key (anything else is a value-free 400
+  after authentication);
+  an omitted flag or `?dryRun=false` writes exactly as before. Recipe:
+  `docs/CONSUMER-QUICKSTART.md`; problem pointers: `docs/PROBLEMS.md`.
 
 - #349: Every save-path error line in the customer, address and container
   flows now carries the once-per-request `requestId` adopted from inbound
