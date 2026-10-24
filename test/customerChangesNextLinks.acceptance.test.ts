@@ -247,6 +247,60 @@ describe("customer changes: follow the server-supplied composite next link", () 
     const second = await page(target);
     expect(second.body.rows.map((row) => row.customer_id)).toEqual([9203]);
   });
+
+  it("carries the validated fields selector in Link and keeps three-key targets without fields", async () => {
+    // Without fields: three-key target byte-identical to the pre-fields contract.
+    const full = await page({ limit: "1" });
+    const fullTarget = next(full, { since: ZERO, since_id: 9201 }, 1);
+    expect([...fullTarget.searchParams.keys()].sort()).toEqual(["limit", "since", "since_id"]);
+
+    // With fields: sparse page advertises a four-key Link carrying the validated selector.
+    const sparse = await request({ limit: "1", fields: "company_name" });
+    expect(sparse.response.status).toBe(200);
+    metadata(sparse.response);
+    expect(sparse.response.headers.get("content-type")).toContain("application/json");
+    const sparseBody = (await sparse.response.json()) as Body;
+    expect(Object.keys(sparseBody).sort()).toEqual(["nextCursor", "rows", "total"]);
+    expect(sparseBody.total).toBe(1);
+    expect(sparseBody.nextCursor).toEqual({ since: ZERO, since_id: 9201 });
+    expect(sparseBody.rows).toHaveLength(1);
+    expect(sparseBody.rows[0].customer_id).toBe(9201);
+    expect(Object.keys(sparseBody.rows[0]).sort()).toEqual(["company_name", "customer_id"]);
+    expect(sparse.recorder.prepared).toHaveLength(1);
+    expect(sparse.recorder.statements).toHaveLength(1);
+    expect(sparse.recorder.statements[0].method).toBe("all");
+    expect(sparse.recorder.statements[0].sql).not.toMatch(/\bCOUNT\s*\(/i);
+
+    const link = sparse.response.headers.get("link");
+    expect(link, "sparse non-null cursor requires a relative rel=next Link").not.toBeNull();
+    expect(link).toMatch(/^<\/api\/v1\/customer-snapshot\/changes\?[^<>\s]*>; rel="next"$/);
+    const raw = /^<([^>]+)>; rel="next"$/.exec(link!)![1];
+    expect(raw, "timestamp must be percent-encoded in the URL").toContain("%3A");
+    const target = new URL(raw, sparse.url);
+    expect(target.origin).toBe(sparse.url.origin);
+    expect(target.pathname).toBe(PATH);
+    expect([...target.searchParams.keys()].sort()).toEqual(["fields", "limit", "since", "since_id"]);
+    expect(target.searchParams.get("fields")).toBe("company_name");
+    expect(target.searchParams.get("limit")).toBe("1");
+    expect(target.searchParams.get("since")).toBe(ZERO);
+    expect(target.searchParams.get("since_id")).toBe("9201");
+
+    // Following the advertised target returns sparse rows with the same projection.
+    const followed = await request(target);
+    expect(followed.response.status).toBe(200);
+    metadata(followed.response);
+    const followedBody = (await followed.response.json()) as Body;
+    expect(followedBody.rows.map((row) => row.customer_id)).toEqual([9203]);
+    expect(followedBody.total).toBe(1);
+    for (const row of followedBody.rows) {
+      expect(Object.keys(row).sort()).toEqual(["company_name", "customer_id"]);
+    }
+    const followedLink = followed.response.headers.get("link");
+    expect(followedLink, "followed sparse page with non-null cursor keeps Link").not.toBeNull();
+    const followedTarget = new URL(/^<([^>]+)>; rel="next"$/.exec(followedLink!)![1], followed.url);
+    expect([...followedTarget.searchParams.keys()].sort()).toEqual(["fields", "limit", "since", "since_id"]);
+    expect(followedTarget.searchParams.get("fields")).toBe("company_name");
+  });
 });
 
 describe("customer changes: unchanged wire and database controls", () => {
