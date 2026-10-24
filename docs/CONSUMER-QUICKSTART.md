@@ -666,6 +666,33 @@ status code. Anti-forgery preparation failures return `502` problem+json,
 but a forwarded failure can also return `502` with the ordinary `ok:false`
 save envelope. See the [502 recipe](#502-and-other-upstream-failures-distinguish-them-from-client-authentication).
 
+### Dry-run recipe: validate, fix, save
+
+Append `?dryRun=true` to any of the three saves to validate — form fields
+plus session health — without risking a non-idempotent create landing
+upstream. Nothing is persisted: no upstream POST, no D1 write, no cache
+invalidation, no login.
+
+```bash
+# 1. Validate (HTTP 200: dryRun: true, routewareStatus: null, upstreamBytes: 0)
+curl -X POST "http://localhost:8787/api/v1/data/customer?dryRun=true" \
+  -H "Authorization: Bearer $SYNC" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "CustomerID=0" \
+  --data-urlencode "CustomerTypeID=1" \
+  --data-urlencode "CompanyName=ExampleCo"
+# 2. Fix whatever 400/502 the dry-run reports (identical shapes to the live path)
+# 3. Save for real: drop the flag — or pass ?dryRun=false — and re-POST the body
+```
+
+Without a usable session the dry-run fails closed with 503
+`failed-precondition` and never logs in — run a live request first. Only
+`dryRun` is an allowed query key; after sync-secret authentication succeeds,
+anything else is a value-free 400. Missing or invalid authentication retains
+precedence over unknown-key rejection.
+`routewareStatus` is unknowable without posting and is never predicted.
+Run the hermetic proof: `npm run check:save-dry-run`.
+
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
 Routeware WebRW exposes no hard delete, so the API documents that instead of
