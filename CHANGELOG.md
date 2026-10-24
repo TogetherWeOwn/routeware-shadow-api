@@ -17,6 +17,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `docs/CONSUMER-QUICKSTART.md` and `docs/PROBLEMS.md`; pinned by
   `test/batchHydratedReadIds.acceptance.test.ts`.
 
+- #362: `GET /api/v1/address-snapshot` accepts exact `routeId` and opaque,
+  case-sensitive `franchiseId` scopes, intersected by AND with existing filters.
+  Route zero is literal; franchise leading zeros and nonblank whitespace are
+  significant (1..100 Unicode code points). Invalid/repeated scopes reject
+  before D1 with value-free guidance. Next links preserve encoded scopes;
+  pagination, projection, count-free and conditional reads remain compatible.
+  No new endpoint, index, migration, access or write behavior. Synthetic recipe:
+  `npm run check:address-scope` and `docs/CONSUMER-QUICKSTART.md`.
+
+- Follow-up to #343: Customer changes-feed GET now returns optional `Link: <relative-target>; rel="next"`
+  exactly when its composite `nextCursor` is non-null. The fixed-path target
+  replaces `since` and `since_id` together and retains the validated effective
+  limit, without reflecting unknown keys, origins or credentials. JSON bytes,
+  SQL/binds and query counts are unchanged; a full terminal page can link to
+  an empty page. Existing CORS exposure includes Link; mounted OpenAPI and
+  the consumer quickstart document the contract and safe synthetic traversal.
+  Check: `npm run check:customer-changes-next-links`.
+
 - #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
   creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
   resolved `pickupAddressId` / `containerId`: upstream

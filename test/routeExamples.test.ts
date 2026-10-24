@@ -281,7 +281,8 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +3 for the batch `ids` param on the three data-entity GETs.
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
     // +3 for fields on the three hydrated single-ID GETs;
-    // +3 for order on the customer, address and container snapshot lists;
+    // +3 for order on the three ordinary lists;
+    // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
     // +1 for table on the latest-pointer readback.
     expect(checked).toBe(69);
