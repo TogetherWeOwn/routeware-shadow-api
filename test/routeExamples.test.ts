@@ -422,9 +422,10 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
     // +1 for fields on the customer changes feed;
-    // +2 for serialNumber and rfid on the container snapshot list.
+    // +2 for serialNumber and rfid on the container snapshot list;
+    // +3 for upperId on the customer, address and container snapshot lists;
     // +9 for per-type bundle selectors (fields[customer|address|container]) on the three data-entity GETs.
-    expect(checked).toBe(87);
+    expect(checked).toBe(90);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
