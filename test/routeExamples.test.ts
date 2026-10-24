@@ -427,8 +427,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
     // +1 for fields on the customer changes feed;
-    // +2 for serialNumber and rfid on the container snapshot list.
-    expect(checked).toBe(85);
+    // +2 for serialNumber and rfid on the container snapshot list;
+    // +3 for upperId on the customer, address and container snapshot lists.
+    expect(checked).toBe(88);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
