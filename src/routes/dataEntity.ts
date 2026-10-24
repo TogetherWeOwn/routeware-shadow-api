@@ -247,7 +247,29 @@ function dataEntityPostResponse(schema: z.ZodType, example: EntitySaveOutcome): 
     401: { description: "Unauthorized" },
     502: {
       description:
-        "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim."
+        "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection uses the JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Neither is a success claim.",
+      content: {
+        "application/json": { schema },
+        "application/problem+json": {
+          schema: {
+            type: "object",
+            required: ["type", "title", "status"],
+            properties: {
+              type: { type: "string" },
+              title: { type: "string" },
+              status: { type: "integer" },
+              detail: { type: "string" },
+              instance: { type: "string" },
+              requestId: { type: "string" }
+            }
+          }
+        }
+      }
+    },
+    default: {
+      description:
+        "Forwarded upstream rejection with its original status and the JSON save-outcome envelope: ok=false and localSync.code=not_attempted. Not a success claim.",
+      content: { "application/json": { schema } }
     }
   };
 }
