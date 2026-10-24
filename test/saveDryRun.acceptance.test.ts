@@ -72,6 +72,7 @@ const TOKEN_HTML =
 type Work = {
   upstreamSaves: string[];
   upstreamModals: string[];
+  upstreamModalCookies: string[];
   loginPosts: number;
   detailFetches: number;
   syncs: number[];
@@ -84,6 +85,7 @@ type Work = {
 const work: Work = {
   upstreamSaves: [],
   upstreamModals: [],
+  upstreamModalCookies: [],
   loginPosts: 0,
   detailFetches: 0,
   syncs: [],
@@ -96,6 +98,7 @@ const work: Work = {
 const upstreamBehavior = {
   modalStatus: 200,
   modalNoToken: false,
+  modalLoginChallenge: false,
   saveStatus: 200,
   saveBody: '{"success":true}',
   challengeCookieless: false
@@ -276,7 +279,11 @@ async function fakeUpstream(input: RequestInfo | URL, init?: RequestInit): Promi
   }
   if (MODAL_PATHS.has(url.pathname)) {
     work.upstreamModals.push(`${method} ${url.pathname}`);
-    if (upstreamBehavior.challengeCookieless && !hasSession) {
+    work.upstreamModalCookies.push(headers.get("cookie") ?? "");
+    if (
+      (upstreamBehavior.modalLoginChallenge && method === "GET") ||
+      (upstreamBehavior.challengeCookieless && !hasSession)
+    ) {
       return new Response("login", {
         status: 302,
         headers: { location: "/WebRW/Account/Login?returnUrl=%2F" }
@@ -317,6 +324,7 @@ async function fakeUpstream(input: RequestInfo | URL, init?: RequestInit): Promi
 function resetWork(): void {
   work.upstreamSaves.length = 0;
   work.upstreamModals.length = 0;
+  work.upstreamModalCookies.length = 0;
   work.loginPosts = 0;
   work.detailFetches = 0;
   work.syncs.length = 0;
@@ -326,6 +334,7 @@ function resetWork(): void {
   work.establishCalls = 0;
   upstreamBehavior.modalStatus = 200;
   upstreamBehavior.modalNoToken = false;
+  upstreamBehavior.modalLoginChallenge = false;
   upstreamBehavior.saveStatus = 200;
   upstreamBehavior.saveBody = '{"success":true}';
   upstreamBehavior.challengeCookieless = false;
@@ -738,6 +747,30 @@ describe("save dry-run: no-session fail-closed 503", () => {
     const body = (await res.json()) as { type: string; status: number };
     expect(body.type).toBe(BAD_REQUEST);
     expect(body.status).toBe(400);
+    expectZeroEffects();
+  });
+});
+
+describe("save dry-run: mid-prep session expiry never logs in", () => {
+  const cases: Array<[EntityKind, string]> = [
+    ["customer", "GET /WebRW/Customer/LoadLongCustomerModal"],
+    ["address", "GET /WebRW/PickupAddress/LoadAddressModal"],
+    ["container", "GET /WebRW/Container/LoadContainerModal"]
+  ];
+
+  it.each(cases)("%s dry fails closed when a stored cookie is challenged by the modal", async (kind, modal) => {
+    sessionBehavior.mode = "valid";
+    upstreamBehavior.modalLoginChallenge = true;
+
+    // No client token: prep must fetch the modal with the stored cookie.
+    const res = await postSave(kind, "?dryRun=true", UPDATE_BODIES[kind]);
+    expect(res.status).toBe(502);
+    expect(res.headers.get("content-type")).toContain("application/problem+json");
+    const body = (await res.json()) as { type: string; status: number };
+    expect(body.type).toBe(BAD_GATEWAY);
+    expect(body.status).toBe(502);
+    expect(work.upstreamModals).toEqual([modal]);
+    expect(work.upstreamModalCookies).toEqual(["session=FAKE"]);
     expectZeroEffects();
   });
 });
