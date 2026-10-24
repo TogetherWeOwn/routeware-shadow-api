@@ -342,12 +342,32 @@ describe.each(["customerNumber", "subCustomerNumber"] as const)("%s validation a
     expect(recorder.reads).toEqual([]);
   });
 
-  it.each([null, "wrong-synthetic-token"])("authenticates before validating or touching D1 (token=%s)", async (token) => {
+  it.each([null, "wrong-synthetic-token"])("authenticates before validation, D1 or wildcard conditional success (token=%s)", async (token) => {
     const denied = forbiddenDb();
-    const { response } = await request({ [key]: "" }, { token, db: denied.db });
+    const { response } = await request({ [key]: "" }, { token, db: denied.db, headers: { "if-none-match": "*" } });
     expect(response.status).toBe(401);
     expect(await response.json()).toMatchObject({ type: problemType("unauthorized"), status: 401 });
     expect(denied.fail).not.toHaveBeenCalled();
+  });
+
+  it.each(["*", "exact"])("validates before a warm conditional read (%s)", async (condition) => {
+    const warm = await request({ limit: "1" });
+    expect(warm.response.status).toBe(200);
+    // Hash served bytes independently so this also runs on the pre-validator
+    // baseline; newer implementations must not let an exact/wildcard 304 hide
+    // ignored invalid account input. No production hash helper is the oracle.
+    const bytes = await warm.response.text();
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(bytes));
+    const tag = `"${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}"`;
+    const { response, recorder } = await request({ [key]: "", limit: "1" }, {
+      headers: { "if-none-match": condition === "*" ? "*" : tag }
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("etag")).toBeNull();
+    expect(await response.json()).toMatchObject({ type: problemType("bad-request"), status: 400,
+      detail: `Invalid request query (${key}). See docs/PROBLEMS.md#bad-request.` });
+    expect(recorder.prepared).toEqual([]);
+    expect(recorder.reads).toEqual([]);
   });
 
   it("lets the valid read token reach a value-free 400 before D1", async () => {
