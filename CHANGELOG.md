@@ -14,6 +14,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   their existing validator 400s. GET lists keep ignoring unknown names. See
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and `docs/PROBLEMS.md#bad-request`.
 
+- #349: Every save-path error line in the customer, address and container
+  flows now carries the once-per-request `requestId` adopted from inbound
+  `X-Request-Id` or minted as a UUID (#338): data-tier local-sync and
+  fallback-eviction failures, routeware refresh and invalidation failures,
+  and save token-preparation failures. One header value joins a save attempt
+  to its server-side failure lines and outcome code. Route-level response
+  bodies are unchanged (header correlation only); valid saves emit no new
+  lines. See `docs/LOGGING.md`.
+
 - Follow-up to #333 and #342: mounted OpenAPI `fields` string schemas on the
   six flat snapshot list/by-id reads and three hydrated single-ID reads now
   publish `x-snapshot-fieldset` v1: registry-derived selectable names, mandatory

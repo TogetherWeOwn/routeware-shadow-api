@@ -7,7 +7,7 @@ import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
-import { logEvent } from "../lib/logger";
+import { logEvent, requestIdField } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -230,6 +230,9 @@ const customerSaveLongFormRoute = createRoute({
 
 customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   const rawBody = c.var.bodyBuffer;
+  // Once-per-request correlation for the token-preparation line and the
+  // post-save refresh below; read once, never re-parsed or re-minted.
+  const requestId = c.var.requestId;
   if (!rawBody || rawBody.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -277,7 +280,8 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     logEvent({
       level: "error",
       msg: "Customer save token preparation failed",
-      route: "POST /api/v1/routeware/customer/save-long-form"
+      route: "POST /api/v1/routeware/customer/save-long-form",
+      ...requestIdField(requestId)
     });
     const msg = cause instanceof Error ? cause.message : String(cause);
     return problemJsonResponse({
@@ -297,7 +301,7 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     // data-entity cache, or shadow reads keep serving the pre-save record.
     // Never throws: a local refresh failure must not turn the passthrough 200
     // into a 500 (the save itself succeeded upstream).
-    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "customer", bodyBuffer, upText);
+    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "customer", bodyBuffer, upText, requestId);
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
