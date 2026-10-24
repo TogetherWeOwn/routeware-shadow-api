@@ -21,9 +21,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ceiling, updates and deletions remain visible, with no snapshot isolation,
   exact-once or watermark promises. Synthetic resume example:
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
-  `npm run check:snapshot-upper-id`. Update Zod from 4.3.6 to 4.6.7 to fix
-  GHSA-mrhx-c7xc-m3w5 (oversized constrained-collection memory exhaustion)
-  without changing the dependency audit gate or its allowlist.
+  `npm run check:snapshot-upper-id`.
 - #351: Hydrated single-ID
   `GET /api/v1/data/customer|address|container` accepts optional per-type
   `fields[customer]`, `fields[address]` and `fields[container]` selectors from
