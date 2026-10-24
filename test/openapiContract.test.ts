@@ -66,6 +66,7 @@ const EXPECTED_OPERATIONS = [
   "GET /api/v1/routeware/home/index",
   "GET /api/v1/routeware/reports/query-request-is-complete",
   "GET /api/v1/shadow/health",
+  "GET /api/v1/snapshots/{table}/latest",
   "GET /api/v1/snapshots/{table}/{date}",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
