@@ -1,9 +1,13 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import {
+  csvBasename,
+  isSnapshotManifest,
   listSnapshotArchiveDatesForTable,
   SNAPSHOT_DATE_LIST_SCAN_BUDGET,
-  type SnapshotArchiveDateListing
+  snapshotR2LatestObjectKey,
+  type SnapshotArchiveDateListing,
+  type SnapshotArchiveTable
 } from "../lib/r2SnapshotArchive";
 import {
   measureSpreadsheetSafeCsv,
@@ -26,6 +30,12 @@ import { createRouteModule, requireSnapshotAuth } from "./shared";
  * Gated on `CUSTOMER_SNAPSHOT_SYNC_SECRET` like the other snapshot-secret
  * routes; a missing key is 404 problem+json (an absent archive must stay
  * distinguishable from a failed one).
+ *
+ * `GET /api/v1/snapshots/{table}/latest` resolves the per-table
+ * `snapshot-latest/{table}.json` pointer instead of taking a date, then serves
+ * the referenced history CSV through the same `serveSpreadsheetSafeArchive`
+ * helper, so its bytes, ETag and 304 behavior are identical to downloading
+ * that date explicitly.
  */
 export const snapshotArchiveRoutes = createRouteModule();
 
@@ -82,6 +92,58 @@ const snapshotArchiveRoute = createRoute({
   }
 });
 
+const snapshotLatestArchiveRoute = createRoute({
+  method: "get",
+  path: "/api/v1/snapshots/{table}/latest",
+  operationId: "getSnapshotLatestArchive",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
+  tags: ["data-snapshot"],
+  summary: "Download the latest archived snapshot CSV from R2",
+  description:
+    "Streams the newest Routeware CSV archived to R2 for one table, resolved through the `snapshot-latest/{table}.json` pointer the sync leg republishes after every archive — no date discovery needed. The referenced history CSV is re-encoded exactly as the explicit-date download re-encodes it: records are split as the importer splits them, blank data records are dropped as its row parsers drop them, and each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a `_shadow_csv_encoding` column with value `1` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. Returns 404 when the pointer or the CSV it names is missing, 500 when the pointer is unreadable. The ETag is a content hash of the served bytes, and `If-None-Match` with the current tag returns 304. Operators compare the download with a fresh `...-snapshot/export` by business values, not bytes.",
+  request: {
+    params: z.object({
+      table: z.enum(["customer", "address", "container"]).openapi({ example: "customer" })
+    })
+  },
+  responses: {
+    200: {
+      description: "Latest archive re-encoded for spreadsheets (synthetic customer-report excerpt)",
+      content: {
+        "text/csv": {
+          schema: z.string(),
+          example: "CustomerID,CompanyName,Enabled,_shadow_csv_encoding\n345734,ExampleCo,true,1\n"
+        }
+      }
+    },
+    304: {
+      description: "`If-None-Match` matched the current content ETag; empty body"
+    },
+    400: {
+      description:
+        "Invalid table (application/problem+json). The zod validator rejects anything outside the `customer|address|container` enum before any R2 read runs."
+    },
+    401: { description: "Unauthorized" },
+    404: {
+      description:
+        "No latest pointer or no referenced archive for that table, including one deleted during the download (application/problem+json)"
+    },
+    409: {
+      description:
+        "The archive was replaced between the two reads of one download (application/problem+json). Retry the download."
+    },
+    500: {
+      description:
+        "The latest pointer is unreadable (application/problem+json). Re-run the table sync to republish it."
+    },
+    503: {
+      description:
+        "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound."
+    }
+  }
+});
+
 function archiveNotFound(url: string, table: string, date: string) {
   return problemJsonResponse({
     type: problemType("not-found"),
@@ -92,28 +154,67 @@ function archiveNotFound(url: string, table: string, date: string) {
   });
 }
 
-snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
-  const denied = requireSnapshotAuth(c);
-  if (denied) return denied;
-  const { table, date } = c.req.valid("param");
-  const bucket = c.env.SNAPSHOTS;
-  if (!bucket) {
-    return problemJsonResponse({
-      type: problemType("misconfigured"),
-      title: "Service Unavailable",
-      status: 503,
-      detail:
-        "R2 snapshot archive is not configured (SNAPSHOTS binding unbound). See docs/PROBLEMS.md#misconfigured.",
-      instance: new URL(c.req.url).pathname
-    });
-  }
-  // Interpolated from the validated enum + date shape, never raw path text:
-  // identical to the writer's key in `src/lib/r2SnapshotArchive.ts`.
-  const key = `snapshots/${date}/${table}.csv`;
-  const obj = await bucket.get(key);
-  if (!obj) {
-    return archiveNotFound(c.req.url, table, date);
-  }
+function latestArchiveNotFound(url: string, table: string) {
+  return problemJsonResponse({
+    type: problemType("not-found"),
+    title: "Not Found",
+    status: 404,
+    detail: `No snapshot archive for table=${table}. See docs/PROBLEMS.md#not-found.`,
+    instance: new URL(url).pathname
+  });
+}
+
+function latestPointerUnreadable(url: string, table: string) {
+  return problemJsonResponse({
+    type: problemType("internal"),
+    title: "Internal Server Error",
+    status: 500,
+    detail:
+      `Snapshot latest pointer for table=${table} is unreadable. ` +
+      "Re-run the table sync to republish it. See docs/PROBLEMS.md#internal.",
+    instance: new URL(url).pathname
+  });
+}
+
+function archiveStoreUnavailable(url: string) {
+  return problemJsonResponse({
+    type: problemType("misconfigured"),
+    title: "Service Unavailable",
+    status: 503,
+    detail:
+      "R2 snapshot archive is not configured (SNAPSHOTS binding unbound). See docs/PROBLEMS.md#misconfigured.",
+    instance: new URL(url).pathname
+  });
+}
+
+type ArchiveServeContext = {
+  env: Env;
+  req: { header: (name: string) => string | undefined };
+  executionCtx: { waitUntil: (promise: Promise<unknown>) => void };
+};
+
+/**
+ * Shared spreadsheet-safe serving for both archive routes: the explicit-date
+ * download and the latest-pointer download produce byte-identical bodies,
+ * lengths and ETags for the same stored CSV. The 404/409 shapes stay per-route
+ * (the date route names its date; the latest route is table-only), so the
+ * caller supplies them.
+ */
+async function serveSpreadsheetSafeArchive(args: {
+  c: ArchiveServeContext;
+  bucket: R2Bucket;
+  /** Exact stored CSV key, for the conditional second read. */
+  key: string;
+  /** First read of the stored CSV. */
+  obj: R2ObjectBody;
+  /** Download filename (fixed per table, never client input). */
+  filename: string;
+  /** 404 for a mid-download deletion, in the caller's fixed shape. */
+  notFound: () => Response;
+  /** 409 for a mid-download replacement, in the caller's fixed shape. */
+  conflict: () => Response;
+}): Promise<Response> {
+  const { c, bucket, key, obj, filename, notFound, conflict } = args;
   // Content-Length and the ETag describe the re-encoded bytes, so the first
   // pass measures them. The second read is conditional on the stored ETag, so
   // a replaced archive cannot be streamed against the first pass's length.
@@ -126,23 +227,17 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   }
   const again = await bucket.get(key, { onlyIf: { etagMatches: obj.etag } });
   if (again === null) {
-    return archiveNotFound(c.req.url, table, date);
+    return notFound();
   }
   if (!("body" in again)) {
-    return problemJsonResponse({
-      type: problemType("conflict"),
-      title: "Conflict",
-      status: 409,
-      detail: `The snapshot archive for table=${table} date=${date} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
-      instance: new URL(c.req.url).pathname
-    });
+    return conflict();
   }
   const headers = new Headers();
   headers.set(
     "content-type",
     obj.httpMetadata?.contentType ?? "text/csv; charset=utf-8"
   );
-  headers.set("content-disposition", `attachment; filename="${table}-${date}.csv"`);
+  headers.set("content-disposition", `attachment; filename="${filename}"`);
   // A plain stream body makes workerd drop a hand-set Content-Length and send
   // chunked, so the re-encoded bytes go through a FixedLengthStream: the header
   // below then reaches the wire, and the runtime rejects any byte-count drift
@@ -156,6 +251,109 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
       .catch(() => undefined)
   );
   return new Response(readable, { status: 200, headers });
+}
+
+/**
+ * The stored CSV key named by a latest pointer, or `null` when the pointer is
+ * unreadable: not JSON, failing manifest validation, or missing this table's
+ * entry. The pointer's `sha256`/`bytes`/`date` fields are NOT re-verified —
+ * manifest integrity re-verification on read is out of scope — so a stale
+ * hash still serves.
+ */
+async function readLatestPointerCsvKey(
+  pointer: R2ObjectBody,
+  table: SnapshotArchiveTable
+): Promise<string | null> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await pointer.text());
+  } catch {
+    return null;
+  }
+  if (!isSnapshotManifest(parsed)) {
+    return null;
+  }
+  const entry = parsed.files[csvBasename(table)];
+  if (entry === undefined) {
+    return null;
+  }
+  return entry.key;
+}
+
+// Registered before the `{date}` route so the literal `latest` segment wins
+// over the `:date` param for `/api/v1/snapshots/{table}/latest` (the date
+// shape stays strict: `latest` is a dedicated route, never a magic date).
+snapshotArchiveRoutes.openapi(snapshotLatestArchiveRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  const { table } = c.req.valid("param");
+  const bucket = c.env.SNAPSHOTS;
+  if (!bucket) {
+    return archiveStoreUnavailable(c.req.url);
+  }
+  // The pointer key is interpolated from the validated enum, never raw path
+  // text; the CSV key below comes from the stored pointer, never the client.
+  const pointer = await bucket.get(snapshotR2LatestObjectKey(table));
+  if (!pointer) {
+    return latestArchiveNotFound(c.req.url, table);
+  }
+  const csvKey = await readLatestPointerCsvKey(pointer, table);
+  if (csvKey === null) {
+    return latestPointerUnreadable(c.req.url, table);
+  }
+  const obj = await bucket.get(csvKey);
+  if (!obj) {
+    return latestArchiveNotFound(c.req.url, table);
+  }
+  return serveSpreadsheetSafeArchive({
+    c,
+    bucket,
+    key: csvKey,
+    obj,
+    filename: `${table}-latest.csv`,
+    notFound: () => latestArchiveNotFound(c.req.url, table),
+    conflict: () =>
+      problemJsonResponse({
+        type: problemType("conflict"),
+        title: "Conflict",
+        status: 409,
+        detail: `The snapshot archive for table=${table} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
+        instance: new URL(c.req.url).pathname
+      })
+  });
+});
+
+snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
+  const denied = requireSnapshotAuth(c);
+  if (denied) return denied;
+  const { table, date } = c.req.valid("param");
+  const bucket = c.env.SNAPSHOTS;
+  if (!bucket) {
+    return archiveStoreUnavailable(c.req.url);
+  }
+  // Interpolated from the validated enum + date shape, never raw path text:
+  // identical to the writer's key in `src/lib/r2SnapshotArchive.ts`.
+  const key = `snapshots/${date}/${table}.csv`;
+  const obj = await bucket.get(key);
+  if (!obj) {
+    return archiveNotFound(c.req.url, table, date);
+  }
+  return serveSpreadsheetSafeArchive({
+    c,
+    bucket,
+    key,
+    obj,
+    filename: `${table}-${date}.csv`,
+    notFound: () => archiveNotFound(c.req.url, table, date),
+    conflict: () =>
+      problemJsonResponse({
+        type: problemType("conflict"),
+        title: "Conflict",
+        status: 409,
+        detail: `The snapshot archive for table=${table} date=${date} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
+        instance: new URL(c.req.url).pathname
+      })
+  });
 });
 
 /**
