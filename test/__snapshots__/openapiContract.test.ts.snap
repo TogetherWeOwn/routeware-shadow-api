@@ -2330,7 +2330,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`pickupAddressId\` — upstream \`data.PickupAddressID\` first, else the singleton post-refresh D1 id for the owning customer; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
         "parameters": [
           {
             "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
@@ -2394,7 +2394,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                     "done": true,
                   },
                   "ok": true,
-                  "pickupAddressId": null,
+                  "pickupAddressId": 10,
                   "routewareStatus": 200,
                   "upstreamBytes": 16,
                 },
@@ -2402,6 +2402,32 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "customerId": 5,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                      77,
+                    ],
+                    "containerIds": [
+                      100,
+                    ],
+                    "customerId": 5,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": 77,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 46,
+                },
+                "schema": {},
+              },
+            },
+            "description": "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
@@ -2570,7 +2596,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`containerId\` — upstream \`data.ContainerID\` first, else the singleton post-refresh D1 id scoped to the owning address; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence). Pass \`?dryRun=true\` to validate only — same admission and validation, zero upstream/D1/cache writes, \`dryRun: true\` in the response; without a usable session the dry-run fails closed with 503 and never logs in. Only \`dryRun\` is an allowed query key.",
         "parameters": [
           {
             "description": "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. Mutating snapshot POSTs reject any other query key with a value-free 400 before any work.",
@@ -2621,7 +2647,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "content": {
               "application/json": {
                 "example": {
-                  "containerId": null,
+                  "containerId": 100,
                   "customerId": 345734,
                   "localSync": {
                     "addressIds": [
@@ -2642,6 +2668,33 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "containerId": 177,
+                  "customerId": 345734,
+                  "localSync": {
+                    "addressIds": [
+                      10,
+                    ],
+                    "containerIds": [
+                      100,
+                      177,
+                    ],
+                    "customerId": 345734,
+                    "done": true,
+                  },
+                  "ok": true,
+                  "pickupAddressId": 10,
+                  "routewareStatus": 200,
+                  "upstreamBytes": 43,
+                },
+                "schema": {},
+              },
+            },
+            "description": "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
@@ -3752,6 +3805,67 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         "summary": "Shadow API liveness probe (versioned, staging slice)",
         "tags": [
           "shadow",
+        ],
+      },
+    },
+    "/api/v1/snapshots/{table}/latest": {
+      "get": {
+        "description": "Streams the newest Routeware CSV archived to R2 for one table, resolved through the \`snapshot-latest/{table}.json\` pointer the sync leg republishes after every archive — no date discovery needed. The referenced history CSV is re-encoded exactly as the explicit-date download re-encodes it: records are split as the importer splits them, blank data records are dropped as its row parsers drop them, and each cell is trimmed and escaped as the export escapes it (a formula-leading cell gets an apostrophe inside quotes; plain numbers are unchanged), and a \`_shadow_csv_encoding\` column with value \`1\` follows the archived columns on every row. Rows end in LF. The stored object is not modified. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. Returns 404 when the pointer or the CSV it names is missing, 500 when the pointer is unreadable. The ETag is a content hash of the served bytes, and \`If-None-Match\` with the current tag returns 304. Operators compare the download with a fresh \`...-snapshot/export\` by business values, not bytes.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table",
+            "required": true,
+            "schema": {
+              "enum": [
+                "customer",
+                "address",
+                "container",
+              ],
+              "example": "customer",
+              "type": "string",
+            },
+          },
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {
+                "example": "CustomerID,CompanyName,Enabled,_shadow_csv_encoding
+345734,ExampleCo,true,1
+",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+            "description": "Latest archive re-encoded for spreadsheets (synthetic customer-report excerpt)",
+          },
+          "304": {
+            "description": "\`If-None-Match\` matched the current content ETag; empty body",
+          },
+          "400": {
+            "description": "Invalid table (application/problem+json). The zod validator rejects anything outside the \`customer|address|container\` enum before any R2 read runs.",
+          },
+          "401": {
+            "description": "Unauthorized",
+          },
+          "404": {
+            "description": "No latest pointer or no referenced archive for that table, including one deleted during the download (application/problem+json)",
+          },
+          "409": {
+            "description": "The archive was replaced between the two reads of one download (application/problem+json). Retry the download.",
+          },
+          "500": {
+            "description": "The latest pointer is unreadable (application/problem+json). Re-run the table sync to republish it.",
+          },
+          "503": {
+            "description": "R2 archive not configured (application/problem+json). The SNAPSHOTS binding is unbound.",
+          },
+        },
+        "summary": "Download the latest archived snapshot CSV from R2",
+        "tags": [
+          "data-snapshot",
         ],
       },
     },

@@ -63,3 +63,76 @@ export function parseCustomerIdFromSaveResponse(
   }
   return null;
 }
+
+/** Skip invalid candidates rather than masking a valid id in another JSON field. */
+function firstPositiveSafeId(candidates: unknown[]): number | null {
+  for (const value of candidates) {
+    const id = typeof value === "number"
+      ? value
+      : typeof value === "string" && value.length > 0 && !/[^0-9]/.test(value)
+        ? Number(value)
+        : Number.NaN;
+    if (Number.isSafeInteger(id) && id > 0) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolves the Routeware address id after save (update uses posted id; create may only appear in JSON).
+ *
+ * Address analogue of `parseCustomerIdFromSaveResponse`: the upstream field is
+ * `data.PickupAddressID` (positive numbers only). When upstream carries no id,
+ * callers fall back to the post-refresh D1 diff instead of probing further.
+ */
+export function parseAddressIdFromSaveResponse(
+  posted: Record<string, string>,
+  upstreamText: string
+): number | null {
+  const fromPost = Number.parseInt(posted.PickupAddressID ?? "0", 10);
+  if (Number.isFinite(fromPost) && fromPost > 0) {
+    return fromPost;
+  }
+  try {
+    const j = JSON.parse(upstreamText) as Record<string, unknown>;
+    const data = (typeof j.data === "object" && j.data !== null
+      ? j.data
+      : j) as Record<string, unknown>;
+    return firstPositiveSafeId([
+      data.PickupAddressID, data.pickupAddressID, j.PickupAddressID, j.pickupAddressID, j.pickupAddressId
+    ]);
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
+ * Resolves the Routeware container id after save (update uses posted id; create may only appear in JSON).
+ *
+ * Container analogue of `parseCustomerIdFromSaveResponse`: the upstream field
+ * is `data.ContainerID` (positive numbers only). When upstream carries no id,
+ * callers fall back to the post-refresh D1 diff instead of probing further.
+ */
+export function parseContainerIdFromSaveResponse(
+  posted: Record<string, string>,
+  upstreamText: string
+): number | null {
+  const fromPost = Number.parseInt(posted.ContainerID ?? "0", 10);
+  if (Number.isFinite(fromPost) && fromPost > 0) {
+    return fromPost;
+  }
+  try {
+    const j = JSON.parse(upstreamText) as Record<string, unknown>;
+    const data = (typeof j.data === "object" && j.data !== null
+      ? j.data
+      : j) as Record<string, unknown>;
+    return firstPositiveSafeId([
+      data.ContainerID, data.containerID, j.ContainerID, j.containerID, j.containerId
+    ]);
+  } catch {
+    // ignore
+  }
+  return null;
+}
