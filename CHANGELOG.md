@@ -33,6 +33,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   printed. Redirects are refused and no retries are added. Output is bounded,
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+- #344: Snapshot customer, address and container lists accept exact `order=asc|desc`
+  (default `asc`). `desc` starts at the highest primary ID and seeks below
+  `cursor`; IDs do not promise chronological recency. Direction composes with
+  filters, `fields`, `includeTotal=false`, cursor-over-offset precedence and
+  follow-next targets. Keep order with the cursor; changing direction starts
+  a new traversal.
+  No endpoint or migration added. Check: `npm run check:snapshot-order`.
 
 - #347: Conditional snapshot JSON reads: customer, address and container lists return
   quoted SHA-256 ETags for the final projected JSON envelope and an empty 304
