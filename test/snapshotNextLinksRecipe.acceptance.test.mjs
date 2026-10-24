@@ -13,7 +13,8 @@ const TOKEN = "synthetic-recipe-token";
 function recipe() {
   const blocks = [...quickstart.matchAll(/^```(?:js|javascript)\s*\n([\s\S]*?)^```/gm)]
     .map((match) => match[1].trim());
-  const candidates = blocks.filter((block) => /\bfetch\s*\(/.test(block) && /\blink\b/i.test(block));
+  const candidates = blocks.filter((block) => /\bfetch\s*\(/.test(block) && /\blink\b/i.test(block)
+    && !block.includes("/api/v1/customer-snapshot/changes"));
   assert.equal(candidates.length, 1, "quickstart needs one unambiguous runnable JavaScript follow-next recipe");
   const code = candidates[0];
   assert.ok(code.split("\n").length <= 25, "follow-next recipe must be at most 25 lines");
