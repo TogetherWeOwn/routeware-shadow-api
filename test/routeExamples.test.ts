@@ -279,6 +279,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
     // +3 for the batch `ids` param on the three data-entity GETs.
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
+    // +3 for order on the three ordinary lists.
     // +3 for fields on the three hydrated single-ID GETs.
     expect(checked).toBe(62);
   });

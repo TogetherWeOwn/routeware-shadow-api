@@ -62,6 +62,19 @@ Validation happens before D1 and returns fixed, value-free guidance:
 The named field can instead be `since` (or multiple invalid fields); no
 submitted timestamp or id is echoed. Authentication still precedes validation.
 
+## Snapshot list direction (`bad-request`)
+
+For the three ordinary snapshot lists, send exactly one lowercase
+`order=asc` or `order=desc`, or omit `order` for ascending primary-ID order.
+Empty, repeated, case-mismatched, padded and other values are invalid.
+Keep the same direction when replaying `nextCursor`; changing direction
+starts a new traversal. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
+
+Validation happens after authentication and before D1, with fixed value-free
+guidance: `Invalid request query (order). See docs/PROBLEMS.md#bad-request.`
+No submitted value is echoed. Route-level problem bodies retain their shape;
+correlate the response using the `X-Request-Id` header.
+
 ## Sparse fieldsets (`bad-request`)
 
 For the snapshot lists and by-id reads, `fields=` must be a single
