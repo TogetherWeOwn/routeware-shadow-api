@@ -125,18 +125,22 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
 }
 
 /**
- * `?dryRun=true` query flag for the snapshot sync/import routes.
- * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
- * string (including `"false"`) to `true`, which would turn a cautious
- * `?dryRun=false` probe into a real write. Only the exact string `"true"`
- * dry-runs; anything else is rejected with the anchored 400 below.
+ * `?dryRun=true` query flag for the snapshot sync/import routes and the
+ * data-entity saves. An enum, not a coerced boolean: `z.coerce.boolean()`
+ * maps every non-empty string (including `"false"`) to `true`, which would
+ * turn a cautious `?dryRun=false` probe into a real write. Only the exact
+ * string `"true"` dry-runs; anything else is rejected with the anchored 400
+ * below. The object is intentionally non-strict: unknown keys pass the
+ * validator and are rejected after auth by the respective unknown-key
+ * guards below, so an inner 401 precedes an unknown-key 400 while an invalid
+ * `dryRun` value 400s first.
  */
 export const dryRunQuery = z.object({
   dryRun: z
     .enum(["true", "false"])
     .optional()
     .describe(
-      "Dry run: validate the CSV and return the would-be counts without writing D1 or R2. " +
+      "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. " +
         "Mutating snapshot POSTs reject any other query key with a value-free 400 before any work."
     )
     .openapi({ example: "true" })
@@ -204,6 +208,36 @@ export function rejectUnknownSnapshotPostQuery(
     detail:
       `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
       "See docs/PROBLEMS.md#bad-request.",
+    instance: new URL(c.req.url).pathname
+  });
+}
+
+/**
+ * Strict-query tail for routes whose zod query schema is non-strict on
+ * purpose: reject every raw query key outside `allowed` with a value-free
+ * 400 `bad-request` problem+json, or `null` when the query is clean.
+ *
+ * Call this AFTER `requireSnapshotAuth`: the validator already rejected bad
+ * values for known keys (validator-first 400s precede the inner 401), while
+ * unknown keys must 401 first for a wrong bearer and 400 only once
+ * authorized. Key names (never values) are echoed so a typo is actionable.
+ */
+export function rejectUnknownQueryKeys(
+  c: { env?: Env; req: { url: string } },
+  allowed: readonly string[]
+): Response | null {
+  const names = new Set(new URL(c.req.url).searchParams.keys());
+  const unknown = [...names].filter((name) => !allowed.includes(name)).sort();
+  if (unknown.length === 0) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail:
+      `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
+      `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
     instance: new URL(c.req.url).pathname
   });
 }
