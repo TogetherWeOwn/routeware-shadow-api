@@ -13,6 +13,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   index, uniqueness assumption, upstream call or count-free COUNT query. See
   `docs/CONSUMER-QUICKSTART.md` for the synthetic lookup-to-next-page recipe.
 
+- #360: Entity-save outcomes: served OpenAPI now types the customer/address/container
+  save envelopes and shared done-discriminated `localSync` with fixed failure
+  codes. Synthetic examples distinguish refreshed graphs, accepted writes with
+  failed/skipped refresh, upstream rejection even on HTTP 200, and the existing
+  validation-only dry-run envelope. Exact 400/401/502/503 and default error
+  responses distinguish forwarded JSON outcomes from local problem+json
+  failures. Read `dryRun`, `ok` and `localSync` separately;
+  never blindly replay ambiguous creates. Runtime
+  payloads/statuses, forwarding, auth and cache behavior are unchanged.
+  See `docs/CONSUMER-QUICKSTART.md` for recovery guidance and the hermetic
+  schema-vs-runtime check.
 - #363: Container snapshot lists accept optional `serialNumber` and `rfid` exact,
   case-sensitive filters (1..100 Unicode code points). Opaque values retain
   leading zeros and nonblank whitespace; invalid/repeated selectors return
@@ -62,7 +73,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   split with resolved-id examples; dry-run saves echo posted ids, live
   creates resolve or return `null`, and live updates echo case-exact posted
   ids. See `docs/CONSUMER-QUICKSTART.md`.
-
 - #354: `GET /api/v1/snapshots/{table}/latest` streams the newest R2-archived
   snapshot CSV for one table without naming its date, resolving the existing
   `snapshot-latest/{table}.json` pointer the sync leg republishes after every
