@@ -414,15 +414,15 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
     // +3 for the batch `ids` param on the three data-entity GETs.
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
-    // +3 for order on the three ordinary lists;
     // +3 for fields on the three hydrated single-ID GETs;
+    // +9 for fields[customer]/fields[address]/fields[container] on those GETs (R20-02);
+    // +3 for order on the customer, address and container snapshot lists;
     // +2 for routeId and franchiseId on the address snapshot list;
     // +3 for dryRun on the three data-entity POST saves;
     // +2 for table + limit on the archived-date listing;
     // +1 for table on the latest-pointer readback;
-    // +2 for serialNumber and rfid on the container snapshot list;
-    // +3 for upperId on the customer, address and container snapshot lists.
-    expect(checked).toBe(78);
+    // +2 for serialNumber and rfid on the container snapshot list.
+    expect(checked).toBe(84);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
