@@ -119,10 +119,17 @@ describe("consumer quickstart GET coverage", () => {
   });
 
   it("detects archive drift when only template references remain in the document", async () => {
-    const templateOnlyDoc = quickstart.replaceAll(
-      /\/api\/v1\/snapshots\/(?:customer|address|container)\/\d{4}-\d{2}-\d{2}/g,
-      "/api/v1/snapshots/{table}/{date}"
-    );
+    const templateOnlyDoc = quickstart
+      .replaceAll(
+        /\/api\/v1\/snapshots\/(?:customer|address|container)\/\d{4}-\d{2}-\d{2}/g,
+        "/api/v1/snapshots/{table}/{date}"
+      )
+      // The concrete latest-pointer URL would otherwise satisfy the
+      // `{table}/{date}` template too (both params match any segment).
+      .replaceAll(
+        /\/api\/v1\/snapshots\/(?:customer|address|container)\/latest/g,
+        "/api/v1/snapshots/{table}/latest"
+      );
     expect(templateOnlyDoc).not.toBe(quickstart);
     expect(templateOnlyDoc).toContain("GET /api/v1/snapshots/{table}/{date}");
 
