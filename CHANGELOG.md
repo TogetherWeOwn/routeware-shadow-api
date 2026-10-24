@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #343: Customer changes-feed GET now returns optional `Link: <relative-target>; rel="next"`
+  exactly when its composite `nextCursor` is non-null. The fixed-path target
+  replaces `since` and `since_id` together and retains the validated effective
+  limit, without reflecting unknown keys, origins or credentials. JSON bytes,
+  SQL/binds and query counts are unchanged; a full terminal page can link to
+  an empty page. Existing CORS exposure includes Link; mounted OpenAPI and
+  the consumer quickstart document the contract and safe synthetic traversal.
+  Check: `npm run check:customer-changes-next-links`.
+
 - Follow-up to #333 and #342: mounted OpenAPI `fields` string schemas on the
   six flat snapshot list/by-id reads and three hydrated single-ID reads now
   publish `x-snapshot-fieldset` v1: registry-derived selectable names, mandatory
