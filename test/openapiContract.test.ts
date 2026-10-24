@@ -279,6 +279,34 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+/**
+ * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
+ * it checks the served schema and HTTP behavior without freezing new wording.
+ * Keep every pre-existing schema, response and unrelated query parameter pinned.
+ */
+function withoutDedicatedChangesIntervalMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const get = copy.paths["/api/v1/customer-snapshot/changes"]?.get as {
+    description?: string;
+    summary?: string;
+    parameters?: Array<{ name?: string; in?: string; description?: string; schema?: Record<string, unknown> }>;
+    responses?: Record<string, { description?: string }>;
+  } | undefined;
+  if (!get) return copy;
+  delete get.description;
+  delete get.summary;
+  if (get.parameters) {
+    get.parameters = get.parameters.filter((param) => !(param.in === "query" && param.name === "until"));
+    for (const param of get.parameters) {
+      if (param.name !== "since") continue;
+      delete param.description;
+      if (param.schema) delete param.schema.description;
+    }
+  }
+  if (get.responses?.["400"]) delete get.responses["400"].description;
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -545,7 +573,9 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
+    // The new interval declaration and related prose have a dedicated HTTP/schema
+    // oracle; all legacy response shapes and non-interval parameters stay frozen.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutDedicatedChangesIntervalMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc))))))).toMatchSnapshot();
   });
 });
 
