@@ -1057,31 +1057,79 @@ describe("wire stability: conditional, auth, errors and ignored keys (controls)"
     }
   });
 
-  it("ignores fields/until and other unknown keys: same bytes, same SQL, clean Link", async () => {
-    // Sparse changes (fields) and the upper-timestamp bound (until) are
-    // in-flight on other cards: this feed must neither implement them nor
-    // break on them. Unknown keys are ignored, never echoed into Link.
-    const clean = await get(query({ limit: "2" }));
+  it("ignores until and unknown keys while fields projects sparse rows: same cursors/SQL, clean Link", async () => {
+    // Sparse `fields=` merged (#364): it projects rows and is retained in
+    // Link. The upper-timestamp bound (`until`) is still unsupported and
+    // unknown keys stay ignored: neither affects bytes/SQL nor echoes into Link.
+    const { db: cleanDb, statements: cleanStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
+    const clean = await get(query({ limit: "2" }), { db: cleanDb });
     expect(clean.status).toBe(200);
     const cleanBytes = await clean.text();
     const cleanLink = clean.headers.get("link");
-
-    const { db, statements } = spyDb(TEST_ENV.CUSTOMER_DB);
-    const tainted = await get(
-      `${PATH}?limit=2&fields=company_name&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`,
-      { db }
+    expect(cleanLink, "full page links to the composite remainder").toMatch(
+      /^<\/api\/v1\/customer-snapshot\/changes\?[^>]+>; rel="next"$/
     );
-    expect(tainted.status).toBe(200);
-    expect(await tainted.text()).toBe(cleanBytes);
-    expect(tainted.headers.get("link")).toBe(cleanLink);
-    expect(tainted.headers.get("link")).not.toMatch(/SYNTHETIC|fields|until|bogus/);
-    expect(statements).toHaveLength(1);
-    expect(statements.filter(isCount)).toHaveLength(0);
-
-    // Full rows despite the fields selector: no sparse projection here.
-    const body = JSON.parse(cleanBytes) as ChangesBody;
-    for (const row of body.rows) {
+    expect(cleanLink).not.toMatch(/SYNTHETIC|fields|until|bogus/);
+    expect(cleanStatements).toHaveLength(1);
+    expect(cleanStatements.filter(isCount)).toHaveLength(0);
+    const cleanBody = JSON.parse(cleanBytes) as ChangesBody;
+    for (const row of cleanBody.rows) {
       expect(Object.keys(row).sort()).toEqual([...EXPECTED_COLUMNS].sort());
     }
+
+    // until + unknown keys (no fields): byte-identical full rows, same SQL, same Link.
+    const { db: ignoredDb, statements: ignoredStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
+    const ignored = await get(
+      `${PATH}?limit=2&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`,
+      { db: ignoredDb }
+    );
+    expect(ignored.status).toBe(200);
+    expect(await ignored.text()).toBe(cleanBytes);
+    expect(ignored.headers.get("link")).toBe(cleanLink);
+    expect(ignored.headers.get("link")).not.toMatch(/SYNTHETIC|fields|until|bogus/);
+    expect(ignoredStatements).toHaveLength(1);
+    expect(ignoredStatements.filter(isCount)).toHaveLength(0);
+    expect(ignoredStatements[0]?.sql).toBe(cleanStatements[0]?.sql);
+    expect(ignoredStatements[0]?.binds).toEqual(cleanStatements[0]?.binds);
+
+    // fields=company_name projects to id + selector, keeping total/cursor; Link retains fields.
+    const { db: sparseDb, statements: sparseStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
+    const sparse = await get(`${PATH}?limit=2&fields=company_name`, { db: sparseDb });
+    expect(sparse.status).toBe(200);
+    const sparseBytes = await sparse.text();
+    const sparseLink = sparse.headers.get("link");
+    expect(sparseLink, "sparse Link retains the validated fields selector").toMatch(
+      /fields=company_name/
+    );
+    expect(sparseLink).not.toMatch(/SYNTHETIC|until|bogus/);
+    expect(sparseStatements).toHaveLength(1);
+    expect(sparseStatements.filter(isCount)).toHaveLength(0);
+    expect(sparseStatements[0]?.sql).toBe(cleanStatements[0]?.sql);
+    expect(sparseStatements[0]?.binds).toEqual(cleanStatements[0]?.binds);
+    const sparseBody = JSON.parse(sparseBytes) as ChangesBody;
+    expect(sparseBody.total).toBe(cleanBody.total);
+    expect(sparseBody.nextCursor).toEqual(cleanBody.nextCursor);
+    expect(sparseBody.rows).toEqual([
+      { customer_id: 9601, company_name: ROW_9601_FULL.company_name },
+      { customer_id: 9602, company_name: null }
+    ]);
+    expect(sparseBytes).toBe(
+      JSON.stringify({
+        rows: [
+          { customer_id: 9601, company_name: ROW_9601_FULL.company_name },
+          { customer_id: 9602, company_name: null }
+        ],
+        total: cleanBody.total,
+        nextCursor: cleanBody.nextCursor
+      })
+    );
+
+    // until + unknown keys stay ignored alongside a validated fields selector.
+    const taintedSparse = await get(
+      `${PATH}?limit=2&fields=company_name&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`
+    );
+    expect(taintedSparse.status).toBe(200);
+    expect(await taintedSparse.text()).toBe(sparseBytes);
+    expect(taintedSparse.headers.get("link")).toBe(sparseLink);
   });
 });
