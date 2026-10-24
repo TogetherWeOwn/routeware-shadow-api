@@ -522,7 +522,7 @@ describe.each(specs)("$kind root-only hydrated fields", (spec) => {
   });
 });
 
-it("runtime OpenAPI exposes root-only fields, representation validators and no batch selector on all hydrated GETs", async () => {
+it("runtime OpenAPI exposes root-only fields, representation validators and batch ids selector on all hydrated GETs", async () => {
   type Parameter = { name: string; in: string; required?: boolean; description?: string; schema?: { type?: string; description?: string } };
   type Operation = { operationId: string; description?: string; parameters: Parameter[];
     responses: Record<string, { description?: string }>; "x-access": string; "x-effect": string };
@@ -534,7 +534,7 @@ it("runtime OpenAPI exposes root-only fields, representation validators and no b
     expect(op.operationId).toBe(`getData${spec.kind[0].toUpperCase()}${spec.kind.slice(1)}`);
     expect(op["x-access"]).toBe("sync-secret");
     expect(op["x-effect"]).toBe("local-read");
-    expect(op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(["fields", "id", spec.alias].sort());
+    expect(op.parameters.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(["fields", "id", "ids", spec.alias].sort());
     const fields = op.parameters.find((p) => p.name === "fields");
     expect(fields).toMatchObject({ in: "query", required: false, schema: { type: "string" } });
     const selectorDocs = `${fields?.description ?? ""} ${fields?.schema?.description ?? ""}`;
