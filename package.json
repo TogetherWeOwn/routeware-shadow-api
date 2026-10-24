@@ -23,6 +23,7 @@
     "check:customer-changes-cursor": "vitest run test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts",
     "check:snapshot-upper-id": "vitest run test/snapshotUpperId.acceptance.test.ts test/snapshotUpperIdNextLink.acceptance.test.ts",
     "check:address-scope": "vitest run test/addressScopeFilters.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts --maxWorkers=2",
+    "check:address-zip": "vitest run test/addressZipFilter.acceptance.test.ts test/addressScopeFilters.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts test/snapshotAuth.test.ts test/openapiContract.test.ts test/routeExamples.test.ts --maxWorkers=2",
     "check:customer-changes-next-links": "vitest run test/customerChangesNextLinks.acceptance.test.ts && node --test test/customerChangesNextLinksRecipe.acceptance.test.mjs",
     "check:save-dry-run": "vitest run test/saveDryRun.acceptance.test.ts test/dataEntityPostHandlers.test.ts test/dataRoutes.test.ts test/snapshotDryRun.test.ts",
     "check:snapshot-order": "vitest run test/snapshotDescendingPagination.acceptance.test.ts",
