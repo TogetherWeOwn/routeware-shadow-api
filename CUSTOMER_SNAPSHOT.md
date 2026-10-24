@@ -299,24 +299,42 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, `enabled`, `fields`, `includeTotal`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, `enabled`, `fields`, `includeTotal`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows) |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
+| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal` |
 | GET | `/api/v1/address-snapshot/{pickupAddressId}` | One address row |
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/address-snapshot/import` | Body = raw address CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`) |
+| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `q`, `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal` |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
 | GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Ordinary list direction
+
+`order=desc` starts at the highest primary ID and continues strictly below
+`cursor`; omitted order or exact `order=asc` keeps ascending seek. ID order
+is not chronological recency. Keep `order` with `nextCursor`; changing direction
+starts a new traversal. Cursor overrides offset. Filters, container/address
+joins, sparse `fields` and count-free `includeTotal=false` still compose.
+Counted totals remain cursor-relative. A full terminal page returns its last
+ID; the following empty page returns `nextCursor: null`, as do partial pages.
+No lookahead, extra count, index or concurrent-write snapshot guarantee is added.
+
+Use exactly one lowercase `asc` or `desc` (or omit for `asc`); invalid/repeated
+values return the fixed value-free 400 after auth and before D1. See
+[synthetic examples](docs/CONSUMER-QUICKSTART.md#highest-primary-ids-first) and
+[query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
+Run `npm run check:snapshot-order` for credential-free synthetic local D1
+coverage with unexpected outbound fetch denied.
 
 ### Customer changes cursor
 
