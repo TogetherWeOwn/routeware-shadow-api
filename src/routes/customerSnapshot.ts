@@ -1,6 +1,7 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -32,9 +33,11 @@ import { invalidateDataEntity } from "../lib/entityDataCache";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { isForeignKeyConstraintFailure } from "../lib/snapshot/upsert";
 import {
+  SNAPSHOT_POST_QUERY_KEYS,
   createRouteModule,
   dryRunQuery,
   isDryRunRequested,
+  rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
   snapshotListResponse,
@@ -73,7 +76,7 @@ const customerSnapshotListRoute = createRoute({
         .number()
         .int()
         .optional()
-        .describe("Last customer_id from the previous page's nextCursor; takes precedence over offset")
+        .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
       includeTotal: z
         .enum(["true", "false"])
@@ -83,6 +86,7 @@ const customerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("customer")
     })
   },
@@ -100,13 +104,14 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs."
+        "Invalid query (application/problem+json). The zod validator rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];
   const binds: unknown[] = [];
@@ -129,7 +134,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push("enabled = 0");
   }
   if (p.cursor !== undefined) {
-    where.push("customer_id > ?");
+    where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
   const whereSql = where.join(" AND ");
@@ -145,13 +150,11 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
   }
-  // A cursor seeks from `customer_id > ?` and never needs OFFSET; keeping the
-  // OFFSET-less form off the cursor path is what avoids the scan-past-N-rows
-  // cost this route exists to remove.
+  // Cursor seeks follow the selected direction and never scan an OFFSET.
   const pageSql =
     p.cursor !== undefined
-      ? "ORDER BY customer_id LIMIT ?"
-      : "ORDER BY customer_id LIMIT ? OFFSET ?";
+      ? `ORDER BY customer_id${order.suffix} LIMIT ?`
+      : `ORDER BY customer_id${order.suffix} LIMIT ? OFFSET ?`;
   const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
   const { results } = await db
     .prepare(
@@ -173,7 +176,18 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("customer", row as Record<string, unknown>, fields)
         );
-  const nextLink = snapshotNextLink("customer", p, nextCursor);
+  // Echo an explicitly requested direction/count-mode into the follow-next
+  // target. Raw presence is safe here: validation already rejected
+  // repeated/invalid values, while the zod defaults erase explicitness.
+  const nextLink = snapshotNextLink(
+    "customer",
+    {
+      ...p,
+      order: c.req.query("order") === undefined ? undefined : p.order,
+      includeTotal: c.req.query("includeTotal") === undefined ? undefined : p.includeTotal
+    },
+    nextCursor
+  );
   if (nextLink !== null) c.header("Link", nextLink);
   return snapshotListJsonResponse(c, { rows: out, total, nextCursor });
 });
@@ -453,6 +467,8 @@ customerSnapshotRoutes.openapi(customerSnapshotSyncRoute, async (c) => {
   if (denied) return denied;
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, SNAPSHOT_POST_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   if (!c.env.CUSTOMER_REPORT_EXPORT_PATH?.trim() && !c.env.CUSTOMER_REPORT_QUERY_ID?.trim()) {
     return problemJsonResponse({
       type: problemType("misconfigured", c.env),
@@ -528,6 +544,8 @@ const customerSnapshotImportRoute = createRoute({
 customerSnapshotRoutes.openapi(customerSnapshotImportRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, SNAPSHOT_POST_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   const oversized = rejectOversizedSnapshotImport(
     { url: c.req.url, contentLength: c.req.raw.headers.get("content-length") },
     SNAPSHOT_IMPORT_MAX_BYTES,

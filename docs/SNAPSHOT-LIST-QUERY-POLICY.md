@@ -11,9 +11,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `q`, `enabled`, `limit`, `offset`, `cursor`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
@@ -32,6 +32,86 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Mutating POST query keys are strict
+
+The seven mutating snapshot POSTs do the opposite of the GET lists above:
+any query key outside the route's declared set is a 400
+`application/problem+json` before any D1, R2 or upstream work. A mistyped
+`?dryrun=true` fails loudly instead of stripping to `{}` and running a real
+mutation the caller never intended.
+
+| POST route | Declared query keys | Unknown-name policy |
+| --- | --- | --- |
+| `/api/v1/data-snapshot/sync` | `dryRun`, `partialProgress` | Reject (400) |
+| `/api/v1/customer-snapshot/sync` | `dryRun` | Reject (400) |
+| `/api/v1/address-snapshot/sync` | `dryRun` | Reject (400) |
+| `/api/v1/container-snapshot/sync` | `dryRun` | Reject (400) |
+| `/api/v1/customer-snapshot/import` | `dryRun` | Reject (400) |
+| `/api/v1/address-snapshot/import` | `dryRun` | Reject (400) |
+| `/api/v1/container-snapshot/import` | `dryRun` | Reject (400) |
+
+One shared guard (`rejectUnknownSnapshotPostQuery` in `src/routes/shared.ts`)
+serves all seven routes, immediately after the sync-secret gates and before
+any other check. Sync-secret 401 precedence is preserved (an API-token bearer
+with a typo'd key keeps the 401), while invalid values such as `?dryRun=maybe`
+and repeated known keys keep their existing validator-first 400. The 400
+carries fixed allowed-keys guidance and never echoes submitted keys or values:
+
+```text
+POST /api/v1/customer-snapshot/import?dryrun=true
+
+{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request",
+ "title":"Bad Request","status":400,
+ "detail":"Unknown query parameter. Allowed query parameters: dryRun. See docs/PROBLEMS.md#bad-request."}
+```
+
+Operator recovery is a corrected retry — fix the spelling to the exact
+documented key (`partialProgress` exists only on the combined route) and
+re-send:
+
+```text
+POST /api/v1/customer-snapshot/import?dryRun=true   # dry-run: validates, writes nothing
+POST /api/v1/customer-snapshot/import               # no flags: runs for real
+```
+
+See [bad-request correction guidance](PROBLEMS.md#bad-request). Pinned by
+`test/snapshotPostStrictQuery.acceptance.test.ts`. The GET-list ignore
+behavior above and its ratchet stay byte-identical; this policy changes no
+list route.
+
+Run the focused hermetic check (synthetic local D1, unexpected outbound fetch
+fails, no network):
+
+```bash
+npx vitest run test/snapshotPostStrictQuery.acceptance.test.ts \
+  test/snapshotListUnknownParams.test.ts test/snapshotDryRun.test.ts \
+  test/combinedSyncPartialProgress.acceptance.test.ts test/snapshotAuth.test.ts
+```
+
+## Primary-ID direction (`order=`)
+
+The three ordinary lists accept one exact, case-sensitive `order=asc|desc`.
+Omitted order and explicit `asc` retain ascending primary-ID order; `desc`
+starts at the highest primary ID and seeks strictly below `cursor`. ID order
+is not chronological recency. No arbitrary sort column or expression is accepted.
+Empty, repeated, whitespace-padded and other values return the existing
+value-free 400 after authentication and before any D1 work; correct the key
+to one lowercase `asc` or `desc`, or omit it for `asc`.
+
+Keep `order` with `nextCursor`: changing direction starts a new traversal.
+Cursor takes precedence over offset in either direction. Filters, joins,
+`fields` and `includeTotal=false` compose unchanged. When counted, `total`
+is the matching count **after the cursor predicate**, before limit/offset,
+not an invariant full-table count. A full page returns its last primary ID
+as integer `nextCursor` even when terminal; a subsequent empty page returns
+`null`. Partial pages also return `null`. There is no lookahead or extra
+COUNT, and no consistency guarantee across concurrent writes. This does not
+change the changes feed, by-id reads or CSV exports.
+
+Run `npm run check:snapshot-order` for the focused credential-free regression
+using synthetic local D1 fixtures with unexpected outbound fetch denied.
+See the [synthetic continuation examples](CONSUMER-QUICKSTART.md#highest-primary-ids-first).
 
 ## Sparse fieldsets (`fields=`)
 

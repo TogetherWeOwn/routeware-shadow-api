@@ -27,6 +27,56 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   hash or `*` between commas. Bare tags and lowercase weak prefixes remain
   supported on those legacy reads; strict snapshot-list syntax is unchanged.
 
+- #353: The seven mutating snapshot POSTs (combined sync, three per-table
+  syncs, three imports) now reject any query key outside their declared set
+  (`dryRun` everywhere, plus `partialProgress` on the combined route) with a
+  fixed value-free 400 before any D1, R2 or upstream work. A mistyped
+  `?dryrun=true` fails loudly instead of running a real mutation. Sync-secret
+  401 precedence is preserved; invalid values and repeated known keys keep
+  their existing validator 400s. GET lists keep ignoring unknown names. See
+  `docs/SNAPSHOT-LIST-QUERY-POLICY.md` and `docs/PROBLEMS.md#bad-request`.
+
+- #355: `POST /api/v1/data/customer|address|container` accept `?dryRun=true`
+  to validate a save — form fields plus session health — without persisting
+  anything: no upstream POST, no D1 write, no cache invalidation, no login. A
+  dry-pass answers HTTP 200 with `dryRun: true`, `routewareStatus: null`,
+  `upstreamBytes: 0`, posted ids only and `localSync.not_attempted`;
+  validation failures return the identical 400/502 shapes as live. Without a
+  usable session the dry-run fails closed with 503 `failed-precondition`.
+  Only `dryRun` is an allowed query key (anything else is a value-free 400
+  after authentication);
+  an omitted flag or `?dryRun=false` writes exactly as before. Recipe:
+  `docs/CONSUMER-QUICKSTART.md`; problem pointers: `docs/PROBLEMS.md`.
+
+- #349: Every save-path error line in the customer, address and container
+  flows now carries the once-per-request `requestId` adopted from inbound
+  `X-Request-Id` or minted as a UUID (#338): data-tier local-sync and
+  fallback-eviction failures, routeware refresh and invalidation failures,
+  and save token-preparation failures. One header value joins a save attempt
+  to its server-side failure lines and outcome code. Route-level response
+  bodies are unchanged (header correlation only); valid saves emit no new
+  lines. See `docs/LOGGING.md`.
+
+- Follow-up to #333 and #342: mounted OpenAPI `fields` string schemas on the
+  six flat snapshot list/by-id reads and three hydrated single-ID reads now
+  publish `x-snapshot-fieldset` v1: registry-derived selectable names, mandatory
+  identity, delimiter and strict parser rules. Agents can choose valid selectors
+  without reading records or making invalid trial requests. Projection, omission
+  and auth behavior are unchanged; unsupported routes gain no parameter.
+  See `docs/CONSUMER-QUICKSTART.md` and the credential-free
+  `npm run check:snapshot-fieldset-discovery` check.
+
+- #348: A rejected Workers `Cache.match` lookup in the shared entity-read
+  cache helper now counts as one miss and continues through the existing D1
+  bundle/ETag path, so customer, address and container reads keep their
+  normal 200, empty-body conditional 304 and 404 contract during a cache
+  outage instead of failing as 500s. Each rejected lookup emits one bounded
+  `cache.entityData` warn diagnostic (entity kind and error classification
+  only) alongside the usual count-only miss event. No TTL/policy change, no
+  retry, no stale or remote fallback; cache population stays best-effort and
+  delete/graph invalidation failures stay loud. Troubleshooting:
+  `docs/ENTITY-DATA-CACHE.md` and `docs/LOGGING.md`.
+
 - #345: Post-deploy probe adds composable `--json` (schema version 1, fixed check IDs,
   bounded allowlisted diagnostics) and effect-free `--dry-run` plans. Authenticated
   plan checks stay unresolved; valid plans are not health evidence. Only explicit
@@ -35,6 +85,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   printed. Redirects are refused and no retries are added. Output is bounded,
   not response-body buffering. Existing scheduled-target and missing-token gates
   remain. See `docs/SCHEDULED-PROBE.md` for hermetic agent checks and limits.
+- #344: Snapshot customer, address and container lists accept exact `order=asc|desc`
+  (default `asc`). `desc` starts at the highest primary ID and seeks below
+  `cursor`; IDs do not promise chronological recency. Direction composes with
+  filters, `fields`, `includeTotal=false`, cursor-over-offset precedence and
+  follow-next targets. Keep order with the cursor; changing direction starts
+  a new traversal.
+  No endpoint or migration added. Check: `npm run check:snapshot-order`.
 
 - #347: Conditional snapshot JSON reads: customer, address and container lists return
   quoted SHA-256 ETags for the final projected JSON envelope and an empty 304
