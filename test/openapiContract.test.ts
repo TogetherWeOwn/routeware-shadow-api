@@ -239,10 +239,15 @@ describe("published OpenAPI document", () => {
     // carries the composite `{since, since_id}` cursor instead of
     // the integer primary-key cursor.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+      "AddressSaveOutcome",
+      "ContainerSaveOutcome",
+      "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
+      "LocalSyncCode",
+      "LocalSyncSummary",
       "ReadinessResponse",
       "ShadowHealthResponse",
       "SnapshotOrphanReport",

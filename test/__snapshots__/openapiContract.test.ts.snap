@@ -5,6 +5,138 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
   "components": {
     "parameters": {},
     "schemas": {
+      "AddressSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. A newly created address ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "pickupAddressId",
+        ],
+        "type": "object",
+      },
+      "ContainerSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "containerId": {
+            "description": "Usable posted ContainerID, or null. A newly created container ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "pickupAddressId": {
+            "description": "Usable posted PickupAddressID, or null. A newly created address ID is not resolved by this response.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+          "pickupAddressId",
+          "containerId",
+        ],
+        "type": "object",
+      },
+      "CustomerSaveOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "customerId": {
+            "description": "Resolved owning customer ID, or null when unresolved; not proof of local refresh.",
+            "type": [
+              "number",
+              "null",
+            ],
+          },
+          "localSync": {
+            "$ref": "#/components/schemas/LocalSyncSummary",
+          },
+          "ok": {
+            "description": "Whether the upstream save was accepted; not a local-refresh guarantee. Inspect this even on HTTP 200.",
+            "type": "boolean",
+          },
+          "routewareStatus": {
+            "description": "Original upstream HTTP status, which may differ from the wrapper status.",
+            "type": "integer",
+          },
+          "upstreamBytes": {
+            "description": "UTF-8 byte count of the upstream body. Its contents and submitted fields are never echoed.",
+            "minimum": 0,
+            "type": "integer",
+          },
+        },
+        "required": [
+          "ok",
+          "routewareStatus",
+          "customerId",
+          "upstreamBytes",
+          "localSync",
+        ],
+        "type": "object",
+      },
       "CustomerSnapshotChanges": {
         "properties": {
           "nextCursor": {
@@ -158,6 +290,72 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "version",
         ],
         "type": "object",
+      },
+      "LocalSyncCode": {
+        "description": "not_attempted: upstream save was rejected, so no refresh ran. unknown_customer_id: upstream save succeeded but the owning customer could not be resolved. sync_failed: upstream save succeeded but local graph refresh or cache invalidation failed.",
+        "enum": [
+          "not_attempted",
+          "unknown_customer_id",
+          "sync_failed",
+        ],
+        "type": "string",
+      },
+      "LocalSyncSummary": {
+        "description": "Best-effort local D1 graph refresh and cache invalidation, separate from upstream write acceptance. done=true identifies the refreshed graph; done=false carries a fixed recovery code, not exception details.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "$ref": "#/components/schemas/LocalSyncCode",
+              },
+              "done": {
+                "enum": [
+                  false,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "code",
+            ],
+            "type": "object",
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "addressIds": {
+                "items": {
+                  "type": "number",
+                },
+                "type": "array",
+              },
+              "containerIds": {
+                "items": {
+                  "type": "number",
+                },
+                "type": "array",
+              },
+              "customerId": {
+                "type": "number",
+              },
+              "done": {
+                "enum": [
+                  true,
+                ],
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "done",
+              "customerId",
+              "addressIds",
+              "containerIds",
+            ],
+            "type": "object",
+          },
+        ],
       },
       "ReadinessResponse": {
         "properties": {
@@ -2305,27 +2503,76 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "customerId": 5,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 5,
-                    "done": true,
+                "examples": {
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 5,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "pickupAddressId": null,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
                   },
-                  "ok": true,
-                  "pickupAddressId": null,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 16,
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "pickupAddressId": null,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "customerId": 5,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": null,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": null,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "$ref": "#/components/schemas/AddressSaveOutcome",
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -2334,7 +2581,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway",
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
           },
         },
         "summary": "Create/update address in Routeware + sync D1",
@@ -2513,28 +2760,80 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "containerId": null,
-                  "customerId": 345734,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 345734,
-                    "done": true,
+                "examples": {
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "containerId": null,
+                      "customerId": 345734,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 345734,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
                   },
-                  "ok": true,
-                  "pickupAddressId": 10,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 16,
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "containerId": null,
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "containerId": null,
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "containerId": null,
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "pickupAddressId": 10,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 16,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "$ref": "#/components/schemas/ContainerSaveOutcome",
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -2543,7 +2842,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway",
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
           },
         },
         "summary": "Create/update container in Routeware + sync D1",
@@ -2693,7 +2992,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On success, refreshes D1 for that customer from \`GetCustomerDetailFull\` and invalidates related cache entries. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
+        "description": "Proxies to \`SaveCustomerLongForm\` (same as \`/api/v1/routeware/customer/save-long-form\`) with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. \`CustomerID=0\` or absent for create. On upstream acceptance with a resolved customer ID, attempts to refresh D1 from \`GetCustomerDetailFull\` and invalidate related cache entries; this can fail independently of the write. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body).",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2739,26 +3038,72 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "customerId": 345734,
-                  "localSync": {
-                    "addressIds": [
-                      10,
-                    ],
-                    "containerIds": [
-                      100,
-                    ],
-                    "customerId": 345734,
-                    "done": true,
+                "examples": {
+                  "refreshed": {
+                    "summary": "Upstream accepted; local graph refreshed (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "addressIds": [
+                          10,
+                        ],
+                        "containerIds": [
+                          100,
+                        ],
+                        "customerId": 345734,
+                        "done": true,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
                   },
-                  "ok": true,
-                  "routewareStatus": 200,
-                  "upstreamBytes": 36,
+                  "rejected": {
+                    "summary": "Upstream rejected despite HTTP 200; no local refresh (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "not_attempted",
+                        "done": false,
+                      },
+                      "ok": false,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 17,
+                    },
+                  },
+                  "syncFailed": {
+                    "summary": "Upstream accepted; local refresh or invalidation failed (synthetic)",
+                    "value": {
+                      "customerId": 345734,
+                      "localSync": {
+                        "code": "sync_failed",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
+                  },
+                  "unknownCustomer": {
+                    "summary": "Upstream accepted; owning customer unresolved (synthetic)",
+                    "value": {
+                      "customerId": null,
+                      "localSync": {
+                        "code": "unknown_customer_id",
+                        "done": false,
+                      },
+                      "ok": true,
+                      "routewareStatus": 200,
+                      "upstreamBytes": 36,
+                    },
+                  },
                 },
-                "schema": {},
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSaveOutcome",
+                },
               },
             },
-            "description": "Save outcome + resolved ids + local D1 sync summary (synthetic example). Never echoes submitted fields or the upstream body.",
+            "description": "Save outcome, not an unconditional success claim. ok=true with localSync.done=true means upstream acceptance and local refresh; ok=true with done=false means acceptance without completed refresh. ok=false means upstream rejection even on HTTP 200; localSync.code=not_attempted. Never echoes submitted fields or the upstream body. Local refresh is best-effort: HTTP 200 does not guarantee a refreshed local graph. Read ok and localSync separately. Never blindly retry or replay creates after an ambiguous outcome or failed refresh: the upstream write may already have landed. Verify existing IDs and reconcile local state without repeating the create.",
           },
           "400": {
             "description": "Bad Request",
@@ -2767,7 +3112,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Unauthorized",
           },
           "502": {
-            "description": "Bad Gateway",
+            "description": "Bad Gateway: preparation/transport failures use application/problem+json; forwarded upstream rejection can use the same JSON save-outcome envelope with ok=false and localSync.code=not_attempted. Other explicit upstream rejection statuses are preserved. Neither is a success claim.",
           },
         },
         "summary": "Create/update customer in Routeware + sync D1",
