@@ -2043,7 +2043,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot/changes": {
       "get": {
-        "description": "Incremental-sync feed: returns rows with \`synced_at > since\` in \`(synced_at, customer_id)\` keyset order. Omit \`since\` for the first page (equivalent to the epoch — every row is newer). A bare \`since\` replays every later run whole. To page a chunked delta, pass the previous page's \`nextCursor\` back as \`since\` + \`since_id\`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. \`limit\` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; fields and until are not supported. Rows carry only the stored snapshot columns — no fields beyond the row payload.",
         "parameters": [
           {
             "description": "UTC Z datetime cursor with seconds or 1–3 fractional digits, normalized to milliseconds before comparison. More than 3 digits is rejected, never rounded/truncated. Only later synced_at values qualify (plus the since_id tiebreak). Omit or leave empty for the first page without since_id.",
@@ -2081,6 +2080,17 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "integer",
             },
           },
+          {
+            "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "description": "Comma-separated sparse fieldset: exact stored column names from this route's allowlist (case-sensitive, no spaces, no empty segments, no duplicates, single key only). Response rows contain exactly these fields plus the resource id, which is always present even when omitted. Unknown names are a value-free 400 before any D1 work.",
+              "example": "company_name,phone1",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2116,7 +2126,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Changed rows in (synced_at, customer_id) order with nextCursor",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Replaces since and since_id together and retains the effective limit. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Replaces since and since_id together and retains the effective limit and the validated fields selector. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2124,9 +2134,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
           },
-          "400": {
-            "description": "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request.",
-          },
+          "400": {},
         },
         "summary": "List customer snapshot rows changed since a cursor (D1)",
         "tags": [
