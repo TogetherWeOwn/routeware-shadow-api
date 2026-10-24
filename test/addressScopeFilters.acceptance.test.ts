@@ -178,7 +178,10 @@ function next(result: Awaited<ReturnType<typeof page>>) {
   expect(target.searchParams.has("offset")).toBe(false);
   expect(target.searchParams.get("cursor")).toBe(String(result.body.nextCursor));
   for (const [key, value] of result.url.searchParams) {
-    if (key !== "offset" && key !== "cursor") expect(target.searchParams.getAll(key)).toEqual([value]);
+    if (key === "includeTotal" && value === "true") {
+      // Default-true may be omitted; false and all scope/filter values stay exact.
+      expect([[], ["true"]]).toContainEqual(target.searchParams.getAll(key));
+    } else if (key !== "offset" && key !== "cursor") expect(target.searchParams.getAll(key)).toEqual([value]);
   }
   return target;
 }
