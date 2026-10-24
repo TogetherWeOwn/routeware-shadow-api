@@ -1,0 +1,453 @@
+import { env } from "cloudflare:workers";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import app from "../src/app";
+import { clearAntiForgeryTokenCache } from "../src/lib/customerSaveAutoToken";
+import { mapDetailFullToRows } from "../src/lib/detailFullSync";
+import { invalidateDataEntity } from "../src/lib/entityDataCache";
+import { upsertAddressSnapshotRows, upsertContainerSnapshotRows, upsertCustomerSnapshotRows } from "../src/lib/snapshot/upsert";
+import { ensureD1TestTables } from "./d1TestMigrations";
+
+// Contract-only acceptance: the baseline already returns these outcomes. A
+// permissive {} response schema must not let a client mistake a landed write
+// for a refreshed graph, or accept arbitrary exception text as a recovery code.
+// Run: npx vitest run test/saveOutcomeSchemas.acceptance.test.ts --maxWorkers=2
+
+type Schema = {
+  $ref?: string;
+  type?: string | string[];
+  nullable?: boolean;
+  properties?: Record<string, Schema>;
+  required?: string[];
+  oneOf?: Schema[];
+  anyOf?: Schema[];
+  allOf?: Schema[];
+  enum?: unknown[];
+  const?: unknown;
+  items?: Schema;
+  [key: string]: unknown;
+};
+type Media = { schema: Schema; example?: unknown; examples?: Record<string, { value?: unknown }> };
+type Operation = {
+  operationId: string;
+  description?: string;
+  "x-access": string;
+  "x-effect": string;
+  responses: Record<string, { description: string; content?: Record<string, Media> }>;
+};
+type Document = { paths: Record<string, { post: Operation }>; [key: string]: unknown };
+
+const entities = ["customer", "address", "container"] as const;
+type Entity = typeof entities[number];
+const commonFields = ["ok", "routewareStatus", "customerId", "upstreamBytes", "localSync"];
+const fields: Record<Entity, string[]> = {
+  customer: commonFields,
+  address: [...commonFields, "pickupAddressId"],
+  container: [...commonFields, "pickupAddressId", "containerId"]
+};
+const graph = { done: true, customerId: 5, addressIds: [10], containerIds: [100] };
+
+// Resolve only document-local refs. Zod consumes JSON Schema, not OpenAPI 3.0's
+// nullable extension, so normalize that extension if a schema uses it. No
+// expected response shape is synthesized by this adapter.
+function resolve(value: unknown, doc: Document): unknown {
+  if (Array.isArray(value)) return value.map((item) => resolve(item, doc));
+  if (value === null || typeof value !== "object") return value;
+  const node = value as Schema;
+  if (node.$ref) {
+    expect(node.$ref.startsWith("#/"), "response schemas must resolve without network").toBe(true);
+    const target = node.$ref.slice(2).split("/").reduce<unknown>((part, key) =>
+      (part as Record<string, unknown>)[key.replace(/~1/g, "/").replace(/~0/g, "~")], doc);
+    expect(target, `unresolved schema ${node.$ref}`).toBeDefined();
+    const { $ref: _ref, ...siblings } = node;
+    return resolve({ ...(target as Schema), ...siblings }, doc);
+  }
+  const result = Object.fromEntries(Object.entries(node).map(([key, item]) => [key, resolve(item, doc)]));
+  if (node.nullable === true) {
+    delete result.nullable;
+    return { anyOf: [result, { type: "null" }] };
+  }
+  return result;
+}
+
+function validator(schema: Schema, doc: Document) {
+  return z.fromJSONSchema(resolve(schema, doc) as Parameters<typeof z.fromJSONSchema>[0]);
+}
+
+function shape(schema: Schema, doc: Document): Schema {
+  const resolved = resolve(schema, doc) as Schema;
+  if (!resolved.allOf) return resolved;
+  const parts = resolved.allOf.map((part) => shape(part, doc));
+  return {
+    ...resolved,
+    properties: Object.assign({}, ...parts.map((part) => part.properties), resolved.properties),
+    required: [...new Set([...parts.flatMap((part) => part.required ?? []), ...(resolved.required ?? [])])]
+  };
+}
+
+function operation(doc: Document, entity: Entity): Operation {
+  return doc.paths[`/api/v1/data/${entity}`].post;
+}
+
+function responseSchema(doc: Document, entity: Entity, status = 200): Schema {
+  const media = operation(doc, entity).responses[String(status)]?.content?.["application/json"];
+  expect(media, `${entity} ${status} must advertise its JSON outcome`).toBeDefined();
+  return media!.schema;
+}
+
+async function servedDocument(bindings = testEnv): Promise<Document> {
+  const response = await app.fetch(new Request("https://worker.test/openapi.json"), bindings);
+  expect(response.status).toBe(200);
+  return response.json() as Promise<Document>;
+}
+
+const sessionStub = {
+  fetch: async (input: RequestInfo | URL) => {
+    const path = new URL(input instanceof Request ? input.url : String(input)).pathname;
+    if (path === "/get") return Response.json({ cookieHeader: "session=SYNTHETIC", expiresAtMs: Date.now() + 600_000, refreshing: false });
+    if (path === "/throttle/failure" || path === "/throttle/clear") return Response.json({ blocked: false, retryAfterSec: 0 });
+    throw new Error(`Unexpected session operation: ${path}`);
+  }
+} as unknown as DurableObjectStub;
+const testEnv = {
+  ...env,
+  OPENAPI_DOCS_ENABLED: "true",
+  TARGET_ORIGIN: "https://save-contract.invalid",
+  TARGET_BASE_PATH: "/WebRW",
+  LOGIN_URL: "https://save-contract.invalid/WebRW/Account/Login",
+  SNAPSHOTS_R2_ENABLED: "false",
+  CUSTOMER_SNAPSHOT_SYNC_SECRET: "save-contract-sync",
+  SHADOW_API_TOKEN: "save-contract-full",
+  SHADOW_API_READ_TOKEN: "save-contract-read",
+  AUTH_SESSION: { idFromName: (name: string) => name, get: () => sessionStub }
+} as unknown as Env;
+const db = env.CUSTOMER_DB;
+let document: Document;
+let unexpectedNetwork: string[] = [];
+
+function denyNetwork(input: RequestInfo | URL): never {
+  unexpectedNetwork.push(input instanceof Request ? input.url : String(input));
+  throw new Error("Unexpected network: contract fixtures are hermetic");
+}
+
+beforeAll(async () => {
+  vi.stubGlobal("fetch", denyNetwork);
+  await ensureD1TestTables();
+  document = await servedDocument();
+  expect(unexpectedNetwork).toEqual([]);
+});
+
+beforeEach(async () => {
+  unexpectedNetwork = [];
+  vi.stubGlobal("fetch", denyNetwork);
+  clearAntiForgeryTokenCache();
+  await db.prepare("DELETE FROM container_snapshot").run();
+  await db.prepare("DELETE FROM address_snapshot").run();
+  await db.prepare("DELETE FROM customer_snapshot").run();
+  await invalidateDataEntity("customer", 5);
+  await invalidateDataEntity("address", 10);
+  await invalidateDataEntity("container", 100);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  expect(unexpectedNetwork, "no hidden login/provider/network request is permitted").toEqual([]);
+});
+
+describe("served entity-save outcome schemas", () => {
+  for (const entity of entities) {
+    it(`${entity}: publishes each runtime outcome field as required, without submitted fields or HTML`, () => {
+      const schema = shape(responseSchema(document, entity), document);
+      expect(schema.type, "unknown JSON is not an agent-consumable outcome contract").toBe("object");
+      expect(Object.keys(schema.properties ?? {}).sort()).toEqual([...fields[entity]].sort());
+      expect([...(schema.required ?? [])].sort()).toEqual([...fields[entity]].sort());
+      const op = operation(document, entity);
+      expect(op.operationId).toBe(`saveData${entity[0].toUpperCase()}${entity.slice(1)}`);
+      expect(op["x-access"]).toBe("sync-secret");
+      expect(op["x-effect"]).toBe("upstream-write-local-refresh");
+      expect(Object.keys(op.responses)).toEqual(expect.arrayContaining(["200", "400", "401", "502"]));
+    });
+
+    it(`${entity}: discovers the shared done-discriminated local refresh contract and exact fixed codes`, () => {
+      const envelope = shape(responseSchema(document, entity), document);
+      expect(envelope.properties?.localSync, "localSync must be typed, not just an example").toBeDefined();
+      const local = shape(envelope.properties!.localSync, document);
+      const branches = local.oneOf ?? local.anyOf;
+      expect(branches, "localSync must describe both done branches").toHaveLength(2);
+      const resolved = branches!.map((branch) => shape(branch, document));
+      const when = (branch: Schema) => branch.properties?.done?.const ?? branch.properties?.done?.enum?.[0];
+      expect(resolved.map(when).sort()).toEqual([false, true]);
+      const yes = resolved.find((branch) => when(branch) === true)!;
+      const no = resolved.find((branch) => when(branch) === false)!;
+      expect(Object.keys(yes.properties ?? {}).sort()).toEqual(["addressIds", "containerIds", "customerId", "done"]);
+      expect([...(yes.required ?? [])].sort()).toEqual(["addressIds", "containerIds", "customerId", "done"]);
+      expect(Object.keys(no.properties ?? {}).sort()).toEqual(["code", "done"]);
+      expect([...(no.required ?? [])].sort()).toEqual(["code", "done"]);
+      expect([...(no.properties?.code?.enum ?? [])].sort()).toEqual(["not_attempted", "sync_failed", "unknown_customer_id"]);
+      const localValidator = validator(envelope.properties!.localSync, document);
+      expect(localValidator.safeParse(graph).success).toBe(true);
+      for (const code of ["not_attempted", "unknown_customer_id", "sync_failed"]) {
+        expect(localValidator.safeParse({ done: false, code }).success, code).toBe(true);
+      }
+    });
+
+    it(`${entity}: rejects malformed localSync rather than accepting the unknown-schema default`, () => {
+      const validate = validator(responseSchema(document, entity), document);
+      const valid = {
+        ok: true, routewareStatus: 200, customerId: 5, upstreamBytes: 16, localSync: graph,
+        ...(entity !== "customer" ? { pickupAddressId: 10 } : {}),
+        ...(entity === "container" ? { containerId: 100 } : {})
+      };
+      expect(validate.safeParse(valid).success).toBe(true);
+      for (const localSync of [
+        {}, { done: "true", customerId: 5, addressIds: [10], containerIds: [100] },
+        { done: true, customerId: 5, addressIds: [10] },
+        { done: true, customerId: "5", addressIds: [10], containerIds: [100] },
+        { done: true, customerId: 5, addressIds: ["10"], containerIds: [100] },
+        { done: true, customerId: 5, addressIds: [10], containerIds: ["100"] },
+        { done: false }, { done: false, code: "upstream HTML/exception" },
+        { done: false, code: "" }, { done: false, code: null },
+        { code: "sync_failed" }, null
+      ]) {
+        expect(validate.safeParse({ ...valid, localSync }).success, JSON.stringify(localSync)).toBe(false);
+      }
+      for (const key of fields[entity]) {
+        const missing: Record<string, unknown> = { ...valid };
+        delete missing[key];
+        expect(validate.safeParse(missing).success, `missing ${key}`).toBe(false);
+      }
+      for (const [key, value] of [["ok", "true"], ["routewareStatus", "200"], ["upstreamBytes", "16"], ["customerId", "5"]]) {
+        expect(validate.safeParse({ ...valid, [key as string]: value }).success, String(key)).toBe(false);
+      }
+      for (const key of fields[entity].filter((field) => field.endsWith("Id"))) {
+        expect(validate.safeParse({ ...valid, [key]: "not-a-resolved-id" }).success, key).toBe(false);
+        expect(validate.safeParse({ ...valid, [key]: null }).success, `${key} can be unresolved`).toBe(true);
+      }
+    });
+
+    it(`${entity}: serves schema-valid examples distinguishing landed writes, refresh failure and upstream rejection`, () => {
+      const op = operation(document, entity);
+      const examples = Object.values(op.responses).flatMap((response) => {
+        const media = response.content?.["application/json"];
+        if (!media) return [];
+        const values = [...(media.example === undefined ? [] : [media.example]),
+          ...Object.values(media.examples ?? {}).map((example) => example.value)];
+        const validate = validator(media.schema, document);
+        for (const value of values) expect(validate.safeParse(value).success, JSON.stringify(value)).toBe(true);
+        return values as Array<{ ok?: boolean; localSync?: { done: boolean; code?: string } }>;
+      });
+      expect(examples.some((value) => value.ok === true && value.localSync?.done === true)).toBe(true);
+      for (const code of ["sync_failed", "unknown_customer_id"]) {
+        expect(examples.some((value) => value.ok === true && value.localSync?.done === false && value.localSync.code === code), code).toBe(true);
+      }
+      expect(examples.some((value) => value.ok === false && value.localSync?.done === false && value.localSync.code === "not_attempted"), "upstream rejection is not success").toBe(true);
+      const guidance = [op.description, ...Object.values(op.responses).map((response) => response.description)].join(" ");
+      expect(guidance).toMatch(/localSync/);
+      expect(guidance).toMatch(/(?:best.effort|not guaranteed|does not guarantee|may fail|can fail)/i);
+      expect(guidance).toMatch(/(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)[^.\n]*creat|creat[^.\n]*(?:do not|never|avoid|must not)[^.\n]*(?:replay|retry)/i);
+    });
+  }
+
+  it("describes one equivalent localSync contract for all three consumers", () => {
+    const contracts = entities.map((entity) => {
+      const schema = shape(responseSchema(document, entity), document);
+      expect(schema.properties?.localSync).toBeDefined();
+      return resolve(schema.properties!.localSync, document);
+    });
+    expect(contracts[1]).toEqual(contracts[0]);
+    expect(contracts[2]).toEqual(contracts[0]);
+  });
+});
+
+const savedGraph = {
+  currentCustomer: { CustomerID: 5, CompanyName: "Synthetic saved customer" },
+  data: [{ PickupAddressID: 10, CustomerID: 5, Containers: [{ ContainerID: 100 }] }]
+};
+const updateForms: Record<Entity, string> = {
+  customer: "CustomerID=5&CompanyName=SYNTHETIC_FORM_ONLY",
+  address: "PickupAddressID=10&CustomerID=5&Address=SYNTHETIC_FORM_ONLY",
+  // Exercises the existing owner lookup rather than supplying CustomerID.
+  container: "ContainerID=100&PickupAddressID=10&SerialNumber=SYNTHETIC_FORM_ONLY"
+};
+const savePaths: Record<Entity, string> = {
+  customer: "/WebRW/Customer/SaveCustomerLongForm",
+  address: "/WebRW/PickupAddress/SaveAddressForm",
+  container: "/WebRW/Container/SaveContainerForm"
+};
+const TOKEN = "&__RequestVerificationToken=SYNTHETIC_TOKEN";
+
+type Outcome = {
+  ok: boolean;
+  routewareStatus: number;
+  customerId: number | null;
+  pickupAddressId?: number | null;
+  containerId?: number | null;
+  upstreamBytes: number;
+  localSync: unknown;
+};
+type Scenario = {
+  name: string;
+  body: string;
+  upstreamStatus: number;
+  upstreamBody: string;
+  status: number;
+  ok: boolean;
+  customerId: number | null;
+  localSync: unknown;
+  detailCalls: number;
+  failRefresh?: boolean;
+  nullableChild?: boolean;
+};
+
+async function seedGraph(): Promise<void> {
+  const rows = mapDetailFullToRows({
+    ...savedGraph,
+    currentCustomer: { CustomerID: 5, CompanyName: "Synthetic old customer" }
+  });
+  await upsertCustomerSnapshotRows(db, [rows.customer], 80, "2000-01-01T00:00:00.000Z");
+  await upsertAddressSnapshotRows(db, rows.addresses, 80, "2000-01-01T00:00:00.000Z");
+  await upsertContainerSnapshotRows(db, rows.containers, 50, "2000-01-01T00:00:00.000Z");
+}
+
+async function localRows(): Promise<unknown[]> {
+  return Promise.all(["customer", "address", "container"].map(async (entity) =>
+    (await db.prepare(`SELECT * FROM ${entity}_snapshot`).all()).results));
+}
+
+function post(entity: Entity, body: string, token: string | null = "save-contract-sync"): Promise<Response> {
+  return Promise.resolve(app.fetch(new Request(`https://worker.test/api/v1/data/${entity}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      ...(token === null ? {} : { authorization: `Bearer ${token}` })
+    },
+    body
+  }), testEnv));
+}
+
+function syntheticUpstream(entity: Entity, scenario: Scenario) {
+  const calls: Array<{ path: string; method: string; body: string }> = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.origin !== testEnv.TARGET_ORIGIN) return denyNetwork(input);
+    const body = typeof init?.body === "string" ? init.body
+      : init?.body ? new TextDecoder().decode(init.body as ArrayBuffer) : "";
+    calls.push({ path: url.pathname, method: init?.method ?? "GET", body });
+    if (url.pathname === savePaths[entity]) {
+      return new Response(scenario.upstreamBody, { status: scenario.upstreamStatus, headers: { "content-type": "application/json" } });
+    }
+    if (url.pathname === "/WebRW/Customer/GetCustomerDetailFull") {
+      expect(JSON.parse(body)).toMatchObject({ customerID: 5 });
+      if (scenario.failRefresh) throw new Error("SYNTHETIC_EXCEPTION_NOT_A_PUBLIC_CODE");
+      return Response.json(savedGraph);
+    }
+    return denyNetwork(input);
+  });
+  return calls;
+}
+
+describe("schema vs synthetic mounted save outcomes (unchanged runtime controls)", () => {
+  for (const entity of entities) {
+    const happy = {
+      body: updateForms[entity], upstreamStatus: 200, upstreamBody: '{"success":true}',
+      status: 200, ok: true, customerId: 5, localSync: graph, detailCalls: 1
+    };
+    const scenarios: Scenario[] = [
+      { ...happy, name: "landed update and refreshed graph" },
+      { ...happy, name: "landed update but failed local refresh", failRefresh: true, localSync: { done: false, code: "sync_failed" } },
+      {
+        ...happy, name: "landed write with unresolved customer", customerId: null,
+        body: entity === "customer" ? "CustomerID=0" : entity === "address" ? "PickupAddressID=10" : "ContainerID=100",
+        localSync: { done: false, code: "unknown_customer_id" }, detailCalls: 0
+      },
+      {
+        ...happy, name: "upstream rejection inside HTTP 200 is not a success claim", ok: false,
+        upstreamBody: '{"success":false,"message":"SYNTHETIC_UPSTREAM_ONLY"}',
+        customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      },
+      {
+        ...happy, name: "loud upstream rejection preserves its status", ok: false,
+        upstreamStatus: 503, status: 503, upstreamBody: "SYNTHETIC_UPSTREAM_ONLY",
+        customerId: entity === "container" ? null : 5,
+        localSync: { done: false, code: "not_attempted" }, detailCalls: 0
+      },
+      { ...happy, name: "upstream status remains separate from wrapper status", upstreamStatus: 201 },
+      { ...happy, name: "counts UTF-8 upstream bytes without echoing the upstream body", upstreamBody: '{"success":true,"note":"é🔒SYNTHETIC_UPSTREAM_ONLY"}' }
+    ];
+    if (entity !== "customer") scenarios.push({
+      ...happy, name: "unresolved new child ID remains nullable after graph refresh", nullableChild: true,
+      body: entity === "address" ? "PickupAddressID=0&CustomerID=5" : "ContainerID=0&PickupAddressID=10&CustomerID=5"
+    });
+
+    for (const scenario of scenarios) {
+      it(`${entity}: ${scenario.name}`, async () => {
+        await seedGraph();
+        const before = await localRows();
+        const calls = syntheticUpstream(entity, scenario);
+        const response = await post(entity, scenario.body + TOKEN);
+        expect(response.status).toBe(scenario.status);
+        expect(response.headers.get("content-type")).toContain("application/json");
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        const bytes = await response.text();
+        const value = JSON.parse(bytes) as Outcome;
+        const expected = {
+          ok: scenario.ok, routewareStatus: scenario.upstreamStatus, customerId: scenario.customerId,
+          upstreamBytes: new TextEncoder().encode(scenario.upstreamBody).length, localSync: scenario.localSync,
+          ...(entity !== "customer" ? { pickupAddressId: entity === "container" && scenario.customerId === null && scenario.ok ? null : scenario.nullableChild && entity === "address" ? null : 10 } : {}),
+          ...(entity === "container" ? { containerId: scenario.nullableChild ? null : 100 } : {})
+        };
+        expect(value).toEqual(expected);
+        expect(bytes).not.toMatch(/SYNTHETIC_FORM_ONLY|SYNTHETIC_UPSTREAM_ONLY|SYNTHETIC_EXCEPTION|SYNTHETIC_TOKEN/);
+        expect(calls.filter((call) => call.path === savePaths[entity])).toEqual([
+          { path: savePaths[entity], method: "POST", body: scenario.body + TOKEN }
+        ]);
+        expect(calls.filter((call) => call.path.endsWith("GetCustomerDetailFull"))).toHaveLength(scenario.detailCalls);
+        if (!scenario.ok || scenario.customerId === null || scenario.failRefresh) {
+          expect(await localRows(), "a failed/skipped refresh must not mutate the snapshot").toEqual(before);
+        } else {
+          expect(await db.prepare("SELECT company_name FROM customer_snapshot WHERE customer_id = 5").first()).toEqual({ company_name: "Synthetic saved customer" });
+        }
+        // The baseline only advertises its outcome envelope under 200; loud
+        // upstream rejections still carry that envelope, not a success claim.
+        // Validate a status-specific schema if supplied, otherwise the shared
+        // envelope, without requiring a new error/status documentation audit.
+        const advertised = operation(document, entity).responses[String(response.status)]?.content?.["application/json"];
+        const schemaStatus = advertised ? response.status : 200;
+        const validate = validator(responseSchema(document, entity, schemaStatus), document);
+        expect(validate.safeParse(value).success, bytes).toBe(true);
+      });
+    }
+
+    for (const token of [null, "invalid-token", "save-contract-read", "save-contract-full"]) {
+      it(`${entity}: denies ${token ?? "missing bearer"} before forwarding or D1 mutations`, async () => {
+        await seedGraph();
+        const before = await localRows();
+        const response = await post(entity, updateForms[entity] + TOKEN, token);
+        expect(response.status).toBe(401);
+        expect(response.headers.get("cache-control")).toBe("no-store");
+        expect(response.headers.get("content-type")).toContain("application/problem+json");
+        expect(await response.json()).toMatchObject({ title: "Unauthorized", status: 401, instance: `/api/v1/data/${entity}` });
+        expect(await localRows()).toEqual(before);
+      });
+    }
+
+    it(`${entity}: empty form stays a no-store 400 without upstream or snapshot side effects`, async () => {
+      await seedGraph();
+      const before = await localRows();
+      const response = await post(entity, "");
+      expect(response.status).toBe(400);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(await response.json()).toMatchObject({ status: 400, instance: `/api/v1/data/${entity}` });
+      expect(await localRows()).toEqual(before);
+    });
+  }
+
+  it("OpenAPI discovery is repeatable and performs no D1/session/upstream work", async () => {
+    const forbidden = () => { throw new Error("OpenAPI discovery attempted application data access"); };
+    const isolated = { ...testEnv, CUSTOMER_DB: { prepare: forbidden, batch: forbidden, exec: forbidden }, AUTH_SESSION: { idFromName: forbidden, get: forbidden } } as unknown as Env;
+    expect(await servedDocument(isolated)).toEqual(document);
+    expect(await servedDocument(isolated)).toEqual(document);
+  });
+});
