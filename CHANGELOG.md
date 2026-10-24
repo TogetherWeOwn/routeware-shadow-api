@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Entity-save outcomes: served OpenAPI now types the customer/address/container
+- #360: Entity-save outcomes: served OpenAPI now types the customer/address/container
   save envelopes and shared done-discriminated `localSync` with fixed failure
   codes. Synthetic examples distinguish refreshed graphs, accepted writes with
   failed/skipped refresh, and upstream rejection even on HTTP 200. Read `ok`
