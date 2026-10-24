@@ -2271,7 +2271,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`pickupAddressId\` — upstream \`data.PickupAddressID\` first, else the singleton post-refresh D1 id for the owning customer; \`null\` only when the diff is empty or ambiguous (0 or 2+ new ids). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
+        "description": "Proxies to \`PickupAddress/SaveAddressForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New address: \`PickupAddressID=0\` and \`CustomerID\` set; anti-forgery from \`CreateBlankAddress\`. Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`pickupAddressId\` — upstream \`data.PickupAddressID\` first, else the singleton post-refresh D1 id for the owning customer; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2351,7 +2351,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "schema": {},
               },
             },
-            "description": "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null only when the diff is empty or ambiguous.",
+            "description": "Address created (posted id 0/absent, upstream ok) + resolved pickupAddressId + local D1 sync summary (synthetic example). The id comes from upstream data.PickupAddressID, else the singleton post-refresh D1 id for the owning customer; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
@@ -2506,7 +2506,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
       },
       "post": {
-        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`containerId\` — upstream \`data.ContainerID\` first, else the singleton post-refresh D1 id scoped to the owning address; \`null\` only when the diff is empty or ambiguous (0 or 2+ new ids). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
+        "description": "Proxies to \`Container/SaveContainerForm\` with **application/x-www-form-urlencoded**. Requires \`Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>\`. New container: \`ContainerID=0\` and \`PickupAddressID\`; \`CustomerID\` optional (resolved from D1 address row). Response: \`ok\`, \`routewareStatus\`, \`customerId\`, \`pickupAddressId\`, \`containerId\`, \`upstreamBytes\`, \`localSync\` (ids + fixed \`code\` outcomes only — no submitted fields, no upstream body). Creates (posted id 0/absent, upstream ok) answer 201 with the resolved \`containerId\` — upstream \`data.ContainerID\` first, else the singleton post-refresh D1 id scoped to the owning address; \`null\` remains when no upstream id is available and the diff is empty, ambiguous (0 or 2+ new ids), or unavailable (unknown owner or failed baseline/refresh). Updates echo the posted id with 200. No \`Location\` header: the by-id snapshot URL may not exist locally when the refresh fails, and a header that 404s is worse than none. Dry-run saves echo posted ids while live saves resolve (R21-02 convergence).",
         "requestBody": {
           "content": {
             "application/x-www-form-urlencoded": {
@@ -2587,7 +2587,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                 "schema": {},
               },
             },
-            "description": "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null only when the diff is empty or ambiguous.",
+            "description": "Container created (posted id 0/absent, upstream ok) + resolved containerId + local D1 sync summary (synthetic example). The id comes from upstream data.ContainerID, else the singleton post-refresh D1 id scoped to the owning address; null remains when no upstream id is available and the diff is empty, ambiguous, or unavailable (unknown owner or failed baseline/refresh).",
           },
           "400": {
             "description": "Bad Request",
