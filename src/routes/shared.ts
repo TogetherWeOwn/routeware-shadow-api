@@ -154,21 +154,23 @@ export function isDryRunRequested(query: { dryRun?: string }): boolean {
 /**
  * Declared query keys for the three hydrated single-entity GETs
  * (`GET /api/v1/data/customer|address|container`): `id`, the route's alias,
- * and the optional `fields` sparse-fieldset selector. Single source of truth
- * for the strict-query guard below — route handlers pass one of these, never
- * an inline list. Additive keys owned by unmerged cards (`ids`, typed
- * `fields[type]`) join the matching list when they merge.
+ * the optional `fields` sparse-fieldset selector, and the batch `ids`
+ * selector. Single source of truth for the strict-query guard below — route
+ * handlers pass one of these, never an inline list. Additive keys owned by
+ * unmerged cards (typed `fields[type]`) join the matching list when they merge.
  */
-export const DATA_CUSTOMER_QUERY_KEYS = ["id", "customerId", "fields"] as const;
+export const DATA_CUSTOMER_QUERY_KEYS = ["id", "customerId", "fields", "ids"] as const;
 export const DATA_ADDRESS_QUERY_KEYS = [
   "id",
   "pickupAddressId",
-  "fields"
+  "fields",
+  "ids"
 ] as const;
 export const DATA_CONTAINER_QUERY_KEYS = [
   "id",
   "containerId",
-  "fields"
+  "fields",
+  "ids"
 ] as const;
 
 /**
