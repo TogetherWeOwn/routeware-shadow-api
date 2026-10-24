@@ -140,9 +140,14 @@ async function columnIds(db: D1Database, sql: string, owner: number): Promise<nu
   return out.results.map((row) => row.id);
 }
 
-/** An unavailable baseline disables diffing, not the upstream save or its refresh. */
-async function preSaveIdsQuietly(
+/**
+ * Best-effort id snapshot for create-id D1 diffing. An unavailable read
+ * disables diffing (the caller keeps a null id), never the upstream save,
+ * its refresh, or graph invalidation.
+ */
+async function snapshotIdsQuietly(
   route: string,
+  msg: string,
   work: () => Promise<number[]>
 ): Promise<number[] | null> {
   try {
@@ -150,7 +155,7 @@ async function preSaveIdsQuietly(
   } catch (snapshotErr) {
     logEvent({
       level: "error",
-      msg: "Pre-save id snapshot unavailable",
+      msg,
       route,
       kind: errorKind(snapshotErr)
     });
@@ -479,8 +484,10 @@ export async function handlePostDataAddress(
   const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
   const isCreate = pickupAddressId === null;
   const preAddressIds = isCreate && customerId !== null
-    ? await preSaveIdsQuietly("POST /api/v1/data/address", () =>
-        queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/address",
+        "Pre-save id snapshot unavailable",
+        () => queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
       )
     : null;
   const url = routewareWebRwUrl(
@@ -675,8 +682,10 @@ export async function handlePostDataContainer(
   const postedContainerId = postedId(posted.ContainerID);
   const isCreate = postedContainerId === null;
   const preContainerIds = isCreate && postedPickupAddressId !== null
-    ? await preSaveIdsQuietly("POST /api/v1/data/container", () =>
-        queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/container",
+        "Pre-save id snapshot unavailable",
+        () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
       )
     : null;
   const url = routewareWebRwUrl(
@@ -724,10 +733,19 @@ export async function handlePostDataContainer(
           containerIds: g.containerIds
         };
         if (resolvedContainerId === null && preContainerIds !== null && postedPickupAddressId !== null) {
-          const postIds = await queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId);
-          const created = diffSingleton(preContainerIds, postIds);
-          if (created !== null) {
-            resolvedContainerId = created;
+          // The post-refresh id read is best-effort: a failure leaves the id
+          // null without rewriting the completed sync or skipping the graph
+          // invalidation below.
+          const postIds = await snapshotIdsQuietly(
+            "POST /api/v1/data/container",
+            "Post-refresh id snapshot unavailable",
+            () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+          );
+          if (postIds !== null) {
+            const created = diffSingleton(preContainerIds, postIds);
+            if (created !== null) {
+              resolvedContainerId = created;
+            }
           }
         }
         // Retry the whole graph on a mid-graph throw (cache deletes
