@@ -266,6 +266,11 @@ describe("snapshot, data-entity and Routeware examples", () => {
 
   it("publishes schema-compatible examples for every query and path parameter", async () => {
     const doc = await fetchDoc();
+    expect(
+      op(doc, "/api/v1/customer-snapshot/changes", "get").parameters?.filter(
+        (parameter) => parameter.in === "query" && parameter.name === "fields"
+      )
+    ).toHaveLength(1);
     let checked = 0;
     for (const { method, path } of REMAINING_RESPONSES) {
       for (const parameter of op(doc, path, method).parameters ?? []) {
@@ -280,8 +285,9 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
     // +3 for fields on the three hydrated single-ID GETs;
     // +3 for order on the customer, address and container snapshot lists;
-    // +3 for dryRun on the three data-entity POST saves.
-    expect(checked).toBe(65);
+    // +3 for dryRun on the three data-entity POST saves;
+    // +1 for fields on the customer changes feed.
+    expect(checked).toBe(66);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
