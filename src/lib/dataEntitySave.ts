@@ -128,7 +128,51 @@ function postedId(v: string | undefined): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response> {
+/** `?dryRun=true` options for the POST save handlers. */
+export type DataEntitySaveOptions = {
+  /**
+   * Validate only: run body checks, the session-state read and anti-forgery
+   * prep, then answer without the upstream POST, the D1 refresh, any cache
+   * invalidation or session establishment. Absent/false runs the live write.
+   */
+  dryRun?: boolean;
+};
+
+/**
+ * Dry-run envelope: the same save shape with `dryRun: true`,
+ * `routewareStatus: null`, `upstreamBytes: 0` and
+ * `localSync.not_attempted` — `routewareStatus` is unknowable without
+ * posting and is never predicted.
+ */
+function dryRunJson(body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" }
+  });
+}
+
+/**
+ * Fail-closed dry-run without a usable session. Dry runs never establish a
+ * session (no login POST, no `establishSession` call): without a stored
+ * cookie there is nothing safe to validate against, so this fixed 503 names
+ * session setup instead of attempting one.
+ */
+function dryRunWithoutSession(c: DataEntityCtx): Response {
+  return problemJsonResponse({
+    type: problemType("failed-precondition", c.env),
+    title: "Service Unavailable",
+    status: 503,
+    detail:
+      "Dry-run validation needs a usable Routeware session, and session setup is skipped on dry runs — no login is attempted. Run a live request first to establish a session, then retry the dry-run. See docs/PROBLEMS.md#failed-precondition.",
+    instance: new URL(c.req.raw.url).pathname
+  });
+}
+
+export async function handlePostDataCustomer(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
   // Once-per-request correlation for every save-path error line below; a
   // defensively-missing var omits the field via `requestIdField`.
@@ -144,6 +188,9 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
     });
   }
   const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveCustomerLongFormBody(
@@ -152,7 +199,12 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       c.req.raw,
       buf,
       c.req.raw.headers.get("content-type"),
-      { sessionStub: c.var.sessionStub, establishSession }
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -172,6 +224,19 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
       detail:
         "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // `posted` is parsed for ids only and never echoed — the full
+    // form map is customer PII and must not leave the handler.
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
     });
   }
   const url = routewareWebRwUrl(
@@ -264,7 +329,11 @@ export async function handlePostDataCustomer(c: DataEntityCtx): Promise<Response
   );
 }
 
-export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response> {
+export async function handlePostDataAddress(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
   // Once-per-request correlation for every save-path error line below; a
   // defensively-missing var omits the field via `requestIdField`.
@@ -280,6 +349,9 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
     });
   }
   const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveAddressFormBody(
@@ -288,7 +360,12 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       c.req.raw,
       buf,
       c.req.raw.headers.get("content-type"),
-      { sessionStub: c.var.sessionStub, establishSession }
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -317,6 +394,19 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
       detail:
         "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // `posted` is parsed for ids only and never echoed.
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      pickupAddressId: postedId(posted.PickupAddressID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
     });
   }
   const url = routewareWebRwUrl(
@@ -414,7 +504,11 @@ export async function handlePostDataAddress(c: DataEntityCtx): Promise<Response>
   );
 }
 
-export async function handlePostDataContainer(c: DataEntityCtx): Promise<Response> {
+export async function handlePostDataContainer(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
   const buf = c.var.bodyBuffer;
   // Once-per-request correlation for every save-path error line below; a
   // defensively-missing var omits the field via `requestIdField`.
@@ -430,6 +524,9 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
     });
   }
   const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
   let bodyBuffer: ArrayBuffer | null = buf;
   try {
     bodyBuffer = await prepareSaveContainerFormBody(
@@ -438,7 +535,12 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       c.req.raw,
       buf,
       c.req.raw.headers.get("content-type"),
-      { sessionStub: c.var.sessionStub, establishSession }
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
     );
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -467,6 +569,21 @@ export async function handlePostDataContainer(c: DataEntityCtx): Promise<Respons
       detail:
         "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
       instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // Posted ids only — no upstream response to resolve from and no D1
+    // owner fallback (that read is part of the live write path).
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      pickupAddressId: postedId(posted.PickupAddressID),
+      containerId: postedId(posted.ContainerID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
     });
   }
   const url = routewareWebRwUrl(
