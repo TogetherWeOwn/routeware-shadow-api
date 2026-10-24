@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
+  200 responses publish three distinct named bundle schemas instead of
+  `any`: root row plus nested relations, every stored column declared with
+  storage-faithful integer/string/null types. Only each row's primary id is
+  required, so `fields=` and `fields[TYPE]` projections validate, and each
+  operation carries full and root-projected synthetic examples.
+  Declaration only: no runtime parsing or validator, no byte, SELECT,
+  cache, auth or ETag change. Focused check:
+  `npm run check:typed-hydrated-bundles`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
