@@ -14,7 +14,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
@@ -452,8 +452,10 @@ keeps sparse pages. Both cursor halves replace the previous boundary
 together, including when starting with bare/omitted `since`. No unknown key,
 request origin, forwarded host, credential or arbitrary path is copied.
 This feed recognizes optional `fields` (sparse projection after cursor
-derivation; omit for full rows) but not `until`, which keeps the existing
-unknown-name ignore policy. The ordinary-list helper and its integer cursor
+derivation; omit for full rows) and optional `until` (inclusive upper bound,
+carried normalized in the target so followed links cannot escape the window);
+other unknown keys keep the ignore policy. An unbounded page's next target
+carries no `until`. The ordinary-list helper and its integer cursor
 contract are unchanged.
 
 A full terminal page can link to an empty page; short/empty pages have null
@@ -470,6 +472,55 @@ traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
 prove zero application writes and fail on any unexpected outbound fetch.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
 Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
+
+### Bounded changes window (`until=`)
+
+Only the customer changes feed recognizes `until`: an optional inclusive
+upper bound conjoined with the unchanged lower-bound/composite tuple
+predicate as a bound `synced_at <= ?`, so callers read a finite
+caller-chosen time window instead of chasing newly synchronized timestamps.
+Omit `until` for the unbounded tail; omission keeps the previous SQL, binds,
+JSON and Link bytes untouched.
+
+Validation reuses the `since` lossless UTC `Z`/millisecond contract:
+seconds and 1–3 fraction digits normalize to the stored millisecond form
+before comparison, while empty, repeated, calendar-invalid, offset and
+overprecision values fail with the existing stable value-free 400 before D1,
+after read-role authentication. Legacy empty-`since` initial-page semantics
+are unchanged. Normalized `since` must not exceed `until` (a 400 naming
+`until`); equality stays valid — a bare `since` then yields no rows at that
+instant, while a composite `since_id` resumes the remaining same-timestamp
+rows inside the inclusive bound. Ordering, `limit` 1..500, page-length
+`total`, the full-page maybe-more cursor and cursor-before-projection
+derivation are unchanged, as are canonical ids, auth precedence, no-store,
+operation identity and the single-SELECT budget (no COUNT or lookahead).
+
+Every non-null `nextCursor` still advertises a relative `rel="next"` Link
+that replaces `since` and `since_id` together and retains the effective
+limit, the validated `fields` selector and now the normalized `until`;
+unrelated unknown keys stay ignored and are never copied into Link. See the
+[synthetic bounded two-page recipe](CONSUMER-QUICKSTART.md#bounded-changes-window-until).
+
+This remains a current-row upserts-only feed: a concurrent overwrite can move
+a row outside the window between pages, bulk imports advance timestamps,
+and there are no delete events, historical versions or snapshot isolation,
+so bounded traversal does not guarantee completeness.
+
+Synthetic query-shape evidence (Node `node:sqlite`, in-memory, all committed
+D1 migrations, 6 synthetic rows, production SELECT columns): the initial and
+bare bound shapes plan as
+`SEARCH customer_snapshot USING INDEX idx_customer_snapshot_synced_at (synced_at>? AND synced_at<?)`
+(EQP renders the inclusive bound as `<`; the SQL is `synced_at <= ?` with
+bound values and the limit bind last), and the composite bound shape plans
+as a `MULTI-INDEX OR` over the same index with `USE TEMP B-TREE FOR ORDER BY`.
+The executable `test/customerChangesUntil.acceptance.test.ts` records every
+actual handler SELECT/bind against real local test D1 and runs
+`EXPLAIN QUERY PLAN` on the emitted bound shapes. No index, migration,
+latency measurement or production-performance claim is made.
+
+Run `npm run check:customer-changes-until` for the focused synthetic-local-D1
+window, validation/auth-precedence, traversal, Link-carry and contract
+regressions. No live replay.
 
 ## Coverage boundary and non-list classifications
 
