@@ -414,7 +414,7 @@ describe("customer changes until: bound SQL and published contract", () => {
     const projected = get.parameters.some((param) => param.in === "query" && param.name === "fields");
     const result = await page({ until: "2026-09-01T00:00:00.5Z", since: UPPER, since_id: "8703", limit: "1", fields: "company_name" });
     expect(result.body.nextCursor).toEqual({ since: UPPER, since_id: 8706 });
-    expect(Object.keys(result.body.rows[0]).sort()).toEqual(projected ? ["company_name"] : [...ROW_COLUMNS].sort());
+    expect(Object.keys(result.body.rows[0]).sort()).toEqual(projected ? ["company_name", "customer_id"] : [...ROW_COLUMNS].sort());
     const link = result.response.headers.get("link");
     if (link !== null) {
       const target = link.match(/<([^>]+)>;\s*rel="next"/);
