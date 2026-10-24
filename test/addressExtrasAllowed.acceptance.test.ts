@@ -654,13 +654,14 @@ describe("address extrasAllowed strict enum validation", () => {
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("application/problem+json");
     expect(response.headers.get("link")).toBeNull();
-    expect(await response.json()).toEqual({
+    const body = await response.json();
+    expect(body).toEqual({
       type: problemType("bad-request"),
       title: "Bad Request",
       status: 400,
       detail: INVALID_DETAIL
     });
-    expect(JSON.stringify(await response.clone().json())).not.toContain("secret-extras-marker");
+    expect(JSON.stringify(body)).not.toContain("secret-extras-marker");
     expect(recorder.statements).toEqual([]);
     expect(recorder.batch).not.toHaveBeenCalled();
     expect(recorder.exec).not.toHaveBeenCalled();
