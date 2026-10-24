@@ -254,9 +254,10 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
-// Exact identifiers supersede this route's old query/error narrative. Their
-// schema, composition and error discovery are asserted independently in
-// containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
+// Exact identifiers and stored-flag selectors supersede this route's old
+// query/error narrative. Their schema, composition and error discovery are
+// asserted independently in containerIdentifierFilters.acceptance.test.ts and
+// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative prose
 // or parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -272,7 +273,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "onCall", "gpsLocked"].includes(parameter.name ?? "")
       );
     }
   }

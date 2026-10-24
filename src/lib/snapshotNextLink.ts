@@ -13,6 +13,10 @@ type SnapshotListQuery = {
   franchiseId?: string;
   q?: string;
   enabled: "true" | "false" | "any";
+  // Container-only stored-flag selectors. Optional because the customer and
+  // address lists share this query shape without defining these keys.
+  onCall?: "true" | "false" | "any";
+  gpsLocked?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -54,6 +58,10 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Non-any stored-flag selectors round-trip; `any`/omission stays canonical
+  // by omission, exactly like `enabled=any`.
+  if (query.onCall !== undefined && query.onCall !== "any") params.set("onCall", query.onCall);
+  if (query.gpsLocked !== undefined && query.gpsLocked !== "any") params.set("gpsLocked", query.gpsLocked);
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the
   // continuation cannot escape the traversal the caller chose to bound.

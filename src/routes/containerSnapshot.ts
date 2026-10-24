@@ -63,7 +63,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. All supplied filters compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `onCall` and `gpsLocked` select stored `oncall`/`gps_locked` states (`true` is stored 1, `false` is stored 0, `any` adds no predicate). All supplied filters compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -75,6 +75,18 @@ const containerSnapshotListRoute = createRoute({
       rfid: containerIdentifierQuery.optional().openapi({ example: "RF-0007" }),
       q: snapshotSearchQuery.optional().describe("Substring on location or serial (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "C-100" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      onCall: z
+        .enum(["true", "false", "any"])
+        .optional()
+        .default("any")
+        .describe("Stored on-call flag equality on `c.oncall`: `true` matches stored 1, `false` matches stored 0, `any` (default) adds no predicate. A stored snapshot value, not a service-demand assertion.")
+        .openapi({ example: "true" }),
+      gpsLocked: z
+        .enum(["true", "false", "any"])
+        .optional()
+        .default("any")
+        .describe("Stored GPS-lock flag equality on `c.gps_locked`: `true` matches stored 1, `false` matches stored 0, `any` (default) adds no predicate. A stored snapshot value, not proof of fresh GPS.")
+        .openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
@@ -110,7 +122,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber` or `rfid`, either identifier or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber` or `rfid`, either identifier or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled`/`onCall`/`gpsLocked` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -161,6 +173,20 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   }
   if (p.enabled === "false") {
     where.push("c.enabled = 0");
+  }
+  // Stored operational flags: integer-literal equality on the container alias
+  // so filtered and bare pages share the same binds. `any` adds no predicate.
+  if (p.onCall === "true") {
+    where.push("c.oncall = 1");
+  }
+  if (p.onCall === "false") {
+    where.push("c.oncall = 0");
+  }
+  if (p.gpsLocked === "true") {
+    where.push("c.gps_locked = 1");
+  }
+  if (p.gpsLocked === "false") {
+    where.push("c.gps_locked = 0");
   }
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
