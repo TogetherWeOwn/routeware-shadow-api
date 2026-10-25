@@ -15,6 +15,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
 
+- #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
+  `state` equality selectors. Each case-sensitive opaque string is 1..100
+  Unicode code points and nonblank; significant whitespace and punctuation
+  are preserved without normalization or coercion. Bound AND predicates
+  share page/COUNT scope, and next Links preserve the encoded values.
+  Invalid/repeated values fail value-free before D1; count-free, sparse and
+  conditional reads retain their contracts. City/state-only equality may
+  scan without a dedicated index; no migration or geography inference.
+  This GET is idempotent/local-read. Synthetic recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:address-city-state`.
+
 - #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
   to select customers by mirrored address presence without expanding parents.
   All stored addresses count, including disabled children; customer `enabled`
