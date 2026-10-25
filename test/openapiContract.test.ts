@@ -318,6 +318,26 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
 }
 
 /**
+ * The opt-in exact next-page signal (`exactNext`) is owned by
+ * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
+ * description guidance and absence from every other operation are pinned
+ * there. Exclude only that new query parameter from the three ordinary
+ * lists; put new guidance on the new parameter, not on frozen prose.
+ */
+function withoutExactNextParameter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["customer", "address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((p) => p.in !== "query" || p.name !== "exactNext");
+    }
+  }
+  return copy;
+}
+
+/**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
  * selector covered by addressZipFilter.acceptance.test.ts and city/state
@@ -673,7 +693,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()));
+    const doc = withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
