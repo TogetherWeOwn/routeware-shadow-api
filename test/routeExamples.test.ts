@@ -458,7 +458,8 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields"
+      "materialStream", "color", "zip", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields"
     ]
   },
   {
