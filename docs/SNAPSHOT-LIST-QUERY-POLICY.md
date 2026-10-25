@@ -11,10 +11,41 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `note`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+
+## Customer address presence
+
+Only the ordinary customer list recognizes `hasAddresses=true|false|any`.
+`true` keeps customers with at least one stored address sharing their
+`customer_id`; `false` keeps those with none. Omission/`any` adds no predicate.
+Every stored address counts, including disabled children; customer `enabled`
+remains independent. No mirrored address is **not proof of no upstream site**
+and never authorizes deletion, reconciliation or a sync.
+
+Send one exact case-sensitive supported value, or omit the selector and retry.
+Empty, unknown or repeated values return value-free `application/problem+json`
+400 after authentication and before D1, including conditional requests.
+The correlated `EXISTS`/`NOT EXISTS` over the existing child `customer_id`
+index never joins/expands parents or returns child payloads. It shares the
+COUNT/page WHERE and binds, AND-composing with IDs, business numbers, `q`,
+`phone`, `enabled`, `upperId`, cursor/offset and either order. Count-free mode
+still runs one SELECT and zero COUNTs. Canonical `customer_id`, sparse fields,
+cursor-relative totals and exact-representation ETag/304 semantics are unchanged.
+Validated true/false travel in relative next Links; any/default and unknown
+keys do not. A full terminal page may link to an empty page; concurrent writes
+are not snapshot-isolated.
+
+Run `npm run check:customer-address-presence`; the independent
+`test/customerAddressPresence.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2 and verifies complete bidirectional traversal, no duplicate
+parents and child-index SEARCH plans for both COUNT and rows. This is local
+planner evidence, not a production latency claim. No migration/index change.
+GET is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
+[local recipe](CONSUMER-QUICKSTART.md#customer-address-presence) and
+[correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
 
 ## Address container presence
 

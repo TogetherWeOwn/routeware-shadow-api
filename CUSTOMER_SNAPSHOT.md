@@ -310,7 +310,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, `enabled`, `fields`, `includeTotal`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, mirrored-child `hasAddresses=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
@@ -328,6 +328,21 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Customer mirrored-address presence
+
+On the ordinary customer list only, `hasAddresses=true|false|any` selects
+customers with/without at least one stored address; any/omission is unchanged.
+Disabled addresses count, customer `enabled` is independent, and no child rows
+are expanded. No mirrored address is not proof of no upstream site and never
+authorizes deletion, reconciliation or sync. Send one supported value or omit
+it and retry invalid/empty/repeated selectors. The local-read GET composes
+with all existing filters/paging/fields/conditional reads; true/false stay in
+relative next Links and count-free mode runs zero COUNTs. No isolation promise.
+Run `npm run check:customer-address-presence` for synthetic local-D1 contract
+and existing-child-index EXPLAIN checks, not production performance evidence.
+CLI `--dry-run` is N/A. See the
+[present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-address-presence).
 
 ### Ordinary list direction
 
