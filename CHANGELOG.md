@@ -76,6 +76,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic local check: `npm run check:customer-comments-search`; recipe:
   `docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment`.
 
+- #391: Hydrated customer/address/container GET 200 declarations now compose
+  their existing named single bundles with named typed batch envelopes.
+  Batches preserve 1..50 request-ordered entries and duplicates, require full
+  resource-specific found payloads, and represent misses with only `id` and
+  `found: false`. Mounted synthetic mixed/all-missing examples and the named
+  `check:typed-hydrated-batch-contracts` check validate the served contract.
+  This is declaration-only: single projections/ETag/304 and missing-root 404
+  stay unchanged; batches remain no-store/no ETag/no 304 and reject all
+  fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation
