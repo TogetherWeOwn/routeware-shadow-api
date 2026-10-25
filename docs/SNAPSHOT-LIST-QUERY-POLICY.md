@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -153,6 +153,39 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
 
+## Exact stored address ZIP
+
+Only the address list recognizes `zip`. It is an optional exact,
+case-sensitive opaque string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Leading zeros (for example
+`02139`) and nonblank whitespace are preserved; no trimming, case folding,
+digit coercion or Unicode normalization occurs. Empty, whitespace-only,
+repeated (including percent-encoded aliases) and overlength values return the
+existing value-free 400 naming `zip` before D1, after authentication. See
+[fixed correction guidance](PROBLEMS.md#bad-request).
+
+One bound `zip = ?` equality is applied on the single-table path,
+AND-composed with `customerId`, `pickupAddressId`, `routeId`, `franchiseId`,
+`q`, `enabled` and the cursor in both the page `SELECT` and the `COUNT`.
+Stored nulls never match a supplied value; omission preserves current
+behavior. No new index or migration is introduced: the existing
+`idx_address_snapshot_zip` is eligible, and local `EXPLAIN QUERY PLAN`
+reports `SEARCH ... idx_address_snapshot_zip (zip=?)` for ZIP-only reads —
+a local plan observation, not a deployed-plan or latency claim. Substring
+postcode semantics belong to the address `q` search below; this selector is
+exact equality and composes AND with it.
+
+Next links retain the validated ZIP using URLSearchParams encoding; do not
+reconstruct or log ZIP values while following them. Canonical
+`pickup_address_id` rows, offset/seek ordering, cursor-relative totals,
+count-free zero-COUNT behavior, sparse fields and conditional ETags are
+unchanged. Unrelated unknown keys keep list-ignore policy. See the
+[synthetic ZIP-page recipe](CONSUMER-QUICKSTART.md#exact-stored-address-zip)
+and [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#exact-stored-address-zip-predicate-audit).
+Run `npm run check:address-zip` for the hermetic local-D1 contract and
+relevant list/link/conditional/auth/OpenAPI regressions; no live credentials
+or upstream calls.
+
 ## Address street or locality search
 
 Only the address list searches `q` across three columns. The existing `q` is a
@@ -169,7 +202,7 @@ geocoding or postal/geographic expansion is performed: locality `q` is not an
 exact postal or geographic scope filter.
 
 The match is one parenthesized three-column OR, AND-composed with
-`customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `enabled`
+`customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `enabled`
 and cursor/ceiling predicates by the shared WHERE join. Null and empty
 locality columns match nothing on their own legs. One row per
 `pickup_address_id`, ordering, offset/seek, cursor-relative counted totals,

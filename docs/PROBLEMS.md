@@ -150,6 +150,21 @@ format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
 
+## Exact stored address ZIP (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `zip` is an optional exact,
+case-sensitive opaque string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Leading zeros (for example
+`02139`) and nonblank whitespace are significant; do not trim, case-fold or
+numerically coerce it. Send the key once, URL-encoded.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (zip). See docs/PROBLEMS.md#bad-request.`
+Correct the named field's format, send it once, then retry; omit it only if
+no ZIP scope is intended. Authentication still precedes validation. A valid
+ZIP that matches no rows returns 200 with an empty list. See the
+[ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip).
+
 ## Snapshot list direction (`bad-request`)
 
 For the three ordinary snapshot lists, send exactly one lowercase

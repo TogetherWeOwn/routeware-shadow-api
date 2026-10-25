@@ -69,6 +69,32 @@ three identical bound needles; the pinned oracle in
 composed shapes and the same `q`-alone SCAN. The historical rows are left
 intact.
 
+## Exact stored address ZIP predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 4 synthetic addresses (two sharing `02139`, one
+`07001`, one NULL; no tenant data). Used the address route's COUNT template
+and full-column SELECT template with the bound `zip = ?` predicate:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `SELECT COUNT(*) ... WHERE 1 = 1 AND zip = ?` | `SEARCH address_snapshot USING COVERING INDEX idx_address_snapshot_zip (zip=?)` |
+| Page SELECT with `zip = ?`, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_zip (zip=?)` |
+| Page SELECT with `zip = ? AND pickup_address_id > ?` seek | `SEARCH address_snapshot USING INDEX idx_address_snapshot_zip (zip=? AND rowid>?)` |
+
+The predicate is one bound equality placeholder, never interpolation, LIKE,
+a new join or a deduplication step. The executable
+`test/addressZipFilter.acceptance.test.ts` independently records every actual
+handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements with an opaque Unicode/reserved-character fixture, and asserts the
+same `SEARCH ... idx_address_snapshot_zip (zip=?)` shape with exact matches,
+read-only execution and denied network. Run `npm run check:address-zip` to
+repeat that bounded check.
+
+No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Address container-presence predicate audit
 
 **Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
