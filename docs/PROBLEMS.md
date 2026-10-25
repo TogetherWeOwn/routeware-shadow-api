@@ -84,6 +84,21 @@ fields; no supplied phone value is echoed or logged. A valid lookup with
 zero matches is a successful empty collection, not a validation error. See
 the [synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup).
 
+## Customer address presence (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send one `hasAddresses=true`, `false`
+or `any` (default), or omit the selector and retry. The enum is exact and
+case-sensitive: unknown, empty and repeated values fail after authentication
+and before D1 with the existing value-free 400. Detail for this field alone:
+
+`Invalid request query (hasAddresses). Send one hasAddresses=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. Zero matches is a successful empty
+collection. Disabled stored addresses count as present; customer `enabled`
+is independent. No mirrored child is not proof of no upstream site and never
+authorizes deletion, reconciliation or sync. See the
+[local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
+
 ## Address container presence (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,

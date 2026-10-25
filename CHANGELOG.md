@@ -17,6 +17,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   local-read GET, CLI dry-run N/A. Synthetic recipe:
   `npm run check:container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
 
+- #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
+  to select customers by mirrored address presence without expanding parents.
+  All stored addresses count, including disabled children; customer `enabled`
+  is independent. Indexed correlated EXISTS/NOT EXISTS shares COUNT/page
+  predicates; count-free mode, sparse fields, ETags and pagination remain
+  compatible. Relative next Links retain true/false, omitting any/default.
+  Invalid, empty or repeated values fail before D1 with fixed retry guidance.
+  No mirrored child is not proof of no upstream site and never authorizes
+  deletion, reconciliation or sync. Local recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:customer-address-presence`.
+  No new endpoint, upstream call, migration, index or access change.
+
 - #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
   opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
   zeros and nonblank whitespace. Literal substring `q` now matches stored
