@@ -404,6 +404,28 @@ directory are load-bearing enough to also be stated in [`CONVENTIONS.md`](CONVEN
 `test/openapiContract.test.ts` enforces both plus the full generated document (verified to fail when
 a route is dropped).
 
+### `test/routeExamples.test.ts` — per-operation parameter pins (no shared count)
+
+`REMAINING_RESPONSES` is the single operation inventory, and every entry carries
+its own `parameterNames: string[]` record (including `[]` for parameterless
+operations). The parameter walker pins each operation's mounted query/path
+names against exactly that operation's record — a missing, extra or renamed
+parameter fails naming the operation and the name — then walks every mounted
+parameter for a schema-compatible example. The checked total is derived as the
+sum of the records, so adding a selector edits only its own operation's array:
+there is no shared integer for unrelated PRs to collide on, and the old
+hand-counted ledger is retired.
+
+The seam is load-bearing for `test/routeExamplesParameters.acceptance.test.ts`
+(the Node-pool oracle): it transpiles this module, swaps the inventory for
+tiny synthetic fixtures, and runs the two real callbacks, so keep the
+`REMAINING_RESPONSES` name, the `parameterNames` field, and the exact test
+names `pins the complete operation inventory of the remaining route modules`
+and `publishes schema-compatible examples for every query and path parameter`.
+Focused checks: `npx vitest run test/routeExamples.test.ts` for the mounted
+pins, `npx vitest run --config
+test/routeExamplesParameters.acceptance.config.ts` for the oracle in isolation.
+
 ---
 
 ## Deliberate dead branches — do not "clean up"
