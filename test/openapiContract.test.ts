@@ -158,14 +158,23 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
  * so only those two strings are excluded here. Its fields schema and all
  * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
- * parameter, response, header, schema and operation.
+ * parameter, response, header, schema and operation. countOnly's three query
+ * declarations and new mode examples are owned by snapshotCountOnly.acceptance;
+ * named examples normalize back to the SAME old nonempty counted example.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
     paths?: Record<string, Record<string, {
       description?: string;
       parameters?: Array<Record<string, unknown>>;
-      responses?: Record<string, { description?: string; headers?: Record<string, unknown> }>;
+      responses?: Record<string, {
+        description?: string;
+        headers?: Record<string, unknown>;
+        content?: Record<string, {
+          example?: unknown;
+          examples?: Record<string, { value?: { rows?: unknown[]; total?: number | null } }>;
+        }>;
+      }>;
     }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
@@ -203,10 +212,18 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
         !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "query" && ["upperId", "countOnly"].includes(String(param.name)))
       );
     }
     if (operation.responses) delete operation.responses["304"];
+    const media = operation.responses?.["200"]?.content?.["application/json"];
+    if (media?.examples) {
+      const countedPages = Object.values(media.examples).map((entry) => entry.value)
+        .filter((value) => value && (value.rows?.length ?? 0) > 0 && typeof value.total === "number");
+      expect(countedPages, `${path}: preserve one legacy counted full-page example`).toHaveLength(1);
+      media.example = countedPages[0];
+      delete media.examples;
+    }
     const headers = operation.responses?.["200"]?.headers;
     if (headers) {
       for (const name of Object.keys(headers)) {
