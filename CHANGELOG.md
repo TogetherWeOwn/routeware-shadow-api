@@ -16,6 +16,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic local check: `npm run check:container-parent-scopes`; see the
   parent-cohort recipe in `docs/CONSUMER-QUICKSTART.md`.
 
+- #376: `GET /api/v1/address-snapshot` accepts an optional stored
+  `extrasAllowed=true|false|any` selector (default `any`), intersected by AND
+  with existing filters in both `COUNT` and page reads. `true` matches stored
+  `extras_allowed = 1`, `false` matches stored `0`, and `any`/omission adds no
+  predicate. The flag is stored snapshot state, not permission to mutate
+  service terms or proof of current upstream policy. Exact case-sensitive
+  enum spelling, sent once; malformed, blank or repeated keys reject before
+  D1 with value-free guidance. Next links preserve a non-any selector and
+  omit `any` canonically; pagination, projection, count-free and conditional
+  reads remain compatible. No new endpoint, index, migration, access or write
+  behavior. Synthetic recipe: `npm run check:address-extras-allowed` and
+  `docs/CONSUMER-QUICKSTART.md`.
+
 - #401: Three ordinary flat snapshot lists add `strictQuery=true|false` (default
   false). True rejects unknown decoded names after auth and before D1/304,
   using each mounted schema as its allowlist and a fixed no-echo bad-request

@@ -243,6 +243,23 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Address stored extras-allowed selector (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,
+case-sensitive enum: `true`, `false` or `any` (default `any`), sent once.
+`true` matches stored `extras_allowed = 1`, `false` matches stored `0`, and
+`any`/omission adds no predicate. The flag is stored snapshot state, not
+permission to mutate service terms or proof of current upstream policy. No
+coercion is applied: `1`, `0`, padded or case-mismatched spellings are
+invalid, as are blank values and repeated keys.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (extrasAllowed). See docs/PROBLEMS.md#bad-request.`
+Correct the value to one exact enum spelling, send it once, then retry; omit
+it only if no selector is intended. Authentication still precedes validation.
+Valid selectors that match no rows return 200 with an empty list. See the
+[selector policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-stored-extras-allowed-selector).
+
 ## Exact stored address ZIP (`bad-request`)
 
 For `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, `zip`
