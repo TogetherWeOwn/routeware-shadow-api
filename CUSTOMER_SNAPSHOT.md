@@ -55,6 +55,30 @@ Run `npm run test:detail-full` for the parameterized synthetic-graph acceptance
 suite plus reconciliation regressions (local test D1 only, no credentials or live
 requests). The full `npm test` entry point includes these tests too.
 
+## Detail-full container source availability
+
+`GetCustomerDetailFull` does not supply `ud_cost_share_ud`,
+`ud_enclosure_doors_ud`, `ud_last_compactor_inspection_ud`,
+`ud_last_enclosure_inspection_ud`, `ud_material_stream_ud`, `service_code_type`,
+`service_code_input` or `service_date`. Its mapping keeps those eight values null
+for new containers. On existing containers, only the detail-full upsert omits
+those UPDATE assignments, retaining the currently stored values atomically,
+including a report update committed before that write. Supported detail-full
+fields still replace stored values, including explicit nulls. The existing
+`stored.synced_at <= incoming.synced_at` guard applies to the whole update;
+batching, reconciliation and cache invalidation are unchanged.
+
+CSV/report imports and ordinary upserts remain authoritative for all columns:
+non-null replacements and deliberate blank/null clearing still apply. Flat and
+hydrated reads expose the same stored report-only metadata after save refreshes.
+This prevents future loss; it **does not repair already-cleared values**.
+Recovery requires an authoritative report through the existing authorized import
+or sync workflow. Do not infer missing metadata, replay saves as a repair, or
+backfill from unrelated fields. No migration or new access is required.
+
+Local synthetic regression (real test D1, no external requests or credentials):
+`npx vitest run test/detailFullReportMetadata.acceptance.test.ts --maxWorkers=2`.
+
 ## Environment
 
 | Variable | Role |
