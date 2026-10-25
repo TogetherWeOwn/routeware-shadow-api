@@ -219,6 +219,70 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
 }
 
 /**
+ * Failure declarations are owned by combinedSyncFailureOpenapi.acceptance.
+ * Permit only their reachable new component schemas, not arbitrary additions.
+ * Inline those refs before removing them so a shared completed-count definition
+ * can be reused by the existing 200 schema without re-recording its contract.
+ * The 200 response, query params and all unrelated operations stay frozen.
+ */
+function withoutDedicatedSyncFailureMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/data-snapshot/sync"]?.post as {
+    responses?: Record<string, unknown>;
+  } | undefined;
+  const schemas = copy.components?.schemas ?? {};
+  const legacySchemas = new Set([
+    "AddressSaveDryRun", "AddressSaveOutcome", "ContainerSaveDryRun",
+    "ContainerSaveOutcome", "CustomerSaveDryRun", "CustomerSaveOutcome",
+    "CustomerSnapshotChanges", "CustomerSnapshotChangesRow", "CustomerSnapshotList",
+    "DataSnapshotSyncResult",
+    "HealthResponse", "LocalSyncCode", "LocalSyncSummary",
+    "ReadinessResponse", "ShadowHealthResponse",
+    "SnapshotOrphanReport", "SnapshotOrphanSample"
+  ]);
+  const owned = new Set<string>();
+  function collect(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(collect); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+      const name = node.$ref.slice("#/components/schemas/".length);
+      if (!legacySchemas.has(name) && !owned.has(name)) {
+        owned.add(name);
+        collect(schemas[name]);
+      }
+    }
+    Object.values(node).forEach(collect);
+  }
+  for (const status of ["400", "401", "500", "503"]) collect(operation?.responses?.[status]);
+  function inline(value: unknown, seen: string[] = []): unknown {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((entry) => inline(entry, seen));
+    const node = value as Record<string, unknown>;
+    const ref = node.$ref;
+    if (typeof ref === "string" && owned.has(ref.slice("#/components/schemas/".length))) {
+      expect(seen, "combined-sync schema refs must not cycle").not.toContain(ref);
+      const name = ref.slice("#/components/schemas/".length);
+      expect(schemas[name], `missing combined-sync schema ${name}`).toBeDefined();
+      const { $ref: _ref, ...siblings } = node;
+      return { ...inline(schemas[name], [...seen, ref]) as object, ...inline(siblings, seen) as object };
+    }
+    return Object.fromEntries(Object.entries(node).map(([key, entry]) => [key, inline(entry, seen)]));
+  }
+  const result = inline(copy) as OpenApiDocument;
+  for (const name of owned) delete result.components!.schemas![name];
+  const responses = (result.paths["/api/v1/data-snapshot/sync"]?.post as typeof operation)?.responses;
+  if (responses) {
+    delete responses["400"];
+    delete responses["500"];
+    delete responses["503"];
+    // This response was description-only before the dedicated failure oracle.
+    if (responses["401"]) responses["401"] = { description: "Unauthorized" };
+  }
+  return result;
+}
+
+/**
  * The bounded `ids` extension has independent behavioral/schema assertions in
  * snapshotIdSelection.acceptance.test.ts. Project out only its new parameter
  * and the three evolving 400 descriptions; freeze all pre-existing structure.
@@ -373,7 +437,7 @@ describe("published OpenAPI document", () => {
 
   it("declares the tags, shared schemas and bearer security scheme", async () => {
     // Arrange
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument());
 
     // Assert
     expect(doc.openapi).toBe("3.1.0");
@@ -591,7 +655,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument());
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
