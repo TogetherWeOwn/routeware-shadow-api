@@ -5,6 +5,32 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
+  selector, intersected by AND with existing filters. The opaque
+  case-sensitive string (1..100 Unicode code points) preserves leading zeros
+  and nonblank whitespace; invalid/repeated values reject before D1 with
+  value-free guidance. One bound `zip = ?` equality applies in both the page
+  and COUNT SQL, making the existing `idx_address_snapshot_zip` eligible;
+  index usage is locally verified for ZIP-only reads, not promised for
+  combined filters or deployed queries. Next
+  links preserve the encoded selector; pagination, projection, count-free
+  and conditional reads remain compatible. No new endpoint, index, migration,
+  access or write behavior. Synthetic recipe: `npm run check:address-zip`
+  and `docs/CONSUMER-QUICKSTART.md`.
+
+- #377: `GET /api/v1/address-snapshot` accepts optional `hasContainers=true|false|any`
+  (default `any`), selecting addresses by mirrored container presence. `true` keeps
+  only addresses with a stored container child, `false` only those with none; any
+  stored child counts including disabled containers, and address `enabled` stays
+  independent. Correlated EXISTS/NOT EXISTS over the child's existing index shares
+  the COUNT/page WHERE with no new binds, join, migration or payload expansion.
+  Filtering values round-trip in continuation Links; `any`/omitted stays
+  byte-identical. Invalid/repeated values reject before D1 with value-free guidance.
+  Absence means no currently mirrored child, not proof an upstream site is empty.
+  Synthetic recipe: `npm run check:address-container-presence` and
+  `docs/CONSUMER-QUICKSTART.md`.
+
+
 - #372: The existing address snapshot list `q` matches a literal
   ASCII case-insensitive substring against street, city or postcode: a row
   matches when any one column contains the trimmed needle. SQLite `lower()`

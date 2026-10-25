@@ -63,7 +63,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId` and `franchiseId`, free-text `q` over street, city or zip (a match in any one column), `enabled`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId`, `franchiseId` and stored `zip`, free-text `q` over street, city or zip (a match in any one column), `enabled`, mirrored-child `hasContainers`. Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -82,8 +82,16 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Opaque case-sensitive exact franchise equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
         .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" }),
+      zip: z.string()
+        .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+        .optional()
+        .describe("Opaque case-sensitive exact stored-zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
+        .openapi({ type: "string", minLength: 1, maxLength: 100, example: "02139" }),
       q: snapshotSearchQuery.optional().describe("Substring on street, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      hasContainers: z.enum(["true", "false", "any"]).optional().default("any")
+        .describe("Mirrored container presence: \"true\" keeps only addresses with at least one stored container row, \"false\" keeps only addresses with none. Counts every stored child including disabled containers; address enabled stays independent. Absence means no currently mirrored child, not proof the upstream site is empty and not authorization to delete or reconcile.")
+        .openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
@@ -119,7 +127,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer and `franchiseId` as one nonblank opaque string of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip` as one nonblank exact stored postcode of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -150,6 +158,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     where.push("franchise_id = ?");
     binds.push(p.franchiseId);
   }
+  if (p.zip !== undefined) {
+    where.push("zip = ?");
+    binds.push(p.zip);
+  }
   if (p.q !== undefined && p.q.trim() !== "") {
     // Locality search: one parenthesized OR across street, city and zip,
     // AND-composed with every other filter by the shared where/binds join.
@@ -166,6 +178,16 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   }
   if (p.enabled === "false") {
     where.push("enabled = 0");
+  }
+  // Mirrored-child presence: a correlated EXISTS over the child's existing
+  // pickup_address_id index. No join (parent rows never multiply), no binds
+  // (the enum becomes a predicate, not a value), no child payload expansion.
+  // Disabled children count as present; any/omission adds no predicate.
+  if (p.hasContainers === "true") {
+    where.push("EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id)");
+  }
+  if (p.hasContainers === "false") {
+    where.push("NOT EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id)");
   }
   if (p.cursor !== undefined) {
     where.push(`pickup_address_id ${order.seek} ?`);

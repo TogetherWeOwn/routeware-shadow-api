@@ -11,8 +11,10 @@ type SnapshotListQuery = {
   rfid?: string;
   routeId?: number;
   franchiseId?: string;
+  zip?: string;
   q?: string;
   enabled: "true" | "false" | "any";
+  hasContainers?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -24,7 +26,7 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid"] }
 } as const;
 
@@ -54,6 +56,11 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Address-only presence selector (other lists never set it): carry only
+  // filtering values so any/omitted continuations stay byte-identical.
+  if (query.hasContainers !== undefined && query.hasContainers !== "any") {
+    params.set("hasContainers", query.hasContainers);
+  }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the
   // continuation cannot escape the traversal the caller chose to bound.
