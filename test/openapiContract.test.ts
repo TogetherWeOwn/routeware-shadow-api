@@ -300,6 +300,34 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+/**
+ * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
+ * it checks the served schema and HTTP behavior without freezing new wording.
+ * Keep every pre-existing schema, response and unrelated query parameter pinned.
+ */
+function withoutDedicatedChangesIntervalMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const get = copy.paths["/api/v1/customer-snapshot/changes"]?.get as {
+    description?: string;
+    summary?: string;
+    parameters?: Array<{ name?: string; in?: string; description?: string; schema?: Record<string, unknown> }>;
+    responses?: Record<string, { description?: string }>;
+  } | undefined;
+  if (!get) return copy;
+  delete get.description;
+  delete get.summary;
+  if (get.parameters) {
+    get.parameters = get.parameters.filter((param) => !(param.in === "query" && param.name === "until"));
+    for (const param of get.parameters) {
+      if (param.name !== "since") continue;
+      delete param.description;
+      if (param.schema) delete param.schema.description;
+    }
+  }
+  if (get.responses?.["400"]) delete get.responses["400"].description;
+  return copy;
+}
+
 // The typed hydrated oracle owns ONLY these GET 200 schemas/examples and their
 // component closure. Other statuses, POSTs, parameters and unrelated components
 // remain golden-pinned. Shared components used by another operation stay pinned.
@@ -612,11 +640,12 @@ describe("published OpenAPI document", () => {
     // additions move to containerIdentifierFilters.acceptance.test.ts;
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
-    // Unrelated golden contracts stay pinned.
+    // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
+    // its since schema and all unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutDedicatedChangesIntervalMetadata(doc))))))))).toMatchSnapshot();
   });
 });
 
