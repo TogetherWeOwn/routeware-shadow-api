@@ -64,7 +64,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `note` matches a literal substring of stored `c.container_note` only; it never widens `q` to instructions or parent notes. Boundaries are trimmed before the maximum 100 Unicode code points; blank means omitted. SQLite lower() folds ASCII only, without Unicode normalization or full-text relevance; null notes act as empty. Note substring reads scan with no dedicated index, though existing ID/enabled scopes can narrow candidates. All supplied filters, including `q`, `note`, `ids`, `upperId`, identifiers and parent scopes, compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. GET is idempotent/local-read with no upstream call; CLI --dry-run is not applicable. Stored notes imply no work orders, schedules or instruction execution. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. Optional `note` matches a literal substring of stored `c.container_note` only; it never widens `q` to instructions or parent notes. Boundaries are trimmed before the maximum 100 Unicode code points; blank means omitted. SQLite lower() folds ASCII only, without Unicode normalization or full-text relevance; null notes act as empty. Note substring reads scan with no dedicated index, though existing ID/enabled scopes can narrow candidates. All supplied filters, including `q`, `note`, `ids`, `upperId`, identifiers and parent scopes, compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. GET is idempotent/local-read with no upstream call; CLI --dry-run is not applicable. Stored notes imply no work orders, schedules or instruction execution. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -74,6 +74,12 @@ const containerSnapshotListRoute = createRoute({
       ids: snapshotIdSelectionQuery(),
       serialNumber: containerIdentifierQuery.optional().openapi({ example: "00123" }),
       rfid: containerIdentifierQuery.optional().openapi({ example: "RF-0007" }),
+      materialStream: containerIdentifierQuery.optional().describe(
+        "Case-sensitive opaque exact stored label in c.ud_material_stream_ud, 1..100 Unicode code points containing a non-whitespace character. Preserve leading zeros and significant whitespace without trimming or Unicode normalization; no inferred material taxonomy. URL-encode a single supported-length nonblank label, or omit it and retry; repeated keys are rejected before D1."
+      ).openapi({ example: "001" }),
+      color: containerIdentifierQuery.optional().describe(
+        "Case-sensitive opaque exact stored label in c.color, 1..100 Unicode code points containing a non-whitespace character. Preserve leading zeros and significant whitespace without trimming or Unicode normalization; no defined vocabulary. URL-encode a single supported-length nonblank label, or omit it and retry; repeated keys are rejected before D1."
+      ).openapi({ example: "Blue" }),
       zip: containerIdentifierQuery.optional()
         .describe("Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.")
         .openapi({ example: "02139" }),
@@ -115,7 +121,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Repeated `note` or a trimmed note over 100 Unicode code points also rejects before D1. Send one `note` fragment of at most 100 Unicode code points after trimming, or omit note, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Repeated `note` or a trimmed note over 100 Unicode code points also rejects before D1. Send one `note` fragment of at most 100 Unicode code points after trimming, or omit note, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -153,6 +159,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.rfid !== undefined) {
     where.push("c.rfid = ?");
     binds.push(p.rfid);
+  }
+  if (p.materialStream !== undefined) {
+    where.push("c.ud_material_stream_ud = ?");
+    binds.push(p.materialStream);
+  }
+  if (p.color !== undefined) {
+    where.push("c.color = ?");
+    binds.push(p.color);
   }
   if (p.zip !== undefined) {
     where.push("c.zip = ?");

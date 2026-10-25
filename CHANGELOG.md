@@ -16,6 +16,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   migration, upstream call or schedule inference; substring-only reads scan.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
   focused local check: `npm run check:container-note-search`.
+- #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
+  (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
+  opaque strings of 1..100 Unicode code points preserve significant nonblank
+  whitespace, leading zeros and punctuation without taxonomy inference.
+  Labels AND-compose with all existing filters; nulls do not match, duplicate
+  matches are paginated, and valid unknown labels return empty 200s. Malformed
+  or repeated keys fail value-free before D1. Validated next links preserve
+  encoded labels; counts, count-free reads, fields, upperId and ETags remain
+  compatible. No index/migration is added and equality may scan. Idempotent
+  local-read GET, CLI dry-run N/A. Synthetic recipe:
+  `npm run check:container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
 
 - #396: Customer snapshot lists accept optional `comments` for literal stored-comment
   substring lookup, distinct from company-only `q` and stored-phone `phone`.
