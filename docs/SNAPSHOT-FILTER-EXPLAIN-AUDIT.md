@@ -61,6 +61,14 @@ query cost. No migration/index, remote D1 probe, latency measurement or
 production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
 
+Addendum 2026-10-24: the table above records the street-only `q` leg the route
+emitted on the run date. The street-or-locality change replaces that leg with
+a parenthesized three-column `(address OR city OR zip)` predicate carrying
+three identical bound needles; the pinned oracle in
+`test/snapshotTextFilterIndexes.test.ts` shows the same SEARCH plans for the
+composed shapes and the same `q`-alone SCAN. The historical rows are left
+intact.
+
 ## Stored phone predicate audit
 
 **Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
