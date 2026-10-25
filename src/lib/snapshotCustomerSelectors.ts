@@ -1,4 +1,11 @@
 import { z } from "@hono/zod-openapi";
+import { snapshotSearchQuery } from "./snapshotSearchQuery";
+
+/** Validate raw length before trimming; blank means no comments predicate. */
+export const customerCommentsQuery = snapshotSearchQuery
+  .transform((value) => value.trim() || undefined).optional()
+  .describe("Literal substring of stored customer comments only; q remains company-only. Maximum 100 Unicode code points before trimming boundary whitespace; blank means omitted. Send a single comments key; repeated or overlength values fail before D1. SQLite lower() folds ASCII A-Z only: non-ASCII case and Unicode spelling remain exact; quotes, % and _ are literal, never LIKE wildcards. Null stored comments never match a nonblank fragment. AND-composes with all other filters. Substring-only reads may scan; no dedicated comments index or latency guarantee. GET is an idempotent local-read; --dry-run is not applicable.")
+  .openapi({ type: "string", maxLength: 100, example: "handoff" });
 
 /** Exact enum: repeated query keys arrive as arrays and fail before D1. */
 export const customerAddressPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")

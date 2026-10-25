@@ -15,6 +15,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
 
+- #396: Customer snapshot lists accept optional `comments` for literal stored-comment
+  substring lookup, distinct from company-only `q` and stored-phone `phone`.
+  One fragment is bounded to 100 Unicode code points before boundary trimming;
+  bounded blank means omitted. SQLite folds ASCII only; quotes, `%` and `_`
+  remain literal, null comments do not match, and repeated/overlength input
+  fails value-free before D1 with fixed retry guidance. The bound predicate
+  AND-composes with existing selectors in COUNT and page reads; normalized
+  relative next Links, count-free mode, sparse fields and ETags/304 stay intact.
+  No dedicated index/migration/upstream call is added; substring reads may scan.
+  Synthetic local check: `npm run check:customer-comments-search`; recipe:
+  `docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment`.
+
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation
