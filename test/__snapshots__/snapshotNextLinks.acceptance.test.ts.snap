@@ -34,13 +34,15 @@ exports[`'address' snapshot: followable next links > preserves pre-feature JSON 
         1,
         2,
         "synthetic & +/雪? #"<x>",
+        "synthetic & +/雪? #"<x>",
+        "synthetic & +/雪? #"<x>",
         1,
         0,
       ],
       "method": "all",
       "sql": "SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
               extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-       FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND pickup_address_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?",
+       FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND pickup_address_id = ? AND (instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0) AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?",
     },
   ],
 }

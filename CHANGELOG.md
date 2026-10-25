@@ -10,11 +10,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   case-sensitive string (1..100 Unicode code points) preserves leading zeros
   and nonblank whitespace; invalid/repeated values reject before D1 with
   value-free guidance. One bound `zip = ?` equality applies in both the page
-  and COUNT SQL, served by the existing `idx_address_snapshot_zip`. Next
+  and COUNT SQL, making the existing `idx_address_snapshot_zip` eligible;
+  index usage is locally verified for ZIP-only reads, not promised for
+  combined filters or deployed queries. Next
   links preserve the encoded selector; pagination, projection, count-free
   and conditional reads remain compatible. No new endpoint, index, migration,
   access or write behavior. Synthetic recipe: `npm run check:address-zip`
   and `docs/CONSUMER-QUICKSTART.md`.
+- #372: The existing address snapshot list `q` matches a literal
+  ASCII case-insensitive substring against street, city or postcode: a row
+  matches when any one column contains the trimmed needle. SQLite `lower()`
+  preserves non-ASCII case distinctions. The parenthesized OR uses
+  bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
+  and repeated-key rules and AND-composes with every other selector; omitted
+  `q` preserves old behavior. Postcodes stay opaque text with significant
+  leading zeros; quotes, `%` and `_` are literal, never wildcards. Continuation
+  Links carry the trimmed needle. Locality `q` is not an exact postal or
+  geographic scope filter — for exact membership use the exact selectors.
+  Query count, ordering, totals, count-free/conditional semantics, auth order
+  and value-free errors are unchanged; no new parameter, index or migration.
+  Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:address-locality`.
 - #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
   200 responses publish three distinct named bundle schemas instead of
   `any`: root row plus nested relations, every stored column declared with
