@@ -87,7 +87,8 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "serialNumber=SN-1", "rfid=RF-1"
+      "city=Riverton", "state=ST", "hasContainers=true", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1"
     ]
   },
   {
@@ -102,7 +103,8 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "serialNumber=SN-1", "rfid=RF-1"
+      "comments=note", "hasAddresses=true", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1"
     ]
   },
   {
@@ -112,12 +114,12 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "routeId=7", "franchiseId=F-1", "city=Riverton", "state=ST",
+      "hasAddresses=true", "routeId=7", "franchiseId=F-1", "city=Riverton",
       "hasContainers=true"
     ]
   }
@@ -132,6 +134,7 @@ const SAMPLES: Record<string, string> = {
   comments: "note", enabled: "true", hasAddresses: "any", hasContainers: "any",
   routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
+  locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
   upperId: "104", includeTotal: "false", order: "asc", fields: "enabled",
   strictQuery: "true"

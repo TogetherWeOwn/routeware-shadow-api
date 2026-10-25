@@ -65,7 +65,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. All supplied filters compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored container `zip`, `locationAddress` (`c.location_address`) and `state` (`c.state`), text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; no selector is live geolocation. `locationAddress` is case-sensitive opaque text (1..200 Unicode code points); `state` and `zip` allow 1..100. Each exact selector requires a non-whitespace character, preserves leading zeros and nonblank whitespace, and never normalizes data. `q` stays a substring search and excludes state. Unscoped exact-location/locality filters scan stored rows; no dedicated location/state/zip index or production performance claim. This GET is idempotent and local-read. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. All supplied filters compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -84,6 +84,14 @@ const containerSnapshotListRoute = createRoute({
       zip: containerIdentifierQuery.optional()
         .describe("Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.")
         .openapi({ example: "02139" }),
+      locationAddress: z.string()
+        .refine((value) => value.length <= 400 && [...value].length <= 200 && value.trim() !== "")
+        .optional()
+        .describe("Opaque case-sensitive exact stored container location_address equality: 1..200 Unicode code points, including a non-whitespace character. Nonblank whitespace, punctuation and leading zeros are preserved, not trimmed or normalized. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one nonblank stored value within the limit or omit the key. No parent-address fallback or live geolocation.")
+        .openapi({ type: "string", minLength: 1, maxLength: 200, example: "00123 Depot" }),
+      state: containerIdentifierQuery.optional()
+        .describe("Opaque case-sensitive exact stored container state equality: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace, punctuation and leading zeros are preserved, not trimmed or normalized; no abbreviation conversion or state enum. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one nonblank stored value within the limit or omit the key. No parent-address fallback or live geolocation.")
+        .openapi({ example: "St-01" }),
       q: snapshotSearchQuery.optional().describe("Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.").openapi({ example: "Killeen" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
@@ -122,7 +130,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. For locationAddress or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -174,6 +182,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.zip !== undefined) {
     where.push("c.zip = ?");
     binds.push(p.zip);
+  }
+  if (p.locationAddress !== undefined) {
+    where.push("c.location_address = ?");
+    binds.push(p.locationAddress);
+  }
+  if (p.state !== undefined) {
+    where.push("c.state = ?");
+    binds.push(p.state);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     // One grouped OR over container columns only; all other scopes stay ANDed.

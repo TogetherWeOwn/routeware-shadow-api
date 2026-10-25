@@ -228,6 +228,43 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Exact stored container installation
+
+Resolve equipment by the **container's own** stored `location_address` and
+`state` on the existing container list. Supply `locationAddress` (1..200 Unicode
+code points) and/or `state` (1..100) once as nonblank case-sensitive opaque exact
+strings. Preserve leading zeros, case, punctuation and significant whitespace;
+do not normalize postal data. Null never matches and duplicates remain separate
+containers. The parent address never substitutes its street or state, even
+with `customerId`. Unlike these exact selectors, `q` is a trimmed substring
+search of location/serial/city/zip and does **not** search state.
+
+Synthetic local fixture: containers 10, 20 and 30 share `00123 Depot`, `St-01`
+under customer 1; their parent has different location/state. A substring-only
+`x00123 Depotx`, different-case state and parent-only matches are excluded:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&locationAddress=00123+Depot&state=St-01&fields=enabled&upperId=30&limit=2&includeTotal=false
+{"rows":[{"container_id":10,"enabled":1},{"container_id":20,"enabled":1}],"total":null,"nextCursor":20}
+Link: </api/v1/container-snapshot?customerId=1&locationAddress=00123+Depot&state=St-01&fields=enabled&upperId=30&limit=2&includeTotal=false&cursor=20>; rel="next"
+```
+
+Follow that relative Link unchanged against the same origin: the next page has
+container 30, `nextCursor:null` and no Link. `order=desc` instead yields 30, 20,
+then 10; offset starts also continue by seek. A full terminal page may link to
+an empty page. All selectors intersect by AND with `q`, `zip`, identifiers,
+IDs, enabled and upperId. Counts are cursor-relative when requested; sparse
+fields and conditional ETags/304 work unchanged.
+
+Use `new URLSearchParams({ locationAddress: " O'Ridge 50%_ 雪 ", state: "St-01" })`
+to keep reserved characters literal; never concatenate raw data or log query
+values. Invalid/repeated/overlength selectors return value-free 400 before D1.
+URL-encode one nonblank stored value within the named limit or omit the key,
+then retry. These idempotent local GETs do no upstream/R2/write work; CLI
+`--dry-run` is N/A. No index/migration, live-location or latency claim: unscoped
+location/state equality scans. Run `npm run check:container-exact-location`
+with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
@@ -1096,11 +1133,30 @@ bundle a single GET returns, missing ids are exactly `{id, found: false}`
 (no 404-whole) — sent `no-store` with no ETag (`If-None-Match` is ignored
 on batch).
 
+Each unique ID, including a miss, is hydrated **once per request**, in
+first-occurrence work order, with at most **four simultaneous root hydration
+jobs** per request in each of the three batch implementations. A slot covers the complete
+bundle's nested reads; it is not released just after the root SELECT. Response
+entries still preserve every duplicate and the exact input order. The 50-ID
+limit counts supplied entries, not unique IDs; separate requests read again.
+On a hydration failure, queued roots stop starting after the failure is observed,
+already-started jobs drain, and the whole request returns the existing sanitized
+500, never partial entries. There are no retries or background hydration.
+
+Four roots is **not** a cap on total nested D1 queries, graph fanout or response
+bytes: distinct high-fanout customers can still read many addresses and container
+chunks. Inner chunk sizes are unchanged. This is a source-level load-risk
+reduction, not a measured latency or deployed-capacity claim.
+
 ```bash
 curl -H "Authorization: Bearer $SYNC" \
-  "http://localhost:8787/api/v1/data/customer?ids=42,7,9"
-# {"entries":[{"id":42,"found":true,"customer":{...}}, ...]} in request order
+  "http://localhost:8787/api/v1/data/customer?ids=42,7,42,9"
+# Four request-order entries; IDs 42, 7 and 9 are each hydrated once.
+# {"entries":[{"id":42,"found":true,"customer":{...}}, ...]}
 ```
+
+Credential-free synthetic budget/error/parity regression check (no tenant probes):
+`npm run check:hydrated-batch-budget`.
 
 Synthetic consumer examples (the acceptance fixture, not customer records):
 `/api/v1/data/customer?id=42` and `?customerId=42` return the same row and ETag;
