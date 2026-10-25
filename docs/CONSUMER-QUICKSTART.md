@@ -1157,14 +1157,35 @@ text into a different row ID. Rejections use the anchored 400
 `application/problem+json` envelope with fixed field-only detail and no input
 values; see [bad-request guidance](PROBLEMS.md#bad-request).
 
+### Typed single-or-batch hydrated responses
+
+The served `/openapi.json` describes each 200 as an explicit single-or-batch
+composition: `HydratedCustomerBundle` / `HydratedCustomerBatch`,
+`HydratedAddressBundle` / `HydratedAddressBatch`, or
+`HydratedContainerBundle` / `HydratedContainerBatch`. Generated agent clients
+should select the batch branch by its `entries` envelope, not treat it as a
+single bundle or untyped data. Full and projected single examples and mixed
+found/missing and all-missing batch examples are mounted on each operation.
+This is a declaration correction, not a new runtime response format.
+
 For detail hydration, all three reads also accept one comma-separated `ids`
 list of 1 to 50 canonical ids instead of N sequential GETs. Every entry uses
 the same canonical contract; any malformed or empty entry, mixing `ids` with
 `id`/alias, or more than 50 ids fails the whole request 400 before any read.
-The 200 body is `{entries}` in request order — found entries carry the same
-bundle a single GET returns, missing ids are exactly `{id, found: false}`
-(no 404-whole) — sent `no-store` with no ETag (`If-None-Match` is ignored
-on batch).
+The 200 body is `{entries}` in request order, **preserving duplicates**.
+A found entry requires numeric `id`, `found: true` and the resource key
+(`customer`, `address` or `container`) containing its full hydrated bundle,
+not just a root row. Missing entries are exactly `{id, found: false}` without
+any payload; even an all-missing batch returns 200, not a whole-request 404.
+Required bundle/relationship keys remain present: empty children are `[]`,
+and missing/racing parents on address/container reads are `null`. Stored D1
+flags remain numeric and text/null values are not coerced. Batch rows are
+full; `ids` plus any `fields` or `fields[type]` is a value-free 400.
+
+Only single-ID reads use ETag/conditional bodyless 304 and return 404 for a
+missing root. Batches are always `no-store`, have no ETag, ignore
+`If-None-Match` and never return 304. All three GETs are idempotent local reads
+with sync-secret-only access; CLI `--dry-run` is not applicable.
 
 Each unique ID, including a miss, is hydrated **once per request**, in
 first-occurrence work order, with at most **four simultaneous root hydration
@@ -1200,6 +1221,8 @@ Run the credential-free, network-denying local check instead of querying a tenan
 
 ```bash
 npx vitest run test/hydratedReadIds.acceptance.test.ts test/batchHydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
+npm run check:typed-hydrated-batch-contracts  # served schemas/examples + synthetic local-D1 responses and malformed-envelope mutations
+npm run check:typed-hydrated-bundles         # batch + existing single/projection/auth/cache/OpenAPI regression checks
 ```
 
 ### Root-only sparse fields on hydrated reads
