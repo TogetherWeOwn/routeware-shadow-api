@@ -245,8 +245,9 @@ only and is never forwarded to the per-table subrequests; it composes with
 `?dryRun=true` (dry-run is still forwarded to every table).
 
 Recovery: a 500 with the partial body names exactly one failed table; tables
-before it completed (their counts are final for this attempt), while the
-failed table and later tables are `null`. A generic 500 problem+json — the
+before it either completed (their counts are final for this attempt) or were
+skipped (`null`), while the failed table and later tables are `null`.
+A generic 500 problem+json — the
 default shape, or any unknown cause — carries no per-table outcome: treat
 completed tables as unknown, not empty. Partial counts do not authorize blind
 POST retries and do not prove a full consistent sync; inspect the failed
