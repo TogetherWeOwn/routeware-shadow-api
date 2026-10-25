@@ -132,7 +132,8 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/container-snapshot?limit=2"
 ```
 
-List filters: `?q=<company-substring>`, `&enabled=true|false|any`
+List filters: `?q=<substring>` (company text on customers; stored street/city/zip on addresses;
+location/serial/city/zip on containers), `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
 scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
@@ -150,6 +151,34 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
+
+### Stored container locality
+
+For synthetic local fixtures, seed enabled containers 10, 20 and 30 with
+`zip="02139"`, `city="Cambridge"`, under a parent whose ZIP/city differ.
+These filters use the **container's** stored locality, never the parent:
+
+```text
+GET /api/v1/container-snapshot?zip=02139&q=Cambridge&fields=city,zip&limit=2&includeTotal=false
+{"rows":[{"container_id":10,"city":"Cambridge","zip":"02139"},{"container_id":20,"city":"Cambridge","zip":"02139"}],"total":null,"nextCursor":20}
+Link: </api/v1/container-snapshot?zip=02139&q=Cambridge&fields=city%2Czip&limit=2&includeTotal=false&cursor=20>; rel="next"
+```
+
+Follow that returned relative Link against the same origin unchanged: the next
+page has container 30, a null cursor and no Link. An exactly full terminal page
+can instead link to an empty page. Exact `zip` preserves leading zeros, case
+and nonblank whitespace; send one URL-encoded value of 1..100 Unicode code
+points. `q` trims, treats blank as omitted, and literally searches location,
+serial, city OR zip (ASCII case-insensitive, no LIKE wildcards); its raw limit
+is also 100 code points. `zip=02139&q=Cambridge` intersects those predicates
+with every other scope, rather than expanding to nearby postcodes.
+
+These are idempotent local GETs, not live geolocation or upstream lookups.
+CLI `--dry-run` is N/A. Unscoped locality reads scan; there is no dedicated
+container ZIP index or production performance claim. Invalid/repeated values
+return value-free 400 before D1: correct the named field and retry, never log
+raw locality selectors. See [policy and focused check](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality);
+run `npm run check:container-locality` using synthetic local D1 only.
 
 Scanning pages without needing an exact count? Pass `includeTotal=false` to
 skip the `COUNT(*)` query: the response keeps the same `rows` and
