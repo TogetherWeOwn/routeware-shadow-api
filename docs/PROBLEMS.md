@@ -156,9 +156,10 @@ return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY
 
 ## Exact stored address ZIP (`bad-request`)
 
-For `GET /api/v1/address-snapshot`, `zip` is an optional exact,
-case-sensitive opaque string of 1..100 Unicode code points over the stored
-`zip` column — not a number, prefix or substring. Leading zeros (for example
+For `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, `zip`
+is an optional exact, case-sensitive opaque string of 1..100 Unicode code
+points over that resource's own stored `zip` column — not a number, prefix
+or substring. Container ZIP never falls back to the parent address. Leading zeros (for example
 `02139`) and nonblank whitespace are significant; do not trim, case-fold or
 numerically coerce it. Send the key once, URL-encoded.
 
@@ -167,7 +168,8 @@ Invalid or repeated keys return fixed, value-free 400 guidance before D1:
 Correct the named field's format, send it once, then retry; omit it only if
 no ZIP scope is intended. Authentication still precedes validation. A valid
 ZIP that matches no rows returns 200 with an empty list. See the
-[ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip).
+[address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
+[container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
 
 ## Snapshot list direction (`bad-request`)
 
