@@ -169,6 +169,22 @@ no ZIP scope is intended. Authentication still precedes validation. A valid
 ZIP that matches no rows returns 200 with an empty list. See the
 [ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip).
 
+## Exact stored address city and state (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, send each optional `city` or `state`
+key once as a nonblank, case-sensitive exact stored string of 1..100 Unicode
+code points. Empty, whitespace-only, repeated (even encoded duplicates)
+and overlength values return 400 before D1 or conditional 304; authentication
+remains first. Errors name fields, never submitted values:
+`Invalid request query (city). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `state`, or both. Correct the named field, URL-encode
+one nonblank value with `URLSearchParams` or curl `--data-urlencode`, and retry.
+Do not trim significant whitespace, normalize Unicode or abbreviations, or
+coerce numeric-looking strings. Omit a selector only if no such scope is
+intended. Valid no-match returns 200 empty, not an error; stored nulls never
+match supplied strings. See the
+[city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
+
 ## Snapshot list direction (`bad-request`)
 
 For the three ordinary snapshot lists, send exactly one lowercase

@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
+  `state` equality selectors. Each case-sensitive opaque string is 1..100
+  Unicode code points and nonblank; significant whitespace and punctuation
+  are preserved without normalization or coercion. Bound AND predicates
+  share page/COUNT scope, and next Links preserve the encoded values.
+  Invalid/repeated values fail value-free before D1; count-free, sparse and
+  conditional reads retain their contracts. City/state-only equality may
+  scan without a dedicated index; no migration or geography inference.
+  This GET is idempotent/local-read. Synthetic recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:address-city-state`.
+
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
   optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
   code points matched against stored `phone1`/`phone2` text as stored
