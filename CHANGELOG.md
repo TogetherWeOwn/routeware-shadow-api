@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Ordinary customer/address/container snapshot lists add `countOnly=true|false`
+- #400: Ordinary customer/address/container snapshot lists add `countOnly=true|false`
   (default false): one existing filtered COUNT, zero page/payload SELECTs,
   `{rows:[],total:N,nextCursor:null}` and no next Link. Counts remain
   cursor-relative at query time, including IDs, order and upperId; limit/offset
