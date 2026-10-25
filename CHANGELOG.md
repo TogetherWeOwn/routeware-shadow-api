@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
+- #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
   to select customers by mirrored address presence without expanding parents.
   All stored addresses count, including disabled children; customer `enabled`
   is independent. Indexed correlated EXISTS/NOT EXISTS shares COUNT/page
