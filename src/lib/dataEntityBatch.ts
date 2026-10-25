@@ -9,8 +9,9 @@
  *
  * Deliberately v1-shaped: direct D1 reads with no Cache API or ETag
  * involvement (batch 200s are `no-store` without validators; `If-None-Match`
- * is ignored), and one bundle read per requested id in request order,
- * duplicates included. Composite caching/ETags are future work.
+ * is ignored). Each unique id is hydrated once per request with at most four
+ * root jobs active; response entries retain request order and duplicates.
+ * This bounds root jobs, not nested D1 queries, graph size or response bytes.
  */
 
 import {
@@ -21,6 +22,40 @@ import {
 
 /** Explicit batch bound: `?ids=` carries 1 to 50 ids; more fails 400. */
 export const BATCH_MAX_IDS = 50;
+const BATCH_MAX_ROOT_HYDRATIONS = 4;
+
+async function hydrateUniqueIds<T>(
+  ids: number[],
+  hydrate: (id: number) => Promise<T>
+): Promise<T[]> {
+  const uniqueIds = [...new Set(ids)];
+  const results = new Map<number, T>();
+  let next = 0;
+  let failed = false;
+  let failure: unknown;
+
+  async function worker(): Promise<void> {
+    while (!failed && next < uniqueIds.length) {
+      const id = uniqueIds[next++]!;
+      try {
+        // Keep the slot until the complete bundle (including nested reads) settles.
+        results.set(id, await hydrate(id));
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
+      }
+    }
+  }
+
+  // Workers catch failures so all started jobs drain before the handler rejects.
+  await Promise.all(
+    Array.from({ length: Math.min(BATCH_MAX_ROOT_HYDRATIONS, uniqueIds.length) }, worker)
+  );
+  if (failed) throw failure;
+  return ids.map((id) => results.get(id)!);
+}
 
 function batchJsonResponse(entries: unknown[]): Response {
   // No ETag, no Cache-Control here: the `/api/v1/*` middleware stamps
@@ -35,16 +70,12 @@ export async function handleGetDataCustomerBatch(
   db: D1Database,
   ids: number[]
 ): Promise<Response> {
-  // One bundle read per requested id, duplicates included; Promise.all
-  // preserves request order in the resolved entries.
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const bundle = await getCustomerBundleFromD1(db, id);
-      return bundle === null
-        ? { id, found: false }
-        : { id, found: true, customer: bundle };
-    })
-  );
+  const entries = await hydrateUniqueIds(ids, async (id) => {
+    const bundle = await getCustomerBundleFromD1(db, id);
+    return bundle === null
+      ? { id, found: false }
+      : { id, found: true, customer: bundle };
+  });
   return batchJsonResponse(entries);
 }
 
@@ -52,16 +83,14 @@ export async function handleGetDataAddressBatch(
   db: D1Database,
   ids: number[]
 ): Promise<Response> {
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const bundle = await getAddressBundleFromD1(db, id);
-      // Same not-found condition as the single-address handler: a bundle
-      // without its address row is a miss, never a partial entry.
-      return bundle === null || bundle.address === null
-        ? { id, found: false }
-        : { id, found: true, address: bundle };
-    })
-  );
+  const entries = await hydrateUniqueIds(ids, async (id) => {
+    const bundle = await getAddressBundleFromD1(db, id);
+    // Same not-found condition as the single-address handler: a bundle
+    // without its address row is a miss, never a partial entry.
+    return bundle === null || bundle.address === null
+      ? { id, found: false }
+      : { id, found: true, address: bundle };
+  });
   return batchJsonResponse(entries);
 }
 
@@ -69,14 +98,12 @@ export async function handleGetDataContainerBatch(
   db: D1Database,
   ids: number[]
 ): Promise<Response> {
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const bundle = await getContainerBundleFromD1(db, id);
-      // Same not-found condition as the single-container handler.
-      return bundle === null || bundle.container === null
-        ? { id, found: false }
-        : { id, found: true, container: bundle };
-    })
-  );
+  const entries = await hydrateUniqueIds(ids, async (id) => {
+    const bundle = await getContainerBundleFromD1(db, id);
+    // Same not-found condition as the single-container handler.
+    return bundle === null || bundle.container === null
+      ? { id, found: false }
+      : { id, found: true, container: bundle };
+  });
   return batchJsonResponse(entries);
 }
