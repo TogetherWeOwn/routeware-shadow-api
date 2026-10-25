@@ -312,6 +312,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
 
+- #371: The six flat snapshot reads (`GET
+  /api/v1/customer|address|container-snapshot` and the three flat by-ID GETs)
+  publish storage-faithful row contracts: one reusable flat row schema per
+  resource plus one resource-specific list envelope, with list `rows.items`
+  and the by-ID 200 sharing the same row `$ref`. Row property sets are
+  derived from the `SNAPSHOT_FIELDSETS` registry with only the primary
+  identity required; every other selectable column is optional with accurate
+  nullability when present. Stored INTEGER flags stay `0`/`1` integers and
+  coordinate/date/route-list TEXT stays unconstrained text with no invented
+  format, enum, range or timestamp guarantees. `total` keeps its count-free
+  "deliberately not computed" meaning and `nextCursor` documents its
+  page-cursor meaning; operationIds, headers, examples and response codes are
+  unchanged. Declaration-only: served bytes, SELECT plans, projection,
+  conditional and auth behavior are identical. See
+  `docs/TYPED-FLAT-SNAPSHOT-ROWS.md`; focused check:
+  `npm run check:typed-flat-snapshot-rows`.
+
 - #373: The existing customer `changes` feed
   (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows
   (`CustomerSnapshotChangesRow` in `/openapi.json`): every stored customer
