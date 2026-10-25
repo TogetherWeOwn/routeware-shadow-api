@@ -5,6 +5,34 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #370: Stored phone fragment lookup on the existing customer snapshot list:
+  optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
+  code points matched against stored `phone1`/`phone2` text as stored
+  (SQLite `lower()` folds A-Z only, so non-ASCII case variants match only
+  on exact case; no normalization or digit-stripping), bound twice across
+  the two-term OR and
+  AND-composed with existing filters. A last-seven-digits fragment resolves
+  its owner without downloading every customer. Blank, repeated or overlength
+  fragments fail value-free before D1; null or empty stored phones never
+  match. Next-page Links retain the selector with URL encoding. No new index,
+  migration, upstream call or count-free COUNT query; fragment-only reads
+  scan like `q`-alone. See `docs/CONSUMER-QUICKSTART.md` for the synthetic
+  lookup-to-next-page recipe; focused check:
+  `npm run check:customer-phone-search`.
+
+- #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
+  selector, intersected by AND with existing filters. The opaque
+  case-sensitive string (1..100 Unicode code points) preserves leading zeros
+  and nonblank whitespace; invalid/repeated values reject before D1 with
+  value-free guidance. One bound `zip = ?` equality applies in both the page
+  and COUNT SQL, making the existing `idx_address_snapshot_zip` eligible;
+  index usage is locally verified for ZIP-only reads, not promised for
+  combined filters or deployed queries. Next
+  links preserve the encoded selector; pagination, projection, count-free
+  and conditional reads remain compatible. No new endpoint, index, migration,
+  access or write behavior. Synthetic recipe: `npm run check:address-zip`
+  and `docs/CONSUMER-QUICKSTART.md`.
+
 - #377: `GET /api/v1/address-snapshot` accepts optional `hasContainers=true|false|any`
   (default `any`), selecting addresses by mirrored container presence. `true` keeps
   only addresses with a stored container child, `false` only those with none; any
@@ -16,8 +44,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Absence means no currently mirrored child, not proof an upstream site is empty.
   Synthetic recipe: `npm run check:address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
-
-
 - #384 (follow-up to #334): mounted OpenAPI now describes the existing combined-sync
   failure contract instead of only 200/401. HTTP 500 declares both
   `application/problem+json` (default and unclassified failures) and
