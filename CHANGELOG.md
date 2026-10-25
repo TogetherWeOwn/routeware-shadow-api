@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Follow-up to #334: mounted OpenAPI now describes the existing combined-sync
+- #384 (follow-up to #334): mounted OpenAPI now describes the existing combined-sync
   failure contract instead of only 200/401. HTTP 500 declares both
   `application/problem+json` (default and unclassified failures) and
   `application/json` (opt-in partial progress with the named
