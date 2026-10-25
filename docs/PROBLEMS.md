@@ -170,7 +170,10 @@ Each route names its own alias. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#hydrated-entity-reads-are-strict).
-GET lists keep ignoring unknown names; only entity reads are strict.
+The three ordinary flat snapshot lists ignore unknown names by default and
+reject them when `strictQuery=true` (see [Opt-in list query keys](#opt-in-list-query-keys-bad-request)).
+Changes-feed and other operations retain their existing query policies;
+hydrated entity reads remain strict.
 
 ## Customer changes cursor (`bad-request`)
 

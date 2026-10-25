@@ -13,6 +13,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Local synthetic check: `npm run check:snapshot-strict-query`; recipe:
   `docs/CONSUMER-QUICKSTART.md#opt-in-query-typo-detection`.
 
+- #398: Detail-full post-save refreshes preserve eight existing report-only container
+  metadata fields instead of clearing them when the source cannot supply them.
+  New containers still insert nulls; supported fields and timestamps still update.
+  CSV/report imports and default upserts retain deliberate null clearing. No extra
+  reads, migration or upstream behavior change. Previously lost metadata needs an
+  authoritative report, not a repeated save. See
+  `CUSTOMER_SNAPSHOT.md#detail-full-container-source-availability`; local check:
+  `npx vitest run test/detailFullReportMetadata.acceptance.test.ts --maxWorkers=2`.
+
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
   opaque strings of 1..100 Unicode code points preserve significant nonblank
