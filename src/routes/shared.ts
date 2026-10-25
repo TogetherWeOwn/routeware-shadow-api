@@ -622,30 +622,6 @@ export const containerSaveFormDocs: RouteDocs = {
 };
 
 /**
- * Shared by the customer, address and container snapshot list routes. Keep this
- * a single instance — the `.openapi()` name registers one reusable component,
- * and three separate instances would register it three times.
- *
- * `nextCursor` is the last row's primary key when the page came back full
- * (there may be more rows), or `null` at the end of the result set — set on
- * every list response, not just cursor-driven ones, so an offset caller can
- * switch to cursor pagination once OFFSET gets expensive.
- */
-export const snapshotListResponse = z
-  .object({
-    rows: z.array(z.record(z.string(), z.unknown())),
-    total: z
-      .number()
-      .int()
-      .nullable()
-      .describe(
-        "Exact row count for this page's filters. Pass includeTotal=false to skip the COUNT query: total is then null, meaning deliberately not computed rather than zero, with the same rows and nextCursor."
-      ),
-    nextCursor: z.number().int().nullable()
-  })
-  .openapi("CustomerSnapshotList");
-
-/**
  * Worked 200 result for the snapshot import/sync responses.
  *
  * Byte-identical to the bodies pinned by `test/syncSummaryContract.test.ts`
