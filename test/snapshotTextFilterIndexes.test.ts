@@ -6,7 +6,7 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
 
 /**
  * The container/address free-text list filters (`q` over
- * `location_address`/`serial_number` and over `address`) had no supporting
+ * `location_address`/`serial_number` and originally over `address`) had no supporting
  * index — only zip/customer/company/enabled were indexed (0001/0002).
  *
  * What this file proves, against the REAL D1 in the workerd pool (not a
@@ -23,6 +23,10 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  *   in the migration: no B-tree can serve a mid-string `instr()` substring
  *   match. The "documents the substring boundary" test pins this so a later
  *   reader does not "fix" it with an index that changes nothing.
+ *
+ * Address q now models the intended grouped address/city/zip OR; the enabled
+ * prefix still narrows candidates, but locality values are residual filters.
+ * These are local query-plan observations, not latency/production claims.
  *
  * Two pool-D1 limitations shape the helper, not the migration:
  * - `db.exec()` accepts only single-line statements ("incomplete input" on
@@ -83,7 +87,8 @@ const ADDR_SELECT =
 const CUST_SELECT =
   "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name, " +
   "name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at FROM customer_snapshot";
-const ADDR_Q = "instr(lower(coalesce(address, '')), lower(?)) > 0";
+const ADDR_Q =
+  "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)";
 const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
 const CONT_Q =
   "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
@@ -100,8 +105,8 @@ beforeAll(async () => {
     "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (1, 'Acme', 1, 't'), (2, 'Other', 1, 't')"
   );
   await db().exec(
-    "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, zip, enabled, synced_at) VALUES " +
-      "(1, 1, '123 Main St', '76541', 1, 't'), (2, 1, '456 Oak Ave', '76542', 1, 't'), (3, 2, '789 Main Blvd', '78701', 0, 't')"
+    "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, city, zip, enabled, synced_at) VALUES " +
+      "(1, 1, '123 Main St', NULL, '76541', 1, 't'), (2, 1, '456 Oak Ave', 'Main Borough', '76542', 1, 't'), (3, 2, '789 Main Blvd', '', '00741-1234', 0, 't')"
   );
   await db().exec(
     "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, enabled, synced_at) VALUES " +
@@ -110,17 +115,17 @@ beforeAll(async () => {
 
   plans.addrEnabledQBefore = await explain(
     `${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE enabled = 1 AND ${ADDR_Q}`,
-    "main"
+    "main", "main", "main"
   );
   plans.addrQAloneBefore = await explain(
     `${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
@@ -153,17 +158,17 @@ beforeAll(async () => {
 
   plans.addrEnabledQAfter = await explain(
     `${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE enabled = 1 AND ${ADDR_Q}`,
-    "main"
+    "main", "main", "main"
   );
   plans.addrQAloneAfter = await explain(
     `${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
@@ -223,26 +228,26 @@ beforeAll(async () => {
   plans.addrCustomerQEnabledAfter = await explain(
     `${ADDR_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
     1,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountCustomerQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1`,
     1,
-    "main"
+    "main", "main", "main"
   );
   plans.addrPickupQEnabledAfter = await explain(
     `${ADDR_SELECT} WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
     1,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountPickupQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1`,
     1,
-    "main"
+    "main", "main", "main"
   );
   plans.contPickupQEnabledAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
@@ -311,7 +316,7 @@ describe("migration 0003 artifact", () => {
   });
 });
 
-describe("address text filter (q over address)", () => {
+describe("address text filter (q over address OR city OR zip)", () => {
   it("scans before 0003 for enabled + q", () => {
     expect(plans.addrEnabledQBefore.join(" ")).toContain("SCAN");
     expect(plans.addrCountEnabledQBefore.join(" ")).toContain("SCAN");
@@ -338,18 +343,24 @@ describe("address text filter (q over address)", () => {
   it("still returns the right rows for enabled + q (filter proof)", async () => {
     const r = await db()
       .prepare(`${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
-      .bind("main", 50, 0)
+      .bind("main", "main", "main", 50, 0)
       .all<{ pickup_address_id: number }>();
-    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1]);
+    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 2]);
   });
 
   it("still returns the right rows for q alone across enabled values", async () => {
     const r = await db()
       .prepare(`${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
-      .bind("main", 50, 0)
+      .bind("main", "main", "main", 50, 0)
       .all<{ pickup_address_id: number }>();
-    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 3]);
+    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 2, 3]);
   });
+});
+
+it("address SQL oracle matches the zip-only leg without requiring street/city", async () => {
+  const rows = await db().prepare(`${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
+    .bind("00741", "00741", "00741", 50, 0).all<{ pickup_address_id: number }>();
+  expect(rows.results.map((row) => row.pickup_address_id)).toEqual([3]);
 });
 
 describe("container text filter (q over location_address OR serial_number)", () => {
