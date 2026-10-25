@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Three ordinary flat snapshot lists add `strictQuery=true|false` (default
+- #401: Three ordinary flat snapshot lists add `strictQuery=true|false` (default
   false). True rejects unknown decoded names after auth and before D1/304,
   using each mounted schema as its allowlist and a fixed no-echo bad-request
   correction. Relative next Links retain true; false/omitted keep existing
