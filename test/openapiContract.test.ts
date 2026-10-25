@@ -149,7 +149,7 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
 
 /**
  * Copy of the document with the free-text `description`/`example` of the
- * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
+ * `includeTotal` query parameter and of each `*SnapshotList.total` removed.
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
@@ -183,8 +183,10 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
       }
     }
   }
-  const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
-  if (total) delete total.description;
+  for (const envelope of ["CustomerSnapshotList", "AddressSnapshotList", "ContainerSnapshotList"]) {
+    const total = copy.components?.schemas?.[envelope]?.properties?.total;
+    if (total) delete total.description;
+  }
   const changes = copy.paths?.["/api/v1/customer-snapshot/changes"]?.get;
   if (changes) {
     delete changes.description;
@@ -343,6 +345,46 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// The typed hydrated oracle owns ONLY these GET 200 schemas/examples and their
+// component closure. Other statuses, POSTs, parameters and unrelated components
+// remain golden-pinned. Shared components used by another operation stay pinned.
+function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const components = copy.components?.schemas ?? {};
+  const refs = (value: unknown, found = new Set<string>()): Set<string> => {
+    if (Array.isArray(value)) {
+      for (const item of value) refs(item, found);
+    } else if (value !== null && typeof value === "object") {
+      const node = value as Record<string, unknown>;
+      if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+        const name = node.$ref.slice("#/components/schemas/".length).replace(/~1/g, "/").replace(/~0/g, "~");
+        if (!found.has(name)) {
+          found.add(name);
+          refs(components[name], found);
+        }
+      }
+      for (const child of Object.values(node)) refs(child, found);
+    }
+    return found;
+  };
+  const owned = new Set<string>();
+  for (const kind of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/data/${kind}`].get as {
+      responses: Record<string, { content?: Record<string, Record<string, unknown>> }>;
+    };
+    const media = get.responses["200"].content?.["application/json"];
+    refs(media, owned);
+    if (media) {
+      media.schema = {};
+      delete media.example;
+      delete media.examples;
+    }
+  }
+  const shared = refs(copy.paths);
+  for (const name of owned) if (!shared.has(name)) delete components[name];
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -385,21 +427,27 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each: `CustomerSnapshotList` is shared by the customer,
-    // address and container snapshot list routes, and `CustomerSnapshotChanges`
-    // carries the composite `{since, since_id}` cursor instead of
-    // the integer primary-key cursor. `CustomerSnapshotChangesRow` types its
-    // delta rows with storage-faithful integer/text/null columns.
-    expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+    // Registered once each: every snapshot list has its own typed envelope
+    // (`*SnapshotList`) whose rows resolve to its own reusable row schema
+    // (`*SnapshotRow`), and `CustomerSnapshotChanges` carries the composite
+    // `{since, since_id}` cursor instead of the integer primary-key cursor.
+    // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
+    // integer/text/null columns.
+    expect(Object.keys(withoutHydratedBundleDeclarations(doc).components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
+      "AddressSnapshotList",
+      "AddressSnapshotRow",
       "ContainerSaveDryRun",
       "ContainerSaveOutcome",
+      "ContainerSnapshotList",
+      "ContainerSnapshotRow",
       "CustomerSaveDryRun",
       "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
       "CustomerSnapshotChangesRow",
       "CustomerSnapshotList",
+      "CustomerSnapshotRow",
       "DataSnapshotSyncResult",
       "HealthResponse",
       "LocalSyncCode",
@@ -588,7 +636,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument());
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -607,11 +655,13 @@ describe("published OpenAPI document", () => {
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
-    // unrelated golden contracts stay pinned.
+    // Typed hydrated GET 200 declarations/examples move to the seeded semantic
+    // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
+    // Unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutDedicatedSyncFailureMetadata(doc))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutHydratedBundleDeclarations(doc))))))).toMatchSnapshot();
   });
 });
 
