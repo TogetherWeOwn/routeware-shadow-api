@@ -64,6 +64,22 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored customer comment fragment (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `comments` accepts one fragment of at
+most 100 Unicode code points **before trimming** boundary whitespace. Blank
+within that limit means omitted, not an error. Repeated or overlength values
+return the existing value-free 400 after authentication and before any D1
+statement or conditional 304. For this field alone the fixed detail is:
+
+`Invalid request query (comments). Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. See docs/PROBLEMS.md#bad-request.`
+
+No fragment or unrelated unknown key is echoed or logged. A valid unmatched
+fragment returns a successful empty collection. SQLite folds only ASCII A-Z;
+non-ASCII case differences do not imply missing data. This is literal stored
+comment search, not company-name `q` search. See the
+[synthetic recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
+
 ## Stored phone fragment (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, `phone` is an optional ASCII

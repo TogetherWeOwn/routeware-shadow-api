@@ -272,11 +272,10 @@ export function hydratedBundleFieldsQuery(root: SnapshotFieldsetResource) {
 
 /**
  * Unknown `fields[...]` keys among raw query keys, sorted for deterministic
- * detection. The query schema strips unknown keys before validation, so the data
- * routes call this in-handler — after auth, before the ID parse and before
- * any cache/D1 work — and answer non-empty results with the anchored
- * value-free 400. Non-`fields[` keys are untouched: other unknown params keep
- * their existing strip-and-ignore behavior.
+ * detection. The hydrated validation hook uses this before reporting mixed
+ * ID/selector errors so unknown selectors still pass the inner auth gate.
+ * The in-handler strict-query guard owns every unknown-key response; this
+ * helper only detects typed-selector names and does not emit diagnostics.
  */
 export function findUnknownTypedBundleFieldKeys(queryKeys: readonly string[]): string[] {
   const known = new Set<string>(Object.values(BUNDLE_TYPED_FIELD_KEYS));

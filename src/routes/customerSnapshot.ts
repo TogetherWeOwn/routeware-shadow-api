@@ -9,7 +9,7 @@ import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/c
 import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
-import { customerAccountNumberQuery, customerAddressPresenceQuery, customerAddressPresencePredicate, customerPhoneFragmentPredicate, customerPhoneFragmentQuery } from "../lib/snapshotCustomerSelectors";
+import { customerAccountNumberQuery, customerAddressPresenceQuery, customerAddressPresencePredicate, customerCommentsQuery, customerPhoneFragmentPredicate, customerPhoneFragmentQuery } from "../lib/snapshotCustomerSelectors";
 import { snapshotListConditionalHeaders, snapshotListEtagHeaders, snapshotListNotModifiedResponse, snapshotListJsonResponse } from "../lib/snapshotListConditional";
 import { snapshotByIdConditional } from "../lib/snapshotByIdConditional";
 import {
@@ -76,6 +76,7 @@ const customerSnapshotListRoute = createRoute({
         .openapi({ example: "North" }),
       q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
       phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
+      comments: customerCommentsQuery,
       hasAddresses: customerAddressPresenceQuery,
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
@@ -113,7 +114,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -148,6 +149,10 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push(customerPhoneFragmentPredicate());
     binds.push(p.phone, p.phone);
   }
+  if (p.comments !== undefined) {
+    where.push("instr(lower(coalesce(comments, '')), lower(?)) > 0");
+    binds.push(p.comments);
+  }
   if (p.enabled === "true") {
     where.push("enabled = 1");
   }
@@ -159,9 +164,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
-  // Caller-held inclusive ceiling: a fixed primary-key bound shared with the
-  // COUNT below through the same where/binds. An ascending cursor at or above
-  // the cap matches nothing; descending seeks retain this same inclusive cap.
+  // Inclusive caller-held ceiling shared by COUNT and page in either direction.
   if (p.upperId !== undefined) {
     where.push("customer_id <= ?");
     binds.push(p.upperId);
@@ -196,8 +199,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const rows = results ?? [];
   const nextCursor =
     rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
-  // Sparse fieldset: same page, same envelope — only each row's keys shrink.
-  // The id stays on every row even when the selector omits it.
+  // Project only after paging; retain the canonical id on every sparse row.
   const fields = p.fields;
   const out =
     fields === undefined
