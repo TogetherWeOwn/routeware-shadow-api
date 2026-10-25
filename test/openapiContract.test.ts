@@ -327,6 +327,8 @@ describe("published OpenAPI document", () => {
     // (`*SnapshotList`) whose rows resolve to its own reusable row schema
     // (`*SnapshotRow`), and `CustomerSnapshotChanges` carries the composite
     // `{since, since_id}` cursor instead of the integer primary-key cursor.
+    // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
+    // integer/text/null columns.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
@@ -339,6 +341,7 @@ describe("published OpenAPI document", () => {
       "CustomerSaveDryRun",
       "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
+      "CustomerSnapshotChangesRow",
       "CustomerSnapshotList",
       "CustomerSnapshotRow",
       "DataSnapshotSyncResult",
