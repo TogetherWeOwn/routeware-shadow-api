@@ -1,3 +1,16 @@
+import { z } from "@hono/zod-openapi";
+
+export const snapshotExactNextQuery = z.enum(["true", "false"]).optional().default("false")
+  .describe(
+    "Opt-in exact next-page signal: exactNext=true fetches limit+1 matching rows in one page SELECT " +
+    "(at most 501), returns at most limit rows, and emits nextCursor/Link only if the extra row exists. " +
+    "The cursor is the last returned primary ID, not the lookahead row. Default false preserves full " +
+    "terminal-page false positives (a Link may lead to an empty page). Works with every list filter, " +
+    "order, upperId and fields; includeTotal=false still runs zero COUNTs. No snapshot isolation: " +
+    "concurrent inserts/deletes can change later pages. Send exactly one exactNext=true or false, " +
+    "or omit it and retry."
+  ).openapi({ example: "true" });
+
 type SnapshotListResource = "customer" | "address" | "container";
 
 type SnapshotListQuery = {
@@ -29,6 +42,7 @@ type SnapshotListQuery = {
   // default-valued targets stay byte-identical while explicit values round-trip.
   order?: "asc" | "desc";
   includeTotal?: "true" | "false";
+  exactNext?: "true" | "false";
 };
 
 const LISTS = {
@@ -77,6 +91,7 @@ export function snapshotNextLink(
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
   if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
+  if (query.exactNext === "true") params.set("exactNext", "true");
   // Direction travels with the cursor: an explicitly requested order is echoed
   // so desc traversals continue downward; omitted order keeps the asc default.
   if (query.order !== undefined) params.set("order", query.order);

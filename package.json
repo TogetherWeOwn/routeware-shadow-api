@@ -38,6 +38,7 @@
     "check:customer-changes-delta": "vitest run test/typedCustomerChangesDelta.acceptance.test.ts test/customerSnapshotChanges.test.ts test/customerChangesCursor.acceptance.test.ts test/customerChangesNextLinks.acceptance.test.ts test/customerChangesFields.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/openapiContract.test.ts",
     "check:save-dry-run": "vitest run test/saveDryRun.acceptance.test.ts test/dataEntityPostHandlers.test.ts test/dataRoutes.test.ts test/snapshotDryRun.test.ts",
     "check:snapshot-order": "vitest run test/snapshotDescendingPagination.acceptance.test.ts",
+    "check:snapshot-exact-next": "vitest run --maxWorkers=2 test/snapshotExactNext.acceptance.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/snapshotDescendingPagination.acceptance.test.ts test/snapshotUpperId.acceptance.test.ts test/snapshotUpperIdNextLink.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/snapshotListConditional.acceptance.test.ts test/snapshotAuth.test.ts test/openapiContract.test.ts test/routeExamples.test.ts",
     "check:ci-workflow": "node scripts/check-ci-workflow.mjs",
     "check:coverage-ratchet": "node scripts/check-coverage-ratchet.mjs",
     "check:per-file-coverage": "node scripts/check-per-file-coverage.mjs",

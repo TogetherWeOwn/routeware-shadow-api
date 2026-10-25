@@ -3,7 +3,7 @@ import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
-import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -119,6 +119,7 @@ const addressSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      exactNext: snapshotExactNextQuery,
       order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("address")
     })
@@ -137,7 +138,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -235,7 +236,8 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     p.cursor !== undefined
       ? `ORDER BY pickup_address_id${order.suffix} LIMIT ?`
       : `ORDER BY pickup_address_id${order.suffix} LIMIT ? OFFSET ?`;
-  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
+  const pageLimit = p.limit + (p.exactNext === "true" ? 1 : 0);
+  const pageBinds = p.cursor !== undefined ? [pageLimit] : [pageLimit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
@@ -244,9 +246,9 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     )
     .bind(...binds, ...pageBinds)
     .all();
-  const rows = results ?? [];
+  const rows = p.exactNext === "true" ? (results ?? []).slice(0, p.limit) : results ?? [];
   const nextCursor =
-    rows.length === p.limit
+    (p.exactNext === "true" ? (results?.length ?? 0) > p.limit : rows.length === p.limit)
       ? Number((rows[rows.length - 1] as Record<string, unknown>).pickup_address_id)
       : null;
   // Sparse fieldset: same page, same envelope — only each row's keys shrink.

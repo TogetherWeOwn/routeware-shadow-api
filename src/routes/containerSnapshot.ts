@@ -4,7 +4,7 @@ import { containerSnapshotListResponse, containerSnapshotRowSchema } from "./sna
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
-import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -102,6 +102,7 @@ const containerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      exactNext: snapshotExactNextQuery,
       order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("container")
     })
@@ -120,7 +121,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -216,7 +217,8 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     p.cursor !== undefined
       ? `ORDER BY c.container_id${order.suffix} LIMIT ?`
       : `ORDER BY c.container_id${order.suffix} LIMIT ? OFFSET ?`;
-  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
+  const pageLimit = p.limit + (p.exactNext === "true" ? 1 : 0);
+  const pageBinds = p.cursor !== undefined ? [pageLimit] : [pageLimit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
@@ -227,9 +229,9 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     )
     .bind(...binds, ...pageBinds)
     .all();
-  const rows = results ?? [];
+  const rows = p.exactNext === "true" ? (results ?? []).slice(0, p.limit) : results ?? [];
   const nextCursor =
-    rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).container_id) : null;
+    (p.exactNext === "true" ? (results?.length ?? 0) > p.limit : rows.length === p.limit) ? Number((rows[rows.length - 1] as Record<string, unknown>).container_id) : null;
   // Sparse fieldset: same page, same envelope — only each row's keys shrink.
   // The id stays on every row even when the selector omits it.
   const fields = p.fields;
