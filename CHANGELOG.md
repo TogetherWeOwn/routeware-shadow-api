@@ -5,6 +5,19 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #377: `GET /api/v1/address-snapshot` accepts optional `hasContainers=true|false|any`
+  (default `any`), selecting addresses by mirrored container presence. `true` keeps
+  only addresses with a stored container child, `false` only those with none; any
+  stored child counts including disabled containers, and address `enabled` stays
+  independent. Correlated EXISTS/NOT EXISTS over the child's existing index shares
+  the COUNT/page WHERE with no new binds, join, migration or payload expansion.
+  Filtering values round-trip in continuation Links; `any`/omitted stays
+  byte-identical. Invalid/repeated values reject before D1 with value-free guidance.
+  Absence means no currently mirrored child, not proof an upstream site is empty.
+  Synthetic recipe: `npm run check:address-container-presence` and
+  `docs/CONSUMER-QUICKSTART.md`.
+
+
 - #384 (follow-up to #334): mounted OpenAPI now describes the existing combined-sync
   failure contract instead of only 200/401. HTTP 500 declares both
   `application/problem+json` (default and unclassified failures) and
