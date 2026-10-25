@@ -453,7 +453,8 @@ describe.each(SPECS)("$name list: auth and conditional precedence", (spec) => {
 describe.each(SPECS)("$name list: strict next-link traversal", (spec) => {
   function nextSearch(response: Response): string {
     const link = response.headers.get("link");
-    expect(link).toMatch(new RegExp(`^<${spec.path.replace(/\//g, "\\/")}\\?[^<>\\s]*>; rel="next"$`));
+    expect(link).toMatch(/^<[^<>\s]*>; rel="next"$/);
+    expect(link?.startsWith(`<${spec.path}?`)).toBe(true);
     const raw = /^<([^>]+)>; rel="next"$/.exec(link!)![1];
     expect(raw).not.toMatch(/https?:|secret-marker|test-read-token/);
     return raw;
