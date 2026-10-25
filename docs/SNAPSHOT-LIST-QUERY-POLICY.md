@@ -94,11 +94,12 @@ list/link/conditional regressions; no live credentials or upstream calls.
 
 Only the address list searches `q` across three columns. The existing `q` is a
 single optional literal substring, trimmed before matching: a row matches when
-the street (`address`), `city` or `zip` contains the needle, case-insensitively
-under existing SQLite semantics. Empty and whitespace-only `q` behave exactly
-as omitted. Raw input over 100 Unicode code points (measured before trimming)
-or a repeated `q` key returns the existing value-free 400 after authentication
-and before D1. Quotes, `%`, `_`, backslashes and Unicode are literal bound
+the street (`address`), `city` or `zip` contains the needle, ASCII
+case-insensitively. SQLite `lower()` preserves non-ASCII case distinctions:
+`q=åbc` does not match `ÅBC`, while `q=Åbc` does. Empty and whitespace-only `q`
+behave exactly as omitted. Raw input over 100 Unicode code points (measured
+before trimming) or a repeated `q` key returns the existing value-free 400
+after authentication and before D1. Quotes, `%`, `_`, backslashes and Unicode are literal bound
 data, never `LIKE` wildcards; postcodes stay opaque text with significant
 leading zeros. No state search, full-address parser, numeric conversion,
 geocoding or postal/geographic expansion is performed: locality `q` is not an

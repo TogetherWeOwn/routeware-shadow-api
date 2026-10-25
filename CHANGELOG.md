@@ -6,8 +6,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 ## [Unreleased]
 
 - #372: The existing address snapshot list `q` matches a literal
-  case-insensitive substring against street, city or postcode: a row matches
-  when any one column contains the trimmed needle. The parenthesized OR uses
+  ASCII case-insensitive substring against street, city or postcode: a row
+  matches when any one column contains the trimmed needle. SQLite `lower()`
+  preserves non-ASCII case distinctions. The parenthesized OR uses
   bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
   and repeated-key rules and AND-composes with every other selector; omitted
   `q` preserves old behavior. Postcodes stay opaque text with significant

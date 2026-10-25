@@ -246,9 +246,11 @@ remain unchanged. These checks are not deployed performance evidence.
 
 ### Address street or locality search
 
-The existing address-list `q` matches a literal case-insensitive substring
+The existing address-list `q` matches a literal ASCII case-insensitive substring
 against street, city **or** postcode: a row matches when **any one** column
-contains the trimmed needle. Empty and whitespace-only `q` behave as omitted;
+contains the trimmed needle. SQLite `lower()` preserves non-ASCII case
+distinctions: `q=åbc` does not match `ÅBC`, while `q=Åbc` does.
+Empty and whitespace-only `q` behave as omitted;
 longer than 100 Unicode code points, or a repeated `q` key, is the existing
 value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
 Quotes, `%`, `_` and Unicode are literal bound data, never wildcards; leading
