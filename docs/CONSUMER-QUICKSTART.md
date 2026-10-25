@@ -212,9 +212,11 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 
 Resolve which customer owns a phone number from a stored fragment (for
 example its last seven digits) on the existing `listCustomerSnapshot`
-operation (read token allowed, local D1 only). Optional `phone` is a
-case-insensitive substring over the stored `phone1`/`phone2` text, matched
-as stored: no normalization, digit-stripping, trimming or equality fallback.
+operation (read token allowed, local D1 only). Optional `phone` is an
+ASCII case-insensitive substring over the stored `phone1`/`phone2` text,
+matched as stored: SQLite `lower()` folds A-Z only, so non-ASCII case
+variants match only on exact case; no normalization, digit-stripping,
+trimming or equality fallback.
 It AND-composes with `customerId`, company-only `q`, `enabled`, sparse
 `fields` and pagination. Send the key once with 1..100 Unicode code points
 and at least one non-whitespace character. Use URLSearchParams (or

@@ -66,11 +66,13 @@ is a successful empty collection, not a validation error. See the
 
 ## Stored phone fragment (`bad-request`)
 
-For `GET /api/v1/customer-snapshot`, `phone` is an optional case-insensitive
-substring of 1..100 Unicode code points over the stored `phone1`/`phone2`
-text; it may appear only once and must not be blank or whitespace-only.
-The fragment is never trimmed, normalized or digit-stripped, so nonblank
-whitespace and punctuation are significant. After authentication, invalid
+For `GET /api/v1/customer-snapshot`, `phone` is an optional ASCII
+case-insensitive substring of 1..100 Unicode code points over the stored
+`phone1`/`phone2` text; it may appear only once and must not be blank or
+whitespace-only. SQLite `lower()` folds A-Z only, so non-ASCII case variants
+match only on exact case. The fragment is never trimmed, normalized or
+digit-stripped, so nonblank whitespace and punctuation are significant.
+After authentication, invalid
 fragments return a stable, value-free 400 before D1 access or conditional
 304 success. Correct the named field to a single nonblank value within the
 limit, or omit it, then retry.

@@ -79,7 +79,9 @@ instr(lower(coalesce(phone2, '')), lower(?)) > 0)`, one value bound twice,
 
 The fragment-only shape honestly scans: a mid-string `instr(lower(...))`
 substring match cannot seek a B-tree, exactly the `q`-alone boundary pinned
-by `migrations/d1/0003_text_filter_indexes.sql`. Composing with a selective
+by `migrations/d1/0003_text_filter_indexes.sql`. The same `lower()` folds
+ASCII A-Z only, so non-ASCII case variants match only on exact case —
+the same folding the `q` precedent already uses. Composing with a selective
 predicate keeps that predicate's existing index. The predicate uses bound
 placeholders, never interpolation, LIKE, a new join or a deduplication step.
 The executable `test/customerPhoneSearch.acceptance.test.ts` independently

@@ -65,11 +65,12 @@ is made. No new index, migration or binding is introduced.
 ## Stored phone fragment
 
 Only the ordinary customer list recognizes `phone`. It is an optional
-case-insensitive substring of 1..100 Unicode code points, never blank, with a
-single occurrence of the key. The fragment matches stored text as stored:
-no normalization, digit-stripping, trimming or case folding beyond the
-comparison itself, so formatting variance across sources is matched
-literally. Quotes, `%`, `_` and URL delimiters are data, never SQL or
+ASCII case-insensitive substring of 1..100 Unicode code points, never blank,
+with a single occurrence of the key. The fragment matches stored text as
+stored: SQLite `lower()` folds ASCII A-Z only, so non-ASCII case variants
+(é vs É) match only on exact case; no normalization, digit-stripping,
+trimming or other case folding, so formatting variance across sources is
+matched literally. Quotes, `%`, `_` and URL delimiters are data, never SQL or
 wildcards. Empty, whitespace-only, repeated and overlength values return the
 existing value-free 400 before D1 or conditional 304 success; authentication
 remains first. See [fixed correction guidance](PROBLEMS.md#bad-request).

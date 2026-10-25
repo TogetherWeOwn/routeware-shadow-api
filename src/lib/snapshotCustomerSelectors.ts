@@ -28,12 +28,14 @@ export const customerAccountNumberQuery = z.string()
 // every nonblank character, including edge whitespace, is match data.
 export const customerPhoneFragmentQuery = z.string()
   .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
-  .describe("Stored phone1/phone2 fragment (case-insensitive substring; 1..100 Unicode code points, never blank). Matches stored text as stored: no normalization, digit-stripping, trimming, or case folding beyond the comparison; quotes, %/_ and URL delimiters are literal data. Supply a single phone key; repeated keys are rejected. AND-composes with every other filter.")
+  .describe("Stored phone1/phone2 fragment (ASCII case-insensitive substring; 1..100 Unicode code points, never blank). Matches stored text as stored: SQLite lower() folds ASCII A-Z only, so non-ASCII case variants (é vs É) match only on exact case; no normalization, digit-stripping, trimming, or other case folding. Quotes, %/_ and URL delimiters are literal data. Supply a single phone key; repeated keys are rejected. AND-composes with every other filter.")
   .openapi({ minLength: 1, maxLength: 100 });
 
 /**
  * Stored-phone two-term OR predicate (the container-`q` shape): literal
- * case-insensitive substring across both stored columns. The caller binds
+ * ASCII case-insensitive substring across both stored columns (SQLite
+ * lower() folds A-Z only, so non-ASCII case variants match only on exact
+ * case). The caller binds
  * one value twice. No trim: validation already rejected blank input, and
  * inner whitespace is data. NULL/empty columns never match (`coalesce` +
  * `> 0`). Substring-only selections scan; see the `q`-alone boundary pinned

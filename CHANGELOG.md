@@ -6,9 +6,11 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 ## [Unreleased]
 
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
-  optional `phone` is a case-insensitive substring of 1..100 Unicode code
-  points matched against stored `phone1`/`phone2` text as stored (no
-  normalization or digit-stripping), bound twice across the two-term OR and
+  optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
+  code points matched against stored `phone1`/`phone2` text as stored
+  (SQLite `lower()` folds A-Z only, so non-ASCII case variants match only
+  on exact case; no normalization or digit-stripping), bound twice across
+  the two-term OR and
   AND-composed with existing filters. A last-seven-digits fragment resolves
   its owner without downloading every customer. Blank, repeated or overlength
   fragments fail value-free before D1; null or empty stored phones never
