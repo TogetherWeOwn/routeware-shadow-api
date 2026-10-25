@@ -382,6 +382,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             ],
           },
           "rows": {
+            "description": "Full customer rows. With fields=, each row contains customer_id plus the selected columns; synced_at is absent unless selected, so sparse rows follow the projection rather than this full-row schema's required set.",
             "items": {
               "$ref": "#/components/schemas/CustomerSnapshotChangesRow",
             },

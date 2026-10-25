@@ -241,7 +241,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
 // publish (and typecheck) the wrong `nextCursor` type.
 const customerSnapshotChangesResponse = z
   .object({
-    rows: z.array(customerSnapshotChangesRow),
+    rows: z.array(customerSnapshotChangesRow).describe("Full customer rows. With fields=, each row contains customer_id plus the selected columns; synced_at is absent unless selected, so sparse rows follow the projection rather than this full-row schema's required set."),
     total: z.number().int().describe("Returned page length: rows.length for this page, never a COUNT query; 0 on an empty tail page."),
     nextCursor: z
       .object({
