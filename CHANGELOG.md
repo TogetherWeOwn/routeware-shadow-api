@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Address snapshot lists accept optional `driverNote`: a bound literal substring
+  of stored `driver_note` only, not comments or locality. Raw input is limited
+  to 100 Unicode code points before trimming; blank means omitted. SQLite
+  ASCII-only case folding and literal punctuation are preserved. The selector
+  intersects all other filters with identical COUNT/page scope, count-free
+  zero-COUNT behavior and normalized relative next Links. Repeated/overlength
+  input fails before D1 with fixed value-free retry guidance; auth, sparse
+  fields and ETags remain unchanged. Note-only reads may scan; no index,
+  migration, upstream call or operational scheduling/accuracy claim. Synthetic
+  recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-driver-note`;
+  local check: `npm run check:address-driver-note`.
+
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation

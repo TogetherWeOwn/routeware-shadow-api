@@ -137,7 +137,8 @@ location/serial/city/zip on containers), `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
 scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
-an exact stored `zip` selector ([synthetic ZIP-page recipe](#exact-stored-address-zip))
+exact stored `zip` / `city` / `state` selectors ([synthetic ZIP-page recipe](#exact-stored-address-zip)),
+literal stored `driverNote` substring ([synthetic note recipe](#stored-address-driver-note))
 and mirrored-child `hasContainers=true|false|any` presence
 ([synthetic present/absent recipe](#address-container-presence)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
@@ -151,6 +152,44 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
+
+### Stored address driver note
+
+Use `listAddressSnapshot` with `driverNote` when you know a fragment of the
+stored access note. It searches **only `driver_note`**: comments and locality
+cannot satisfy it. Use `q` for street/city/ZIP substrings, or `city`/`state`/`zip`
+for exact stored locality; combine them with driverNote for an AND intersection.
+This finds stored text, not a scheduling/accuracy guarantee or an instruction
+execution service. Never log notes, search values or continuation targets.
+
+Send one URL-encoded fragment of at most 100 Unicode code points measured
+before trimming. Boundaries are trimmed, blank means omitted, null notes act
+as empty; SQLite folds ASCII case only, so non-ASCII case variants remain
+distinct. `%`, `_`, quotes and Unicode are literal, never wildcards.
+Repeated/overlength keys receive fixed value-free 400 correction before D1,
+after auth; see [recovery](PROBLEMS.md#stored-address-driver-note-bad-request).
+
+Synthetic local example: sites 11 and 23 have `driver_note="Use side gate %_雪"`;
+a street/comment-only decoy does not match. With sparse fields, note contents
+need not be returned:
+
+```text
+GET /api/v1/address-snapshot?driverNote=side+gate+%25_%E9%9B%AA&fields=address&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11,"address":"11 Example St"}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?driverNote=side+gate+%25_%E9%9B%AA&fields=address&limit=1&includeTotal=false&cursor=11>; rel="next"
+```
+
+Follow the relative Link unchanged on the same origin: next comes site 23,
+then an empty terminal page. Duplicate notes never collapse sites. Explicit
+`order=desc`, `upperId`, and other filters survive next Links; offset becomes
+seek, and blank driverNote is omitted. COUNT/page share scope; count-free is
+zero COUNTs; ETag/304 and no-store remain unchanged. Note-only queries may
+scan: no new index or production performance claim. GET is idempotent and
+local-read, no upstream/R2/write effects; CLI `--dry-run` is N/A.
+
+Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
+neighboring regressions; no live credentials or network probe is required.
+See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
 ### Stored container locality
 

@@ -63,7 +63,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId` and stored `zip`, `city` and `state`, free-text `q` over street, city or zip (a match in any one column), `enabled`, mirrored-child `hasContainers`. Supplied filters intersect by AND; null scope columns do not match supplied values. City/state-only equality may scan without a dedicated index; no geography inference or normalization. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId` and stored `zip`, `city` and `state`, free-text `q` over street, city or zip (a match in any one column), literal stored `driverNote` substring on `driver_note` only (not comments/locality), `enabled`, mirrored-child `hasContainers`. Supplied filters intersect by AND; null scope columns do not match supplied values. City/state-only equality and driverNote-only substring reads may scan without a dedicated index; none is added. No geography inference, note interpretation or operational scheduling/accuracy claim. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -97,6 +97,9 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Opaque case-sensitive exact stored-state equality: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace and punctuation are preserved, not trimmed or normalized; no abbreviation conversion or state enum. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
         .openapi({ type: "string", minLength: 1, maxLength: 100, example: "TX" }),
+      driverNote: snapshotSearchQuery.optional()
+        .describe("Literal substring on stored driver_note only, not comments or locality. Maximum 100 Unicode code points before trimming; trim boundaries, blank means omitted, null acts as empty. ASCII case-insensitive only (SQLite lower preserves non-ASCII case distinctions); no LIKE wildcards. Send one driverNote key or omit it and retry.")
+        .openapi({ example: "Use side gate" }),
       q: snapshotSearchQuery.optional().describe("Substring on street, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       hasContainers: z.enum(["true", "false", "any"]).optional().default("any")
@@ -137,7 +140,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -190,6 +193,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     );
     const needle = p.q.trim();
     binds.push(needle, needle, needle);
+  }
+  if (p.driverNote !== undefined && p.driverNote.trim() !== "") {
+    where.push("instr(lower(coalesce(driver_note, '')), lower(?)) > 0");
+    binds.push(p.driverNote.trim());
   }
   if (p.enabled === "true") {
     where.push("enabled = 1");
@@ -269,6 +276,7 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
       // q, so the Link carries the value that actually filtered this page. A
       // blank q filtered nothing and stays out of the target.
       q: p.q === undefined || p.q.trim() === "" ? undefined : p.q.trim(),
+      driverNote: p.driverNote === undefined || p.driverNote.trim() === "" ? undefined : p.driverNote.trim(),
       order: c.req.query("order") === undefined ? undefined : p.order,
       includeTotal: c.req.query("includeTotal") === undefined ? undefined : p.includeTotal
     },

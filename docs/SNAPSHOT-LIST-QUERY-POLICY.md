@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -247,6 +247,36 @@ Run `npm run check:address-city-state` for the protected real local-D1
 acceptance oracle and neighboring contracts. The
 [encoded consumer recipe](CONSUMER-QUICKSTART.md#exact-stored-address-city-and-state)
 uses synthetic values only, with no live credentials or network probes.
+
+## Stored address driver note
+
+Only the existing address list accepts `driverNote`, a literal substring of
+stored `address_snapshot.driver_note` only. It never matches address comments,
+street, city, state or ZIP; `q` keeps its street/city/ZIP-only meaning. Reuse
+the search contract: one optional string, maximum 100 Unicode code points
+**before trimming**; trim boundaries and omit blank/whitespace-only values.
+Null notes act as empty. SQLite `lower()` folds ASCII only; non-ASCII case
+variants remain distinct. `%`, `_`, quotes and Unicode are bound literal data,
+not LIKE wildcards or instructions to execute. Repeated or overlength input
+returns the existing value-free bad-request problem before D1, after auth;
+[fixed correction guidance](PROBLEMS.md#stored-address-driver-note-bad-request)
+never echoes submitted notes or unknown names. Do not log search values.
+
+One bound `instr(lower(coalesce(driver_note, '')), lower(?)) > 0` predicate
+AND-composes with q, IDs, route/franchise, ZIP, city/state, enabled, mirrored
+child presence and traversal bounds. COUNT and page share predicates/binds;
+`includeTotal=false` still issues zero COUNTs. Duplicate notes remain distinct
+sites by canonical `pickup_address_id`. Sparse fields and ETag/304 describe
+the same final envelope. Relative next Links retain only the validated,
+trimmed note (omit blank), with URLSearchParams encoding in either order and
+when moving offset-to-seek; unknown raw parameters and origins never travel.
+
+Note-only reads may scan; no index/migration or production performance,
+operational scheduling or accuracy claim is added. This GET is idempotent,
+local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-driver-note` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note).
 
 ## Address street or locality search
 
