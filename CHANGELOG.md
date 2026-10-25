@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #391: Hydrated customer/address/container GET 200 declarations now compose
+  their existing named single bundles with named typed batch envelopes.
+  Batches preserve 1..50 request-ordered entries and duplicates, require full
+  resource-specific found payloads, and represent misses with only `id` and
+  `found: false`. Mounted synthetic mixed/all-missing examples and the named
+  `check:typed-hydrated-batch-contracts` check validate the served contract.
+  This is declaration-only: single projections/ETag/304 and missing-root 404
+  stay unchanged; batches remain no-store/no ETag/no 304 and reject all
+  fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+
 - #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
   opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
   zeros and nonblank whitespace. Literal substring `q` now matches stored
