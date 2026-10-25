@@ -18,6 +18,10 @@ name does not become a SQL filter or bind. This preserves the existing
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
+Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
+children, including disabled rows; absence is not proof of no upstream site
+and never authorizes deletion or reconciliation.
+
 ## Opt-in typo detection (`strictQuery=`)
 
 Only the three ordinary flat list GETs accept one exact, case-sensitive
