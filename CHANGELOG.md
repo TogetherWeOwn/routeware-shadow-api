@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Follow-up to #385: Container snapshot lists accept exact stored
+- #397: Container snapshot lists accept exact stored
   `locationAddress` (1..200 Unicode code points) and `state` (1..100).
   Case-sensitive opaque values preserve significant whitespace and leading
   zeros; no parent fallback or normalization. Bound AND scopes and encoded
