@@ -304,9 +304,11 @@ function withoutIdSelectionExtension(doc: unknown): unknown {
 /**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
- * selector covered by addressZipFilter.acceptance.test.ts and exact stored
- * streets by addressStreetExact.acceptance.test.ts. Keep all other parameter
- * schemas, responses, tags and operations in the legacy golden.
+ * selector covered by addressZipFilter.acceptance.test.ts, exact stored
+ * streets by addressStreetExact.acceptance.test.ts and city/state
+ * declarations independently pinned by addressCityStateFilters.acceptance.test.ts.
+ * Keep all other parameter schemas, responses, tags and operations
+ * in the legacy golden.
  */
 function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -318,7 +320,7 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "streetAddress"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "streetAddress", "city", "state"].includes(parameter.name));
   return copy;
 }
 
