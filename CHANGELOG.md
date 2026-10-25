@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #370: Stored phone fragment lookup on the existing customer snapshot list:
+  optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
+  code points matched against stored `phone1`/`phone2` text as stored
+  (SQLite `lower()` folds A-Z only, so non-ASCII case variants match only
+  on exact case; no normalization or digit-stripping), bound twice across
+  the two-term OR and
+  AND-composed with existing filters. A last-seven-digits fragment resolves
+  its owner without downloading every customer. Blank, repeated or overlength
+  fragments fail value-free before D1; null or empty stored phones never
+  match. Next-page Links retain the selector with URL encoding. No new index,
+  migration, upstream call or count-free COUNT query; fragment-only reads
+  scan like `q`-alone. See `docs/CONSUMER-QUICKSTART.md` for the synthetic
+  lookup-to-next-page recipe; focused check:
+  `npm run check:customer-phone-search`.
+
 - #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
   selector, intersected by AND with existing filters. The opaque
   case-sensitive string (1..100 Unicode code points) preserves leading zeros
@@ -29,8 +44,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Absence means no currently mirrored child, not proof an upstream site is empty.
   Synthetic recipe: `npm run check:address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
-
-
 - #372: The existing address snapshot list `q` matches a literal
   ASCII case-insensitive substring against street, city or postcode: a row
   matches when any one column contains the trimmed needle. SQLite `lower()`
