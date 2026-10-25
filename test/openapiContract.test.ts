@@ -356,6 +356,23 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+/**
+ * The stored extras-allowed selector has semantic checks in
+ * addressExtrasAllowed.acceptance.test.ts. Project out only its new parameter;
+ * address filter/recovery prose is already owned by
+ * withoutAddressScopeContract. Keep all existing parameter schemas in the
+ * legacy golden.
+ */
+function withoutAddressExtrasAllowedContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"].get as {
+    parameters: Array<{ name: string; in: string }>;
+  };
+  operation.parameters = operation.parameters.filter(parameter =>
+    parameter.in !== "query" || parameter.name !== "extrasAllowed");
+  return copy;
+}
+
 // Mirrored-child presence selection (`hasContainers`) has semantic checks in
 // the Test Author-owned addressContainerPresence.acceptance.test.ts, not
 // frozen as a speculative parameter position. The address description and 400
@@ -717,7 +734,9 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))).toMatchSnapshot();
+    // Only the address stored-extras selector additionally moves to
+    // addressExtrasAllowed ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc))))))))).toMatchSnapshot();
   });
 });
 

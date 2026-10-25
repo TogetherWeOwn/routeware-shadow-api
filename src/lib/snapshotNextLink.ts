@@ -21,6 +21,8 @@ type SnapshotListQuery = {
   phone?: string;
   comments?: string;
   enabled: "true" | "false" | "any";
+  // Address list only; sibling lists omit the key and keep unfiltered links.
+  extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   fields?: string[];
@@ -65,6 +67,10 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Non-any only, like enabled: any/omission stays out of the canonical target.
+  if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
+    params.set("extrasAllowed", query.extrasAllowed);
+  }
   // Address-only presence selector (other lists never set it): carry only
   // filtering values so any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
