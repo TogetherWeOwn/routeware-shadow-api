@@ -412,11 +412,11 @@ describe.each(["true", "false"])("label continuation includeTotal=%s", includeTo
   });
 
   it.each([
-    ["asc", "101", [104]], ["desc", "105", [104]],
-  ] as const)("keeps upperId and %s cursor over a conflicting offset", async (order, cursor, expected) => {
+    ["asc", "101", [104], 1], ["desc", "105", [104, 101], 2],
+  ] as const)("keeps upperId and %s cursor over a conflicting offset", async (order, cursor, expected, total) => {
     const result = await page({ materialStream: STREAM, color: COLOR, upperId: "104", cursor, order, offset: "99", includeTotal });
     expect(ids(result.body)).toEqual(expected);
-    expect(result.body.total).toBe(includeTotal === "false" ? null : 1);
+    expect(result.body.total).toBe(includeTotal === "false" ? null : total);
   });
 
   it.each(["asc", "desc"])("retains inclusive upperId across %s links", async order => {
