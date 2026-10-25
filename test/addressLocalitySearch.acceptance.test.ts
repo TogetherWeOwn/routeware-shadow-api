@@ -243,6 +243,43 @@ describe("address q: any-one-column literal substring", () => {
     expect(blank.statements).toEqual(plain.statements);
   });
 
+  describe.each(["true", "false"])("blank q continuation includeTotal=%s", (includeTotal) => {
+    it.each(["", "  \t\n "])("omits blank q from full-page continuation Links: %j", async (q) => {
+      const filters = { customerId: "101", enabled: "true", upperId: "73", order: "asc", fields: FIELDS, limit: "2", includeTotal };
+      const first = await page({ ...filters, q });
+      expect(first.body).toEqual({
+        rows: [
+          { pickup_address_id: 11, address: "741 Synthetic Way", city: null, zip: null },
+          { pickup_address_id: 23, address: "Plain Lane", city: "North 741 Borough", zip: null }
+        ],
+        total: includeTotal === "false" ? null : 5,
+        nextCursor: 23
+      });
+      expect(first.response.headers.get("link")).not.toBeNull();
+      const firstLink = first.response.headers.get("link")!;
+      expect(new URL(firstLink.slice(1, firstLink.indexOf(">")), first.url).searchParams.has("q")).toBe(false);
+      const secondTarget = nextTarget(first.response, first.url, { ...filters, cursor: "23" });
+      const second = await page(secondTarget);
+      expect(second.body).toEqual({
+        rows: [
+          { pickup_address_id: 37, address: "Plain Lane", city: "", zip: "00741-1234" },
+          { pickup_address_id: 42, address: "741 Synthetic Way", city: "741", zip: "741" }
+        ],
+        total: includeTotal === "false" ? null : 3,
+        nextCursor: 42
+      });
+      const lastTarget = nextTarget(second.response, second.url, { ...filters, cursor: "42" });
+      expect(lastTarget.searchParams.has("q")).toBe(false);
+      const last = await page(lastTarget);
+      expect(last.body).toEqual({
+        rows: [{ pickup_address_id: 73, address: "Different Lane", city: "Elsewhere", zip: "98000" }],
+        total: includeTotal === "false" ? null : 1,
+        nextCursor: null
+      });
+      expect(last.response.headers.get("link")).toBeNull();
+    });
+  });
+
   it("preserves leading zeros and extended postcodes as response strings", async () => {
     const { body } = await page({ q: "00123", fields: "zip" });
     expect(body.rows).toEqual([
