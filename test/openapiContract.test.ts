@@ -149,7 +149,7 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
 
 /**
  * Copy of the document with the free-text `description`/`example` of the
- * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
+ * `includeTotal` query parameter and of each `*SnapshotList.total` removed.
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
@@ -183,8 +183,10 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
       }
     }
   }
-  const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
-  if (total) delete total.description;
+  for (const envelope of ["CustomerSnapshotList", "AddressSnapshotList", "ContainerSnapshotList"]) {
+    const total = copy.components?.schemas?.[envelope]?.properties?.total;
+    if (total) delete total.description;
+  }
   const changes = copy.paths?.["/api/v1/customer-snapshot/changes"]?.get;
   if (changes) {
     delete changes.description;
@@ -321,21 +323,27 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each: `CustomerSnapshotList` is shared by the customer,
-    // address and container snapshot list routes, and `CustomerSnapshotChanges`
-    // carries the composite `{since, since_id}` cursor instead of
-    // the integer primary-key cursor. `CustomerSnapshotChangesRow` types its
-    // delta rows with storage-faithful integer/text/null columns.
+    // Registered once each: every snapshot list has its own typed envelope
+    // (`*SnapshotList`) whose rows resolve to its own reusable row schema
+    // (`*SnapshotRow`), and `CustomerSnapshotChanges` carries the composite
+    // `{since, since_id}` cursor instead of the integer primary-key cursor.
+    // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
+    // integer/text/null columns.
     expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
+      "AddressSnapshotList",
+      "AddressSnapshotRow",
       "ContainerSaveDryRun",
       "ContainerSaveOutcome",
+      "ContainerSnapshotList",
+      "ContainerSnapshotRow",
       "CustomerSaveDryRun",
       "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
       "CustomerSnapshotChangesRow",
       "CustomerSnapshotList",
+      "CustomerSnapshotRow",
       "DataSnapshotSyncResult",
       "HealthResponse",
       "LocalSyncCode",

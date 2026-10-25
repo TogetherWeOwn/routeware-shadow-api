@@ -488,16 +488,21 @@ describe("OpenAPI and docs describe the opt-in", () => {
     }
   });
 
-  it("makes the shared list response total nullable, still required, and explains null", async () => {
+  it("makes each resource list envelope total nullable, still required, and explains null", async () => {
     const doc = await openApi();
-    const schema = doc.components?.schemas?.CustomerSnapshotList;
-    expect(schema?.required).toEqual(expect.arrayContaining(["rows", "total", "nextCursor"]));
-    expect(([] as string[]).concat(schema?.properties?.total?.type as string | string[]).sort()).toEqual(["integer", "null"]);
-    const description = schema?.properties?.total?.description ?? "";
-    expect(description).toMatch(/includeTotal=false/);
-    expect(description).toMatch(/\bnull\b/);
-    expect(description).toMatch(/not computed/i);
-    expect(description).toMatch(/not (?:zero|0)|rather than (?:zero|0)/i);
+    for (const envelope of ["CustomerSnapshotList", "AddressSnapshotList", "ContainerSnapshotList"]) {
+      const schema = doc.components?.schemas?.[envelope];
+      expect(schema?.required, envelope).toEqual(expect.arrayContaining(["rows", "total", "nextCursor"]));
+      expect(
+        ([] as string[]).concat(schema?.properties?.total?.type as string | string[]).sort(),
+        envelope
+      ).toEqual(["integer", "null"]);
+      const description = schema?.properties?.total?.description ?? "";
+      expect(description, envelope).toMatch(/includeTotal=false/);
+      expect(description, envelope).toMatch(/\bnull\b/);
+      expect(description, envelope).toMatch(/not computed/i);
+      expect(description, envelope).toMatch(/not (?:zero|0)|rather than (?:zero|0)/i);
+    }
   });
 
   it("lists includeTotal in the query-policy inventory for the three ordinary lists only", () => {
