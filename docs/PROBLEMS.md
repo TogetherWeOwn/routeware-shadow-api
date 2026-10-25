@@ -202,6 +202,23 @@ ZIP that matches no rows returns 200 with an empty list. See the
 [address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
 [container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
 
+## Exact stored container labels (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `materialStream` and `color`
+are case-sensitive opaque exact stored labels: 1..100 Unicode code points
+containing a non-whitespace character. `materialStream` selects
+`ud_material_stream_ud`; `color` selects `color`. Preserve significant
+whitespace, leading zeros and punctuation without trimming or normalization.
+No vocabulary or inferred waste category is defined.
+
+Empty, whitespace-only, repeated and overlength keys return the existing
+value-free 400 after authentication and before D1:
+`Invalid request query (materialStream). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `color` key). URL-encode one supported-length nonblank stored
+label, or omit the selector if no label scope is intended, then retry. Never
+log submitted labels. Valid unknown labels return an empty 200, not an error.
+See the [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels).
+
 ## Exact stored address city and state (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, send each optional `city` or `state`
