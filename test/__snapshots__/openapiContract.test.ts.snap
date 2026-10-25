@@ -126,7 +126,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       "AddressSnapshotList": {
         "properties": {
           "nextCursor": {
-            "description": "Primary-key page cursor: the last row's primary key when the page came back full (there may be more rows), or null at the end of the result set. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
             "type": [
               "integer",
               "null",
@@ -378,7 +378,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       "ContainerSnapshotList": {
         "properties": {
           "nextCursor": {
-            "description": "Primary-key page cursor: the last row's primary key when the page came back full (there may be more rows), or null at the end of the result set. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
             "type": [
               "integer",
               "null",
@@ -712,7 +712,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       "CustomerSnapshotList": {
         "properties": {
           "nextCursor": {
-            "description": "Primary-key page cursor: the last row's primary key when the page came back full (there may be more rows), or null at the end of the result set. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
             "type": [
               "integer",
               "null",

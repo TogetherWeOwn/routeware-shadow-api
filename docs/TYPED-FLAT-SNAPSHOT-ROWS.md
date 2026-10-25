@@ -36,8 +36,9 @@ and declared properties.
   nullable columns stay present as `null` on full rows, never omitted.
 - **`total: null` means deliberately not computed**, not zero: see
   [the query policy](SNAPSHOT-LIST-QUERY-POLICY.md) for the `includeTotal=false`
-  contract. **`nextCursor`** is the last row's primary key when the page came
-  back full (there may be more rows), or `null` at the end of the result set.
+  contract. **`nextCursor`** is the last row's primary key when the page contains
+  `limit` rows, including a terminal full page; following that cursor returns
+  an empty page. It is `null` when fewer than `limit` rows are returned.
 
 Nothing else is promised: no positivity, enum, timestamp-format or
 safe-integer guarantees beyond the storage types above. The declarations are

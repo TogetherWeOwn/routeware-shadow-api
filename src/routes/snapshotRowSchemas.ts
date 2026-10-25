@@ -194,13 +194,14 @@ const SNAPSHOT_LIST_TOTAL_DESCRIPTION =
   "Exact row count for this page's filters. Pass includeTotal=false to skip the COUNT query: total is then null, meaning deliberately not computed rather than zero, with the same rows and nextCursor.";
 
 /**
- * `nextCursor` is the last row's primary key when the page came back full
- * (there may be more rows), or `null` at the end of the result set — set on
- * every list response, not just cursor-driven ones, so an offset caller can
- * switch to cursor pagination once OFFSET gets expensive.
+ * `nextCursor` is the last row's primary key when the page contains limit
+ * rows, including a terminal full page; following that cursor returns an
+ * empty page. Fewer than limit rows yields `null`. Set on every list response,
+ * not just cursor-driven ones, so an offset caller can switch to cursor
+ * pagination once OFFSET gets expensive.
  */
 const SNAPSHOT_LIST_NEXT_CURSOR_DESCRIPTION =
-  "Primary-key page cursor: the last row's primary key when the page came back full (there may be more rows), or null at the end of the result set. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.";
+  "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.";
 
 /**
  * One list envelope per resource: `rows` items are the resource's row `$ref`,
