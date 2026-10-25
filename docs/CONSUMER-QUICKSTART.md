@@ -192,6 +192,45 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Stored customer comment fragment
+
+Use `comments` on `listCustomerSnapshot` to find mirrored notes without
+searching company names (`q`) or stored phone text (`phone`). These selectors
+intersect by AND; `comments=handoff&q=North` requires both matches. This GET
+uses the existing read-token role and local D1 only; it is idempotent and
+`--dry-run` is not applicable.
+
+Send one URL-encoded fragment of at most 100 Unicode code points **before
+trimming** boundary whitespace. Blank within the limit means omitted. SQLite
+`lower()` folds ASCII A-Z only: non-ASCII case and Unicode composition remain
+exact, and quotes, `%` and `_` are literal data, not SQL/wildcards. Stored null
+comments never match a nonblank fragment; no stored data is normalized.
+Repeated/overlength input returns value-free 400 before D1, after auth; send
+one fragment within the limit, or omit comments and retry. Do not log selectors.
+
+**Synthetic local oracle:** customers 11, 23, 37 and 42 contain `handoff` in
+their comments (11 uses uppercase). Company-only/phone-only decoys do not match.
+The following count-free sparse request returns only canonical IDs:
+
+```text
+GET /api/v1/customer-snapshot?comments=handoff&fields=customer_id&limit=2&includeTotal=false
+200 {"rows":[{"customer_id":11},{"customer_id":23}],"total":null,"nextCursor":23}
+Link: </api/v1/customer-snapshot?comments=handoff&fields=customer_id&limit=2&includeTotal=false&cursor=23>; rel="next"
+```
+
+Follow that relative Link against the same origin unchanged: the next page
+returns 37 and 42 with a Link containing `cursor=42`; follow it to the empty
+terminal page with null cursor and no Link. Links retain the validated trimmed
+fragment, upperId and direction, never origin/credentials or unknown keys.
+Use `order=desc` for descending traversal; an initial offset becomes a seek
+cursor in the returned Link. Concurrent writes are not snapshot-isolated.
+No dedicated comments index is added; substring-only reads may scan, with no
+latency promise. Run `npm run check:customer-comments-search` for the hermetic
+local-D1 oracle, including Unicode boundaries, both orders, literal punctuation,
+ETags/304, auth/validation zero-work and denied upstream/R2/cache writes.
+See the [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-customer-comment-fragment)
+and [fixed error guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
+
 ### Exact external account lookup
 
 Resolve an external account reference to canonical `customer_id` values on the
