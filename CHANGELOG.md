@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
+- #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation
   are preserved without normalization or coercion. Bound AND predicates
