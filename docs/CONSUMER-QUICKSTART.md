@@ -585,6 +585,46 @@ adoption or performance evidence. See the
 [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels) and
 [400 recovery](PROBLEMS.md#exact-stored-container-labels-bad-request).
 
+### Container parent service-site cohorts
+
+Use `listContainerSnapshot` with `parentRouteId`, `parentFranchiseId` and/or
+`parentEnabled=true|false|any` to retrieve equipment for a known mirrored
+service-site cohort without fetching all addresses. These select the parent
+address only, never equipment `route_ids`/`frequency_ids` or customer enabled.
+Container `enabled` is independent: `parentEnabled=true&enabled=false` means
+disabled equipment at enabled sites, not an assignment change.
+
+Send each key once. Route IDs are canonical unpadded ASCII decimals
+`0..9007199254740991`, with zero literal. Franchises are case-sensitive opaque
+nonblank strings of 1..100 Unicode code points; preserve leading zeros and
+significant whitespace. Encode with `new URLSearchParams({ parentRouteId:
+"7", parentFranchiseId: "001", parentEnabled: "true" })`. Invalid, blank,
+overlength or repeated keys fail value-free before D1 after auth; correct the
+named format and retry. Valid no-match is an empty 200.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:container-parent-scopes
+```
+
+The oracle's `parentRouteId=7&parentFranchiseId=001&parentEnabled=true&fields=enabled&limit=2&includeTotal=false`
+request returns containers `[20,30]`, then `[60,160]`, then `[170,210]` and an
+empty terminal page. Follow the returned [same-origin Link](#follow-the-servers-next-page-target)
+unchanged; validated parent selectors stay encoded, `parentEnabled=any` is
+omitted, and neither raw origins nor unknown query keys are copied.
+
+Effective parent scopes share the customerId address join, excluding missing
+parents without duplicating siblings. Omission/any alone preserves the old
+unjoined list and orphan visibility. All selectors AND-compose with existing
+IDs, labels, locality, equipment state and cursor/upper bounds. Sparse fields,
+container-ID order, count-free reads and representation ETags/304 stay intact.
+The recipe denies outbound fetch/R2/writes and checks both traversal directions.
+Equality can scan; no new index, deployment, production latency or assignment
+accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
+and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an

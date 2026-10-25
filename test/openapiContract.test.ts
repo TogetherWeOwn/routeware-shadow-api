@@ -391,12 +391,14 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
-// Exact identifiers, stored labels and installation selectors supersede this route's
-// old query/error narrative. Their schemas, composition and error discovery are
-// asserted independently in containerIdentifierFilters.acceptance.test.ts,
-// containerMaterialColorFilters.acceptance.test.ts and containerExactLocation.acceptance.test.ts,
-// not frozen as speculative prose or parameter position. All legacy parameters and
-// unrelated operations remain frozen.
+// Exact identifiers, stored labels, installation selectors and parent scopes
+// supersede this route's old query/error narrative. Their schemas, composition
+// and error discovery are asserted independently in
+// containerIdentifierFilters.acceptance.test.ts,
+// containerMaterialColorFilters.acceptance.test.ts,
+// containerExactLocation.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
+// parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -411,7 +413,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -727,7 +729,8 @@ describe("published OpenAPI document", () => {
     // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
-    // additions move to containerIdentifierFilters.acceptance.test.ts;
+    // additions move to containerIdentifierFilters.acceptance.test.ts; the three
+    // parent selectors move to containerParentScopes.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Unrelated golden contracts stay pinned.

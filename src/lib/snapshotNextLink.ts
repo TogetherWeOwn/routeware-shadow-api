@@ -13,6 +13,9 @@ type SnapshotListQuery = {
   color?: string;
   routeId?: number;
   franchiseId?: string;
+  parentRouteId?: number;
+  parentFranchiseId?: string;
+  parentEnabled?: "true" | "false" | "any";
   zip?: string;
   locationAddress?: string;
   city?: string;
@@ -38,7 +41,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -78,6 +81,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
+    params.set("parentEnabled", query.parentEnabled);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

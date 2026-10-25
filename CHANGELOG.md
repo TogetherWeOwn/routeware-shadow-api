@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #399: Container snapshot lists accept optional `parentRouteId`,
+  `parentFranchiseId` and `parentEnabled=true|false|any` for the mirrored
+  service-site address's scalar route, opaque franchise and enabled state.
+  Parent state stays independent of container `enabled`; equipment route/frequency
+  text is never parsed as parent assignment. One shared conditional join preserves
+  unscoped orphan visibility; validated scopes AND-compose in count/page reads
+  and relative next links. Single-value bounds, sparse ETags/304 and count-free
+  pagination stay intact. No migration/index or performance promise is added.
+  Synthetic local check: `npm run check:container-parent-scopes`; see the
+  parent-cohort recipe in `docs/CONSUMER-QUICKSTART.md`.
+
 - #376: `GET /api/v1/address-snapshot` accepts an optional stored
   `extrasAllowed=true|false|any` selector (default `any`), intersected by AND
   with existing filters in both `COUNT` and page reads. `true` matches stored

@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -587,6 +587,44 @@ literal labels, malformed/auth zero-work checks, both join paths, count-free
 pagination, sparse fields, ETags and followed links. Equality queries may scan;
 no new index/migration or performance claim is made. GET is an idempotent
 local-read with no upstream, R2, browser or write work; CLI `--dry-run` is N/A.
+
+## Container parent service-site scopes
+
+The existing container list accepts `parentRouteId`, `parentFranchiseId` and
+`parentEnabled=true|false|any` (default `any`). These select only the mirrored
+parent address's scalar `a.route_id`, opaque `a.franchise_id` and `a.enabled`.
+They never parse equipment `route_ids`/`frequency_ids`, infer paired assignments
+or select by customer enabled. Equipment `enabled` remains independent.
+
+`parentRouteId` is one canonical unpadded ASCII decimal safe integer
+`0..9007199254740991`; zero matches literal stored zero, not all routes.
+`parentFranchiseId` is one case-sensitive opaque exact string of 1..100 Unicode
+code points containing a non-whitespace character. Preserve leading zeros,
+nonblank whitespace and punctuation without trimming or normalization. Use
+`URLSearchParams` or curl `--data-urlencode`. Repeated, blank, overlength or
+invalid keys fail value-free after authentication and before D1/304; send one
+supported value per named key and retry. See [recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
+An effective parent selector or `customerId` requires one shared INNER JOIN on
+unique `pickup_address_id`. Supplied predicates AND-compose with every existing
+filter in both COUNT and page SQL; siblings are not collapsed or duplicated.
+An effective scope excludes missing/null parent links (and null values cannot
+match equality). `parentEnabled=any` alone and omission preserve the original
+no-join SQL and orphan visibility; a supplied customerId still requires its join.
+`parentEnabled=true|false` alone does not require non-null route/franchise.
+
+Validated parent scopes survive relative next Links, with `any` omitted. The
+container primary key, upper fence, both seek directions, offset precedence,
+fields and representation-byte ETags/304 are unchanged. `includeTotal=false`
+runs zero COUNTs; sparse membership is recomputed even if the parent scope
+columns are not projected. Unknown query names remain ignored, never echoed.
+
+Run `npm run check:container-parent-scopes` with synthetic local D1, no upstream,
+R2 or writes. See the [parent-cohort recipe](CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts).
+Parent route/franchise equality and state can require scans; no new index or
+migration is added, and neither production latency nor assignment accuracy is
+claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
+GET is idempotent local-read; a CLI dry-run flag is not applicable.
 
 ## Mutating POST query keys are strict
 
