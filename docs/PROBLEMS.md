@@ -22,6 +22,19 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Snapshot count-only (`bad-request`)
+
+On the three ordinary flat snapshot list GETs, send `countOnly` once as exact
+lowercase `true` or `false`, or omit it for normal pages. Blank, invalid and
+repeated values fail after auth with a value-free 400 before D1. All other
+known query parameters still validate; count-only does not forgive invalid
+fields/filters even with `If-None-Match: *`.
+
+`countOnly=true&includeTotal=false` is contradictory. **Omit
+`includeTotal=false` or set `countOnly=false` and retry.** Responses name
+fields, never submitted values; no row-payload query or COUNT runs on rejection.
+See the [mode comparison](SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection).
+
 ## Opt-in list query keys (`bad-request`)
 
 Only the three ordinary flat snapshot lists accept `strictQuery=true|false`
