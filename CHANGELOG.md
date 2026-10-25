@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #368: Test-only: `test/routeExamples.test.ts` pins expected query/path
+  parameter names per operation beside the pinned operation inventory instead
+  of one hand-counted global total; the checked total is derived as the sum
+  of the per-operation records, and a missing, extra or renamed parameter
+  fails naming the operation and the name. Adding a selector now edits only
+  its own operation's record, so unrelated selector PRs no longer collide on
+  a shared integer. No route, runtime, docs-rendering, workflow or migration
+  change. Focused checks: `npx vitest run test/routeExamples.test.ts` and
+  `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
