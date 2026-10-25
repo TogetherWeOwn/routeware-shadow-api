@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Address and container snapshot lists accept `hasCoordinates=true|false|any`
+- #393: Address and container snapshot lists accept `hasCoordinates=true|false|any`
   (default `any`) for NULL-only stored-pair presence: true requires both stored
   latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
   empty, whitespace and non-numeric TEXT counts as present when non-null.
