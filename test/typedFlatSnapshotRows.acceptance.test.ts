@@ -941,8 +941,9 @@ describe.each(SPECS)("$resource by-ID: full and sparse values (controls)", (spec
       const res = await get(detailPath(id));
       expect(res.status).toBe(200);
       expectNoStoreCors(res);
-      expect(res.headers.get("etag")).toBeNull();
-      const row = (await res.json()) as Record<string, unknown>;
+      const bytes = await res.text();
+      expect(res.headers.get("etag")).toBe(await sha256Quoted(bytes));
+      const row = JSON.parse(bytes) as Record<string, unknown>;
       expect(Object.keys(row).sort()).toEqual([...EXPECTED_COLUMNS[spec.resource]].sort());
       expect(row).toEqual(orderedRow(spec.resource, seed));
     }
