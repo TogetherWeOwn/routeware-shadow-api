@@ -192,6 +192,43 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Exact stored container installation
+
+Resolve equipment by the **container's own** stored `location_address` and
+`state` on the existing container list. Supply `locationAddress` (1..200 Unicode
+code points) and/or `state` (1..100) once as nonblank case-sensitive opaque exact
+strings. Preserve leading zeros, case, punctuation and significant whitespace;
+do not normalize postal data. Null never matches and duplicates remain separate
+containers. The parent address never substitutes its street or state, even
+with `customerId`. Unlike these exact selectors, `q` is a trimmed substring
+search of location/serial/city/zip and does **not** search state.
+
+Synthetic local fixture: containers 10, 20 and 30 share `00123 Depot`, `St-01`
+under customer 1; their parent has different location/state. A substring-only
+`x00123 Depotx`, different-case state and parent-only matches are excluded:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&locationAddress=00123+Depot&state=St-01&fields=enabled&upperId=30&limit=2&includeTotal=false
+{"rows":[{"container_id":10,"enabled":1},{"container_id":20,"enabled":1}],"total":null,"nextCursor":20}
+Link: </api/v1/container-snapshot?customerId=1&locationAddress=00123+Depot&state=St-01&fields=enabled&upperId=30&limit=2&includeTotal=false&cursor=20>; rel="next"
+```
+
+Follow that relative Link unchanged against the same origin: the next page has
+container 30, `nextCursor:null` and no Link. `order=desc` instead yields 30, 20,
+then 10; offset starts also continue by seek. A full terminal page may link to
+an empty page. All selectors intersect by AND with `q`, `zip`, identifiers,
+IDs, enabled and upperId. Counts are cursor-relative when requested; sparse
+fields and conditional ETags/304 work unchanged.
+
+Use `new URLSearchParams({ locationAddress: " O'Ridge 50%_ 雪 ", state: "St-01" })`
+to keep reserved characters literal; never concatenate raw data or log query
+values. Invalid/repeated/overlength selectors return value-free 400 before D1.
+URL-encode one nonblank stored value within the named limit or omit the key,
+then retry. These idempotent local GETs do no upstream/R2/write work; CLI
+`--dry-run` is N/A. No index/migration, live-location or latency claim: unscoped
+location/state equality scans. Run `npm run check:container-exact-location`
+with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
