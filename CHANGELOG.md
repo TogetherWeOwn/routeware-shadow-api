@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #394: Each existing hydrated GET publishes registry-derived v1 field catalogs
+  on all three typed selectors, plus root-specific legal-mode guidance:
+  distinct types compose, flat fields conflicts with the typed root, and batch
+  ids rejects every fieldset. Remove dormant unknown-selector interpolation;
+  mounted guards already prevent submitted key/value reflection. Authentication,
+  successful bytes, projection, full-cache contents, ETags and batch schemas
+  are unchanged. Offline synthetic extraction recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused mounted contract and safety check:
+  `npm run check:hydrated-fieldset-discovery`. No deployment or access change.
+
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation

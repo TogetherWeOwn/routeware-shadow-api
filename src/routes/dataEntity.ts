@@ -3,8 +3,7 @@ import type { RouteConfig } from "@hono/zod-openapi";
 import {
   BUNDLE_TYPED_FIELD_KEYS,
   findUnknownTypedBundleFieldKeys,
-  snapshotFieldsQuery,
-  typedBundleFieldsQuery,
+  hydratedBundleFieldsQuery,
   type SnapshotFieldsetResource
 } from "../lib/sparseFieldsets";
 import {
@@ -135,7 +134,7 @@ function rejectInvalidBundleSelectors(
       type: problemType("bad-request", env),
       title: "Bad Request",
       status: 400,
-      detail: `Invalid request query (${unknown.join(", ")}). See docs/PROBLEMS.md#bad-request.`,
+      detail: `Use only supported field selectors: ${Object.values(BUNDLE_TYPED_FIELD_KEYS).join(", ")}. See docs/PROBLEMS.md#bad-request.`,
       instance: new URL(url).pathname
     });
   }
@@ -259,10 +258,7 @@ const dataCustomerGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
       customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("customer"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("customer")
     })
   },
   responses: {
@@ -338,10 +334,7 @@ const dataAddressGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
       pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("address"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("address")
     })
   },
   responses: {
@@ -414,10 +407,7 @@ const dataContainerGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
       containerId: hydratedReadIdQuery.openapi({ example: 100 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("container"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("container")
     })
   },
   responses: {

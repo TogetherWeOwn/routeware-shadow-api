@@ -161,6 +161,25 @@ export function projectSnapshotRow(
   return out;
 }
 
+/** Vendor extension v1: registry-derived discovery, not an enum of selectors. */
+function snapshotFieldsetMetadata(resource: SnapshotFieldsetResource) {
+  return {
+    schemaVersion: 1,
+    resource,
+    selectableFields: [...SNAPSHOT_FIELDSETS[resource].columns],
+    alwaysIncludedFields: [SNAPSHOT_FIELDSETS[resource].idColumn],
+    delimiter: FIELDSET_DELIMITER,
+    rules: {
+      caseSensitive: true,
+      whitespace: "reject",
+      emptySegments: "reject",
+      duplicates: "reject",
+      unknownNames: "reject",
+      repeatedKeys: "reject"
+    }
+  };
+}
+
 /**
  * The `fields` query fragment for snapshot list/by-id and customer changes routes.
  * Invalid selectors fail the string schema in the hook (`Invalid request
@@ -180,22 +199,7 @@ export function snapshotFieldsQuery(resource: SnapshotFieldsetResource) {
     )
     .openapi({
       example: FIELDS_EXAMPLES[resource],
-      // Vendor extension v1: registry-derived discovery, not an enum of selectors.
-      "x-snapshot-fieldset": {
-        schemaVersion: 1,
-        resource,
-        selectableFields: [...SNAPSHOT_FIELDSETS[resource].columns],
-        alwaysIncludedFields: [SNAPSHOT_FIELDSETS[resource].idColumn],
-        delimiter: FIELDSET_DELIMITER,
-        rules: {
-          caseSensitive: true,
-          whitespace: "reject",
-          emptySegments: "reject",
-          duplicates: "reject",
-          unknownNames: "reject",
-          repeatedKeys: "reject"
-        }
-      }
+      "x-snapshot-fieldset": snapshotFieldsetMetadata(resource)
     });
 }
 
@@ -229,12 +233,46 @@ export function typedBundleFieldsQuery(resource: SnapshotFieldsetResource) {
         "Each projected object contains exactly these fields plus its primary id, which is always " +
         "present even when omitted. Unknown names are a value-free 400 before any cache or D1 work."
     )
-    .openapi({ example: FIELDS_EXAMPLES[resource] });
+    .openapi({
+      example: FIELDS_EXAMPLES[resource],
+      "x-snapshot-fieldset": snapshotFieldsetMetadata(resource)
+    });
+}
+
+/** Local guidance for the existing single-ID hydrated selectors, never batch projection. */
+function bundleFieldsetMode(root: SnapshotFieldsetResource, selector: string) {
+  const rootKey = BUNDLE_TYPED_FIELD_KEYS[root];
+  const conflict = selector === "fields" ? rootKey : selector === rootKey ? "fields" : undefined;
+  return {
+    schemaVersion: 1,
+    rootResource: root,
+    projectionScope: selector === "fields" ? "root" : "type",
+    omittedTypes: "full",
+    singleIdOnly: true,
+    conflictsWith: ["ids", ...(conflict ? [conflict] : [])].sort(),
+    composesWith: ["fields", ...Object.values(BUNDLE_TYPED_FIELD_KEYS)]
+      .filter((key) => key !== selector && key !== conflict).sort()
+  };
+}
+
+/** Catalogs and root-specific modes beside only the hydrated GET declarations. */
+export function hydratedBundleFieldsQuery(root: SnapshotFieldsetResource) {
+  const typed = (resource: SnapshotFieldsetResource) => typedBundleFieldsQuery(resource).openapi({
+    "x-snapshot-fieldset-mode": bundleFieldsetMode(root, BUNDLE_TYPED_FIELD_KEYS[resource])
+  });
+  return {
+    fields: snapshotFieldsQuery(root).openapi({
+      "x-snapshot-fieldset-mode": bundleFieldsetMode(root, "fields")
+    }),
+    [BUNDLE_TYPED_FIELD_KEYS.customer]: typed("customer"),
+    [BUNDLE_TYPED_FIELD_KEYS.address]: typed("address"),
+    [BUNDLE_TYPED_FIELD_KEYS.container]: typed("container")
+  };
 }
 
 /**
- * Unknown `fields[...]` keys among raw query keys, sorted for a stable 400
- * detail. The query schema strips unknown keys before validation, so the data
+ * Unknown `fields[...]` keys among raw query keys, sorted for deterministic
+ * detection. The query schema strips unknown keys before validation, so the data
  * routes call this in-handler — after auth, before the ID parse and before
  * any cache/D1 work — and answer non-empty results with the anchored
  * value-free 400. Non-`fields[` keys are untouched: other unknown params keep
