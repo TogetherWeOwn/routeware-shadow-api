@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
+  (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
+  opaque strings of 1..100 Unicode code points preserve significant nonblank
+  whitespace, leading zeros and punctuation without taxonomy inference.
+  Labels AND-compose with all existing filters; nulls do not match, duplicate
+  matches are paginated, and valid unknown labels return empty 200s. Malformed
+  or repeated keys fail value-free before D1. Validated next links preserve
+  encoded labels; counts, count-free reads, fields, upperId and ETags remain
+  compatible. No index/migration is added and equality may scan. Idempotent
+  local-read GET, CLI dry-run N/A. Synthetic recipe:
+  `npm run check:container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
+
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
   optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
   code points matched against stored `phone1`/`phone2` text as stored

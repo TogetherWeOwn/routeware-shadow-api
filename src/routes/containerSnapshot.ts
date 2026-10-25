@@ -64,7 +64,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. All supplied filters compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, text `q` on `location_address` or `serial_number`, and `enabled`. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. All supplied filters compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -74,6 +74,12 @@ const containerSnapshotListRoute = createRoute({
       ids: snapshotIdSelectionQuery(),
       serialNumber: containerIdentifierQuery.optional().openapi({ example: "00123" }),
       rfid: containerIdentifierQuery.optional().openapi({ example: "RF-0007" }),
+      materialStream: containerIdentifierQuery.optional().describe(
+        "Case-sensitive opaque exact stored label in c.ud_material_stream_ud, 1..100 Unicode code points containing a non-whitespace character. Preserve leading zeros and significant whitespace without trimming or Unicode normalization; no inferred material taxonomy. URL-encode a single supported-length nonblank label, or omit it and retry; repeated keys are rejected before D1."
+      ).openapi({ example: "001" }),
+      color: containerIdentifierQuery.optional().describe(
+        "Case-sensitive opaque exact stored label in c.color, 1..100 Unicode code points containing a non-whitespace character. Preserve leading zeros and significant whitespace without trimming or Unicode normalization; no defined vocabulary. URL-encode a single supported-length nonblank label, or omit it and retry; repeated keys are rejected before D1."
+      ).openapi({ example: "Blue" }),
       q: snapshotSearchQuery.optional().describe("Substring on location or serial (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "C-100" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
@@ -111,7 +117,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber` or `rfid`, either identifier or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream` or `color`, any identifier/label or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -149,6 +155,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.rfid !== undefined) {
     where.push("c.rfid = ?");
     binds.push(p.rfid);
+  }
+  if (p.materialStream !== undefined) {
+    where.push("c.ud_material_stream_ud = ?");
+    binds.push(p.materialStream);
+  }
+  if (p.color !== undefined) {
+    where.push("c.color = ?");
+    binds.push(p.color);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     where.push(
