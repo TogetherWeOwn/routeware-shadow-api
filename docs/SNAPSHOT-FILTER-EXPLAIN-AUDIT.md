@@ -61,6 +61,14 @@ query cost. No migration/index, remote D1 probe, latency measurement or
 production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
 
+Addendum 2026-10-24: the table above records the street-only `q` leg the route
+emitted on the run date. The street-or-locality change replaces that leg with
+a parenthesized three-column `(address OR city OR zip)` predicate carrying
+three identical bound needles; the pinned oracle in
+`test/snapshotTextFilterIndexes.test.ts` shows the same SEARCH plans for the
+composed shapes and the same `q`-alone SCAN. The historical rows are left
+intact.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.

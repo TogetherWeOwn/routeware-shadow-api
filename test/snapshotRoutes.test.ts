@@ -156,7 +156,7 @@ type Spec = {
   idColumn: string;
   /** Exact WHERE fragment the free-text `q` filter appends. */
   qClause: string;
-  /** How many binds `q` contributes — two for container (location + serial). */
+  /** One bind per searched column: customer 1, address 3, container 2. */
   qBinds: number;
   exportPathVar: string;
   queryIdVar: string;
@@ -191,8 +191,8 @@ const SPECS: Spec[] = [
     prefix: "",
     idParam: "pickupAddressId",
     idColumn: "pickup_address_id",
-    qClause: "instr(lower(coalesce(address, '')), lower(?)) > 0",
-    qBinds: 1,
+    qClause: "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)",
+    qBinds: 3,
     exportPathVar: "ADDRESS_REPORT_EXPORT_PATH",
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
