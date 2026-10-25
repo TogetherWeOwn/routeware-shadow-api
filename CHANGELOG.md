@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
+- #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
   optional `note` searches only stored `container_note` by bound literal
   substring, independently AND-composed with `q` and all other scopes.
   Trim boundaries before the maximum 100 Unicode code points; blank is omitted.
