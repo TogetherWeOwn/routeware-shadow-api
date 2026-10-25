@@ -1823,6 +1823,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1852,6 +1862,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -2289,6 +2318,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2331,6 +2370,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -2929,6 +2987,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2956,6 +3024,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
