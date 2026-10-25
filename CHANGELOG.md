@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
+- #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
   opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
   zeros and nonblank whitespace. Literal substring `q` now matches stored
   container city/zip as well as location/serial, in one grouped OR intersected
