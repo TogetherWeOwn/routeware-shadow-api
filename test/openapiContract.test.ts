@@ -232,7 +232,8 @@ function withoutDedicatedSyncFailureMetadata(doc: OpenApiDocument): OpenApiDocum
   const legacySchemas = new Set([
     "AddressSaveDryRun", "AddressSaveOutcome", "ContainerSaveDryRun",
     "ContainerSaveOutcome", "CustomerSaveDryRun", "CustomerSaveOutcome",
-    "CustomerSnapshotChanges", "CustomerSnapshotList", "DataSnapshotSyncResult",
+    "CustomerSnapshotChanges", "CustomerSnapshotChangesRow", "CustomerSnapshotList",
+    "DataSnapshotSyncResult",
     "HealthResponse", "LocalSyncCode", "LocalSyncSummary",
     "ReadinessResponse", "ShadowHealthResponse",
     "SnapshotOrphanReport", "SnapshotOrphanSample"
@@ -375,7 +376,7 @@ describe("published OpenAPI document", () => {
 
   it("declares the tags, shared schemas and bearer security scheme", async () => {
     // Arrange
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument());
 
     // Assert
     expect(doc.openapi).toBe("3.1.0");
@@ -387,8 +388,9 @@ describe("published OpenAPI document", () => {
     // Registered once each: `CustomerSnapshotList` is shared by the customer,
     // address and container snapshot list routes, and `CustomerSnapshotChanges`
     // carries the composite `{since, since_id}` cursor instead of
-    // the integer primary-key cursor.
-    expect(Object.keys(withoutDedicatedSyncFailureMetadata(doc).components?.schemas ?? {}).sort()).toEqual([
+    // the integer primary-key cursor. `CustomerSnapshotChangesRow` types its
+    // delta rows with storage-faithful integer/text/null columns.
+    expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
       "ContainerSaveDryRun",
@@ -396,6 +398,7 @@ describe("published OpenAPI document", () => {
       "CustomerSaveDryRun",
       "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
+      "CustomerSnapshotChangesRow",
       "CustomerSnapshotList",
       "DataSnapshotSyncResult",
       "HealthResponse",
