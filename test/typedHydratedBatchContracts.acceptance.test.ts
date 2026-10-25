@@ -349,7 +349,8 @@ describe("served single-or-batch declarations", () => {
       names.add(batchRefs[0]);
       const resolvedSingles = schemaRefs.filter(ref => {
         const properties = shape({ $ref: ref }).properties;
-        return properties?.[kind] !== undefined && properties.found === undefined;
+        // The stored address TEXT column is not a hydrated resource object.
+        return properties?.[kind] !== undefined && shape(properties[kind]).type === "object" && properties.found === undefined;
       });
       expect(resolvedSingles, `${kind}: retain stable existing single reference`).toEqual([singleRefs[kind]]);
       expect([...refs(document.components.schemas[batchRefs[0].split("/").pop()!])], `${kind}: batch must reuse single bundle authority`)
