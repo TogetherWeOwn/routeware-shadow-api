@@ -20,6 +20,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   optional header plus `ETag`/`304`, CORS exposure is unchanged, and the
   synthetic recipe lives in `docs/CONSUMER-QUICKSTART.md`. Focused check:
   `npx vitest run test/snapshotByIdConditional.acceptance.test.ts`.
+- #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
+  200 responses publish three distinct named bundle schemas instead of
+  `any`: root row plus nested relations, every stored column declared with
+  storage-faithful integer/string/null types. Only each row's primary id is
+  required, so `fields=` and `fields[TYPE]` projections validate, and each
+  operation carries full and root-projected synthetic examples.
+  Declaration only: no runtime parsing or validator, no byte, SELECT,
+  cache, auth or ETag change. Focused check:
+  `npm run check:typed-hydrated-bundles`.
 - #368: Test-only: `test/routeExamples.test.ts` pins expected query/path
   parameter names per operation beside the pinned operation inventory instead
   of one hand-counted global total; the checked total is derived as the sum
@@ -317,6 +326,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
+
+- #371: The six flat snapshot reads (`GET
+  /api/v1/customer|address|container-snapshot` and the three flat by-ID GETs)
+  publish storage-faithful row contracts: one reusable flat row schema per
+  resource plus one resource-specific list envelope, with list `rows.items`
+  and the by-ID 200 sharing the same row `$ref`. Row property sets are
+  derived from the `SNAPSHOT_FIELDSETS` registry with only the primary
+  identity required; every other selectable column is optional with accurate
+  nullability when present. Stored INTEGER flags stay `0`/`1` integers and
+  coordinate/date/route-list TEXT stays unconstrained text with no invented
+  format, enum, range or timestamp guarantees. `total` keeps its count-free
+  "deliberately not computed" meaning and `nextCursor` documents its
+  page-cursor meaning; operationIds, headers, examples and response codes are
+  unchanged. Declaration-only: served bytes, SELECT plans, projection,
+  conditional and auth behavior are identical. See
+  `docs/TYPED-FLAT-SNAPSHOT-ROWS.md`; focused check:
+  `npm run check:typed-flat-snapshot-rows`.
 
 - #373: The existing customer `changes` feed
   (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows

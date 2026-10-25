@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { addressRowExample, addressExportExample } from "./payloadExamples";
+import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
@@ -41,7 +42,6 @@ import {
   rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse,
   parsePositiveIdParam,
   snapshotWriteResultExample
 } from "./shared";
@@ -111,7 +111,7 @@ const addressSnapshotListRoute = createRoute({
       headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
-          schema: snapshotListResponse,
+          schema: addressSnapshotListResponse,
           example: { rows: [addressRowExample], total: 1, nextCursor: null }
         }
       }
@@ -286,7 +286,7 @@ const addressSnapshotByIdRoute = createRoute({
       headers: { ...snapshotByIdConditional.etagHeaders },
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown()),
+          schema: addressSnapshotRowSchema,
           example: addressRowExample
         }
       }
