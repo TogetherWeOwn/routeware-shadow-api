@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer snapshot lists accept optional `comments` for literal stored-comment
+- #396: Customer snapshot lists accept optional `comments` for literal stored-comment
   substring lookup, distinct from company-only `q` and stored-phone `phone`.
   One fragment is bounded to 100 Unicode code points before boundary trimming;
   bounded blank means omitted. SQLite folds ASCII only; quotes, `%` and `_`
