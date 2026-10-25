@@ -123,6 +123,124 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "type": "object",
       },
+      "AddressSnapshotList": {
+        "properties": {
+          "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AddressSnapshotRow",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+          "nextCursor",
+        ],
+        "type": "object",
+      },
+      "AddressSnapshotRow": {
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "city": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "comments": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_id": {
+            "type": "integer",
+          },
+          "driver_note": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "extras_allowed": {
+            "type": "integer",
+          },
+          "franchise_id": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "last_audit_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "pickup_address_id": {
+            "type": "integer",
+          },
+          "route_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "state": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+          "zip": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "pickup_address_id",
+        ],
+        "type": "object",
+      },
       "ContainerSaveDryRun": {
         "additionalProperties": false,
         "properties": {
@@ -254,6 +372,199 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "localSync",
           "pickupAddressId",
           "containerId",
+        ],
+        "type": "object",
+      },
+      "ContainerSnapshotList": {
+        "properties": {
+          "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ContainerSnapshotRow",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+          "nextCursor",
+        ],
+        "type": "object",
+      },
+      "ContainerSnapshotRow": {
+        "properties": {
+          "city": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "color": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "container_id": {
+            "type": "integer",
+          },
+          "container_note": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "container_type_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "event_code": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "frequency_ids": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "gps_locked": {
+            "type": "integer",
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "location_address": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "oncall": {
+            "type": "integer",
+          },
+          "pickup_address_id": {
+            "type": "integer",
+          },
+          "rfid": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "route_ids": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code_input": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code_type": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "state": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+          "ud_cost_share_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_enclosure_doors_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_last_compactor_inspection_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_last_enclosure_inspection_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_material_stream_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "zip": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "container_id",
         ],
         "type": "object",
       },
@@ -487,6 +798,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       "CustomerSnapshotList": {
         "properties": {
           "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
             "type": [
               "integer",
               "null",
@@ -494,8 +806,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "rows": {
             "items": {
-              "additionalProperties": {},
-              "type": "object",
+              "$ref": "#/components/schemas/CustomerSnapshotRow",
             },
             "type": "array",
           },
@@ -510,6 +821,89 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "rows",
           "total",
           "nextCursor",
+        ],
+        "type": "object",
+      },
+      "CustomerSnapshotRow": {
+        "properties": {
+          "comments": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "company_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_id": {
+            "type": "integer",
+          },
+          "customer_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_type_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "first_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "last_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "middle_initial": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "name_suffix": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "phone1": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "phone2": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "sub_customer_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "customer_id",
         ],
         "type": "object",
       },
@@ -1195,7 +1589,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "total": 1,
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                  "$ref": "#/components/schemas/AddressSnapshotList",
                 },
               },
             },
@@ -1453,8 +1847,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "zip": "76541",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/AddressSnapshotRow",
                 },
               },
             },
@@ -1662,7 +2055,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "total": 1,
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                  "$ref": "#/components/schemas/ContainerSnapshotList",
                 },
               },
             },
@@ -1933,8 +2326,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "zip": "76541",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/ContainerSnapshotRow",
                 },
               },
             },
@@ -2546,8 +2938,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "synced_at": "2026-01-01T00:00:00.000Z",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/CustomerSnapshotRow",
                 },
               },
             },
@@ -2811,75 +3202,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "address": {
-                    "address": "1 Main St",
-                    "city": "Example City",
-                    "comments": null,
-                    "customer_id": 345734,
-                    "driver_note": null,
-                    "enabled": 1,
-                    "extras_allowed": 0,
-                    "franchise_id": "1",
-                    "last_audit_date": null,
-                    "latitude": null,
-                    "longitude": null,
-                    "pickup_address_id": 10,
-                    "route_id": 1,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "zip": "76541",
-                  },
-                  "containers": [
-                    {
-                      "city": "Example City",
-                      "color": "Blue",
-                      "container_id": 100,
-                      "container_note": null,
-                      "container_type_id": 1,
-                      "enabled": 1,
-                      "event_code": null,
-                      "frequency_ids": null,
-                      "gps_locked": 0,
-                      "latitude": null,
-                      "location_address": "1 Main St",
-                      "longitude": null,
-                      "oncall": 0,
-                      "pickup_address_id": 10,
-                      "rfid": null,
-                      "route_ids": null,
-                      "serial_number": "C-100-A",
-                      "service_code": null,
-                      "service_code_input": null,
-                      "service_code_type": null,
-                      "service_date": null,
-                      "state": "TX",
-                      "synced_at": "2026-01-01T00:00:00.000Z",
-                      "ud_cost_share_ud": null,
-                      "ud_enclosure_doors_ud": null,
-                      "ud_last_compactor_inspection_ud": null,
-                      "ud_last_enclosure_inspection_ud": null,
-                      "ud_material_stream_ud": null,
-                      "zip": "76541",
-                    },
-                  ],
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },
@@ -3373,73 +3695,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "address": {
-                    "address": "1 Main St",
-                    "city": "Example City",
-                    "comments": null,
-                    "customer_id": 345734,
-                    "driver_note": null,
-                    "enabled": 1,
-                    "extras_allowed": 0,
-                    "franchise_id": "1",
-                    "last_audit_date": null,
-                    "latitude": null,
-                    "longitude": null,
-                    "pickup_address_id": 10,
-                    "route_id": 1,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "zip": "76541",
-                  },
-                  "container": {
-                    "city": "Example City",
-                    "color": "Blue",
-                    "container_id": 100,
-                    "container_note": null,
-                    "container_type_id": 1,
-                    "enabled": 1,
-                    "event_code": null,
-                    "frequency_ids": null,
-                    "gps_locked": 0,
-                    "latitude": null,
-                    "location_address": "1 Main St",
-                    "longitude": null,
-                    "oncall": 0,
-                    "pickup_address_id": 10,
-                    "rfid": null,
-                    "route_ids": null,
-                    "serial_number": "C-100-A",
-                    "service_code": null,
-                    "service_code_input": null,
-                    "service_code_type": null,
-                    "service_date": null,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "ud_cost_share_ud": null,
-                    "ud_enclosure_doors_ud": null,
-                    "ud_last_compactor_inspection_ud": null,
-                    "ud_last_enclosure_inspection_ud": null,
-                    "ud_material_stream_ud": null,
-                    "zip": "76541",
-                  },
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },
@@ -3938,77 +4193,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "addresses": [
-                    {
-                      "address": "1 Main St",
-                      "city": "Example City",
-                      "comments": null,
-                      "containers": [
-                        {
-                          "city": "Example City",
-                          "color": "Blue",
-                          "container_id": 100,
-                          "container_note": null,
-                          "container_type_id": 1,
-                          "enabled": 1,
-                          "event_code": null,
-                          "frequency_ids": null,
-                          "gps_locked": 0,
-                          "latitude": null,
-                          "location_address": "1 Main St",
-                          "longitude": null,
-                          "oncall": 0,
-                          "pickup_address_id": 10,
-                          "rfid": null,
-                          "route_ids": null,
-                          "serial_number": "C-100-A",
-                          "service_code": null,
-                          "service_code_input": null,
-                          "service_code_type": null,
-                          "service_date": null,
-                          "state": "TX",
-                          "synced_at": "2026-01-01T00:00:00.000Z",
-                          "ud_cost_share_ud": null,
-                          "ud_enclosure_doors_ud": null,
-                          "ud_last_compactor_inspection_ud": null,
-                          "ud_last_enclosure_inspection_ud": null,
-                          "ud_material_stream_ud": null,
-                          "zip": "76541",
-                        },
-                      ],
-                      "customer_id": 345734,
-                      "driver_note": null,
-                      "enabled": 1,
-                      "extras_allowed": 0,
-                      "franchise_id": "1",
-                      "last_audit_date": null,
-                      "latitude": null,
-                      "longitude": null,
-                      "pickup_address_id": 10,
-                      "route_id": 1,
-                      "state": "TX",
-                      "synced_at": "2026-01-01T00:00:00.000Z",
-                      "zip": "76541",
-                    },
-                  ],
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },
