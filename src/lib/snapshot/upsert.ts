@@ -10,7 +10,8 @@ import {
   containerBindings,
   containerMultiInsertSql,
   customerBindings,
-  customerMultiInsertSql
+  customerMultiInsertSql,
+  type ContainerUpsertSource
 } from "./tableSql";
 
 /**
@@ -397,11 +398,13 @@ export async function upsertAddressSnapshotRows(
   return { upserted };
 }
 
+/** Only detail-full preserves report-only columns on conflict; inserts are unchanged. */
 export async function upsertContainerSnapshotRows(
   db: D1Database,
   rows: ContainerSnapshotRow[],
   batchSize = 50,
-  syncedAt = new Date().toISOString()
+  syncedAt = new Date().toISOString(),
+  source: ContainerUpsertSource = "report"
 ): Promise<{ upserted: number }> {
   let upserted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
@@ -411,7 +414,7 @@ export async function upsertContainerSnapshotRows(
       const n = Math.min(CONT_R_PER_STMT, chunk.length - j);
       const slice = chunk.slice(j, j + n);
       const flat = slice.flatMap((r) => containerBindings(r, syncedAt));
-      stmts.push(db.prepare(containerMultiInsertSql(n)).bind(...flat));
+      stmts.push(db.prepare(containerMultiInsertSql(n, source)).bind(...flat));
     }
     try {
       await db.batch(stmts);
