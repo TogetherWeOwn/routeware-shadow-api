@@ -22,6 +22,27 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Opt-in list query keys (`bad-request`)
+
+Only the three ordinary flat snapshot lists accept `strictQuery=true|false`
+(default false). With `true`, any decoded query name outside the mounted
+resource's schema returns 400 after authentication and before D1 or 304.
+The problem has only type/title/status/detail, with fixed detail:
+
+```text
+Unknown query parameter. Use supported query names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. See docs/PROBLEMS.md#bad-request.
+```
+
+Use supported names from that operation's OpenAPI parameters, remove unknown
+keys, or deliberately set `strictQuery=false`. Submitted names/values never
+appear in this problem or app logs. Empty, invalid or repeated strictQuery
+(including encoded duplicates and mixed true/false) instead fails normal
+value-free query validation; send one exact lowercase true or false, or omit
+it. Known invalid controls remain invalid in either mode. Validated true is
+retained in relative continuation Links; false/default is omitted. Other
+operations retain their own existing query policies. See the
+[local synthetic recipe](CONSUMER-QUICKSTART.md#opt-in-query-typo-detection).
+
 ## Hydrated read IDs (`bad-request`)
 
 For `GET /api/v1/data/customer|address|container`, supply `id` or the route's

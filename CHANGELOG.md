@@ -5,6 +5,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Three ordinary flat snapshot lists add `strictQuery=true|false` (default
+  false). True rejects unknown decoded names after auth and before D1/304,
+  using each mounted schema as its allowlist and a fixed no-echo bad-request
+  correction. Relative next Links retain true; false/omitted keep existing
+  ignore behavior, SQL and response bytes. Other query policies are unchanged.
+  Local synthetic check: `npm run check:snapshot-strict-query`; recipe:
+  `docs/CONSUMER-QUICKSTART.md#opt-in-query-typo-detection`.
+
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
   opaque strings of 1..100 Unicode code points preserve significant nonblank
