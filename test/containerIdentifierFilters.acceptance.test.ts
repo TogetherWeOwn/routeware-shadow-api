@@ -295,7 +295,10 @@ describe("identifier composition and existing list behavior", () => {
     ["enabled any", { enabled: "any" }, [101, 104, 105]],
     ["all legacy predicates", { customerId: "1", pickupAddressId: "11", containerId: "101", q: "north", enabled: "true" }, [101]],
     ["conflicting customer and address", { customerId: "2", pickupAddressId: "11" }, []],
-    ["conflicting container", { containerId: "102" }, []]
+    ["conflicting container", { containerId: "102" }, []],
+    ["note cannot be escaped by either identifier", { note: "synthetic-absent-note" }, []],
+    ["joined note cannot be escaped by either identifier", { customerId: "1", note: "synthetic-absent-note" }, []],
+    ["blank note adds no restriction", { note: " \t " }, [101, 104, 105]]
   ] as const)("ANDs %s with identical COUNT/row scope", async (_name, filters, expected) => {
     for (const includeTotal of ["true", "false"]) {
       const result = await page({ serialNumber: SERIAL, rfid: RFID, ...filters, includeTotal });

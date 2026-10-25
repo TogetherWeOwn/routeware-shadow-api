@@ -92,6 +92,8 @@ const ADDR_Q =
 const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
 const CONT_Q =
   "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
+// Note is a separate AND-composed residual, never another q OR arm.
+const CONT_NOTE = "instr(lower(coalesce(c.container_note, '')), lower(?)) > 0";
 // Same join shape as src/routes/containerSnapshot.ts `customerId` filter.
 const CONT_JOIN = "INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id";
 
@@ -109,8 +111,8 @@ beforeAll(async () => {
       "(1, 1, '123 Main St', NULL, '76541', 1, 't'), (2, 1, '456 Oak Ave', 'Main Borough', '76542', 1, 't'), (3, 2, '789 Main Blvd', '', '00741-1234', 0, 't')"
   );
   await db().exec(
-    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, enabled, synced_at) VALUES " +
-      "(1, 1, 'SN-001', '123 Main St', 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', 0, 't')"
+    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, container_note, enabled, synced_at) VALUES " +
+      "(1, 1, 'SN-001', '123 Main St', 'use main gate', 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 'side gate', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', NULL, 0, 't')"
   );
 
   plans.addrEnabledQBefore = await explain(
@@ -502,6 +504,46 @@ describe("newly composed identifier + text filters — R2-32", () => {
     expect(plans.contCountIdQEnabledAfter.join(" ")).toContain(
       "SEARCH c USING INTEGER PRIMARY KEY (rowid=?)"
     );
+  });
+});
+
+describe("container note is an independent residual substring predicate", () => {
+  it("scans note-only SELECT and COUNT without claiming a dedicated note index", async () => {
+    for (const select of ["SELECT c.container_id", "SELECT COUNT(*) AS n"]) {
+      const plan = await explain(`${select} FROM container_snapshot c WHERE ${CONT_NOTE}`, "gate");
+      expect(plan.join(" ")).toContain("SCAN c");
+      expect(plan.join(" ")).not.toContain("SEARCH");
+    }
+    const indexes = await db().prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND tbl_name = 'container_snapshot'").all<{ name: string; sql: string }>();
+    expect(indexes.results.some((index) => /container_note/i.test(index.sql))).toBe(false);
+  });
+
+  it("narrows enabled candidates with existing indexes while note and q stay residual", async () => {
+    for (const select of ["SELECT c.container_id", "SELECT COUNT(*) AS n"]) {
+      const plan = await explain(`${select} FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} AND ${CONT_NOTE}`, "main", "main", "gate");
+      expect(plan.join(" ")).toContain("SEARCH c USING INDEX");
+      expect(plan.join(" ")).toMatch(/idx_container_snapshot_enabled_(serial|location)_lower/);
+      expect(plan.join(" ")).toContain("(enabled=?)");
+    }
+  });
+
+  it("keeps q AND note scope identical for joined COUNT and page SQL", async () => {
+    const from = `FROM container_snapshot c ${CONT_JOIN} WHERE a.customer_id = ? AND ${CONT_Q} AND ${CONT_NOTE}`;
+    const binds = [1, "oak", "oak", "gate"];
+    const rows = await db().prepare(`SELECT c.container_id ${from} ORDER BY c.container_id LIMIT ? OFFSET ?`)
+      .bind(...binds, 50, 0).all<{ container_id: number }>();
+    const count = await db().prepare(`SELECT COUNT(*) AS n ${from}`).bind(...binds).first<{ n: number }>();
+    expect(rows.results.map((row) => row.container_id)).toEqual([2]);
+    expect(count?.n).toBe(1);
+  });
+
+  it("treats null as empty without changing q's location/serial meaning", async () => {
+    const note = await db().prepare(`SELECT c.container_id FROM container_snapshot c WHERE ${CONT_NOTE} ORDER BY c.container_id`)
+      .bind("gate").all<{ container_id: number }>();
+    expect(note.results.map((row) => row.container_id)).toEqual([1, 2]);
+    const q = await db().prepare(`SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id`)
+      .bind("gate", "gate").all<{ container_id: number }>();
+    expect(q.results).toEqual([]);
   });
 });
 
