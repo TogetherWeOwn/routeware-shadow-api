@@ -2150,7 +2150,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Changed rows in (synced_at, customer_id) order with nextCursor",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Replaces since and since_id together and retains the effective limit and the validated fields selector. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Replaces since and since_id together and retains the effective limit, the normalized until bound and the validated fields selector. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path.",
                 "required": false,
                 "schema": {
                   "type": "string",
