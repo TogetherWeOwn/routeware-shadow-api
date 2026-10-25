@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Ordinary customer/address/container snapshot lists add `countOnly=true|false`
+  (default false): one existing filtered COUNT, zero page/payload SELECTs,
+  `{rows:[],total:N,nextCursor:null}` and no next Link. Counts remain
+  cursor-relative at query time, including IDs, order and upperId; limit/offset
+  do not subtract, and empty cohorts return zero. Conflicting includeTotal=false
+  or malformed/repeated countOnly fails value-free before D1; every known
+  parameter still validates. Normal and count-free pages stay unchanged.
+  Existing auth, no-store and ETag/304 apply (304 still counts). No cache,
+  upstream/R2/write, isolation, migration or no-scan performance promise.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
+  focused check: `npm run check:snapshot-count-only`.
+
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
   opaque strings of 1..100 Unicode code points preserve significant nonblank

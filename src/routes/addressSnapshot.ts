@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
@@ -120,8 +121,8 @@ const addressSnapshotListRoute = createRoute({
         )
         .openapi({ example: "false" }),
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("address")
-    })
+      fields: snapshotFieldsQuery("address"), countOnly: snapshotCountOnlyQuery
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
   },
   responses: {
     200: {
@@ -130,7 +131,7 @@ const addressSnapshotListRoute = createRoute({
       content: {
         "application/json": {
           schema: addressSnapshotListResponse,
-          example: { rows: [addressRowExample], total: 1, nextCursor: null }
+          examples: snapshotListModeExamples(addressRowExample)
         }
       }
     },
@@ -230,6 +231,9 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
       .bind(...binds)
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
+  }
+  if (p.countOnly === "true") {
+    return snapshotListJsonResponse(c, { rows: [], total, nextCursor: null });
   }
   const pageSql =
     p.cursor !== undefined

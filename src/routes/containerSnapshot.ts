@@ -2,6 +2,7 @@ import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { containerSnapshotListResponse, containerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
@@ -103,8 +104,8 @@ const containerSnapshotListRoute = createRoute({
         )
         .openapi({ example: "false" }),
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("container")
-    })
+      fields: snapshotFieldsQuery("container"), countOnly: snapshotCountOnlyQuery
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
   },
   responses: {
     200: {
@@ -113,7 +114,7 @@ const containerSnapshotListRoute = createRoute({
       content: {
         "application/json": {
           schema: containerSnapshotListResponse,
-          example: { rows: [containerRowExample], total: 1, nextCursor: null }
+          examples: snapshotListModeExamples(containerRowExample)
         }
       }
     },
@@ -211,6 +212,9 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       .bind(...binds)
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
+  }
+  if (p.countOnly === "true") {
+    return snapshotListJsonResponse(c, { rows: [], total, nextCursor: null });
   }
   const pageSql =
     p.cursor !== undefined
