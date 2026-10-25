@@ -12,8 +12,8 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 ## Customer address presence
@@ -90,6 +90,37 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
 before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
 the exact documented query names; this API does not detect those typos.
+
+## Stored coordinate-pair presence
+
+Only the ordinary address and container lists recognize
+`hasCoordinates=true|false|any` (default `any`). This is **NULL-only stored-pair
+presence**, not valid/complete geographic coordinates: true means both stored
+`latitude` AND `longitude` are SQL non-null; false means either is SQL NULL.
+These columns are TEXT: zero/negative-looking strings, empty strings,
+whitespace and non-numeric text all count as present when non-null. Disabled
+rows remain eligible unless independently excluded by `enabled`. The container
+predicate always uses `c.latitude`/`c.longitude` on both customer-join and
+no-join paths, never parent coordinates. No accuracy, GPS lock, live position
+or geographic validity is inferred.
+
+Send one exact lowercase supported value, or omit the selector and retry.
+Empty, unsupported and repeated values fail after auth and before D1 with
+the existing value-free `application/problem+json` 400 and fixed guidance.
+The parenthesized predicate adds no binds and shares the COUNT/page WHERE;
+it AND-composes with every existing selector, sparse fields, upperId and
+asc/desc offset/seek pagination. `includeTotal=false` still runs one SELECT
+and zero COUNTs. Stable IDs, envelopes and final-representation ETag/304
+semantics remain unchanged. True/false travel in relative next Links;
+any/default, unknown keys, request origins and credentials do not. Full
+terminal pages may link to an empty page; concurrent writes are not isolated.
+
+NULL checks may scan; no new index, migration or performance claim is made.
+GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is N/A.
+Run `npm run check:snapshot-coordinates` for the immutable synthetic local-D1
+oracle and list/auth/discovery regressions. See the
+[local present/absent recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence)
+and [fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
 
 ## Exact customer account numbers
 

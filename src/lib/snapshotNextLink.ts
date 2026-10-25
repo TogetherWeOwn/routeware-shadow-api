@@ -17,6 +17,7 @@ type SnapshotListQuery = {
   enabled: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  hasCoordinates?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -65,6 +66,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
+    params.set("hasCoordinates", query.hasCoordinates);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

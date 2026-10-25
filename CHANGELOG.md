@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Address and container snapshot lists accept `hasCoordinates=true|false|any`
+  (default `any`) for NULL-only stored-pair presence: true requires both stored
+  latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
+  empty, whitespace and non-numeric TEXT counts as present when non-null.
+  Disabled rows remain eligible; containers never inherit parent coordinates.
+  This is not geographic validity, accuracy, GPS lock or live position. Shared
+  COUNT/page predicates AND-compose with existing scopes; sparse/conditional
+  reads, count-free mode and bidirectional traversal stay compatible. Relative
+  next Links retain true/false and omit any/default. Invalid/empty/repeated
+  values fail before D1 with fixed value-free retry guidance. May scan; no new
+  endpoint, index, migration, upstream/R2 request or performance claim.
+  Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
+  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  local-read; CLI `--dry-run` is N/A.
+
 - #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
   to select customers by mirrored address presence without expanding parents.
   All stored addresses count, including disabled children; customer `enabled`

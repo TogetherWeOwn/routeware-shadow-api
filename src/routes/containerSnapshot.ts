@@ -64,7 +64,7 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. All supplied filters compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), `enabled`, and NULL-only stored-pair `hasCoordinates` (not geographic validity). Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. All supplied filters compose with AND; null identifiers do not match and duplicate matches are paginated, not collapsed. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -79,6 +79,9 @@ const containerSnapshotListRoute = createRoute({
         .openapi({ example: "02139" }),
       q: snapshotSearchQuery.optional().describe("Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.").openapi({ example: "Killeen" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      hasCoordinates: z.enum(["true", "false", "any"]).optional().default("any")
+        .describe('Stored-pair NULL-only presence on the container itself, never inherited from its parent address: "true" requires both latitude and longitude non-null; "false" requires either SQL NULL; "any" or omission adds no filter. TEXT including zero, negative-looking, empty, whitespace and non-numeric strings counts as present when non-null. Not valid/complete geographic coordinates, accuracy, GPS lock or live position. Disabled rows remain eligible. May scan; no dedicated index or performance claim. Send one hasCoordinates=true, false or any, or omit the selector and retry.')
+        .openapi({ example: "false" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
@@ -114,7 +117,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an invalid/empty/repeated `hasCoordinates` value (send one hasCoordinates=true, false or any, or omit it), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -170,6 +173,12 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   }
   if (p.enabled === "false") {
     where.push("c.enabled = 0");
+  }
+  if (p.hasCoordinates === "true") {
+    where.push("(c.latitude IS NOT NULL AND c.longitude IS NOT NULL)");
+  }
+  if (p.hasCoordinates === "false") {
+    where.push("(c.latitude IS NULL OR c.longitude IS NULL)");
   }
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
