@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -214,6 +214,36 @@ and [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#exact-stored-ad
 Run `npm run check:address-zip` for the hermetic local-D1 contract and
 relevant list/link/conditional/auth/OpenAPI regressions; no live credentials
 or upstream calls.
+
+## Exact stored street address
+
+On the existing address list, `streetAddress` is optional case-sensitive exact
+`address_snapshot.address` equality, not a substring or a city/ZIP match. Send
+one opaque stored string of 1..200 Unicode code points containing a non-whitespace
+character. Nonblank whitespace, punctuation and leading zeros are significant;
+there is no trimming, case folding or Unicode/address normalization. Null never
+matches; duplicate streets return **all** matching canonical `pickup_address_id`
+rows. Omission leaves existing behavior unchanged. This is no postal verification,
+geocoding or uniqueness guarantee.
+
+The value is bound once in `address = ?`, AND-composed with every existing
+selector (including `q`, `zip`, IDs, route/franchise, enabled, child presence
+and cursor/upperId) in the shared COUNT/page predicates. `includeTotal=false`
+performs zero COUNTs. Sparse projection, representation ETags/304, asc/desc
+seek/offset pagination and envelopes are unchanged. Relative next links retain
+the validated value through URLSearchParams; origins, credentials and unknown
+keys are never copied. No dedicated street index or migration is added, so
+street equality may scan; there is no latency or deployed-plan claim.
+
+Empty, whitespace-only, overlength and repeated values fail after auth and
+before D1 with the existing value-free `application/problem+json` bad-request
+type. Fixed next action: URL-encode one nonblank stored street value or omit
+streetAddress and retry. No submitted value is echoed in problems or logs.
+This GET is an idempotent local read; `--dry-run` is not applicable. See the
+[synthetic exact-street recipe](CONSUMER-QUICKSTART.md#exact-stored-street-address)
+and [problem guidance](PROBLEMS.md#exact-stored-street-address-bad-request).
+Run `npm run check:address-street-exact` for synthetic local D1 coverage,
+with network/R2 denied and no credentials, probes or deploys.
 
 ## Address street or locality search
 

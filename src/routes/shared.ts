@@ -45,6 +45,9 @@ export function validationFailureHook(
     detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("streetAddress")
+        ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
