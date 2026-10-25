@@ -339,6 +339,22 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
+// The independent coordinate-presence oracle owns only this new query enum on
+// the two list GETs. All unrelated parameters remain in the legacy golden.
+function withoutCoordinatePresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || parameter.name !== "hasCoordinates");
+    }
+  }
+  return copy;
+}
+
 // Exact identifiers supersede this route's old query/error narrative. Their
 // schema, composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
@@ -680,7 +696,7 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutCoordinatePresence(withoutHydratedBundleDeclarations(doc))))))))).toMatchSnapshot();
   });
 });
 
