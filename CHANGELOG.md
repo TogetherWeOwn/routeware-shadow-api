@@ -17,6 +17,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic recipe: `npm run check:address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
 
+
+- #372: The existing address snapshot list `q` matches a literal
+  ASCII case-insensitive substring against street, city or postcode: a row
+  matches when any one column contains the trimmed needle. SQLite `lower()`
+  preserves non-ASCII case distinctions. The parenthesized OR uses
+  bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
+  and repeated-key rules and AND-composes with every other selector; omitted
+  `q` preserves old behavior. Postcodes stay opaque text with significant
+  leading zeros; quotes, `%` and `_` are literal, never wildcards. Continuation
+  Links carry the trimmed needle. Locality `q` is not an exact postal or
+  geographic scope filter — for exact membership use the exact selectors.
+  Query count, ordering, totals, count-free/conditional semantics, auth order
+  and value-free errors are unchanged; no new parameter, index or migration.
+  Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:address-locality`.
 - #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
   200 responses publish three distinct named bundle schemas instead of
   `any`: root row plus nested relations, every stored column declared with
