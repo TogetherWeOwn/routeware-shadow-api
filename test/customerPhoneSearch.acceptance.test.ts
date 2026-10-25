@@ -401,7 +401,7 @@ it.each([SPECIAL, "  marker  ", " \tphone\n ", "🧪".repeat(100)])("round-trips
 });
 
 describe("validation and auth precede any D1 access, including conditional requests", () => {
-  async function rejected(query: Query) {
+  async function rejected(query: Query | URL) {
     const logs = (["error", "warn", "info", "log", "debug"] as const).map((method) => vi.spyOn(console, method));
     const { response, recorder, requestId } = await request(query, { headers: { "if-none-match": "*" } });
     // Soft status assertion still exposes D1 work in the RED baseline.
@@ -437,7 +437,7 @@ describe("validation and auth precede any D1 access, including conditional reque
 
   it("recognizes percent-encoded names as repeated phone keys", async () => {
     const url = new URL(PATH + "?phone=private-first&%70hone=private-second", ORIGIN);
-    await rejected(url.searchParams);
+    await rejected(url);
   });
 
   it.each([null, "invalid-synthetic-token"])("returns 401 before selector validation or D1 (token %s)", async (token) => {
