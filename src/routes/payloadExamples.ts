@@ -92,6 +92,25 @@ export const containerBundleExample: ContainerBundle = {
   customer: customerRowExample
 };
 
+/**
+ * Root-projected bundle examples (`fields=` keeps the primary id plus the
+ * selected column; relations stay full). Synthetic documentation fixtures.
+ */
+export const customerBundleProjectedExample: CustomerBundle = {
+  customer: { customer_id: 345734, company_name: "ExampleCo" },
+  addresses: [{ ...addressRowExample, containers: [containerRowExample] }]
+};
+export const addressBundleProjectedExample: AddressBundle = {
+  address: { pickup_address_id: 10, city: "Example City" },
+  customer: customerRowExample,
+  containers: [containerRowExample]
+};
+export const containerBundleProjectedExample: ContainerBundle = {
+  container: { container_id: 100, serial_number: "C-100-A" },
+  address: addressRowExample,
+  customer: customerRowExample
+};
+
 /** Use the production export encoding and LF separators, not the import subset. */
 function exportExample(spec: SnapshotExportSpec, row: Record<string, unknown>): string {
   return snapshotExportHeaderLine(spec) + "\n" + encodeSnapshotRow(spec, row) + "\n";
