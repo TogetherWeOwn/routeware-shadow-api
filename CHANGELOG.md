@@ -5,21 +5,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #378: The three flat snapshot by-ID GETs (`GET
-  /api/v1/customer|address|container-snapshot/{id}`) return a quoted SHA-256
-  `ETag` over exactly the served row bytes, after `fields` projection, and
-  answer a matching `If-None-Match` with a bodyless 304 carrying the current
-  tag. Weak tags, comma-separated tag lists and standalone `*` match;
-  malformed validators miss. Authentication, id/`fields` validation and the
-  single D1 lookup still run first, so absent rows stay 404, invalid input
-  stays 400 and errors never become 304. Bare responses keep byte-identical
-  bodies, operationIds and `application/json`; a selected-value change
-  invalidates the tag while selected-out changes leave sparse tags alone.
-  Bandwidth-only optimization with unchanged D1 work and `no-store`, not a
-  cache hit or measured performance gain: served OpenAPI declares the
-  optional header plus `ETag`/`304`, CORS exposure is unchanged, and the
-  synthetic recipe lives in `docs/CONSUMER-QUICKSTART.md`. Focused check:
-  `npx vitest run test/snapshotByIdConditional.acceptance.test.ts`.
+- #372: The existing address snapshot list `q` matches a literal
+  ASCII case-insensitive substring against street, city or postcode: a row
+  matches when any one column contains the trimmed needle. SQLite `lower()`
+  preserves non-ASCII case distinctions. The parenthesized OR uses
+  bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
+  and repeated-key rules and AND-composes with every other selector; omitted
+  `q` preserves old behavior. Postcodes stay opaque text with significant
+  leading zeros; quotes, `%` and `_` are literal, never wildcards. Continuation
+  Links carry the trimmed needle. Locality `q` is not an exact postal or
+  geographic scope filter — for exact membership use the exact selectors.
+  Query count, ordering, totals, count-free/conditional semantics, auth order
+  and value-free errors are unchanged; no new parameter, index or migration.
+  Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:address-locality`.
 - #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
   200 responses publish three distinct named bundle schemas instead of
   `any`: root row plus nested relations, every stored column declared with
@@ -358,6 +357,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Served bytes, SELECTs, cursors, auth and query behavior are unchanged.
   Synthetic resume recipe: `docs/CONSUMER-QUICKSTART.md` §2c; focused check:
   `npm run check:customer-changes-delta`.
+
+- #378: The three flat snapshot by-ID GETs (`GET
+  /api/v1/customer|address|container-snapshot/{id}`) return a quoted SHA-256
+  `ETag` over exactly the served row bytes, after `fields` projection, and
+  answer a matching `If-None-Match` with a bodyless 304 carrying the current
+  tag. Weak tags, comma-separated tag lists and standalone `*` match;
+  malformed validators miss. Authentication, id/`fields` validation and the
+  single D1 lookup still run first, so absent rows stay 404, invalid input
+  stays 400 and errors never become 304. Bare responses keep byte-identical
+  bodies, operationIds and `application/json`; a selected-value change
+  invalidates the tag while selected-out changes leave sparse tags alone.
+  Bandwidth-only optimization with unchanged D1 work and `no-store`, not a
+  cache hit or measured performance gain: served OpenAPI declares the
+  optional header plus `ETag`/`304`, CORS exposure is unchanged, and the
+  synthetic recipe lives in `docs/CONSUMER-QUICKSTART.md`. Focused check:
+  `npx vitest run test/snapshotByIdConditional.acceptance.test.ts`.
 
 ## [1.0.0] - 2026-10-22
 
