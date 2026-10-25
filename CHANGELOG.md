@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
+- #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
   (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
   fields/ETag, and emits a cursor/relative next Link only if another matching row
   exists. The cursor is the last returned primary ID, never the lookahead row.
