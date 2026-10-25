@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Address snapshot lists accept optional `driverNote`: a bound literal substring
+- #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
   of stored `driver_note` only, not comments or locality. Raw input is limited
   to 100 Unicode code points before trimming; blank means omitted. SQLite
   ASCII-only case folding and literal punctuation are preserved. The selector
