@@ -386,7 +386,9 @@ The combined route names both keys. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#mutating-post-query-keys-are-strict).
-GET lists keep ignoring unknown names; only POSTs are strict.
+Ordinary flat snapshot lists ignore unknown names by default, with
+`strictQuery=true` for opt-in rejection; changes-feed and other operations
+retain their existing query policies. These mutating POSTs are always strict.
 
 ## Dangling snapshot references (`bad-request`)
 
