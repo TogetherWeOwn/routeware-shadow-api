@@ -16,6 +16,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   This GET is idempotent/local-read. Synthetic recipe and focused check:
   `docs/CONSUMER-QUICKSTART.md`, `npm run check:address-city-state`.
 
+- #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
+  opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
+  zeros and nonblank whitespace. Literal substring `q` now matches stored
+  container city/zip as well as location/serial, in one grouped OR intersected
+  with every other selector. Normalized next links preserve zip and trimmed q;
+  invalid/repeated selectors fail value-free before D1. No parent-address
+  fallback, live geolocation, index/migration or production performance claim:
+  unscoped locality reads scan. Focused check: `npm run check:container-locality`;
+  synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-locality`.
+
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
   optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
   code points matched against stored `phone1`/`phone2` text as stored
