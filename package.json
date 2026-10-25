@@ -23,6 +23,7 @@
     "check:snapshot-fieldset-discovery": "vitest run test/sparseFieldsetDiscovery.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/hydratedFields.acceptance.test.ts test/openapiContract.test.ts test/openapiAgentMetadata.test.ts test/openapiDriftCheck.test.ts",
     "check:customer-changes-cursor": "vitest run test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts",
     "check:snapshot-upper-id": "vitest run test/snapshotUpperId.acceptance.test.ts test/snapshotUpperIdNextLink.acceptance.test.ts",
+    "check:typed-flat-snapshot-rows": "vitest run test/typedFlatSnapshotRows.acceptance.test.ts test/openapiContract.test.ts test/snapshotCountFreePagination.test.ts test/routeExamples.test.ts",
     "check:address-scope": "vitest run test/addressScopeFilters.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts --maxWorkers=2",
     "check:customer-changes-next-links": "vitest run test/customerChangesNextLinks.acceptance.test.ts && node --test test/customerChangesNextLinksRecipe.acceptance.test.mjs",
     "check:customer-changes-delta": "vitest run test/typedCustomerChangesDelta.acceptance.test.ts test/customerSnapshotChanges.test.ts test/customerChangesCursor.acceptance.test.ts test/customerChangesNextLinks.acceptance.test.ts test/customerChangesFields.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/openapiContract.test.ts",
