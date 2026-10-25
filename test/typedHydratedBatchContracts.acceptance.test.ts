@@ -486,6 +486,78 @@ describe.each(specs)("$kind rejects malformed response mutations", spec => {
   });
 });
 
+// Paths and identities are fixture expectations, not production schema metadata.
+// Visit every row, including present nullable parents and both customer sites.
+type RowPath = { path: Array<string | number>; key: string };
+const rowPaths: Record<Kind, RowPath[]> = {
+  customer: [
+    { path: ["customer"], key: "customer_id" },
+    { path: ["addresses", 0], key: "pickup_address_id" },
+    { path: ["addresses", 1], key: "pickup_address_id" },
+    { path: ["addresses", 0, "containers", 0], key: "container_id" },
+    { path: ["addresses", 0, "containers", 1], key: "container_id" },
+    { path: ["addresses", 1, "containers", 0], key: "container_id" }
+  ],
+  address: [
+    { path: ["address"], key: "pickup_address_id" },
+    { path: ["customer"], key: "customer_id" },
+    { path: ["containers", 0], key: "container_id" },
+    { path: ["containers", 1], key: "container_id" }
+  ],
+  container: [
+    { path: ["container"], key: "container_id" },
+    { path: ["address"], key: "pickup_address_id" },
+    { path: ["customer"], key: "customer_id" }
+  ]
+};
+function rowAt(bundle: Bundle, path: Array<string | number>): Bundle {
+  return path.reduce<unknown>((part, segment) => (part as Bundle)[String(segment)], bundle) as Bundle;
+}
+function projectedBundle(spec: Spec): Bundle {
+  const bundle = structuredClone(bundles[spec.kind][spec.id]);
+  for (const { path, key } of rowPaths[spec.kind]) {
+    const row = rowAt(bundle, path);
+    // Relationships survive projection; only literal storage columns disappear.
+    for (const column of Object.keys(row)) if (column !== key && column !== "containers") delete row[column];
+  }
+  return bundle;
+}
+
+describe.each(specs)("$kind full batch row requiredness", spec => {
+  for (const { path, key } of rowPaths[spec.kind]) {
+    const columns = Object.keys(rowAt(bundles[spec.kind][spec.id], path))
+      .filter(column => column !== key && column !== "containers");
+    it.each(columns)(`${path.join(".")}: rejects omitted %s through named batch and mounted 200`, column => {
+      const bundle = structuredClone(bundles[spec.kind][spec.id]);
+      delete rowAt(bundle, path)[column];
+      const body = { entries: [{ id: spec.id, found: true, [spec.kind]: bundle }] };
+      expect(validator(media(spec.kind).schema).safeParse(body).success, "mounted union must require complete batch rows").toBe(false);
+      expect(validator(branches(spec.kind).batch).safeParse(body).success, "named batch must require complete rows").toBe(false);
+    });
+  }
+});
+
+describe.each(specs)("$kind single root and relationship requiredness", spec => {
+  const omissions: RowPath[] = [
+    ...Object.keys(bundles[spec.kind][spec.id]).map(key => ({ path: [], key })),
+    ...rowPaths[spec.kind],
+    ...(spec.kind === "customer" ? [
+      { path: ["addresses", 0], key: "containers" }, { path: ["addresses", 1], key: "containers" }
+    ] : [])
+  ];
+  for (const projected of [false, true]) {
+    it(`accepts ${projected ? "identity-only projected" : "full"} rows with every relationship retained`, () => {
+      const bundle = projected ? projectedBundle(spec) : bundles[spec.kind][spec.id];
+      expect(validator(media(spec.kind).schema).safeParse(bundle).success).toBe(true);
+    });
+    it.each(omissions)(`${projected ? "projected" : "full"} single rejects absent $key at $path through mounted 200`, ({ path, key }) => {
+      const bundle = projected ? projectedBundle(spec) : structuredClone(bundles[spec.kind][spec.id]);
+      delete rowAt(bundle, path)[key];
+      expect(validator(media(spec.kind).schema).safeParse(bundle).success, "batch branch must not mask invalid single").toBe(false);
+    });
+  }
+});
+
 describe("actual empty and racing-parent relationship responses", () => {
   const cases: Array<{ kind: Kind; id: number; hidden?: HiddenParent; bundle: Bundle }> = [
     { kind: "customer", id: 98113, bundle: { customer: emptyCustomer, addresses: [] } },
@@ -494,6 +566,18 @@ describe("actual empty and racing-parent relationship responses", () => {
     { kind: "container", id: 98311, hidden: "address", bundle: { container, address: null, customer: null } },
     { kind: "container", id: 98311, hidden: "customer", bundle: { container, address, customer: null } }
   ];
+  it.each(cases)("$kind id=$id hidden=$hidden accepts full/projected single null/empty relationships", async ({ kind, id, hidden, bundle }) => {
+    const spec = specs.find(candidate => candidate.kind === kind)!;
+    for (const projected of [false, true]) {
+      const response = await get(spec, `id=${id}${projected ? `&fields=${spec.field}` : ""}`, {}, hidden);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      const expected = structuredClone(bundle);
+      if (projected) expected[kind] = { [spec.key]: id, [spec.field]: (bundle[kind] as Row)[spec.field] };
+      expect(body).toEqual(expected);
+      expect(validator(media(kind).schema).safeParse(body).success, `${kind}: mounted single null/empty response rejected`).toBe(true);
+    }
+  });
   it.each(cases)("$kind id=$id hidden=$hidden preserves runtime null/empty shape", async ({ kind, id, hidden, bundle }) => {
     const spec = specs.find(candidate => candidate.kind === kind)!;
     const response = await get(spec, `ids=${id},${MISSING}`, {}, hidden);
