@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
+- #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
   `streetAddress` binds case-sensitive equality on the stored `address`,
   returning all matching site IDs rather than partial-street/city/ZIP matches.
   One nonblank opaque value of 1..200 Unicode code points preserves whitespace,
