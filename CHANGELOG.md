@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #339: hydrated customer/address/container batches hydrate each
+  unique ID (including misses) once per request, with a fixed maximum of four
+  complete root jobs in flight. Duplicate entries and request order are preserved;
+  the 1..50 input bound, full bundles, no-store and ignored conditional headers
+  stay unchanged. A failure stops queued starts and drains in-flight work before
+  the sanitized 500, with no partial response or retries. Four roots does not cap
+  nested D1 query totals, graph fanout or bytes for high-fanout customers. No
+  cross-request cache, resource, migration or measured latency claim. Local check:
+  `npm run check:hydrated-batch-budget`; budget guidance: `docs/CONSUMER-QUICKSTART.md`.
+
 - #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
   opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
   zeros and nonblank whitespace. Literal substring `q` now matches stored

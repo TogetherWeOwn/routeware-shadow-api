@@ -884,11 +884,30 @@ bundle a single GET returns, missing ids are exactly `{id, found: false}`
 (no 404-whole) — sent `no-store` with no ETag (`If-None-Match` is ignored
 on batch).
 
+Each unique ID, including a miss, is hydrated **once per request**, in
+first-occurrence work order, with at most **four simultaneous root hydration
+jobs** per request in each of the three batch implementations. A slot covers the complete
+bundle's nested reads; it is not released just after the root SELECT. Response
+entries still preserve every duplicate and the exact input order. The 50-ID
+limit counts supplied entries, not unique IDs; separate requests read again.
+On a hydration failure, queued roots stop starting after the failure is observed,
+already-started jobs drain, and the whole request returns the existing sanitized
+500, never partial entries. There are no retries or background hydration.
+
+Four roots is **not** a cap on total nested D1 queries, graph fanout or response
+bytes: distinct high-fanout customers can still read many addresses and container
+chunks. Inner chunk sizes are unchanged. This is a source-level load-risk
+reduction, not a measured latency or deployed-capacity claim.
+
 ```bash
 curl -H "Authorization: Bearer $SYNC" \
-  "http://localhost:8787/api/v1/data/customer?ids=42,7,9"
-# {"entries":[{"id":42,"found":true,"customer":{...}}, ...]} in request order
+  "http://localhost:8787/api/v1/data/customer?ids=42,7,42,9"
+# Four request-order entries; IDs 42, 7 and 9 are each hydrated once.
+# {"entries":[{"id":42,"found":true,"customer":{...}}, ...]}
 ```
+
+Credential-free synthetic budget/error/parity regression check (no tenant probes):
+`npm run check:hydrated-batch-budget`.
 
 Synthetic consumer examples (the acceptance fixture, not customer records):
 `/api/v1/data/customer?id=42` and `?customerId=42` return the same row and ETag;
