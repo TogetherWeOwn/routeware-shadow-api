@@ -277,6 +277,41 @@ Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
 
+### Address street or locality search
+
+The existing address-list `q` matches a literal ASCII case-insensitive substring
+against street, city **or** postcode: a row matches when **any one** column
+contains the trimmed needle. SQLite `lower()` preserves non-ASCII case
+distinctions: `q=åbc` does not match `ÅBC`, while `q=Åbc` does.
+Empty and whitespace-only `q` behave as omitted;
+longer than 100 Unicode code points, or a repeated `q` key, is the existing
+value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
+Quotes, `%`, `_` and Unicode are literal bound data, never wildcards; leading
+zeros in postcodes are significant. The grouped OR intersects by AND with
+`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `enabled` and cursor
+predicates, and the trimmed needle round-trips in follow-next `Link` targets.
+
+Locality search is **not** an exact postal or geographic scope filter: a
+postcode fragment such as `741` also matches street and city text, and a city
+fragment matches anywhere inside the stored city string. For exact membership,
+use the exact scopes above rather than `q`.
+
+Synthetic follow-next recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-locality
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?q=741&customerId=101&enabled=true&fields=address,city,zip&limit=2`.
+Its street, city and postcode legs match IDs `11,23,37,42`; the test follows
+the returned Link unchanged through each matching ID once, then stops on the
+terminal empty page. Counted pages keep cursor-relative totals; count-free
+pages execute one SELECT with no COUNT. Other fixtures prove null/empty
+localities, literal punctuation, 100-code-point boundaries, conditional 304s
+and auth-before-D1. Network-deny and read-only D1 doubles fail on unexpected
+side effects. These checks are not deployed performance evidence.
+
 ### Highest primary IDs first
 
 All three ordinary lists accept exact, case-sensitive `order=asc|desc`;
