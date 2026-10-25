@@ -26,8 +26,9 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  *    resolves through a $ref to it (today: inline untyped object);
  *  - row property set exactly equals SNAPSHOT_FIELDSETS.customer (the
  *    field/identity authority); only `customer_id` + `synced_at` are required
- *    (replay/cursor identity; sparse-changes compatible), with
- *    storage-faithful nullability when present (migrations/d1/0001);
+ *    on full rows (replay/cursor identity), with storage-faithful nullability
+ *    when present (migrations/d1/0001); sparse `fields=` pages project to
+ *    `customer_id` plus selected columns and may omit `synced_at`;
  *  - stored flags stay integers (never JSON booleans); text stays text with
  *    no invented positivity/enum/timestamp-format/safe-integer guarantees;
  *  - total:int and the typed composite nextCursor keep their semantics and
@@ -94,7 +95,7 @@ const COLUMN_TYPES: Record<string, ColumnType> = {
   synced_at: { base: "string", nullable: false }
 };
 
-/** Replay/cursor identity: always required, even on sparse-changes rows. */
+/** Replay/cursor identity: required on full rows; sparse fields= may omit synced_at. */
 const REQUIRED_IDENTITIES = ["customer_id", "synced_at"] as const;
 
 /** Stored INTEGER flags: declared integer, served 0/1, never JSON boolean. */
@@ -526,7 +527,7 @@ describe("mounted contract: fieldset authority and storage-faithful types (RED)"
     ).toEqual([...SNAPSHOT_FIELDSETS.customer.columns].sort());
   });
 
-  it("RED: only customer_id + synced_at are required (sparse-changes compatible)", async () => {
+  it("RED: only customer_id + synced_at are required (required on full rows)", async () => {
     const doc = await mountedDocument();
     const { schema: envelope } = changesEnvelope(doc);
     const { schema: row } = deltaRowSchema(doc, envelope);
