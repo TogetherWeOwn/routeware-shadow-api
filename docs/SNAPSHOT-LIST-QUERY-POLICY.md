@@ -11,7 +11,7 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `note`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
@@ -119,6 +119,38 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 `EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for both COUNT and page
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
+
+## Stored customer comment fragment
+
+Only the ordinary customer list recognizes `comments`: a literal substring
+of stored `customer_snapshot.comments`. Use `q` for company-name search,
+`phone` for stored phone text, and `comments` for mirrored notes; `q` is not
+widened. All selectors intersect by AND, including `hasAddresses` and IDs.
+
+Send one fragment of at most 100 Unicode code points **before trimming**
+boundary whitespace. A bounded blank fragment is omitted. Repeated keys and
+overlength input (even blank or padded input) return value-free
+`application/problem+json` 400 after authentication and before any D1 work
+or 304. Send one fragment within the limit, or omit comments and retry; see
+[fixed correction guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
+Never log the fragment, credentials or unrelated unknown query keys.
+
+Both page and COUNT share `instr(lower(coalesce(comments, '')), lower(?)) > 0`
+and the same bound fragment. SQLite folds ASCII A-Z only; non-ASCII case,
+Unicode composition, quotes, `%` and `_` remain literal. Null comments never
+match a nonblank fragment; stored text is not normalized. No dedicated index
+or migration is added: substring-only reads may scan, with no latency claim.
+Count-free mode still executes zero COUNTs. Canonical IDs, sparse fields,
+representation ETags/304 and both pagination directions remain unchanged.
+Relative next Links retain only the validated, trimmed fragment, omitting
+blank and unrelated unknown keys; cursor replaces offset and preserves upperId.
+Concurrent writes are not snapshot-isolated; a full terminal page may link to
+an empty page. This GET is idempotent and local-read; `--dry-run` is N/A.
+
+Run `npm run check:customer-comments-search` for the independent synthetic
+local-D1 oracle and focused list/auth/discovery regressions. No live token,
+upstream request, R2 access or cache write is required. See the
+[synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
 
 ## Stored phone fragment
 

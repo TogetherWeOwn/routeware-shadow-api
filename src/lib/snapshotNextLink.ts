@@ -17,6 +17,7 @@ type SnapshotListQuery = {
   q?: string;
   phone?: string;
   note?: string;
+  comments?: string;
   enabled: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
@@ -30,7 +31,7 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone"] },
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid", "zip", "note"] }
 } as const;
