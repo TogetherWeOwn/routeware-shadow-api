@@ -13,7 +13,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 ## Customer address presence
@@ -424,6 +424,50 @@ qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
 predicates. This demonstrates executable synthetic query shape only, not a
 runtime latency improvement. No new indexes, migrations, bindings or upstream
 requests are introduced.
+
+## Exact stored container labels
+
+Only the existing container list accepts optional `materialStream` and `color`.
+`materialStream` binds `c.ud_material_stream_ud = ?`; `color` binds
+`c.color = ?`. These are case-sensitive opaque stored labels, not inferred
+recycling categories or a defined vocabulary. Each must contain 1..100 Unicode
+code points and a non-whitespace character. Leading zeros, significant
+whitespace, punctuation and Unicode composition are preserved exactly;
+quotes, `%` and `_` are literal data, not SQL or wildcards. Null never matches
+a supplied string. Valid unknown labels return an empty 200.
+
+URL-encode one supported-length nonblank stored label per key, or omit the
+selector and retry if no label scope is intended. Empty, whitespace-only,
+overlength and repeated keys fail with the existing value-free
+`application/problem+json` bad-request after authentication and before D1.
+See [correction guidance](PROBLEMS.md#exact-stored-container-labels-bad-request).
+
+Both selectors AND-compose with each other and all existing filters on the
+joined and unjoined paths. COUNT and page queries share the same bound scope;
+duplicates are retained and paginated. `includeTotal=false` executes zero
+COUNTs. IDs, sparse projection, `upperId`, asc/desc seeks and representation
+ETags retain their existing contracts. Response/`fields` uses the stored name
+`ud_material_stream_ud`, not query name `materialStream`.
+
+Synthetic local fixture example (IDs 101, 104, 105 have both labels):
+
+```text
+GET /api/v1/container-snapshot?materialStream=001&color=Blue&fields=ud_material_stream_ud,color&limit=1&includeTotal=false
+
+{"rows":[{"container_id":101,"ud_material_stream_ud":"001","color":"Blue"}],"total":null,"nextCursor":101}
+Link: </api/v1/container-snapshot?materialStream=001&color=Blue&fields=ud_material_stream_ud%2Ccolor&limit=1&includeTotal=false&cursor=101>; rel="next"
+```
+
+Follow the returned same-origin Link unchanged through 104, 105 and the empty
+terminal page. Validated selectors round-trip encoded, including reserved
+characters and significant whitespace; raw origins, credentials and unknown
+keys are never copied. Omission preserves the unfiltered behavior.
+
+Run `npm run check:container-labels` for a hermetic local-D1 recipe including
+literal labels, malformed/auth zero-work checks, both join paths, count-free
+pagination, sparse fields, ETags and followed links. Equality queries may scan;
+no new index/migration or performance claim is made. GET is an idempotent
+local-read with no upstream, R2, browser or write work; CLI `--dry-run` is N/A.
 
 ## Mutating POST query keys are strict
 
