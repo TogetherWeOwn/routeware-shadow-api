@@ -83,7 +83,7 @@ const SPECS: Spec[] = [
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
       "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
-      "order", "fields", "strictQuery"
+      "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
@@ -99,7 +99,7 @@ const SPECS: Spec[] = [
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
       "q", "enabled", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
-      "order", "fields", "strictQuery"
+      "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
@@ -114,7 +114,7 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
@@ -137,7 +137,7 @@ const SAMPLES: Record<string, string> = {
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", order: "asc", fields: "enabled",
+  upperId: "104", includeTotal: "false", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
@@ -315,6 +315,34 @@ describe.each(SPECS)("$name list: strict mode accepts its own declared names", (
       expect(response.status, `${spec.path}?${search}`).toBe(200);
       await response.text();
     }
+  });
+
+  it("strict count-only preserves the filtered total without rows, paging or a Link", async () => {
+    const { response, recorder } = await request(
+      `${spec.path}?strictQuery=true&countOnly=true&enabled=true&q=synthetic&fields=${spec.field}&limit=1&offset=1`);
+    expect(response.status).toBe(200);
+    const bytes = await response.text();
+    // IDs 101, 103 and 104 match; limit/offset must not truncate the count.
+    expect(JSON.parse(bytes)).toEqual({ rows: [], total: 3, nextCursor: null });
+    expect(recorder.statements).toHaveLength(1);
+    expect(recorder.statements.filter(isCount)).toHaveLength(1);
+    expect(response.headers.get("link")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("etag")).toBe(await validator(bytes));
+  });
+
+  it("count-only cannot bypass strict unknown-name rejection before D1", async () => {
+    const denied = forbiddenDb();
+    const logs = silence();
+    const { response } = await request(
+      `${spec.path}?strictQuery=true&countOnly=true&bogus_param=${MARKER}`, { db: denied.db });
+    const detail = await expectBadQuery(response, ["bogus_param"]);
+    expect(detail).toMatch(/unknown/i);
+    expect(detail).toMatch(/supported|OpenAPI/i);
+    expect(detail).toMatch(/remove/i);
+    expect(detail).toContain("strictQuery=false");
+    expect(denied.calls).toEqual([]);
+    for (const log of logs) expect(log).not.toHaveBeenCalled();
   });
 
   it("composes strict mode with filters, sparse fields and count-free paging", async () => {

@@ -360,7 +360,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields", "strictQuery"
+      "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -409,7 +409,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state", "q", "enabled", "hasContainers",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields", "strictQuery"
+      "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -459,7 +459,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
       "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields", "strictQuery"
+      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
