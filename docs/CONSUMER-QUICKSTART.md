@@ -419,6 +419,55 @@ The focused check proves both seek directions, terminal/empty pages, composed
 filters, opaque Link traversal, zero-work invalid/auth requests and conditional
 reads on real local D1; it is not deployed performance or adoption evidence.
 
+### Customer address presence
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select customers with (`hasAddresses=true`) or without (`hasAddresses=false`)
+mirrored service sites, without downloading child rows. `any`/omission keeps
+the unfiltered behavior. Every stored address counts, including disabled
+children; customer `enabled` stays independent. Send one exact supported
+value, or omit the selector and retry a value-free 400. Authentication is
+first; malformed/empty/repeated values do no D1 work.
+
+Synthetic local recipe: with customers 11–16, seed an address for 12, three
+for 13 (mixed enabled), one disabled-only for 14, and none for 11, 15 or 16.
+Use only a local fixture service and its `$TOKEN`, not production data.
+The focused suite below creates this fixture automatically in test D1.
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=true&limit=1&fields=enabled&includeTotal=false"
+# {"rows":[{"customer_id":12,"enabled":1}],"total":null,"nextCursor":12}
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=true&fields=enabled&limit=1&includeTotal=false&cursor=12"
+# Next: 13, then 14, then an empty terminal page; stop when Link is absent.
+```
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=false&limit=2"
+# {"rows":[...],"total":3,"nextCursor":15} — customer IDs 11,15; Link retains false
+# Follow the Link to ID 16; the partial page has nextCursor=null and no Link.
+```
+
+No mirrored address is **not proof of no upstream site** and never authorizes
+deletion, reconciliation or sync. GET is an idempotent local D1 read, not an
+upstream call; CLI `--dry-run` is N/A. Rows stay flat and unique per customer.
+The selector composes with existing filters, either paging direction,
+`upperId`, sparse fields and representation-correct ETag/304. Counted totals
+are cursor-relative; `includeTotal=false` runs zero COUNTs. No snapshot
+isolation is promised across concurrent writes.
+
+Run `npm run check:customer-address-presence` for synthetic local-D1 selection,
+validation/auth, full Link traversal and conditional-read regressions. The
+acceptance suite executes EXPLAIN on both emitted COUNT/page statements and
+checks the existing child `idx_address_snapshot_customer_id` SEARCH, for both
+true/false. This is local planner evidence only, not a production latency
+claim. No migration, new index, deployment or live probe. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
+[400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
 ### Address container presence
 
 Use the existing `listAddressSnapshot` operation to find mirrored service
