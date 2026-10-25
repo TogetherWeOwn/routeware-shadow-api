@@ -153,6 +153,42 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Opt-in query typo detection
+
+On the three ordinary flat lists, add `strictQuery=true` to reject unknown
+query names instead of silently broadening the selected cohort. Default
+omission or `strictQuery=false` still ignores unknown names. First discover
+supported query names from that list's mounted OpenAPI operation; sibling
+resource selectors are not interchangeable.
+
+Local synthetic fixture only (reuse your configured read token; no live data):
+
+```bash
+# HTTP 200: the normal sparse/count-free page, now with typo detection.
+curl -sS -D - -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8787/api/v1/customer-snapshot?strictQuery=true&fields=company_name&limit=2&includeTotal=false'
+# {"rows":[...],"total":null,"nextCursor":...} — null means deliberately not computed.
+# HTTP 400 before any D1 query: deliberate misspelling, not a filter.
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8787/api/v1/customer-snapshot?strictQuery=true&custmerId=101'
+```
+
+On 400, use supported names from the mounted OpenAPI operation, remove unknown
+keys, or explicitly set `strictQuery=false` if leniency is intentional. Problems
+and app logs never echo unknown names or values. Send the control once as exact
+`true` or `false`; empty, invalid or repeated values fail even alongside false.
+Known invalid controls still fail in either mode, and authentication stays first.
+Follow returned relative next Links unchanged against the same origin: they keep
+`strictQuery=true` with filters, fields and direction, replacing cursor and
+omitting offset; false/default is omitted. A full terminal page may link to an
+empty page. Counts, ETags/304, no-store and read-token access are unchanged.
+This option is not added to changes, by-ID, hydrated, archive, export or POST
+operations. GET is an idempotent local read; CLI `--dry-run` is N/A.
+
+Credential-free verification: `npm run check:snapshot-strict-query`.
+See [policy and no-echo problem](SNAPSHOT-LIST-QUERY-POLICY.md#opt-in-typo-detection-strictquery)
+and [correction guidance](PROBLEMS.md#opt-in-list-query-keys-bad-request).
+
 ### Stored container locality
 
 For synthetic local fixtures, seed enabled containers 10, 20 and 30 with

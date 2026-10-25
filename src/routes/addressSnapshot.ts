@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snapshotStrictQuery";
 import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
@@ -123,7 +124,8 @@ const addressSnapshotListRoute = createRoute({
         )
         .openapi({ example: "false" }),
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("address")
+      fields: snapshotFieldsQuery("address"),
+      strictQuery: snapshotStrictQuery
     })
   },
   responses: {
@@ -140,13 +142,15 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const unknownQuery = rejectUnknownSnapshotListQuery(c, p.strictQuery, addressSnapshotListRoute.request.query);
+  if (unknownQuery) return unknownQuery;
   const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];

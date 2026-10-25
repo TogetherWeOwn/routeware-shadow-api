@@ -18,6 +18,14 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   behavior. Synthetic recipe: `npm run check:address-extras-allowed` and
   `docs/CONSUMER-QUICKSTART.md`.
 
+- #401: Three ordinary flat snapshot lists add `strictQuery=true|false` (default
+  false). True rejects unknown decoded names after auth and before D1/304,
+  using each mounted schema as its allowlist and a fixed no-echo bad-request
+  correction. Relative next Links retain true; false/omitted keep existing
+  ignore behavior, SQL and response bytes. Other query policies are unchanged.
+  Local synthetic check: `npm run check:snapshot-strict-query`; recipe:
+  `docs/CONSUMER-QUICKSTART.md#opt-in-query-typo-detection`.
+
 - Follow-up to #339: hydrated customer/address/container batches hydrate each
   unique ID (including misses) once per request, with a fixed maximum of four
   complete root jobs in flight. Duplicate entries and request order are preserved;

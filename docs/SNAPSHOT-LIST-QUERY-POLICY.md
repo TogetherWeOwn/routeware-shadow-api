@@ -1,9 +1,11 @@
 # Snapshot/data list query policy
 
-## Unknown parameter names: documented ignore
+## Unknown parameter names: default ignore, opt-in strict
 
-The JSON snapshot list routes below **ignore unknown query parameter names**.
-They validate only the named keys in their allowlists. For example,
+The JSON snapshot list routes below **ignore unknown query parameter names by default**.
+The three ordinary flat lists can opt into rejection with `strictQuery=true`;
+`strictQuery=false` or omission preserves existing behavior. They validate
+only the named keys in their mounted schemas. For example,
 `GET /api/v1/customer-snapshot?bogus_param=1` returns the same 200 JSON rows,
 count and pagination cursor as the request without that parameter; the extra
 name does not become a SQL filter or bind. This preserves the existing
@@ -11,10 +13,51 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+
+Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
+children, including disabled rows; absence is not proof of no upstream site
+and never authorizes deletion or reconciliation.
+
+## Opt-in typo detection (`strictQuery=`)
+
+Only the three ordinary flat list GETs accept one exact, case-sensitive
+`strictQuery=true|false` (default `false`). With `true`, every decoded raw
+URLSearchParams name must belong to that resource's actual mounted query
+schema, including `strictQuery` itself and all merged selectors. The runtime
+derives this set directly from the schema; it does not share a sibling
+resource's names or maintain a second hardcoded inventory. Even empty,
+percent-encoded, Unicode or control-like unknown names return the fixed
+`bad-request` problem after authentication, before D1 or conditional 304
+handling. No submitted names/values or dynamic unknown-key lists are
+returned or logged:
+
+```json
+{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request","title":"Bad Request","status":400,"detail":"Unknown query parameter. Use supported query names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. See docs/PROBLEMS.md#bad-request."}
+```
+
+Use supported names from the mounted OpenAPI operation, remove unknown keys,
+or deliberately set `strictQuery=false` to retain lenient compatibility.
+Invalid, empty or repeated `strictQuery` (including encoded duplicate names
+and mixed true/false) fails value-free before D1 in either mode. Known
+invalid/repeated controls remain invalid; false is not a validation bypass.
+
+Successful strict pages have identical SQL, rows, counts, projection and
+representation ETag/no-store behavior. Relative next Links carry validated
+`strictQuery=true`, never false/default or unknown keys; follow them unchanged
+in either direction. By-ID reads, changes, CSV exports, archives, hydrated
+reads and mutating POST policies do not gain this opt-in.
+
+Run `npm run check:snapshot-strict-query` for the independent
+`test/snapshotStrictQueryOptIn.acceptance.test.ts` and unchanged default-ignore,
+auth, pagination, conditional and mounted discovery regressions. All use
+synthetic local fixtures; no production/staging, upstream, R2 or writes.
+GET is idempotent/local-read; CLI `--dry-run` is N/A. See the
+[local agent recipe](CONSUMER-QUICKSTART.md#opt-in-query-typo-detection) and
+[correction guidance](PROBLEMS.md#opt-in-list-query-keys-bad-request).
 
 ## Customer address presence
 
@@ -88,8 +131,9 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 
 **Ignoring a name is not ignoring an invalid value.** A known key such as
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
-before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
-the exact documented query names; this API does not detect those typos.
+before any D1 query. A typo such as `custmer_id` is ignored in default/false
+mode, so clients must use the exact documented query names. Set
+`strictQuery=true` on an ordinary list to reject those typos instead.
 
 ## Exact customer account numbers
 
