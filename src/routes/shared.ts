@@ -42,7 +42,10 @@ export function validationFailureHook(
     type: problemType("bad-request", c?.env),
     title: "Bad Request",
     status: 400,
-    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
+      (result.target === "query" && unique.includes("hasAddresses")
+        ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
 

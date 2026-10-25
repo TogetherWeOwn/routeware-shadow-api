@@ -1,5 +1,15 @@
 import { z } from "@hono/zod-openapi";
 
+/** Exact enum: repeated query keys arrive as arrays and fail before D1. */
+export const customerAddressPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Mirrored address presence: "true" selects customers with at least one stored address, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses including disabled children; customer enabled stays independent. Absence is not proof of no upstream site and never authorizes deletion, reconciliation or sync. Send one hasAddresses=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+/** Indexed child lookup, no binds or join expansion; disabled addresses count. */
+export function customerAddressPresencePredicate(value: "true" | "false"): string {
+  return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id)`;
+}
+
 /**
  * Opaque-string selectors for the ordinary customer list.
  *

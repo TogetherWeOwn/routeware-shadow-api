@@ -16,6 +16,7 @@ type SnapshotListQuery = {
   phone?: string;
   enabled: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
+  hasAddresses?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -61,6 +62,9 @@ export function snapshotNextLink(
   // filtering values so any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
+  }
+  if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
+    params.set("hasAddresses", query.hasAddresses);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

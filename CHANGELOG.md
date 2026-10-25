@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
+  to select customers by mirrored address presence without expanding parents.
+  All stored addresses count, including disabled children; customer `enabled`
+  is independent. Indexed correlated EXISTS/NOT EXISTS shares COUNT/page
+  predicates; count-free mode, sparse fields, ETags and pagination remain
+  compatible. Relative next Links retain true/false, omitting any/default.
+  Invalid, empty or repeated values fail before D1 with fixed retry guidance.
+  No mirrored child is not proof of no upstream site and never authorizes
+  deletion, reconciliation or sync. Local recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:customer-address-presence`.
+  No new endpoint, upstream call, migration, index or access change.
+
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
   optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
   code points matched against stored `phone1`/`phone2` text as stored
