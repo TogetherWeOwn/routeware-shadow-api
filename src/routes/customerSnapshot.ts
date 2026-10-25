@@ -3,6 +3,7 @@ import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snap
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { customerSnapshotListResponse, customerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
@@ -85,18 +86,14 @@ const customerSnapshotListRoute = createRoute({
         .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
       upperId: snapshotUpperIdQuery,
-      includeTotal: z
-        .enum(["true", "false"])
-        .optional()
-        .default("true")
+      includeTotal: z.enum(["true", "false"]).optional().default("true")
         .describe(
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("customer"),
-      strictQuery: snapshotStrictQuery
-    })
+      fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
   },
   responses: {
     200: {
@@ -105,7 +102,7 @@ const customerSnapshotListRoute = createRoute({
       content: {
         "application/json": {
           schema: customerSnapshotListResponse,
-          example: { rows: [customerRowExample], total: 1, nextCursor: null }
+          examples: snapshotListModeExamples(customerRowExample)
         }
       }
     },
@@ -170,8 +167,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
-  // Count-free page: zero COUNT statements. `total: null` means the count was
-  // deliberately not computed, not that the page is empty.
+  // Count-free: total null means deliberately not computed, not an empty page.
   let total: number | null;
   if (p.includeTotal === "false") {
     total = null;
@@ -181,6 +177,9 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       .bind(...binds)
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
+  }
+  if (p.countOnly === "true") {
+    return snapshotListJsonResponse(c, { rows: [], total, nextCursor: null });
   }
   // Cursor seeks follow the selected direction and never scan an OFFSET.
   const pageSql =

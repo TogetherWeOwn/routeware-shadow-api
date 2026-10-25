@@ -228,6 +228,39 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":null,"nextCursor":2} — same page, no count query
 ```
 
+### Count before fetching payloads
+
+To size a mirrored cohort before requesting contact, address or equipment rows,
+add `countOnly=true` to any ordinary flat list GET. Synthetic local example
+(assume three matching customers above ID 10):
+
+```http
+GET /api/v1/customer-snapshot?enabled=true&cursor=10&limit=1&offset=99&countOnly=true
+Authorization: Bearer <existing-read-token>
+
+{"rows":[],"total":3,"nextCursor":null}
+```
+
+There is no next Link. Exactly one COUNT runs, with zero page/payload SELECTs;
+D1 can still scan stored rows. Total retains the existing filters, IDs,
+direction-dependent exclusive cursor and inclusive `upperId`. It is a
+cursor-relative query-time count, not a traversal total: limit/offset do not
+subtract from it. Omit cursor for the whole filtered cohort; keep cursor and
+order to count the remaining traversal range. Empty cohorts return zero.
+There is no snapshot isolation across requests.
+
+When you need rows instead, remove countOnly (or set `countOnly=false`);
+`includeTotal=false` then fetches pages without computing totals. Combining
+`countOnly=true` with `includeTotal=false` is a value-free 400 before D1: omit
+`includeTotal=false` or set `countOnly=false` and retry. Blank, invalid or
+repeated countOnly keys also fail, and every other known parameter still
+validates even when no rows are fetched. Existing auth and no-store remain;
+ETag/304 hashes the count envelope but still executes a fresh COUNT.
+
+This is local-read only, not an upstream refresh. Run
+`npm run check:snapshot-count-only` against synthetic local D1, not live data.
+See the [mode comparison and query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection).
+
 ### Exact stored container installation
 
 Resolve equipment by the **container's own** stored `location_address` and

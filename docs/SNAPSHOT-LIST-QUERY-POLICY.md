@@ -13,9 +13,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -134,6 +134,43 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 before any D1 query. A typo such as `custmer_id` is ignored in default/false
 mode, so clients must use the exact documented query names. Set
 `strictQuery=true` on an ordinary list to reject those typos instead.
+
+## Count-only inspection
+
+Only the three ordinary flat lists accept `countOnly=true|false` (default
+`false`). Choose the retrieval mode explicitly:
+
+| Mode | D1 statements | Existing response envelope |
+| --- | --- | --- |
+| Default / `countOnly=false` | One COUNT plus one page SELECT | Rows, integer total, normal nextCursor/Link |
+| `includeTotal=false` | One page SELECT, zero COUNTs | Same rows/cursor/Link, `total:null` |
+| `countOnly=true` | Exactly one COUNT, zero page/payload SELECTs | `{"rows":[],"total":N,"nextCursor":null}`, no next Link |
+
+Count-only reuses the existing COUNT predicates and binds, including every
+resource filter, IDs, container parent join, direction-dependent exclusive
+`cursor` and inclusive `upperId`. Counts are **cursor-relative at query time**:
+ascending counts IDs above the cursor; descending counts IDs below it, within
+the ceiling. Neither `limit` nor `offset` subtracts from total. Empty cohorts
+return `0`, not `null`. This is not a whole-traversal total, historical
+snapshot isolation or a promise that the database avoids scanning stored rows.
+Counts can change between requests as the mirror changes.
+
+Send each mode key once with an exact lowercase supported value. The conflicting
+`countOnly=true&includeTotal=false` returns a value-free 400 before D1: omit
+`includeTotal=false` or set `countOnly=false` and retry. All other known
+parameters, including unused fields/limit/offset, still validate after auth and
+before D1 or conditional success. Unknown-name policy is unchanged.
+
+Existing read tokens, `Cache-Control: no-store` and exact-envelope ETag/304 apply.
+A conditional request still runs one fresh COUNT before comparing the tag; equal
+count envelopes share a tag even when selected fields or nonmatching payloads
+change. No count cache, upstream/R2 access, writes, endpoint, migration or access
+expansion is introduced. Changes/hydrated/by-ID/export/archive reads do not gain
+this mode. See the [synthetic recipe](CONSUMER-QUICKSTART.md#count-before-fetching-payloads)
+and [400 recovery](PROBLEMS.md#snapshot-count-only-bad-request).
+Run `npm run check:snapshot-count-only` for the independent local-D1 oracle and
+pagination/auth/fieldset/conditional/mounted-OpenAPI regressions. No live data or
+production/staging probes; this idempotent local-read GET has no CLI dry-run mode.
 
 ## Exact customer account numbers
 

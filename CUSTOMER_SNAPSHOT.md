@@ -334,24 +334,42 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/customer-snapshot/sync` | Fetch customer CSV (path or `CUSTOMER_REPORT_QUERY_ID` pipeline) and upsert |
 | POST | `/api/v1/customer-snapshot/import` | Body = raw customer CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, exact `routeId` / `franchiseId` / stored `zip` (AND intersection), `q`, `enabled`, mirrored-child `hasContainers=true\|false\|any` (default `any`), `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal`; [synthetic present/absent recipe](docs/CONSUMER-QUICKSTART.md#address-container-presence) |
+| GET | `/api/v1/address-snapshot` | List rows: `customerId`, `pickupAddressId`, exact `routeId` / `franchiseId` / stored `zip` (AND intersection), `q`, `enabled`, mirrored-child `hasContainers=true\|false\|any` (default `any`), `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [synthetic present/absent recipe](docs/CONSUMER-QUICKSTART.md#address-container-presence) |
 | GET | `/api/v1/address-snapshot/{pickupAddressId}` | One address row |
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/address-snapshot/import` | Body = raw address CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `ids`, exact `serialNumber` / `rfid` / stored container `zip` / `locationAddress` (1..200 code points) / `state` (1..100 code points), `q` (literal substring on location/serial/city/zip, not state), `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation) |
+| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, `ids`, exact `serialNumber` / `rfid` / stored container `zip` / `locationAddress` (1..200 code points) / `state` (1..100 code points), `q` (literal substring on location/serial/city/zip, not state), `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation) |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
 | GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/container-snapshot/import` | Body = raw container CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
+
+### Count without row payloads
+
+The three ordinary lists accept exact `countOnly=true|false` (default false).
+True returns `{rows:[],total:N,nextCursor:null}`, no next Link, exactly one
+COUNT and zero page/payload SELECTs. Counts reuse all existing filters, IDs,
+direction-dependent exclusive cursor and inclusive upperId. They are
+cursor-relative query-time counts, unaffected by limit/offset; an empty cohort
+returns 0. No snapshot isolation, count cache or no-scan guarantee is implied.
+False/omission preserves normal pages; `includeTotal=false` instead fetches
+rows without a count. Do not combine it with countOnly=true: omit
+includeTotal=false or set countOnly=false and retry the value-free 400.
+All known parameters still validate. Existing read tokens, no-store and
+exact-envelope ETag/304 apply; even a 304 executes a fresh COUNT.
+No upstream, R2 or writes. Other read routes do not gain the mode.
+[Mode comparison](docs/SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection),
+[synthetic recipe](docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads);
+focused check: `npm run check:snapshot-count-only` (local test D1 only).
 
 ### Customer mirrored-address presence
 
