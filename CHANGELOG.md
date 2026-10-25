@@ -15,6 +15,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   cross-request cache, resource, migration or measured latency claim. Local check:
   `npm run check:hydrated-batch-budget`; budget guidance: `docs/CONSUMER-QUICKSTART.md`.
 
+- #397: Container snapshot lists accept exact stored
+  `locationAddress` (1..200 Unicode code points) and `state` (1..100).
+  Case-sensitive opaque values preserve significant whitespace and leading
+  zeros; no parent fallback or normalization. Bound AND scopes and encoded
+  next Links preserve count-free, sparse and ETag/304 contracts. Invalid or
+  repeated values fail value-free before D1. No index/migration or live-location
+  claim; unscoped reads scan. Synthetic recipe: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:container-exact-location`.
+
 - #398: Detail-full post-save refreshes preserve eight existing report-only container
   metadata fields instead of clearing them when the source cannot supply them.
   New containers still insert nulls; supported fields and timestamps still update.
