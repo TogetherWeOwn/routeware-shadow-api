@@ -7,12 +7,7 @@ import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
-import {
-  snapshotListConditionalHeaders,
-  snapshotListEtagHeaders,
-  snapshotListNotModifiedResponse,
-  snapshotListJsonResponse
-} from "../lib/snapshotListConditional";
+import { snapshotListConditionalHeaders, snapshotListEtagHeaders, snapshotListNotModifiedResponse, snapshotListJsonResponse } from "../lib/snapshotListConditional";
 import { snapshotByIdConditional } from "../lib/snapshotByIdConditional";
 import {
   runCustomerSnapshotSync,

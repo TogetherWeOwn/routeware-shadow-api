@@ -38,6 +38,6 @@ async function jsonResponse(c: Context, row: Record<string, unknown>): Promise<R
 }
 
 // Single-import surface for the three flat by-ID routes: customerSnapshot.ts
-// sits at the 800-line source gate, so one binding instead of four named ones.
+// has a tight source-size budget, so one binding replaces four named imports.
 // Do not split this into named re-exports without re-checking that budget.
 export const snapshotByIdConditional = { headers, etagHeaders, notModified, jsonResponse };
