@@ -185,6 +185,27 @@ format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
 
+## Container parent service-site scopes (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional parent key once:
+
+- `parentRouteId`: canonical unpadded ASCII decimal integer `0..9007199254740991`.
+  Zero is literal stored zero; no signs, whitespace, fractions or exponents.
+- `parentFranchiseId`: case-sensitive opaque exact string of 1..100 Unicode
+  code points containing a non-whitespace character. Preserve leading zeros
+  and significant whitespace; URL-encode without trimming or normalization.
+- `parentEnabled`: exactly `true`, `false` or `any` (default `any`). This is the
+  address state, independent of container `enabled` and customer state.
+
+Blank, repeated, invalid and overlength keys return a value-free 400 before
+D1 or conditional 304, after authentication:
+`Invalid request query (parentRouteId). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `parentFranchiseId` or `parentEnabled`, or
+multiple supported keys. Correct the named format, send it once and retry;
+omit only if no such parent scope is intended. Values are never logged or
+included in errors. Valid no-match returns 200 empty, not an error. See the
+[parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
+
 ## Exact stored address ZIP (`bad-request`)
 
 For `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, `zip`
