@@ -374,9 +374,10 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
-// Exact identifiers and stored labels supersede this route's old query/error narrative.
-// Their schema, composition and error discovery are asserted independently in
-// containerIdentifierFilters.acceptance.test.ts and containerMaterialColorFilters.acceptance.test.ts,
+// Exact identifiers, stored labels and installation selectors supersede this route's
+// old query/error narrative. Their schemas, composition and error discovery are
+// asserted independently in containerIdentifierFilters.acceptance.test.ts,
+// containerMaterialColorFilters.acceptance.test.ts and containerExactLocation.acceptance.test.ts,
 // not frozen as speculative prose or parameter position. All legacy parameters and
 // unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
@@ -393,7 +394,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state"].includes(parameter.name ?? "")
       );
     }
   }

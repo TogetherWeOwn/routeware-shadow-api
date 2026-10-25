@@ -248,6 +248,22 @@ intended. Valid no-match returns 200 empty, not an error; stored nulls never
 match supplied strings. See the
 [city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
 
+## Exact stored container installation (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode
+code points and `state` permits 1..100. Each optional key must occur once and
+contain a non-whitespace character. Empty/whitespace-only, repeated (including
+encoded duplicates) and overlength values fail after authentication but before
+D1 or conditional 304, with the existing value-free problem body. For example:
+`Invalid request query (locationAddress). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `state`, or both. URL-encode one nonblank stored value
+within the named limit or omit the key, then retry. Do not trim significant
+whitespace, change case, normalize Unicode/abbreviations or coerce leading zeros.
+No submitted value is echoed or logged. Valid no-match returns 200 empty.
+These selectors match only the container's own columns, never parent-address
+values; stored nulls never match. See the
+[exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
 ## Snapshot list direction (`bad-request`)
 
 For the three ordinary snapshot lists, send exactly one lowercase

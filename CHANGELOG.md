@@ -5,6 +5,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #397: Container snapshot lists accept exact stored
+  `locationAddress` (1..200 Unicode code points) and `state` (1..100).
+  Case-sensitive opaque values preserve significant whitespace and leading
+  zeros; no parent fallback or normalization. Bound AND scopes and encoded
+  next Links preserve count-free, sparse and ETag/304 contracts. Invalid or
+  repeated values fail value-free before D1. No index/migration or live-location
+  claim; unscoped reads scan. Synthetic recipe: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:container-exact-location`.
+
+- #398: Detail-full post-save refreshes preserve eight existing report-only container
+  metadata fields instead of clearing them when the source cannot supply them.
+  New containers still insert nulls; supported fields and timestamps still update.
+  CSV/report imports and default upserts retain deliberate null clearing. No extra
+  reads, migration or upstream behavior change. Previously lost metadata needs an
+  authoritative report, not a repeated save. See
+  `CUSTOMER_SNAPSHOT.md#detail-full-container-source-availability`; local check:
+  `npx vitest run test/detailFullReportMetadata.acceptance.test.ts --maxWorkers=2`.
+
 - #400: Ordinary customer/address/container snapshot lists add `countOnly=true|false`
   (default false): one existing filtered COUNT, zero page/payload SELECTs,
   `{rows:[],total:N,nextCursor:null}` and no next Link. Counts remain
@@ -16,15 +34,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   upstream/R2/write, isolation, migration or no-scan performance promise.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
   focused check: `npm run check:snapshot-count-only`.
-
-- #398: Detail-full post-save refreshes preserve eight existing report-only container
-  metadata fields instead of clearing them when the source cannot supply them.
-  New containers still insert nulls; supported fields and timestamps still update.
-  CSV/report imports and default upserts retain deliberate null clearing. No extra
-  reads, migration or upstream behavior change. Previously lost metadata needs an
-  authoritative report, not a repeated save. See
-  `CUSTOMER_SNAPSHOT.md#detail-full-container-source-availability`; local check:
-  `npx vitest run test/detailFullReportMetadata.acceptance.test.ts --maxWorkers=2`.
 
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
