@@ -317,9 +317,10 @@ The container module diverges on two points that must not be unified with the ot
 
 - its `INNER JOIN address_snapshot` is **conditional** on `customerId` (joining unconditionally
   silently drops every container whose address row is missing);
-- its free-text `q` binds the same value **twice**, once per column in the
-  `location_address OR serial_number` clause — one bind for two placeholders shifts every later bind
-  by one.
+- its free-text `q` binds the same trimmed value **four times**, once per column
+  in the grouped `location_address OR serial_number OR city OR zip` clause;
+  missing binds shift later scope and pagination parameters. Exact `c.zip = ?`
+  stays outside that OR and AND-composes with it.
 
 ### `routes/dataEntity.ts` (100% all four) and `routes/dataSnapshot.ts` (92.3% / 75%)
 

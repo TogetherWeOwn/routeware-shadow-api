@@ -13,7 +13,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 ## Customer address presence
@@ -184,7 +184,7 @@ list/link/conditional regressions; no live credentials or upstream calls.
 
 ## Exact stored address ZIP
 
-Only the address list recognizes `zip`. It is an optional exact,
+On the address list, `zip` is an optional exact,
 case-sensitive opaque string of 1..100 Unicode code points over the stored
 `zip` column — not a number, prefix or substring. Leading zeros (for example
 `02139`) and nonblank whitespace are preserved; no trimming, case folding,
@@ -249,6 +249,39 @@ and [fixed correction guidance](PROBLEMS.md#bad-request). Run
 `npm run check:address-locality` for the hermetic local-D1 contract, the
 SQL/bind/EXPLAIN oracles and relevant list/link/validation regressions; no
 live credentials, upstream calls or production-performance claims.
+
+## Stored container locality
+
+The existing container list accepts optional `zip`: exact, case-sensitive
+opaque equality against **`c.zip`**, never the linked address ZIP. It has the
+same 1..100 Unicode-code-point, nonblank, no-normalization contract as address
+ZIP above. Leading zeros and supplied nonblank whitespace are significant;
+null does not match. Empty/blank/repeated/overlength keys reject value-free
+before D1 (after auth); correct `zip`, URL-encode one value and retry.
+
+`q` is a trimmed literal substring across `c.location_address`,
+`c.serial_number`, `c.city` OR `c.zip`, in one parenthesized group with four
+identical binds. It retains the raw 100-code-point limit, blank-as-omitted and
+SQLite ASCII-case semantics; `%`, `_`, quotes and Unicode remain literal.
+No state search, parent fallback, full-address concatenation, nearby-postcode
+expansion or live geolocation occurs. `zip=02139` is exact while `q=021`
+can match a substring in any searched column; they intersect, not substitute.
+
+Both locality predicates AND-compose with customer/address/container/`ids`,
+asset identifiers, enabled and cursor/upperId scopes in shared COUNT/page
+SQL. Only `customerId` adds the existing parent join. Canonical IDs, sparse
+fields, asc/desc offset/seek traversal and final-envelope ETag/304 rereads
+remain intact. Count-free reads run one SELECT and zero COUNTs. Next Links
+preserve validated exact ZIP and trimmed q (omit blank q), same-origin and
+relative; follow them unchanged. Duplicate localities are not collapsed.
+
+No new index or migration: unscoped ZIP and substring locality reads scan;
+existing enabled/ID scopes can still support seeks. Synthetic local D1
+EXPLAIN oracles prove executable shapes, not production performance.
+GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is
+not applicable. Run `npm run check:container-locality` for independent fixtures,
+auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
 
 ## Exact container asset lookup
 
