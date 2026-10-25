@@ -317,9 +317,10 @@ The container module diverges on two points that must not be unified with the ot
 
 - its `INNER JOIN address_snapshot` is **conditional** on `customerId` (joining unconditionally
   silently drops every container whose address row is missing);
-- its free-text `q` binds the same value **twice**, once per column in the
-  `location_address OR serial_number` clause — one bind for two placeholders shifts every later bind
-  by one.
+- its free-text `q` binds the same trimmed value **four times**, once per column
+  in the grouped `location_address OR serial_number OR city OR zip` clause;
+  missing binds shift later scope and pagination parameters. Exact `c.zip = ?`
+  stays outside that OR and AND-composes with it.
 
 ### `routes/dataEntity.ts` (100% all four) and `routes/dataSnapshot.ts` (92.3% / 75%)
 
@@ -403,6 +404,28 @@ the general API token; the `DELETE` erasure route matches method-qualified
 directory are load-bearing enough to also be stated in [`CONVENTIONS.md`](CONVENTIONS.md), and
 `test/openapiContract.test.ts` enforces both plus the full generated document (verified to fail when
 a route is dropped).
+
+### `test/routeExamples.test.ts` — per-operation parameter pins (no shared count)
+
+`REMAINING_RESPONSES` is the single operation inventory, and every entry carries
+its own `parameterNames: string[]` record (including `[]` for parameterless
+operations). The parameter walker pins each operation's mounted query/path
+names against exactly that operation's record — a missing, extra or renamed
+parameter fails naming the operation and the name — then walks every mounted
+parameter for a schema-compatible example. The checked total is derived as the
+sum of the records, so adding a selector edits only its own operation's array:
+there is no shared integer for unrelated PRs to collide on, and the old
+hand-counted ledger is retired.
+
+The seam is load-bearing for `test/routeExamplesParameters.acceptance.test.ts`
+(the Node-pool oracle): it transpiles this module, swaps the inventory for
+tiny synthetic fixtures, and runs the two real callbacks, so keep the
+`REMAINING_RESPONSES` name, the `parameterNames` field, and the exact test
+names `pins the complete operation inventory of the remaining route modules`
+and `publishes schema-compatible examples for every query and path parameter`.
+Focused checks: `npx vitest run test/routeExamples.test.ts` for the mounted
+pins, `npx vitest run --config
+test/routeExamplesParameters.acceptance.config.ts` for the oracle in isolation.
 
 ---
 

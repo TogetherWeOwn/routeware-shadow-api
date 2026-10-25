@@ -64,6 +64,73 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored customer comment fragment (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `comments` accepts one fragment of at
+most 100 Unicode code points **before trimming** boundary whitespace. Blank
+within that limit means omitted, not an error. Repeated or overlength values
+return the existing value-free 400 after authentication and before any D1
+statement or conditional 304. For this field alone the fixed detail is:
+
+`Invalid request query (comments). Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. See docs/PROBLEMS.md#bad-request.`
+
+No fragment or unrelated unknown key is echoed or logged. A valid unmatched
+fragment returns a successful empty collection. SQLite folds only ASCII A-Z;
+non-ASCII case differences do not imply missing data. This is literal stored
+comment search, not company-name `q` search. See the
+[synthetic recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
+
+## Stored phone fragment (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `phone` is an optional ASCII
+case-insensitive substring of 1..100 Unicode code points over the stored
+`phone1`/`phone2` text; it may appear only once and must not be blank or
+whitespace-only. SQLite `lower()` folds A-Z only, so non-ASCII case variants
+match only on exact case. The fragment is never trimmed, normalized or
+digit-stripped, so nonblank whitespace and punctuation are significant.
+After authentication, invalid
+fragments return a stable, value-free 400 before D1 access or conditional
+304 success. Correct the named field to a single nonblank value within the
+limit, or omit it, then retry.
+
+The existing detail remains fixed, for example:
+`Invalid request query (phone). See docs/PROBLEMS.md#bad-request.`
+The field can instead be another invalid selector or multiple invalid
+fields; no supplied phone value is echoed or logged. A valid lookup with
+zero matches is a successful empty collection, not a validation error. See
+the [synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup).
+
+## Customer address presence (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send one `hasAddresses=true`, `false`
+or `any` (default), or omit the selector and retry. The enum is exact and
+case-sensitive: unknown, empty and repeated values fail after authentication
+and before D1 with the existing value-free 400. Detail for this field alone:
+
+`Invalid request query (hasAddresses). Send one hasAddresses=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. Zero matches is a successful empty
+collection. Disabled stored addresses count as present; customer `enabled`
+is independent. No mirrored child is not proof of no upstream site and never
+authorizes deletion, reconciliation or sync. See the
+[local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
+
+## Address container presence (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,
+case-sensitive enum: `true`, `false` or `any` (the default when omitted). Any
+other spelling — including blank, upper-case, numeric or comma-joined values —
+and any repeated key return the existing value-free 400 after authentication
+and before D1 access. Correct the field to one exact enum value, or omit it,
+then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasContainers). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error, and `false` means no
+currently mirrored child — not proof the upstream site is empty. See the
+[synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
@@ -134,6 +201,72 @@ Correct the value to one exact enum spelling, send it once, then retry; omit
 it only if no selector is intended. Authentication still precedes validation.
 Valid selectors that match no rows return 200 with an empty list. See the
 [selector policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-stored-extras-allowed-selector).
+
+## Exact stored address ZIP (`bad-request`)
+
+For `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, `zip`
+is an optional exact, case-sensitive opaque string of 1..100 Unicode code
+points over that resource's own stored `zip` column — not a number, prefix
+or substring. Container ZIP never falls back to the parent address. Leading zeros (for example
+`02139`) and nonblank whitespace are significant; do not trim, case-fold or
+numerically coerce it. Send the key once, URL-encoded.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (zip). See docs/PROBLEMS.md#bad-request.`
+Correct the named field's format, send it once, then retry; omit it only if
+no ZIP scope is intended. Authentication still precedes validation. A valid
+ZIP that matches no rows returns 200 with an empty list. See the
+[address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
+[container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
+
+## Exact stored container labels (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `materialStream` and `color`
+are case-sensitive opaque exact stored labels: 1..100 Unicode code points
+containing a non-whitespace character. `materialStream` selects
+`ud_material_stream_ud`; `color` selects `color`. Preserve significant
+whitespace, leading zeros and punctuation without trimming or normalization.
+No vocabulary or inferred waste category is defined.
+
+Empty, whitespace-only, repeated and overlength keys return the existing
+value-free 400 after authentication and before D1:
+`Invalid request query (materialStream). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `color` key). URL-encode one supported-length nonblank stored
+label, or omit the selector if no label scope is intended, then retry. Never
+log submitted labels. Valid unknown labels return an empty 200, not an error.
+See the [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels).
+
+## Exact stored address city and state (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, send each optional `city` or `state`
+key once as a nonblank, case-sensitive exact stored string of 1..100 Unicode
+code points. Empty, whitespace-only, repeated (even encoded duplicates)
+and overlength values return 400 before D1 or conditional 304; authentication
+remains first. Errors name fields, never submitted values:
+`Invalid request query (city). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `state`, or both. Correct the named field, URL-encode
+one nonblank value with `URLSearchParams` or curl `--data-urlencode`, and retry.
+Do not trim significant whitespace, normalize Unicode or abbreviations, or
+coerce numeric-looking strings. Omit a selector only if no such scope is
+intended. Valid no-match returns 200 empty, not an error; stored nulls never
+match supplied strings. See the
+[city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
+
+## Exact stored container installation (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode
+code points and `state` permits 1..100. Each optional key must occur once and
+contain a non-whitespace character. Empty/whitespace-only, repeated (including
+encoded duplicates) and overlength values fail after authentication but before
+D1 or conditional 304, with the existing value-free problem body. For example:
+`Invalid request query (locationAddress). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `state`, or both. URL-encode one nonblank stored value
+within the named limit or omit the key, then retry. Do not trim significant
+whitespace, change case, normalize Unicode/abbreviations or coerce leading zeros.
+No submitted value is echoed or logged. Valid no-match returns 200 empty.
+These selectors match only the container's own columns, never parent-address
+values; stored nulls never match. See the
+[exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
 
 ## Snapshot list direction (`bad-request`)
 

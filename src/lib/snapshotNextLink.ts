@@ -9,12 +9,22 @@ type SnapshotListQuery = {
   ids?: number[];
   serialNumber?: string;
   rfid?: string;
+  materialStream?: string;
+  color?: string;
   routeId?: number;
   franchiseId?: string;
+  zip?: string;
+  locationAddress?: string;
+  city?: string;
+  state?: string;
   q?: string;
+  phone?: string;
+  comments?: string;
   enabled: "true" | "false" | "any";
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
+  hasContainers?: "true" | "false" | "any";
+  hasAddresses?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -25,9 +35,9 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid"] }
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state"] },
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -59,6 +69,14 @@ export function snapshotNextLink(
   // Non-any only, like enabled: any/omission stays out of the canonical target.
   if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
     params.set("extrasAllowed", query.extrasAllowed);
+  }
+  // Address-only presence selector (other lists never set it): carry only
+  // filtering values so any/omitted continuations stay byte-identical.
+  if (query.hasContainers !== undefined && query.hasContainers !== "any") {
+    params.set("hasContainers", query.hasContainers);
+  }
+  if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
+    params.set("hasAddresses", query.hasAddresses);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

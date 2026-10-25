@@ -338,31 +338,235 @@ describe("OpenAPI example payloads", () => {
   });
 });
 
-const REMAINING_RESPONSES = [
-  ...["customer", "address", "container"].flatMap((entity) => [
-    { path: `/api/v1/${entity}-snapshot`, method: "get", mediaType: "application/json" },
-    {
-      path: `/api/v1/${entity}-snapshot/{${entity === "address" ? "pickupAddress" : entity}Id}`,
-      method: "get",
-      mediaType: "application/json"
-    },
-    { path: `/api/v1/${entity}-snapshot/export`, method: "get", mediaType: "text/csv" },
-    { path: `/api/v1/${entity}-snapshot/import`, method: "post", mediaType: "application/json" },
-    { path: `/api/v1/${entity}-snapshot/sync`, method: "post", mediaType: "application/json" },
-    { path: `/api/v1/data/${entity}`, method: "get", mediaType: "application/json" },
-    { path: `/api/v1/data/${entity}`, method: "post", mediaType: "application/json" }
-  ]),
-  { path: "/api/v1/snapshots/{table}/{date}", method: "get", mediaType: "text/csv" },
-  { path: "/api/v1/snapshots/{table}", method: "get", mediaType: "application/json" },
-  { path: "/api/v1/snapshots/{table}/latest", method: "get", mediaType: "text/csv" },
-  { path: "/api/v1/customer-snapshot/changes", method: "get", mediaType: "application/json" },
-  { path: "/api/v1/customer-snapshot/{customerId}", method: "delete", mediaType: "application/json" },
-  { path: "/api/v1/data-snapshot/sync", method: "post", mediaType: "application/json" },
-  { path: "/api/v1/data-snapshot/orphans", method: "get", mediaType: "application/json" },
-  { path: "/api/v1/routeware/home/index", method: "get", mediaType: "text/html" },
-  { path: "/api/v1/routeware/account/login-page", method: "get", mediaType: "text/html" },
-  { path: "/api/v1/routeware/data/app-settings-get", method: "post", mediaType: "application/json" },
-  { path: "/api/v1/routeware/reports/query-request-is-complete", method: "get", mediaType: "application/json" }
+type RemainingResponse = {
+  path: string;
+  method: string;
+  mediaType: string;
+  /**
+   * Expected query + path parameter names for exactly this operation, in
+   * mounted order; `[]` when the operation mounts none. Adding a selector
+   * edits only its own operation's array — the checked total below is
+   * derived as the sum of these records, so unrelated PRs never share an
+   * integer to collide on.
+   */
+  parameterNames: string[];
+};
+
+const REMAINING_RESPONSES: RemainingResponse[] = [
+  // Customer snapshot block.
+  {
+    path: "/api/v1/customer-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
+      "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields"
+    ]
+  },
+  {
+    path: "/api/v1/customer-snapshot/{customerId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["customerId", "fields"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/customer-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/customer",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "customerId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/customer",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Address snapshot block.
+  {
+    path: "/api/v1/address-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state", "q", "enabled", "extrasAllowed", "hasContainers",
+      "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields"
+    ]
+  },
+  {
+    path: "/api/v1/address-snapshot/{pickupAddressId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["pickupAddressId", "fields"]
+  },
+  {
+    path: "/api/v1/address-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/address-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/address-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/address",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "pickupAddressId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/address",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Container snapshot block.
+  {
+    path: "/api/v1/container-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "order", "fields"
+    ]
+  },
+  {
+    path: "/api/v1/container-snapshot/{containerId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["containerId", "fields"]
+  },
+  {
+    path: "/api/v1/container-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/container-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/container-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/container",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "containerId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/container",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Archive, changes, data-snapshot and Routeware operations.
+  {
+    path: "/api/v1/snapshots/{table}/{date}",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: ["table", "date"]
+  },
+  {
+    path: "/api/v1/snapshots/{table}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["table", "limit"]
+  },
+  {
+    path: "/api/v1/snapshots/{table}/latest",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: ["table"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/changes",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["since", "since_id", "limit", "fields"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/{customerId}",
+    method: "delete",
+    mediaType: "application/json",
+    parameterNames: ["customerId"]
+  },
+  {
+    path: "/api/v1/data-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun", "partialProgress"]
+  },
+  {
+    path: "/api/v1/data-snapshot/orphans",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["sampleLimit"]
+  },
+  {
+    path: "/api/v1/routeware/home/index",
+    method: "get",
+    mediaType: "text/html",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/account/login-page",
+    method: "get",
+    mediaType: "text/html",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/data/app-settings-get",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/reports/query-request-is-complete",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["requestID", "_"]
+  }
 ];
 
 const REMAINING_REQUESTS = [
@@ -402,31 +606,29 @@ describe("snapshot, data-entity and Routeware examples", () => {
   it("publishes schema-compatible examples for every query and path parameter", async () => {
     const doc = await fetchDoc();
     let checked = 0;
-    for (const { method, path } of REMAINING_RESPONSES) {
-      for (const parameter of op(doc, path, method).parameters ?? []) {
-        if (parameter.in !== "query" && parameter.in !== "path") continue;
+    for (const { method, path, parameterNames } of REMAINING_RESPONSES) {
+      const mounted = (op(doc, path, method).parameters ?? []).filter(
+        (parameter) => parameter.in === "query" || parameter.in === "path"
+      );
+      const mountedNames = mounted.map((parameter) => parameter.name);
+      for (const name of parameterNames) {
+        expect(mountedNames, `${method} ${path} ${name}`).toContain(name);
+      }
+      for (const parameter of mounted) {
+        expect(parameterNames, `${method} ${path} ${parameter.name}`).toContain(parameter.name);
         const example = parameter.example ?? parameter.schema?.example;
         expect(example, `${method} ${path} ${parameter.name}`).toBeDefined();
         assertValueMatchesSchema(parameter.schema!, example, `${path} ${parameter.name}`);
         checked++;
       }
     }
-    // 46 parameters before includeTotal; +3 for the opt-in on the three ordinary lists;
-    // +3 for the batch `ids` param on the three data-entity GETs.
-    // +6 for fields on the three lists and three details; +1 for partialProgress on the combined sync;
-    // +3 for fields on the three hydrated single-ID GETs; +3 for ids on the three ordinary lists;
-    // +9 for fields[customer]/fields[address]/fields[container] on those GETs (R20-02);
-    // +2 for exact customerNumber/subCustomerNumber on the ordinary customer list;
-    // +3 for order on the customer, address and container snapshot lists;
-    // +2 for routeId and franchiseId on the address snapshot list;
-    // +3 for dryRun on the three data-entity POST saves;
-    // +2 for table + limit on the archived-date listing;
-    // +1 for table on the latest-pointer readback;
-    // +1 for fields on the customer changes feed;
-    // +2 for serialNumber and rfid on the container snapshot list;
-    // +3 for upperId on the customer, address and container snapshot lists;
-    // +1 for extrasAllowed on the address snapshot list.
-    expect(checked).toBe(94);
+    // Derived from the per-operation records above: adding a selector edits
+    // only its own operation's array, never a shared integer.
+    const expected = REMAINING_RESPONSES.reduce(
+      (total, entry) => total + entry.parameterNames.length,
+      0
+    );
+    expect(checked).toBe(expected);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {

@@ -94,9 +94,11 @@ export default defineConfig({
           include: ["test/**/*.test.ts"],
           // snapshotExportMemory runs separately under vitest.memory.config.ts
           // (32 MiB heap ceiling with --expose-gc); it must stay out
-          // of the default suite, alongside the node-pool R2 proposal guard
-          // and the node-pool wrapper tests (deps-audit, coverage-ratchet,
-          // per-file-coverage).
+          // of the default suite, alongside the node-pool R2 proposal guard,
+          // the node-pool wrapper tests (deps-audit, coverage-ratchet,
+          // per-file-coverage) and the node-pool routeExamples parameter
+          // oracle (it reads the subject module from disk via node:fs and
+          // evaluates it in node:vm, both stubbed out in the workers pool).
           exclude: [
             "test/r2LifecycleProposalCheck.test.ts",
             "test/checkDepsAudit.test.ts",
@@ -104,6 +106,7 @@ export default defineConfig({
             "test/checkPerFileCoverage.test.ts",
             "test/dbSeedCliContract.acceptance.test.ts",
             "test/dbSeedTargetShape.test.ts",
+            "test/routeExamplesParameters.acceptance.test.ts",
             "test/snapshotExportMemory.test.ts",
           ],
         },
@@ -118,6 +121,7 @@ export default defineConfig({
             "test/checkPerFileCoverage.test.ts",
             "test/dbSeedCliContract.acceptance.test.ts",
             "test/dbSeedTargetShape.test.ts",
+            "test/routeExamplesParameters.acceptance.test.ts",
           ],
         },
       },
