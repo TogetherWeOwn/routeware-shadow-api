@@ -281,6 +281,46 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// The typed hydrated oracle owns ONLY these GET 200 schemas/examples and their
+// component closure. Other statuses, POSTs, parameters and unrelated components
+// remain golden-pinned. Shared components used by another operation stay pinned.
+function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const components = copy.components?.schemas ?? {};
+  const refs = (value: unknown, found = new Set<string>()): Set<string> => {
+    if (Array.isArray(value)) {
+      for (const item of value) refs(item, found);
+    } else if (value !== null && typeof value === "object") {
+      const node = value as Record<string, unknown>;
+      if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+        const name = node.$ref.slice("#/components/schemas/".length).replace(/~1/g, "/").replace(/~0/g, "~");
+        if (!found.has(name)) {
+          found.add(name);
+          refs(components[name], found);
+        }
+      }
+      for (const child of Object.values(node)) refs(child, found);
+    }
+    return found;
+  };
+  const owned = new Set<string>();
+  for (const kind of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/data/${kind}`].get as {
+      responses: Record<string, { content?: Record<string, Record<string, unknown>> }>;
+    };
+    const media = get.responses["200"].content?.["application/json"];
+    refs(media, owned);
+    if (media) {
+      media.schema = {};
+      delete media.example;
+      delete media.examples;
+    }
+  }
+  const shared = refs(copy.paths);
+  for (const name of owned) if (!shared.has(name)) delete components[name];
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -329,7 +369,7 @@ describe("published OpenAPI document", () => {
     // `{since, since_id}` cursor instead of the integer primary-key cursor.
     // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
     // integer/text/null columns.
-    expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+    expect(Object.keys(withoutHydratedBundleDeclarations(doc).components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
       "AddressSnapshotList",
@@ -551,11 +591,13 @@ describe("published OpenAPI document", () => {
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts;
-    // unrelated golden contracts stay pinned.
+    // Typed hydrated GET 200 declarations/examples move to the seeded semantic
+    // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
+    // Unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(doc)))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutHydratedBundleDeclarations(doc))))))).toMatchSnapshot();
   });
 });
 
