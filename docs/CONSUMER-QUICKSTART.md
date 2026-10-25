@@ -134,8 +134,10 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
-scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
+also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)) and
+mirrored-child `hasContainers=true|false|any` presence
+([synthetic present/absent recipe](#address-container-presence)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -276,6 +278,47 @@ For a custom synthetic local request, construct the query with
 Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
+
+### Address container presence
+
+Use the existing `listAddressSnapshot` operation to find mirrored service
+sites with (or without) equipment, without downloading child rows. Optional
+`hasContainers=true|false|any` (default `any`) selects by stored container
+presence: `true` keeps only addresses with at least one stored container
+sharing their `pickup_address_id`, `false` keeps only addresses with none.
+Presence counts every stored child including disabled containers; address
+`enabled` stays independent. Invalid, blank or repeated keys return the
+existing value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
+`false` means no currently mirrored child — not proof the upstream site is
+empty, and not authorization to delete or reconcile.
+
+Present-first multi-page recipe (synthetic local service, `$TOKEN` only):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=true&limit=1"
+# {"rows":[...],"total":3,"nextCursor":12} — follow the Link target unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=true&limit=1&cursor=12"
+# {"rows":[...],"total":2,"nextCursor":13} — stop on null nextCursor / no Link
+```
+
+Absent-first recipe over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=false&limit=2"
+# {"rows":[...],"total":3,"nextCursor":15} — Link carries hasContainers=false
+```
+
+The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#address-container-presence)
+pins the AND-composition with every other filter, byte-identical `any`/omitted
+behavior, count-free zero-COUNT mode and sparse/conditional reads. Run
+`npm run check:address-container-presence` for the hermetic local-D1 contract:
+real D1 fixtures with zero, one, multiple and disabled-only children prove
+exact membership, cursor-relative totals, both seek directions and Link
+round-trips through terminal and empty pages. These checks are not deployed
+performance evidence.
 
 ### Address street or locality search
 

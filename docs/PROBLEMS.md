@@ -80,6 +80,22 @@ no classification filter is intended. Authentication still precedes
 validation. A valid selector with no match returns 200 with an empty list.
 See the [classification policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
 
+## Address container presence (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,
+case-sensitive enum: `true`, `false` or `any` (the default when omitted). Any
+other spelling — including blank, upper-case, numeric or comma-joined values —
+and any repeated key return the existing value-free 400 after authentication
+and before D1 access. Correct the field to one exact enum value, or omit it,
+then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasContainers). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error, and `false` means no
+currently mirrored child — not proof the upstream site is empty. See the
+[synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)

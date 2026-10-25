@@ -12,9 +12,36 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+
+## Address container presence
+
+Only the address list recognizes `hasContainers`, an optional mirrored-child
+presence selector: `true` keeps only addresses with at least one stored
+container row sharing their `pickup_address_id`, `false` keeps only addresses
+with none, and `any` (the default when omitted) adds no predicate. Presence is
+a correlated `EXISTS` over the child's existing `pickup_address_id` index — no
+join, no per-row lookup, no child payload — and counts every stored child
+including disabled containers. Address `enabled` stays an independent filter.
+`false` means no currently mirrored child: it is not proof the upstream site
+is empty, and not authorization to delete or reconcile anything.
+
+The enum is exact and case-sensitive; invalid, blank or repeated keys fail
+with the existing value-free 400 after authentication and before D1. The
+predicate AND-composes with `customerId`, `pickupAddressId`, `ids`, `routeId`,
+`franchiseId`, `q`, `enabled` and the cursor in both COUNT and page SQL, with
+unchanged cursor-relative totals, offset/seek behavior, count-free zero-COUNT
+mode, sparse fieldsets and conditional reads. Filtering values round-trip in
+continuation Links; `any`/omitted leaves continuations unchanged. See the
+[synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-container-presence-predicate-audit).
+Pinned by `test/addressContainerPresence.acceptance.test.ts`; run
+`npm run check:address-container-presence` for the hermetic local-D1 contract
+and relevant list/link/conditional regressions, with no live credentials or
+upstream calls.
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.

@@ -256,6 +256,24 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// Mirrored-child presence selection (`hasContainers`) has semantic checks in
+// the Test Author-owned addressContainerPresence.acceptance.test.ts, not
+// frozen as a speculative parameter position. The address description and 400
+// prose are already projected out above; only the new selector moves to
+// behavioral ownership here. All legacy parameters stay frozen.
+function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "hasContainers"
+    );
+  }
+  return copy;
+}
+
 // Exact identifiers supersede this route's old query/error narrative. Their
 // schema, composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
@@ -625,7 +643,7 @@ describe("published OpenAPI document", () => {
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     // The customer list's customerTypeId selector and filter/error prose move
     // to customerTypeFilter.acceptance.test.ts the same way.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutHydratedBundleDeclarations(doc)))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc))))))))).toMatchSnapshot();
   });
 });
 
