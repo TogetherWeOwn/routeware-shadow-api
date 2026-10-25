@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Follow-up to #385: Container snapshot lists accept exact stored
+  `locationAddress` (1..200 Unicode code points) and `state` (1..100).
+  Case-sensitive opaque values preserve significant whitespace and leading
+  zeros; no parent fallback or normalization. Bound AND scopes and encoded
+  next Links preserve count-free, sparse and ETag/304 contracts. Invalid or
+  repeated values fail value-free before D1. No index/migration or live-location
+  claim; unscoped reads scan. Synthetic recipe: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:container-exact-location`.
+
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
   Unicode code points and nonblank; significant whitespace and punctuation

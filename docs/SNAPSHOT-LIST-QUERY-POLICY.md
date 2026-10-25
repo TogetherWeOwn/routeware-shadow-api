@@ -13,7 +13,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 ## Customer address presence
@@ -315,6 +315,39 @@ GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is
 not applicable. Run `npm run check:container-locality` for independent fixtures,
 auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
+
+## Exact stored container installation
+
+Only the existing container list accepts `locationAddress` (1..200 Unicode code
+points) and `state` (1..100). Each optional selector is one case-sensitive exact
+opaque string containing a non-whitespace character. Significant whitespace,
+punctuation, leading zeros and Unicode are preserved, never trimmed, case-folded
+or normalized. Empty/whitespace-only, repeated and overlength values fail before
+D1 with the existing value-free `application/problem+json` 400 after auth.
+URL-encode one nonblank stored value within the named limit or omit the key,
+then retry; never log raw selectors. See [error guidance](PROBLEMS.md#exact-stored-container-installation-bad-request).
+
+Bound `c.location_address = ?` and `c.state = ?` predicates use only the
+container's own columns on both customer-join and no-join paths: no parent
+fallback, null matching, substring search or geographic inference. Quotes, `%`
+and `_` are literal data. This differs from `q`, which trims and searches
+location/serial/city/zip substrings with ASCII case folding, never state.
+
+Both selectors AND-compose with one another, `q`, `zip`, identifiers, IDs,
+`enabled`, cursor and `upperId`. COUNT and page share predicates/binds;
+`includeTotal=false` still emits zero COUNTs. Duplicate matches remain separate
+canonical `container_id` rows. Sparse fields, envelope and ETag/304 semantics
+are unchanged. Relative next Links preserve both encoded exact strings in asc
+and desc, including offset-to-seek and upperId-bound traversal; unknown keys,
+request origin and credentials are never copied.
+
+There is no dedicated location/state index or migration. Unscoped exact-column
+reads scan stored rows; existing ID, enabled or join scopes may narrow work.
+Synthetic local D1 EXPLAIN checks assert executable SQL and unscoped scans,
+not production latency. GET is idempotent/local-read; CLI `--dry-run` is N/A.
+No upstream, R2, browser or write work occurs. Run
+`npm run check:container-exact-location` for the immutable oracle and regressions.
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#exact-stored-container-installation).
 
 ## Exact container asset lookup
 
