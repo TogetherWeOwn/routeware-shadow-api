@@ -17,6 +17,7 @@ type SnapshotListQuery = {
   // address lists share this query shape without defining these keys.
   onCall?: "true" | "false" | "any";
   gpsLocked?: "true" | "false" | "any";
+  hasContainers?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -62,6 +63,11 @@ export function snapshotNextLink(
   // by omission, exactly like `enabled=any`.
   if (query.onCall !== undefined && query.onCall !== "any") params.set("onCall", query.onCall);
   if (query.gpsLocked !== undefined && query.gpsLocked !== "any") params.set("gpsLocked", query.gpsLocked);
+  // Address-only presence selector (other lists never set it): carry only
+  // filtering values so any/omitted continuations stay byte-identical.
+  if (query.hasContainers !== undefined && query.hasContainers !== "any") {
+    params.set("hasContainers", query.hasContainers);
+  }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the
   // continuation cannot escape the traversal the caller chose to bound.
