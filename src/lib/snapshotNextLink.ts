@@ -33,6 +33,7 @@ type SnapshotListQuery = {
   // default-valued targets stay byte-identical while explicit values round-trip.
   order?: "asc" | "desc";
   includeTotal?: "true" | "false";
+  strictQuery?: "true" | "false";
 };
 
 const LISTS = {
@@ -44,7 +45,7 @@ const LISTS = {
 export const snapshotNextLinkHeader = {
   description:
     'Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. ' +
-    "Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. " +
+    "Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. " +
     "A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
   required: false,
   schema: { type: "string" as const }
@@ -87,6 +88,8 @@ export function snapshotNextLink(
   // Direction travels with the cursor: an explicitly requested order is echoed
   // so desc traversals continue downward; omitted order keeps the asc default.
   if (query.order !== undefined) params.set("order", query.order);
+  // Keep opt-in typo detection; false/default must not change legacy targets.
+  if (query.strictQuery === "true") params.set("strictQuery", "true");
   // Continuations always seek, even when the first request used an offset.
   params.set("cursor", String(nextCursor));
   return `<${list.path}?${params.toString()}>; rel="next"`;
