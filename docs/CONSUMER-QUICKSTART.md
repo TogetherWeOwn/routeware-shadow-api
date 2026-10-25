@@ -135,8 +135,9 @@ curl -H "Authorization: Bearer $TOKEN" \
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
-scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)) and
-mirrored-child `hasContainers=true|false|any` presence
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
+an exact stored `zip` selector ([synthetic ZIP-page recipe](#exact-stored-address-zip))
+and mirrored-child `hasContainers=true|false|any` presence
 ([synthetic present/absent recipe](#address-container-presence)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
@@ -246,6 +247,47 @@ Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
 
+### Exact stored address ZIP
+
+Use the existing `listAddressSnapshot` operation to read mirrored sites
+in one postcode across bounded pages. Follow each returned Link to read every
+match. Optional `zip` is an opaque,
+case-sensitive exact string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Preserve leading zeros
+(`02139` never becomes `2139`) and nonblank whitespace; URL-encode the value
+rather than interpolating it into a URL. The selector intersects by AND with
+`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, street/locality `q`,
+`enabled` and the cursor in both the page and the count. Blank, repeated or
+overlength values return the existing value-free 400 before D1
+([correction guidance](PROBLEMS.md#bad-request)); a valid ZIP with no matches
+returns 200 empty. Stored nulls never match a supplied value.
+
+Synthetic ZIP-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-zip
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?zip=02139&fields=zip&limit=2&includeTotal=false`.
+Its first IDs are `10,20`, next IDs `30,50`, then `120,130`; it follows each
+returned Link unchanged and stops after the final empty page. Every row keeps
+its address ID with the exact stored ZIP, `total` is null and each page
+executes one SELECT with no COUNT. The counted offset/seek cases retain
+cursor-relative totals and pickup-address-ID order in both directions. Other
+fixtures prove case/leading-zero distinction, padding and embedded whitespace
+as data, 100-code-point astral and ASCII boundaries, SQL-looking input that
+cannot widen selection, literal `%`/`_`, null exclusion and encoded
+Unicode/reserved characters. Network-deny and read-only D1/R2 doubles fail on
+unexpected side effects. No upstream lookup or write is added.
+
+For a custom synthetic local request, construct the query with
+`new URLSearchParams({ zip: "02139" })` and use the
+[same-origin next-page loop](#follow-the-servers-next-page-target) below.
+The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
+or rows. Authentication, no-store, ETags and existing count semantics remain
+unchanged. These checks are not deployed performance evidence.
+
 ### Address container presence
 
 Use the existing `listAddressSnapshot` operation to find mirrored service
@@ -298,7 +340,7 @@ longer than 100 Unicode code points, or a repeated `q` key, is the existing
 value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
 Quotes, `%`, `_` and Unicode are literal bound data, never wildcards; leading
 zeros in postcodes are significant. The grouped OR intersects by AND with
-`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, `enabled` and cursor
+`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, exact `zip`, `enabled` and cursor
 predicates, and the trimmed needle round-trips in follow-next `Link` targets.
 
 Locality search is **not** an exact postal or geographic scope filter: a
