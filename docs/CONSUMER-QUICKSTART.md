@@ -408,6 +408,44 @@ The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
 or rows. Authentication, no-store, ETags and existing count semantics remain
 unchanged. These checks are not deployed performance evidence.
 
+### Exact stored container stream/color labels
+
+Use `listContainerSnapshot` with optional `materialStream` (stored
+`ud_material_stream_ud`) and/or `color` (stored `color`) to select a known
+inventory label without downloading every container. These are opaque,
+case-sensitive exact strings of 1..100 Unicode code points containing a
+non-whitespace character, not inferred waste categories or a vocabulary.
+Preserve leading zeros, significant whitespace and punctuation. URL-encode
+one supported-length nonblank label per key, or omit the selector and retry
+if no label scope is intended. Empty, whitespace-only, repeated or overlength
+keys fail value-free after authentication and before D1; valid unknown labels
+return an empty 200. Null never matches a supplied label.
+
+Agent-runnable synthetic recipe, no service/credentials needed:
+
+```bash
+npm run check:container-labels
+```
+
+The fixture's `materialStream=001&color=Blue&fields=color&limit=1&includeTotal=false`
+request returns ID 101, then 104 and 105 by following the server's same-origin
+Link unchanged, then an empty terminal page. Labels AND-intersect with each
+other and every existing filter, on both customer-join paths. Significant
+whitespace, quotes, `%`, `_` and Unicode survive encoded next links. For a
+custom local fixture, use
+`new URLSearchParams({ materialStream: "001", color: "Blue" })`; do not
+interpolate labels or reconstruct continuation URLs. Sparse `fields` uses
+`ud_material_stream_ud` for the stream column, not `materialStream`.
+
+`includeTotal=false` performs zero COUNTs; canonical IDs, `upperId`, ascending
+and descending traversal, no-store and representation ETags remain unchanged.
+Equality may scan: no index or performance guarantee is added. GET is an
+idempotent local-read; CLI `--dry-run` is N/A. The recipe uses synthetic local
+D1 and denies unexpected network/R2/browser/writes; it is not deployment,
+adoption or performance evidence. See the
+[label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels) and
+[400 recovery](PROBLEMS.md#exact-stored-container-labels-bad-request).
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an
