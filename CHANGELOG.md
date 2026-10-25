@@ -17,6 +17,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic recipe: `npm run check:address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
 
+- #368: Test-only: `test/routeExamples.test.ts` pins expected query/path
+  parameter names per operation beside the pinned operation inventory instead
+  of one hand-counted global total; the checked total is derived as the sum
+  of the per-operation records, and a missing, extra or renamed parameter
+  fails naming the operation and the name. Adding a selector now edits only
+  its own operation's record, so unrelated selector PRs no longer collide on
+  a shared integer. No route, runtime, docs-rendering, workflow or migration
+  change. Focused checks: `npx vitest run test/routeExamples.test.ts` and
+  `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
@@ -305,6 +314,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
+
+- #373: The existing customer `changes` feed
+  (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows
+  (`CustomerSnapshotChangesRow` in `/openapi.json`): every stored customer
+  column with storage-faithful integer/text/null types. `customer_id` and
+  `synced_at` are always required (replay/cursor identity); every other
+  column is optional with stored nullability. The schema describes full
+  rows: sparse `fields=` pages carry only the resource id plus the selector.
+  Stored flags stay integers (`enabled` is `0`/`1`, never boolean);
+  text carries no invented format/enum/minimum promises. `total` documents
+  its returned-page-length meaning and `nextCursor` its composite-resume
+  meaning; operationId, headers, examples and response codes are unchanged.
+  Served bytes, SELECTs, cursors, auth and query behavior are unchanged.
+  Synthetic resume recipe: `docs/CONSUMER-QUICKSTART.md` §2c; focused check:
+  `npm run check:customer-changes-delta`.
 
 ## [1.0.0] - 2026-10-22
 
