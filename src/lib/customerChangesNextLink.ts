@@ -6,7 +6,7 @@ export const customerChangesNextLinkHeader = {
   ...snapshotNextLinkHeader,
   description:
     'Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. ' +
-    "Replaces since and since_id together and retains the effective limit and the validated fields selector. " +
+    "Replaces since and since_id together and retains the effective limit, the normalized until bound and the validated fields selector. " +
     "A full terminal page may link to an empty page (no lookahead). Omission means stop. " +
     "Resolve against the same origin and fixed /api/v1/customer-snapshot/changes path."
 };
