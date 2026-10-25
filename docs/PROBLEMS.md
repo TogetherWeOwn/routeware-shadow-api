@@ -35,6 +35,27 @@ fields/filters even with `If-None-Match: *`.
 fields, never submitted values; no row-payload query or COUNT runs on rejection.
 See the [mode comparison](SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection).
 
+## Opt-in list query keys (`bad-request`)
+
+Only the three ordinary flat snapshot lists accept `strictQuery=true|false`
+(default false). With `true`, any decoded query name outside the mounted
+resource's schema returns 400 after authentication and before D1 or 304.
+The problem has only type/title/status/detail, with fixed detail:
+
+```text
+Unknown query parameter. Use supported query names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. See docs/PROBLEMS.md#bad-request.
+```
+
+Use supported names from that operation's OpenAPI parameters, remove unknown
+keys, or deliberately set `strictQuery=false`. Submitted names/values never
+appear in this problem or app logs. Empty, invalid or repeated strictQuery
+(including encoded duplicates and mixed true/false) instead fails normal
+value-free query validation; send one exact lowercase true or false, or omit
+it. Known invalid controls remain invalid in either mode. Validated true is
+retained in relative continuation Links; false/default is omitted. Other
+operations retain their own existing query policies. See the
+[local synthetic recipe](CONSUMER-QUICKSTART.md#opt-in-query-typo-detection).
+
 ## Hydrated read IDs (`bad-request`)
 
 For `GET /api/v1/data/customer|address|container`, supply `id` or the route's
@@ -162,7 +183,10 @@ Each route names its own alias. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#hydrated-entity-reads-are-strict).
-GET lists keep ignoring unknown names; only entity reads are strict.
+The three ordinary flat snapshot lists ignore unknown names by default and
+reject them when `strictQuery=true` (see [Opt-in list query keys](#opt-in-list-query-keys-bad-request)).
+Changes-feed and other operations retain their existing query policies;
+hydrated entity reads remain strict.
 
 ## Customer changes cursor (`bad-request`)
 
@@ -391,7 +415,9 @@ The combined route names both keys. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#mutating-post-query-keys-are-strict).
-GET lists keep ignoring unknown names; only POSTs are strict.
+Ordinary flat snapshot lists ignore unknown names by default, with
+`strictQuery=true` for opt-in rejection; changes-feed and other operations
+retain their existing query policies. These mutating POSTs are always strict.
 
 ## Dangling snapshot references (`bad-request`)
 
