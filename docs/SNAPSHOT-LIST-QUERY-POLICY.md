@@ -12,7 +12,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
@@ -214,6 +214,39 @@ and [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#exact-stored-ad
 Run `npm run check:address-zip` for the hermetic local-D1 contract and
 relevant list/link/conditional/auth/OpenAPI regressions; no live credentials
 or upstream calls.
+
+## Exact stored address city and state
+
+Only the address list recognizes `city` and `state`. Each is optional and
+independent: one exact, case-sensitive opaque string of 1..100 Unicode code
+points with at least one non-whitespace character. Nonblank whitespace,
+punctuation and Unicode spelling remain significant; no trimming, numeric
+coercion, abbreviation conversion, enum or geographic inference occurs.
+Empty, whitespace-only, repeated (including encoded duplicate keys) and
+overlength values return the existing value-free 400 after authentication
+and before D1 or a conditional 304. URL-encode one nonblank value for each
+intended selector and retry; see [correction guidance](PROBLEMS.md#bad-request).
+
+Bound `city = ?` and `state = ?` predicates AND-compose with each other,
+`zip`, `routeId`, `franchiseId`, `customerId`, `pickupAddressId`, `ids`, `q`,
+`enabled`, `hasContainers` and cursor/`upperId` bounds. Page and COUNT share
+the same predicates and binds. Omission changes nothing; stored nulls never
+match supplied strings, and valid no-match returns 200 empty. The existing
+`q` still searches street/city/zip substrings, not state or exact locality.
+
+City/state-only equality may scan without a dedicated index; no index,
+migration or performance claim is added. This GET is idempotent/local-read,
+not an upstream lookup or write; CLI `--dry-run` is N/A. Canonical IDs,
+sparse fields, offset/seek in either direction, cursor-relative totals,
+count-free zero-COUNT mode and representation ETags/304 remain unchanged.
+Next Links retain both validated values with URLSearchParams encoding,
+including significant whitespace and punctuation, and still replace cursor
+and drop offset without copying unknown keys or raw URLs.
+
+Run `npm run check:address-city-state` for the protected real local-D1
+acceptance oracle and neighboring contracts. The
+[encoded consumer recipe](CONSUMER-QUICKSTART.md#exact-stored-address-city-and-state)
+uses synthetic values only, with no live credentials or network probes.
 
 ## Address street or locality search
 
