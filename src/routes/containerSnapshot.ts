@@ -1,5 +1,6 @@
 import { createRoute, z } from "@hono/zod-openapi";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
+import { containerSnapshotListResponse, containerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
@@ -41,7 +42,6 @@ import {
   rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse,
   parsePositiveIdParam,
   snapshotWriteResultExample
 } from "./shared";
@@ -114,7 +114,7 @@ const containerSnapshotListRoute = createRoute({
       headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
-          schema: snapshotListResponse,
+          schema: containerSnapshotListResponse,
           example: { rows: [containerRowExample], total: 1, nextCursor: null }
         }
       }
@@ -315,7 +315,7 @@ const containerSnapshotByIdRoute = createRoute({
       description: "Row",
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown()),
+          schema: containerSnapshotRowSchema,
           example: containerRowExample
         }
       }
