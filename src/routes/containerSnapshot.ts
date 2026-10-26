@@ -7,6 +7,7 @@ import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeEx
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -123,6 +124,7 @@ const containerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 99 }),
+      lowerId: snapshotLowerIdQuery,
       upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
@@ -252,6 +254,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive floor on the container primary key (never the
+  // joined address key): a fixed bound shared with the COUNT below through
+  // the same where/binds. A descending cursor at or below the floor matches
+  // nothing; ascending seeks retain this same inclusive floor.
+  if (p.lowerId !== undefined) {
+    where.push("c.container_id >= ?");
+    binds.push(p.lowerId);
   }
   // Caller-held inclusive ceiling on the container primary key (never the
   // joined address key): a fixed bound shared with the COUNT below through
