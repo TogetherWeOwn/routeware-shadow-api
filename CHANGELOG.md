@@ -24,6 +24,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   migration or performance promise. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-cost-share-enclosure`.
+- #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
+  `streetAddress` binds case-sensitive equality on the stored `address`,
+  returning all matching site IDs rather than partial-street/city/ZIP matches.
+  One nonblank opaque value of 1..200 Unicode code points preserves whitespace,
+  punctuation and leading zeros. Invalid/repeated values fail value-free
+  before D1 with a fixed retry action. AND composition, counted/count-free
+  pagination, sparse fields and ETags/304 remain compatible; relative next
+  links retain the encoded street. No normalization, postal verification,
+  geocoding, uniqueness, index/migration or upstream lookup is added; equality
+  may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
+  `npm run check:address-street-exact`.
 - #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
@@ -39,6 +50,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   after read-role authentication. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-type-filter`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
