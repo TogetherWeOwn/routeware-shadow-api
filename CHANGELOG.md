@@ -5,6 +5,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+  (stored `extras_allowed` = 1/0/no predicate) and opaque exact
+  `addressLastAuditDate` (1..100 Unicode code points, nonblank,
+  case-sensitive and verbatim, never date-parsed). Both AND with existing
+  route/franchise/site-state scopes inside one same-address EXISTS:
+  split-site matches are excluded and multiple matching sites never duplicate
+  accounts. Null audit text never matches; valid unknown text is an empty
+  200. Extras is a mirrored service-policy marker, not billing authorization;
+  audit is report data, not compliance, certification or proof an audit occurred.
+  Shared COUNT/page predicates, COUNT-only/count-free modes, sparse fields,
+  ETags/304 and bidirectional relative next Links are preserved. Malformed,
+  blank, overlength or repeated decoded keys fail value-free after auth and
+  before D1/304. No writes, new index/migration or latency promise. Local
+  recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
+  check: `npm run check:customer-address-service-policy`.
+
 - #423: Address snapshot lists accept optional `syncedSince` (strict `synced_at >`)
   and `syncedUntil` (inclusive `synced_at <=`) filters. Both reuse the customer
   changes feed's lossless UTC-Z timestamp validation and normalize seconds or
@@ -17,6 +33,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   windows and overlap do not promise completeness or snapshot isolation. No new
   index or migration; scans remain possible. See the finite-window recipe in
   `docs/CONSUMER-QUICKSTART.md` and `npm run check:address-synced-window`.
+
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
