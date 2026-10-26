@@ -196,6 +196,37 @@ merged street-or-locality search now groups address/city/zip OR predicates
 with three identical bound needles; `extras_allowed` remains a literal AND
 predicate shared by COUNT and page reads.
 
+## Customer service-site cohort predicate audit
+
+**Run date:** 2026-10-26. In-memory Node 24.22.1 `node:sqlite` with all
+committed D1 migrations and 4 synthetic customers / 5 synthetic addresses
+(matching, split-child and disabled decoys; no tenant data). Used the
+customer route's COUNT template and SELECT template with the cohort
+`EXISTS`, bound route/franchise/enabled scopes, `ORDER BY customer_id`
+with both seek and OFFSET pagination. The child side used the existing
+index in every shape:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `COUNT` with full cohort scope | `SCAN customer_snapshot`, then `SEARCH address_snapshot EXISTS USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `SELECT` seek (`customer_id > ?`) | `SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid>?)`, then the same child `SEARCH ... EXISTS` |
+| `SELECT` OFFSET | `SCAN customer_snapshot`, then the same child `SEARCH ... EXISTS` |
+
+The cohort scope is one customer-correlated `EXISTS` with bound equality
+placeholders, never interpolation, LIKE, a join or a deduplication step.
+COUNT and page share identical predicates/binds; pagination binds follow
+only on SELECT. The executable
+`test/customerAddressCohorts.acceptance.test.ts` independently records
+every actual handler SELECT/bind against real local test D1, runs EXPLAIN
+on both emitted statements, and asserts same-child membership,
+contradictions, read-only execution and denied network. Run
+`npm run check:customer-address-cohorts` to repeat that bounded check.
+
+Unscoped outer reads scan; this feature bounds returned data, not query
+cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.
