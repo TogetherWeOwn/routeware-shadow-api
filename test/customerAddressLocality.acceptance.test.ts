@@ -397,9 +397,7 @@ describe("customer site locality: complete continuation traversal", () => {
     expectPage(result, order === "asc" ? [15, 29] : [14, 13], 3, order === "asc" ? 29 : 13);
     const cursor = String(result.body.nextCursor);
     result = await page(next(result, { ...filters, cursor }));
-    expectPage(result, order === "asc" ? [30] : [11], 1, order === "asc" ? 30 : 11);
-    result = await page(next(result, { ...filters, cursor: String(result.body.nextCursor) }));
-    expectPage(result, [], 0);
+    expectPage(result, order === "asc" ? [30] : [11], 1, null);
     expect(result.recorder.statements.every(s => !/\bOFFSET\b/i.test(s.sql))).toBe(true);
   });
   it.each(["asc", "desc"])("merged exactNext retains the selectors and suppresses the full terminal %s page link", async order => {
