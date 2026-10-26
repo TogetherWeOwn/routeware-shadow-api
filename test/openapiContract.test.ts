@@ -419,14 +419,16 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
-// Exact identifiers, stored labels, installation selectors and parent scopes
-// supersede this route's old query/error narrative. Their schemas, composition
-// and error discovery are asserted independently in
+// Exact identifiers, stored labels, installation selectors, parent scopes and
+// serial/RFID presence supersede this route's old query/error narrative. Their
+// schemas, composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
-// containerExactLocation.acceptance.test.ts and
-// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
-// parameter position. All legacy parameters and unrelated operations remain frozen.
+// containerExactLocation.acceptance.test.ts,
+// containerParentScopes.acceptance.test.ts and
+// containerSerialRfidPresence.acceptance.test.ts, not frozen as speculative
+// prose or parameter position. All legacy parameters and unrelated operations
+// remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -441,7 +443,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -787,7 +789,9 @@ describe("published OpenAPI document", () => {
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts; the three
-    // parent selectors move to containerParentScopes.acceptance.test.ts.
+    // parent selectors move to containerParentScopes.acceptance.test.ts; the two
+    // serial/RFID presence selectors move to
+    // containerSerialRfidPresence.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
