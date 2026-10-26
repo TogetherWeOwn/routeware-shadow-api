@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `costShare`, `enclosureDoors`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -887,6 +887,45 @@ production latency. GET is idempotent/local-read; CLI `--dry-run` is N/A. No
 upstream, R2, browser or write work occurs. Run
 `npm run check:container-exact-city` for the immutable oracle and regressions.
 See the [synthetic city-vs-`q` recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
+
+## Exact stored container report texts
+
+Only the existing container list accepts `costShare` and `enclosureDoors`:
+each is one optional case-sensitive exact opaque string of 1..100 Unicode
+code points containing a non-whitespace character. `costShare` binds
+`c.ud_cost_share_ud = ?` and `enclosureDoors` binds
+`c.ud_enclosure_doors_ud = ?` on the container's own row; the two columns
+are fully independent and never spill into each other. Significant
+whitespace, punctuation, leading zeros and Unicode are preserved, never
+trimmed, case-folded or normalized. Numeric-looking or percent-looking text
+is opaque data: `50` and `50%` are different values, never parsed, summed
+or read as a billing split. These are mirrored report texts only — never a
+cost-share agreement, invoice allocation, enclosure compliance or access
+truth — and missing text includes report/detail gaps, never proof of no
+sharing arrangement or no enclosure. Empty/whitespace-only, repeated and
+overlength values fail before D1 with the existing value-free
+`application/problem+json` 400 after auth. URL-encode one nonblank stored
+value within the limit or omit the key, then retry; never log raw
+selectors. See [error guidance](PROBLEMS.md#exact-stored-container-report-texts-bad-request).
+
+The two selectors AND-compose with each other and with every other
+container filter: identifiers, labels, service-code parts, `zip`,
+`locationAddress`, `city`, `state`, parent scopes, IDs, `enabled`, `q`,
+cursor and `upperId`. COUNT and page share predicates/binds;
+`includeTotal=false` still emits zero COUNTs and `countOnly` stays
+COUNT-only. Duplicate matches remain separate canonical `container_id`
+rows. Sparse fields, envelope and ETag/304 semantics are unchanged.
+Relative next Links preserve the encoded exact texts in asc and desc,
+including offset-to-seek and upperId-bound traversal; unknown keys,
+request origin and credentials are never copied.
+
+There is no dedicated index or migration for these columns. Unscoped
+exact-text reads scan stored rows; existing ID, enabled or join scopes may
+narrow work. Synthetic local D1 EXPLAIN checks assert executable SQL and
+unscoped scans, not production latency. GET is idempotent/local-read; CLI
+`--dry-run` is N/A. No upstream, R2, browser or write work occurs. Run
+`npm run check:container-cost-share-enclosure-texts` for the immutable
+oracle and regressions. See the [synthetic recipe](CONSUMER-QUICKSTART.md#exact-stored-container-report-texts).
 
 ## Exact container asset lookup
 

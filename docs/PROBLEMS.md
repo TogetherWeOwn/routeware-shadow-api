@@ -522,6 +522,27 @@ is a trimmed substring over location/serial/city/zip. See the
 [exact city policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city)
 and [city recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
 
+## Exact stored container report texts (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `costShare` and
+`enclosureDoors` are each one case-sensitive exact opaque string of 1..100
+Unicode code points containing a non-whitespace character.
+Empty/whitespace-only, repeated (including encoded duplicates) and
+overlength values fail after authentication but before D1 or conditional
+304, with the existing value-free problem body naming the field only, for
+example `costShare`; no submitted value is echoed or logged. URL-encode
+one nonblank stored value within the limit or omit the key, then retry.
+Do not trim significant whitespace, change case, normalize Unicode, coerce
+leading zeros, or parse numeric-looking or percent-looking text as a
+number or billing split. Valid no-match returns 200 empty. Each selector
+matches only its own container column (`c.ud_cost_share_ud` or
+`c.ud_enclosure_doors_ud`); stored nulls never match. Mirrored report
+texts only — never a cost-share agreement, invoice allocation, enclosure
+compliance or access truth; missing text includes report/detail gaps,
+never proof of no sharing arrangement or no enclosure. See the
+[report-text policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-report-texts)
+and [report-text recipe](CONSUMER-QUICKSTART.md#exact-stored-container-report-texts).
+
 ## Snapshot list direction (`bad-request`)
 
 For the three ordinary snapshot lists, send exactly one lowercase

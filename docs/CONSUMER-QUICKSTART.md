@@ -519,6 +519,46 @@ retry. These idempotent local GETs do no upstream/R2/write work; CLI
 equality scans. Run `npm run check:container-exact-city` with synthetic local
 D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city).
 
+### Exact stored container report texts
+
+Select equipment by one exact mirrored cost-share or enclosure-door text
+with `costShare` and `enclosureDoors` on the existing container list: each
+is one nonblank case-sensitive opaque exact string of 1..100 Unicode code
+points. `costShare` reads only `ud_cost_share_ud` and `enclosureDoors`
+reads only `ud_enclosure_doors_ud`; identical text in the other column
+never matches. Leading zeros, case, punctuation and significant whitespace
+are preserved; null never matches. Numeric-looking text stays opaque:
+`costShare=50` and `costShare=50%` select different cohorts and neither is
+parsed or summed. These are mirrored report texts only, not billing or
+enclosure truth — see the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-report-texts).
+
+Synthetic local fixture: containers 10, 40 and 280 store `50` / `2` under
+customer 1; a `50%` row, a swapped-column row and null/blank rows are
+excluded:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&costShare=50&enclosureDoors=2&fields=enabled&limit=1&includeTotal=false
+{"rows":[{"container_id":10,"enabled":1}],"total":null,"nextCursor":10}
+Link: </api/v1/container-snapshot?customerId=1&costShare=50&enclosureDoors=2&fields=enabled&limit=1&includeTotal=false&cursor=10>; rel="next"
+```
+
+Follow that relative Link unchanged against the same origin: the next page
+has container 40, `nextCursor:40` and a further Link. Both selectors
+intersect by AND with each other and with identifiers, labels,
+service-code parts, locality, parent scopes, IDs, `enabled`, `q` and
+`upperId`; `order=desc` reverses traversal and offset starts continue by
+seek. Counts are cursor-relative when requested; sparse fields and
+conditional ETags/304 work unchanged.
+
+Use `new URLSearchParams({ costShare: "50%", enclosureDoors: "02" })` to
+keep reserved characters literal; never concatenate raw data or log query
+values. Invalid/repeated/overlength selectors return value-free 400 before
+D1. URL-encode one nonblank stored value within the limit or omit the key,
+then retry. These idempotent local GETs do no upstream/R2/write work; CLI
+`--dry-run` is N/A. No index/migration or latency claim: unscoped text
+equality scans. Run `npm run check:container-cost-share-enclosure-texts`
+with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-report-texts).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
