@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -98,7 +98,7 @@ const SPECS: Spec[] = [
     field: "address",
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
-      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -115,7 +115,7 @@ const SPECS: Spec[] = [
     allowed: [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
@@ -138,7 +138,7 @@ const SAMPLES: Record<string, string> = {
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
+  lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
