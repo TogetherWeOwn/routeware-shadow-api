@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Address snapshot lists accept `hasEnabledContainers=true|false|any`
+- #422: Address snapshot lists accept `hasEnabledContainers=true|false|any`
   (default `any`): true requires a stored child sharing `pickup_address_id`
   with enabled exactly 1; false is the exact NOT EXISTS complement, including
   zero-container, all-disabled and noncanonical-only sites. Address enabled
