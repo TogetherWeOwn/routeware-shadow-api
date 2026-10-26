@@ -372,6 +372,44 @@ then retry. These idempotent local GETs do no upstream/R2/write work; CLI
 location/state equality scans. Run `npm run check:container-exact-location`
 with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
 
+### Exact stored container city
+
+Select equipment in one stored city with `city` on the existing container
+list: one nonblank case-sensitive opaque exact string of 1..100 Unicode code
+points. Stored city is mirrored text, not geolocation. Leading zeros, case,
+punctuation and significant whitespace are preserved; null never matches and
+the parent address city never substitutes, even with `customerId`. Unlike
+`city`, `q` is a trimmed ASCII-case-insensitive substring over
+location/serial/city/zip, so `q=Killeen` also matches serials, addresses and
+zips containing that text — add `city=Killeen` to intersect down to the exact
+city cohort.
+
+Synthetic local fixture: containers 10 and 20 store `Killeen` under customer
+1; a `xKilleenx` substring row, a lowercase row and parent-only matches are
+excluded:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&city=Killeen&fields=enabled&limit=1&includeTotal=false
+{"rows":[{"container_id":10,"enabled":1}],"total":null,"nextCursor":10}
+Link: </api/v1/container-snapshot?customerId=1&city=Killeen&fields=enabled&limit=1&includeTotal=false&cursor=10>; rel="next"
+```
+
+Follow that relative Link unchanged against the same origin: the next page has
+container 20, `nextCursor:null` and no Link. `city` intersects by AND with
+`q`, `state`, `zip`, identifiers, IDs, enabled, parent scopes and upperId;
+`order=desc` reverses traversal and offset starts continue by seek. Counts are
+cursor-relative when requested; sparse fields and conditional ETags/304 work
+unchanged.
+
+Use `new URLSearchParams({ city: " O'Ridge 50%_ 雪 " })` to keep reserved
+characters literal; never concatenate raw data or log query values.
+Invalid/repeated/overlength selectors return value-free 400 before D1.
+URL-encode one nonblank stored value within the limit or omit the key, then
+retry. These idempotent local GETs do no upstream/R2/write work; CLI
+`--dry-run` is N/A. No index/migration or latency claim: unscoped city
+equality scans. Run `npm run check:container-exact-city` with synthetic local
+D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without

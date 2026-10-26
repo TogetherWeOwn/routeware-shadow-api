@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #TBD: Container snapshot lists accept an optional exact stored `city`:
+  one nonblank case-sensitive opaque string of 1..100 Unicode code points
+  bound as `c.city = ?` on the container row only, never the parent address
+  city. Leading zeros, case, punctuation and significant whitespace are
+  preserved; stored nulls never match and valid unknown cities return an
+  empty 200. The selector AND-composes with every existing container filter
+  with shared COUNT/page scope, COUNT-only `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and city-retaining relative
+  next Links in asc/desc, including offset-to-seek. Unlike `city`, `q` stays
+  a trimmed substring over location/serial/city/zip; supplying both
+  intersects. Empty/whitespace-only, repeated and overlength values fail with
+  the existing value-free 400 after auth and before D1. Stored city is
+  mirrored text, not geolocation; unscoped equality scans with no
+  index/migration or latency claim. Synthetic city-vs-`q` recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-container-city`; local check:
+  `npm run check:container-exact-city`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3

@@ -562,6 +562,43 @@ No upstream, R2, browser or write work occurs. Run
 `npm run check:container-exact-location` for the immutable oracle and regressions.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#exact-stored-container-installation).
 
+## Exact stored container city
+
+Only the existing container list accepts `city`: one optional case-sensitive
+exact opaque string of 1..100 Unicode code points containing a non-whitespace
+character. Stored city is mirrored text, not geolocation, current assignment
+or a normalized taxonomy. Significant whitespace, punctuation, leading zeros
+and Unicode are preserved, never trimmed, case-folded or normalized.
+Empty/whitespace-only, repeated and overlength values fail before D1 with the
+existing value-free `application/problem+json` 400 after auth. URL-encode one
+nonblank stored value within the limit or omit the key, then retry; never log
+raw selectors. See [error guidance](PROBLEMS.md#exact-stored-container-city-bad-request).
+
+Bound `c.city = ?` uses only the container's own column on both
+customer-join and no-join paths: no parent-city fallback, null matching,
+substring search or geographic inference. Quotes, `%` and `_` are literal
+data. This differs from `q`, which trims and searches location/serial/city/zip
+substrings with ASCII case folding; `city` plus `q` is an intersection, never
+a widening.
+
+The selector AND-composes with every other container filter: identifiers,
+labels, `zip`, `locationAddress`, `state`, parent scopes, IDs, `enabled`,
+`q`, cursor and `upperId`. COUNT and page share predicates/binds;
+`includeTotal=false` still emits zero COUNTs and `countOnly` stays COUNT-only.
+Duplicate matches remain separate canonical `container_id` rows. Sparse
+fields, envelope and ETag/304 semantics are unchanged. Relative next Links
+preserve the encoded exact city in asc and desc, including offset-to-seek and
+upperId-bound traversal; unknown keys, request origin and credentials are
+never copied.
+
+There is no dedicated city index or migration. Unscoped exact-city reads scan
+stored rows; existing ID, enabled or join scopes may narrow work. Synthetic
+local D1 EXPLAIN checks assert executable SQL and unscoped scans, not
+production latency. GET is idempotent/local-read; CLI `--dry-run` is N/A. No
+upstream, R2, browser or write work occurs. Run
+`npm run check:container-exact-city` for the immutable oracle and regressions.
+See the [synthetic city-vs-`q` recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
+
 ## Exact container asset lookup
 
 Only the existing container list accepts `serialNumber` and `rfid`. Each is a
