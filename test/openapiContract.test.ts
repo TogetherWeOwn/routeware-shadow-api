@@ -453,17 +453,35 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// Parent-customer enabled selection has semantic checks in the Test
+// Author-owned addressParentCustomerEnabled.acceptance.test.ts, not frozen
+// as a speculative parameter position. The address description and 400 prose
+// are already projected out above; only the new selector moves to behavioral
+// ownership here. All legacy parameters stay frozen.
+function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "parentCustomerEnabled"
+    );
+  }
+  return copy;
+}
+
 // Exact identifiers, stored labels, installation selectors, parent scopes and
-// serial/RFID presence supersede this route's old query/error narrative. Their
-// schemas, composition and error discovery are asserted independently in
+// serial/RFID presence and stored-flag selectors supersede this route's old
+// query/error narrative. Their schemas, composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerServiceCode.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
-// containerSerialRfidPresence.acceptance.test.ts, not frozen as speculative
-// prose or parameter position. All legacy parameters and unrelated operations
-// remain frozen.
+// containerSerialRfidPresence.acceptance.test.ts and
+// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative prose
+// or parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -478,7 +496,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -889,8 +907,9 @@ describe("published OpenAPI document", () => {
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
-    // addressLastAuditDate ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))).toMatchSnapshot();
+    // addressLastAuditDate ownership; parent-customer enabled moves to
+    // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
   });
 });
 
