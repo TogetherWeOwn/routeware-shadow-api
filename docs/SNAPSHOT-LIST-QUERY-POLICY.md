@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `owningCustomerNumber`, `owningSubCustomerNumber`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -1069,6 +1069,49 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Owning-account stored business numbers
+
+Only the ordinary container list recognizes `owningCustomerNumber` and
+`owningSubCustomerNumber`. Each is an optional exact, case-sensitive opaque
+string: 1..100 Unicode code points, including at least one non-whitespace
+character, with a single occurrence of the key. Leading zeros and all supplied
+nonblank whitespace are preserved. No numeric coercion, case folding, trimming,
+Unicode normalization or hierarchy inference occurs; literal quotes, `%` and
+`_` are data, not SQL or wildcards. Empty, whitespace-only, repeated
+(including encoded duplicate names) and overlength values return the existing
+value-free 400 after authentication but before D1 or conditional 304. Use
+`URLSearchParams` or curl `--data-urlencode`; URL-encode one nonblank stored
+value within the limit or omit the key, then retry. See
+[recovery](PROBLEMS.md#owning-account-stored-business-numbers-bad-request).
+
+Both selectors resolve through the existing container→address→customer chain
+with fully qualified columns: one shared site join extended with the owning
+customer, never a second join of the same tables. Each container has exactly
+one parent address and one owning customer, so both supplied numbers AND on
+that SAME owning-customer row, the join never fans out, and no response shape
+changes. A container whose parent address or owning customer is missing from
+the mirror never matches an explicit number; omission preserves the original
+no-join SQL and orphan visibility. Stored NULLs never match; a valid unknown
+number returns an empty 200. Stored numbers are mirrored report text, may
+repeat across stored customers, and are not a billing identity, account
+hierarchy or proof of ownership/control.
+
+The selectors AND-compose with every other container filter: identifiers,
+labels, locality, parent scopes, IDs, `enabled`, flags, `q`, cursor, bounds
+and list modes. COUNT and page share predicates/binds; `includeTotal=false`
+still emits zero COUNTs and `countOnly` stays COUNT-only. Duplicate matches
+remain separate canonical `container_id` rows. Sparse fields, envelope and
+ETag/304 semantics are unchanged. Relative next Links preserve both encoded
+selectors in asc and desc, including offset-to-seek; unknown keys, request
+origin and credentials are never copied.
+
+There is no dedicated owning-number index or migration. Joined equality reads
+may scan stored rows; no production latency claim is made. GET is
+idempotent/local-read; CLI `--dry-run` is N/A. No upstream, R2, browser or
+write work occurs. Run `npm run check:container-owning-account-numbers` for
+the immutable oracle and regressions. See the [synthetic owning-account
+recipe](CONSUMER-QUICKSTART.md#owning-account-stored-business-numbers).
 
 ## Mutating POST query keys are strict
 

@@ -364,6 +364,28 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Owning-account stored business numbers (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `owningCustomerNumber` and
+`owningSubCustomerNumber` are optional exact, case-sensitive owning-account
+references on the stored owning customer's `customer_number` /
+`sub_customer_number`: 1..100 Unicode code points each, including a
+non-whitespace character, with a single occurrence of the key. Values are
+never trimmed, case-folded, normalized or numerically coerced, so nonblank
+whitespace and leading zeros are preserved; no hierarchy is inferred.
+Empty/whitespace-only, repeated (including encoded duplicate names) and
+overlength values return the existing value-free 400 after authentication
+but before D1 or conditional 304:
+`Invalid request query (owningCustomerNumber). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `owningSubCustomerNumber`, or multiple
+supported keys. URL-encode one nonblank stored value within the limit or
+omit the key, then retry. No submitted value is echoed or logged. Valid
+no-match returns 200 empty, not an error. Stored numbers are mirrored
+report text, may repeat across stored customers, and are not a billing
+identity, account hierarchy or proof of ownership/control. See the
+[owning-account policy](SNAPSHOT-LIST-QUERY-POLICY.md#owning-account-stored-business-numbers)
+and [owning-account recipe](CONSUMER-QUICKSTART.md#owning-account-stored-business-numbers).
+
 ## Address stored extras-allowed selector (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,

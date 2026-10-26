@@ -1025,6 +1025,53 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Owning-account stored business numbers
+
+Use `listContainerSnapshot` with `owningCustomerNumber` and/or
+`owningSubCustomerNumber` to retrieve an account's equipment when you hold
+only the billing-side account number — no separate customer read to resolve
+the numeric ID first. These select the owning customer's stored
+`customer_number` / `sub_customer_number` through the container→address→customer
+chain, never a container column.
+
+Send each key once. Both are case-sensitive opaque exact strings of 1..100
+Unicode code points containing a non-whitespace character; preserve leading
+zeros and significant whitespace without trimming or normalization. Encode
+with `new URLSearchParams({ owningCustomerNumber: "00042",
+owningSubCustomerNumber: "North" })`. Invalid, blank, overlength or repeated
+keys (including encoded duplicate names) fail value-free before D1 after
+auth; correct the named format and retry. Both numbers AND on the SAME
+owning-customer row; stored NULLs never match, and valid no-match is an
+empty 200. Stored numbers are mirrored report text, may repeat across stored
+customers, and are not a billing identity, account hierarchy or proof of
+ownership/control.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:container-owning-account-numbers
+```
+
+The oracle's `owningCustomerNumber=00042&owningSubCustomerNumber=North`
+request returns both same-number owners' equipment `[10,11,12,20,21]`, while
+either number alone returns its wider seven-container cohort. Follow the
+returned [same-origin Link](#follow-the-servers-next-page-target) unchanged;
+both selectors stay encoded in asc and desc, including offset-to-seek, and
+neither raw origins nor unknown query keys are copied.
+
+An explicit number extends the shared site join with the owning customer,
+excluding missing parents without duplicating siblings; omission preserves
+the old unjoined list and orphan visibility. All selectors AND-compose with
+existing IDs, identifiers, labels, locality, parent scopes, equipment state
+and cursor/bounds. Sparse fields, stable canonical IDs, count-free reads and
+representation ETags/304 stay intact. The recipe denies outbound fetch/R2/writes
+and checks both traversal directions. Equality can scan; no new index,
+deployment or production latency is claimed. GET is idempotent local-read,
+CLI dry-run N/A. See the [query
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#owning-account-stored-business-numbers)
+and [400
+recovery](PROBLEMS.md#owning-account-stored-business-numbers-bad-request).
+
 ### Container serial and RFID presence
 
 Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or
