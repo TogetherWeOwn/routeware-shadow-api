@@ -114,7 +114,7 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "eventCode", "hasEventCode", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
@@ -135,6 +135,7 @@ const SAMPLES: Record<string, string> = {
   routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
+  eventCode: "E-001", hasEventCode: "true",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
   upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
