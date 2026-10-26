@@ -55,6 +55,9 @@ type SnapshotListQuery = {
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  addressRouteId?: number;
+  addressFranchiseId?: string;
+  addressEnabled?: "true" | "false" | "any";
   hasPhone1?: "true" | "false" | "any";
   hasPhone2?: "true" | "false" | "any";
   fields?: string[];
@@ -70,7 +73,7 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
@@ -127,6 +130,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
+    params.set("addressEnabled", query.addressEnabled);
   }
   // Customer-only stored-phone presence: carry only filtering values so
   // any/omitted continuations stay byte-identical.

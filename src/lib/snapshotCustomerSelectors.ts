@@ -28,6 +28,76 @@ export function customerContainerPresencePredicate(value: "true" | "false"): str
 }
 
 /**
+ * Ordinary customer-list child-cohort scopes: `addressRouteId`,
+ * `addressFranchiseId` and `addressEnabled`.
+ *
+ * Single source of truth for the lexical contracts, so the shape cannot
+ * drift between the route schema, the served OpenAPI and the SQL below.
+ * The route-id policy mirrors the address `routeId` contract (canonical
+ * unpadded ASCII safe integer, literal zero); the franchise policy mirrors
+ * the customer opaque-string contract (trim only detects blank input, never
+ * transforms it; the UTF-16 guard bounds allocation before counting code
+ * points). Validation lives in the query zod schema so the module
+ * `defaultHook` (`validationFailureHook`) answers rejections with the
+ * existing anchored 400 before the handler — and therefore before any D1
+ * work — runs. A repeated key reaches zod as an array and fails the schema.
+ */
+export const customerAddressRouteIdQuery = z.string()
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .refine((value) => Number.isSafeInteger(Number(value)) && String(Number(value)) === value)
+  .transform(Number)
+  .optional()
+  .describe("Exact child route_id equality on the SAME stored address as the other cohort scopes: one canonical unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, never nulls. No signs, whitespace, fractions, exponents or repeated keys. Send one value or omit it and retry.")
+  .openapi({ type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, example: 7 });
+
+export const customerAddressFranchiseIdQuery = z.string()
+  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
+  .optional()
+  .describe("Opaque case-sensitive exact child franchise_id equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points containing a non-whitespace character. Leading zeros and significant whitespace are preserved, never trimmed or normalized; quotes, % and _ are literal data. URL-encode one value or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" });
+
+export const customerAddressEnabledQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Child address enabled state on the SAME stored address as the other cohort scopes: "true" requires stored enabled = 1, "false" requires stored 0; "any" or omission adds no state scope. Customer enabled stays independent. All stored children, including disabled, remain eligible unless this scope explicitly filters them. Send one addressEnabled=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+export type CustomerAddressCohortScope = {
+  addressRouteId?: number;
+  addressFranchiseId?: string;
+  addressEnabled: "true" | "false" | "any";
+};
+
+/**
+ * One customer-correlated EXISTS over the stored child addresses: route,
+ * franchise and enabled-state scopes AND inside the same child, so split
+ * scopes across different children never match and duplicate matching sites
+ * never duplicate the customer. Null stored scalars never match equality.
+ * Returns null when no scope is effective (omitted scalars, or
+ * `addressEnabled=any` alone), leaving the caller's SQL/binds untouched.
+ * The caller appends `binds` in order; COUNT and page share both.
+ */
+export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope): { sql: string; binds: unknown[] } | null {
+  const predicates: string[] = [];
+  const binds: unknown[] = [];
+  if (scope.addressRouteId !== undefined) {
+    predicates.push("route_id = ?");
+    binds.push(scope.addressRouteId);
+  }
+  if (scope.addressFranchiseId !== undefined) {
+    predicates.push("franchise_id = ?");
+    binds.push(scope.addressFranchiseId);
+  }
+  if (scope.addressEnabled !== "any") {
+    predicates.push("enabled = ?");
+    binds.push(scope.addressEnabled === "true" ? 1 : 0);
+  }
+  if (predicates.length === 0) return null;
+  return {
+    sql: `EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND ${predicates.join(" AND ")})`,
+    binds
+  };
+}
+
+/**
  * Stored phone-slot presence selectors for the ordinary customer list.
  *
  * One shared enum shape so the two slots cannot drift; per-slot aliases
