@@ -5,6 +5,29 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Container snapshot lists accept optional whole stored route/frequency
+  list-text selectors: `routeIdsExact` / `frequencyIdsExact` match the
+  entire stored `route_ids` / `frequency_ids` cell by case-sensitive binary
+  equality (`COLLATE BINARY = ?`), one string of 1..500 Unicode code points.
+  No split, substring, trim or normalization: `7` never matches stored
+  `7,12`; order, duplicates and whitespace are significant, whitespace-only
+  input is valid literal data, stored nulls never match and valid unmatched
+  values return an empty 200. This is a literal cohort lookup over mirrored
+  report text, never token membership, current route assignment, dispatch
+  truth or service eligibility. `hasRouteIds` / `hasFrequencyIds`
+  (`true|false|any`, default `any`) select stored presence (`IS NOT NULL
+  AND <> ''`; whitespace-only counts as present; `false` is the exact
+  null-or-empty complement). All four AND-compose per column, across columns
+  and with every existing container filter, with shared COUNT/page scope
+  (cursor bound included in both), `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and selector-retaining
+  relative next Links (commas/whitespace URL-encoded) in asc/desc including
+  offset-to-seek. Empty/repeated/overlength exact values and invalid
+  presence spellings fail with the existing value-free 400 after auth and
+  before D1. Equality/presence may scan; no index/migration or latency
+  claim. Synthetic literal-cohort recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-whole-stored-routefrequency-list-text`;
+  local check: `npm run check:container-route-frequency-exact`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address

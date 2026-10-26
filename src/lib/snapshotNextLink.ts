@@ -27,6 +27,10 @@ type SnapshotListQuery = {
   // Container list only; sibling lists omit these keys and keep unfiltered links.
   hasSerialNumber?: "true" | "false" | "any";
   hasRfid?: "true" | "false" | "any";
+  routeIdsExact?: string;
+  frequencyIdsExact?: string;
+  hasRouteIds?: "true" | "false" | "any";
+  hasFrequencyIds?: "true" | "false" | "any";
   materialStream?: string;
   color?: string;
   serviceCodeType?: string;
@@ -77,7 +81,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "routeIdsExact", "frequencyIdsExact", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -154,6 +158,13 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.hasRfid !== undefined && query.hasRfid !== "any") {
     params.set("hasRfid", query.hasRfid);
+  }
+  // Container-only stored list-text presence selectors: same non-any carry.
+  if (resource === "container" && query.hasRouteIds !== undefined && query.hasRouteIds !== "any") {
+    params.set("hasRouteIds", query.hasRouteIds);
+  }
+  if (resource === "container" && query.hasFrequencyIds !== undefined && query.hasFrequencyIds !== "any") {
+    params.set("hasFrequencyIds", query.hasFrequencyIds);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive window: the next target keeps the same floor and cap

@@ -519,6 +519,53 @@ retry. These idempotent local GETs do no upstream/R2/write work; CLI
 equality scans. Run `npm run check:container-exact-city` with synthetic local
 D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city).
 
+### Exact whole stored route/frequency list text
+
+Find every container carrying one identical stored list text with
+`routeIdsExact` / `frequencyIdsExact` on the existing container list: binary
+equality on the **entire** stored `route_ids` / `frequency_ids` cell (one
+string of 1..500 Unicode code points). This is a literal cohort lookup for a
+value you already read from a row — never token membership: `7` does not
+match stored `7,12`, and order, duplicates and whitespace are significant
+(whitespace-only input is valid literal data). The stored text is mirrored
+report/detail output whose latest-writer spelling can change; a match is not
+current route assignment, dispatch truth or service eligibility, and never
+substitutes the parent address's scalar route. `hasRouteIds` /
+`hasFrequencyIds` (`true|false|any`, default `any`) select stored presence:
+present means not null and not empty (whitespace-only counts as present);
+presence is not proof of a valid or current list. All four selectors
+AND-compose with each other and every existing filter.
+
+Synthetic local fixture: containers 10, 20, 30, 40, 50 and 60 store route
+text `7,12` and frequency text `3, 4`. Count the literal cohort first:
+
+```bash
+curl -s "http://localhost:8787/api/v1/container-snapshot?routeIdsExact=7%2C12&frequencyIdsExact=3%2C%204&countOnly=true" \
+  -H "Authorization: Bearer $TOKEN"
+# {"rows":[],"total":6,"nextCursor":null}
+```
+
+Then traverse it; follow each relative `Link: <...>; rel="next"` unchanged —
+commas and spaces stay URL-encoded and the cursor seeks both directions:
+
+```bash
+curl -si "http://localhost:8787/api/v1/container-snapshot?routeIdsExact=7%2C12&frequencyIdsExact=3%2C%204&limit=2" \
+  -H "Authorization: Bearer $TOKEN"
+# Link: </api/v1/container-snapshot?routeIdsExact=7%2C12&frequencyIdsExact=3%2C+4&limit=2&cursor=20>; rel="next"
+# {"rows":[{"container_id":10,...},{"container_id":20,...}],"total":6,"nextCursor":20}
+```
+
+Use `new URLSearchParams({ routeIdsExact: "7,12" })` or curl
+`--data-urlencode` so commas and whitespace stay literal; never concatenate
+raw data or log query values. Empty/repeated/overlength exact values and
+invalid presence spellings return a value-free 400 before D1; URL-encode one
+whole stored cell within the limit, or omit the key, then retry. These
+idempotent local GETs do no upstream/R2/write work; CLI `--dry-run` is N/A.
+No index/migration or latency claim: unscoped equality/presence scans. Run
+`npm run check:container-route-frequency-exact` with synthetic local D1 only.
+See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-whole-stored-container-routefrequency-list-text)
+and [recovery](PROBLEMS.md#exact-whole-stored-routefrequency-list-text-bad-request).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without

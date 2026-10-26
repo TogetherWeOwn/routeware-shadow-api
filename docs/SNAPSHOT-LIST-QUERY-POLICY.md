@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `routeIdsExact`, `frequencyIdsExact`, `hasRouteIds`, `hasFrequencyIds`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -1069,6 +1069,45 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Exact whole stored container route/frequency list text
+
+The existing container list accepts `routeIdsExact`, `frequencyIdsExact`,
+`hasRouteIds=true|false|any` and `hasFrequencyIds=true|false|any` (both
+presence controls default to `any`). The exact selectors compare the entire
+stored `c.route_ids` / `c.frequency_ids` cell by case-sensitive binary
+equality (`COLLATE BINARY = ?`, bound value): one string of 1..500 Unicode
+code points. There is no split, substring, delimiter wrapping, trim,
+case-fold, numeric or Unicode normalization, so requesting `7` never matches
+stored `7,12`, `12,7` or `1,2`; order, duplicates and interior/edge whitespace
+are significant, stored NULL never matches, and a valid unmatched value is an
+empty 200. Unlike the opaque-label selectors, whitespace-only input is valid
+literal data and matches only byte-identical stored whitespace; the empty
+string is invalid. Repeated (including percent-encoded duplicate) and
+overlength keys fail value-free after authentication and before D1/304.
+
+These are whole-cell literal matches, not token membership, and never
+current route assignment, dispatch truth or service eligibility: the stored
+text is mirrored report/detail output whose latest-writer spelling can
+change. They never parse equipment `route_ids`/`frequency_ids`, infer paired
+assignments or substitute the parent address's scalar `route_id` (see the
+parent scopes above). Presence means the stored column `IS NOT NULL AND
+<> ''` — whitespace-only text counts as present — and `false` is the exact
+null-or-empty complement; presence is not proof of a valid or current
+upstream route/frequency list. Exact and presence predicates AND-compose per
+column (an exact value plus `false` yields an empty 200), across columns and
+with every existing filter; there is no OR/union mode.
+
+COUNT and page share predicates and binds, including the cursor bound in
+both; `countOnly`, `includeTotal=false`, sparse fields, order, cursor/offset,
+`lowerId`/`upperId`, `exactNext`, `strictQuery`, ETag/304 and `no-store` are
+unchanged. Relative next Links retain the effective selectors with commas
+and whitespace URL-encoded, in both directions and across offset-to-seek.
+Equality/presence may scan (synthetic local plan: SCAN); no index, migration
+or performance promise is made. GET is an idempotent local-read with no
+upstream, R2 or write work. See
+`test/containerRouteFrequencyExact.acceptance.test.ts` and run
+`npm run check:container-route-frequency-exact` with synthetic local D1 only.
 
 ## Mutating POST query keys are strict
 

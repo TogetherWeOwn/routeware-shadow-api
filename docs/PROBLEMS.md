@@ -243,6 +243,24 @@ null-or-empty stored text, which includes report gaps, not only untagged
 equipment. See the [synthetic tagged-vs-untagged
 recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence).
 
+## Exact whole stored route/frequency list text (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `routeIdsExact` and
+`frequencyIdsExact` each take exactly one string of 1..500 Unicode code
+points matching the entire stored `route_ids`/`frequency_ids` cell by binary
+equality. The empty string, any repeated key (including percent-encoded
+duplicates) and overlength values return the existing value-free 400 after
+authentication and before D1 access; whitespace-only input is valid literal
+data, not an error. `hasRouteIds` and `hasFrequencyIds` are optional exact,
+case-sensitive enums: `true`, `false` or `any` (the default when omitted);
+any other spelling or a repeated key is the same value-free 400. Correct the
+named field, or omit it, then retry. No supplied value is echoed or logged,
+and a valid selection with zero matches is a successful empty collection,
+not a validation error. Stored list text is mirrored report data: a match is
+whole-cell literal equality (`7` does not match stored `7,12`), never token
+membership, current route assignment or dispatch truth. See the
+[literal-cohort recipe](CONSUMER-QUICKSTART.md#exact-whole-stored-routefrequency-list-text).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
