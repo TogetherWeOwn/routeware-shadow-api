@@ -523,7 +523,13 @@ describe("customer synced window conditional representations", () => {
 
   it.each([
     ["narrower window", { syncedSince: TENTH, syncedUntil: UPPER, fields: "enabled", limit: 2, includeTotal: "false" }],
-    ["unbounded tail", { syncedSince: ZERO, fields: "enabled", limit: 2, includeTotal: "false" }],
+    // The unbounded tail uses limit 3 (not the window's 2) so its envelope
+    // actually diverges: rows [{13,0},{14,1},{15,1}] and nextCursor 15 vs the
+    // window first page's [{13,0},{14,1}]/14. At the same limit the two
+    // envelopes are byte-identical (total null both ways), so the quoted
+    // SHA-256 ETag legitimately matches and 304 is correct; only Link differs
+    // and the pinned ETag contract excludes it.
+    ["unbounded tail", { syncedSince: ZERO, fields: "enabled", limit: 3, includeTotal: "false" }],
     ["counted envelope", { ...WINDOW_QUERY, fields: "enabled", limit: 2 }]
   ] as Array<[string, Query]>)("does not 304 a %s using another representation's tag", async (_label, query) => {
     const first = await page({ ...WINDOW_QUERY, fields: "enabled", limit: 2, includeTotal: "false" });
