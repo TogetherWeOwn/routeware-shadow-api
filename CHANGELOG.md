@@ -119,6 +119,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-type-filter`.
 
+- #407: The ordinary container snapshot list accepts optional `hasSerialNumber`
+  and `hasRfid`: exact `true|false|any` (default `any`) over stored identity
+  text, where present means `IS NOT NULL AND <> ''` and nonempty
+  whitespace-only text counts as present. The two controls AND-compose with
+  each other and with exact `serialNumber`/`rfid`; an exact value plus its
+  presence=`false` yields an empty 200, while omission/`any` adds no predicate.
+  Predicates share the COUNT/page WHERE and binds on joined and unjoined
+  paths; unscoped reads stay join-free so null-parent rows keep orphan
+  visibility. Filtering values round-trip in relative next links; invalid,
+  blank or repeated keys fail value-free before D1 after auth. Stored identity
+  text is mirrored report data, never a live tag scan, deployment proof or
+  uniqueness guarantee; missing text includes report gaps, not only untagged
+  equipment. Presence may scan; no index, migration or performance promise.
+  Synthetic tagged-vs-untagged count-only recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence`; focused
+  check: `npm run check:container-serial-rfid-presence`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
