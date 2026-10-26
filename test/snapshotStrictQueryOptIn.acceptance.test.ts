@@ -114,7 +114,7 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "containerTypeId",
-      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
+      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
       "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
@@ -137,6 +137,7 @@ const SAMPLES: Record<string, string> = {
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
+  parentCity: "Riverton", parentState: "ST", parentZip: "02139",
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
