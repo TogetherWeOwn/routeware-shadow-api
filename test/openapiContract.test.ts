@@ -366,7 +366,8 @@ function withoutExactNextParameter(doc: OpenApiDocument): OpenApiDocument {
 /**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
- * selector covered by addressZipFilter.acceptance.test.ts, city/state by
+ * selector covered by addressZipFilter.acceptance.test.ts, exact stored
+ * streets by addressStreetExact.acceptance.test.ts, city/state by
  * addressCityStateFilters.acceptance.test.ts and driverNote by
  * addressDriverNoteSearch.acceptance.test.ts. Keep all existing parameter
  * schemas, responses, tags and other operations in the legacy golden.
@@ -381,7 +382,7 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state", "driverNote"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote"].includes(parameter.name));
   return copy;
 }
 
@@ -415,6 +416,24 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   if (operation?.parameters) {
     operation.parameters = operation.parameters.filter((parameter) =>
       parameter.in !== "query" || parameter.name !== "hasContainers"
+    );
+  }
+  return copy;
+}
+
+// Stored last-audit-date exact and presence selection has semantic checks in
+// the Test Author-owned addressLastAuditDate.acceptance.test.ts, not frozen
+// as speculative parameter positions. The address description and 400 prose
+// are already projected out above; only the two new selectors move to
+// behavioral ownership here. All legacy parameters stay frozen.
+function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["lastAuditDate", "hasLastAuditDate"].includes(parameter.name ?? "")
     );
   }
   return copy;
@@ -850,8 +869,9 @@ describe("published OpenAPI document", () => {
     // projected out: its facet, strict validation and composition are
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
-    // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))).toMatchSnapshot();
+    // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
+    // addressLastAuditDate ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))).toMatchSnapshot();
   });
 });
 

@@ -24,6 +24,36 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
   Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
   check: `npm run check:snapshot-lower-id`.
+
+- #405: Address snapshot lists accept optional `lastAuditDate` exact and
+  `hasLastAuditDate=true|false|any` (default `any`) selectors on stored
+  `last_audit_date` only. The exact value binds verbatim (1..100 Unicode
+  code points, case-sensitive, never parsed as a date, range or schedule);
+  null never matches and unknown values return 200 empty. Presence true
+  keeps stored text that is not null and not empty (whitespace-only counts
+  as present); false keeps exactly the null-or-empty complement; exact plus
+  false matches nothing. Both AND-compose with every merged scope with
+  identical COUNT/page predicates, countOnly COUNT-only and count-free
+  zero-COUNT behavior, and relative next Links retaining the validated
+  exact value and filtering presence. Malformed/overlength/repeated input
+  fails value-free before D1, after auth. Stored text is mirrored data, not
+  audit compliance, a schedule, overdue status or permission to act. No
+  index, migration, date-range support or latency guarantee. Synthetic
+  recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
+  local check: `npm run check:address-last-audit-date`.
+
+- #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
+  `streetAddress` binds case-sensitive equality on the stored `address`,
+  returning all matching site IDs rather than partial-street/city/ZIP matches.
+  One nonblank opaque value of 1..200 Unicode code points preserves whitespace,
+  punctuation and leading zeros. Invalid/repeated values fail value-free
+  before D1 with a fixed retry action. AND composition, counted/count-free
+  pagination, sparse fields and ETags/304 remain compatible; relative next
+  links retain the encoded street. No normalization, postal verification,
+  geocoding, uniqueness, index/migration or upstream lookup is added; equality
+  may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
+  `npm run check:address-street-exact`.
+
 - #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
@@ -39,6 +69,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   after read-role authentication. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-type-filter`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
