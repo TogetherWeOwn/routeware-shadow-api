@@ -53,6 +53,7 @@ type SnapshotListQuery = {
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
+  parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   hasPhone1?: "true" | "false" | "any";
   hasPhone2?: "true" | "false" | "any";
@@ -117,6 +118,11 @@ export function snapshotNextLink(
   // so any/omitted continuations stay byte-identical.
   if (query.hasLastAuditDate !== undefined && query.hasLastAuditDate !== "any") {
     params.set("hasLastAuditDate", query.hasLastAuditDate);
+  }
+  // Parent stored-customer state (address only): carry only filtering values
+  // so any/omitted continuations stay byte-identical.
+  if (resource === "address" && query.parentCustomerEnabled !== undefined && query.parentCustomerEnabled !== "any") {
+    params.set("parentCustomerEnabled", query.parentCustomerEnabled);
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
