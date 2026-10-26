@@ -909,6 +909,68 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container serial and RFID presence
+
+Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or
+`hasRfid=true|false|any` (default `any`) to count tagged versus untagged
+equipment without reading every identity value. `true` keeps only rows whose
+stored column reads present (`IS NOT NULL AND <> ''`); `false` keeps only
+null-or-empty stored text. Nonempty whitespace-only text counts as present.
+The two controls AND-compose with each other and with exact `serialNumber`/
+`rfid`; an exact value plus its presence=`false` yields an empty 200, while
+omission/`any` adds no predicate. Invalid, blank or repeated keys fail
+value-free before D1 after auth ([correction
+guidance](PROBLEMS.md#container-serial-and-rfid-presence-bad-request)).
+
+Stored identity text is mirrored report data, never a live tag scan,
+deployment proof or uniqueness guarantee; missing text includes report gaps,
+not only untagged equipment. Unscoped presence reads stay join-free, so
+null-parent rows keep their orphan visibility. Presence filters may scan; no
+index, migration or performance promise.
+
+Tagged-vs-untagged count-only recipes (synthetic local service, `$TOKEN` only):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — tagged-equipment count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — untagged-or-gap count, no rows
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — RFID-present count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — RFID-missing count, no rows
+```
+
+Present-first multi-page traversal over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2"
+# {"rows":[...],"total":6,"nextCursor":206} — follow the Link target unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2&cursor=206"
+# {"rows":[...],"total":4,"nextCursor":208} — stop on null nextCursor / no Link
+```
+
+The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#container-serial-and-rfid-presence)
+pins the AND-composition with parent scopes, IDs, material/color, locality,
+`q` and equipment state, byte-identical `any`/omitted behavior, count-free
+zero-COUNT mode and sparse/conditional reads. Run
+`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+contract: real D1 fixtures pin NULL/empty/whitespace semantics, exact-plus-
+presence intersection and contradiction, both seek directions and Link
+round-trips through terminal and empty pages. These checks are not deployed
+performance evidence.
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an
