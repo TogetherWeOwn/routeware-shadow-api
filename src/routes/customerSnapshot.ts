@@ -9,7 +9,7 @@ import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from
 import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
-import { customerChangesSinceQuery, customerChangesUntilQuery } from "../lib/customerChangesTimestamp";
+import { customerChangesSinceQuery, customerChangesUntilQuery, customerSyncedSinceQuery, customerSyncedUntilQuery, customerSyncedWindowOrdered } from "../lib/customerChangesTimestamp";
 import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -73,7 +73,7 @@ const customerSnapshotListRoute = createRoute({
       phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
       comments: customerCommentsQuery,
       hasAddresses: customerAddressPresenceQuery,
-      addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery,
+      addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery, syncedSince: customerSyncedSinceQuery, syncedUntil: customerSyncedUntilQuery,
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -93,7 +93,7 @@ const customerSnapshotListRoute = createRoute({
       exactNext: snapshotExactNextQuery,
       order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
-    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] }).refine(customerSyncedWindowOrdered, { path: ["syncedUntil"] })
   },
   responses: {
     200: {
@@ -109,7 +109,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasContainers` (send one hasContainers=true, false or any, or omit the selector and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasContainers` (send one hasContainers=true, false or any, or omit the selector and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Invalid/empty/offset/overprecise/repeated `syncedSince`/`syncedUntil` are rejected before D1 (send one UTC Z datetime with seconds or 1–3 fractional digits, normalized to milliseconds; empty is invalid for these bounds, and normalized syncedSince must not exceed syncedUntil), or omit either bound and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -168,8 +168,8 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     binds.push(p.cursor);
   }
   // Inclusive caller-held window shared by COUNT and page in either direction.
-  if (p.lowerId !== undefined) { where.push("customer_id >= ?"); binds.push(p.lowerId); }
-  if (p.upperId !== undefined) { where.push("customer_id <= ?"); binds.push(p.upperId); }
+  if (p.lowerId !== undefined) { where.push("customer_id >= ?"); binds.push(p.lowerId); } if (p.syncedSince !== undefined) { where.push("synced_at > ?"); binds.push(p.syncedSince); }
+  if (p.upperId !== undefined) { where.push("customer_id <= ?"); binds.push(p.upperId); } if (p.syncedUntil !== undefined) { where.push("synced_at <= ?"); binds.push(p.syncedUntil); }
   const whereSql = where.join(" AND ");
   // Count-free: total null means deliberately not computed, not an empty page.
   let total: number | null;

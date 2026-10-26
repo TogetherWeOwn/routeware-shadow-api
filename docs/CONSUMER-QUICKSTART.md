@@ -1785,6 +1785,37 @@ curl -s -w '\nHTTP %{http_code}\n' \
 # HTTP 400
 ```
 
+### Customer synced window
+
+To read only the accounts this mirror stored inside a finite window you
+already hold, add `syncedSince` (strict: only rows stored after the instant)
+and/or `syncedUntil` (inclusive: rows stored at or before the instant) to the
+ordinary customer list. Both use the changes feed's UTC-Z millisecond
+contract (seconds or 1–3 fractional digits, normalized before comparison,
+never rounded), but an empty value is a 400 here, and normalized
+`syncedSince` must not exceed `syncedUntil`. The bounds AND-compose with
+`enabled`, `hasAddresses`, site-cohort scopes and every other customer
+selector; ordering stays `customer_id`, counts stay cursor-relative, and the
+relative `Link: rel="next"` continuations carry the normalized bounds in
+both directions (omitted bounds stay omitted):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?syncedSince=2026-09-01T00:00:00.000Z&syncedUntil=2026-09-01T00:00:00.500Z&enabled=true&limit=2"
+```
+
+This is a filtered finite-window read over current rows, not a delta feed:
+stored `synced_at` is mirror freshness, not upstream event time, deletions
+never appear, and a later re-sync can move a row out of the window. For
+complete delta traversal — every row touched after your cursor, resumable
+mid-run — use `/api/v1/customer-snapshot/changes` (step 2b) and follow its
+composite cursor/`Link` instead. Invalid, empty, offset, overprecise or
+repeated bounds return a value-free 400 before D1. These idempotent local
+GETs do no upstream/R2/write work; CLI `--dry-run` is N/A. No
+index/migration or latency claim: unscoped window reads may scan. Run
+`npm run check:customer-synced-window` with synthetic local D1 only. See the
+[policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-synced-window).
+
 ## 2b. Incremental sync: the customer `changes` feed
 
 `GET /api/v1/customer-snapshot/changes` replays only rows touched after your

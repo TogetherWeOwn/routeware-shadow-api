@@ -17,7 +17,7 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `syncedSince`, `syncedUntil`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
@@ -1504,6 +1504,50 @@ npx vitest run test/hydratedReadStrictQuery.acceptance.test.ts \
   test/entityDataCache.test.ts test/snapshotListUnknownParams.test.ts \
   test/snapshotAuth.test.ts test/dataEntityEtagRoundTrip.test.ts
 ```
+
+## Customer synced window
+
+Only the existing customer list accepts `syncedSince` and `syncedUntil`: two
+optional bounds on the customer row's own stored `synced_at`, validated and
+normalized by the same lossless UTC-Z millisecond chain as the changes feed
+(seconds or 1–3 fractional digits, calendar-valid, normalized to
+`toISOString()` milliseconds, never rounded or truncated). `syncedSince` is
+strict (`synced_at > ?`: a row synced at the instant itself is excluded);
+`syncedUntil` is inclusive (`synced_at <= ?`: a row at the instant is kept).
+Either bound may be supplied alone. These are new parameters with no legacy
+leniency: an empty value for either bound is a 400 (only the changes feed's
+`since` keeps empty-means-epoch), as are offset forms, more than 3 fractional
+digits, calendar-invalid days and repeated keys — all rejected after auth and
+before D1/304 with the existing value-free `application/problem+json` 400.
+When both bounds are supplied, the normalized `syncedSince` must not exceed
+the normalized `syncedUntil`; equal bounds are valid and return an empty 200.
+
+Stored sync time is mirror freshness only: it records when this mirror last
+stored the row, not upstream event time, not proof of change content and not
+a complete delta between two instants. The window is a filter over currently
+mirrored rows in the list's existing `customer_id` keyset order — no
+`(synced_at, id)` ordering, no composite cursor, no deletion history and no
+snapshot-isolation or completeness claim; rows deleted upstream or erased
+locally never reappear here. For complete delta traversal use
+`/api/v1/customer-snapshot/changes` instead. `synced_at` is stored NOT NULL;
+no null semantics exist.
+
+The bounds AND-compose with every other customer selector (identifiers,
+`enabled`, `hasAddresses`, site-cohort scopes, `q`, `phone`, account numbers,
+`lowerId`/`upperId`, cursor). COUNT and page share predicates/binds;
+`includeTotal=false` still emits zero COUNTs and `countOnly` stays COUNT-only.
+Sparse fields, envelope and ETag/304 semantics are unchanged. Relative next
+Links retain the NORMALIZED effective bounds in asc and desc, including
+offset-to-seek; omitted bounds stay omitted and unknown keys are never
+copied.
+
+There is no dedicated `synced_at` list index or migration: unscoped window
+reads may scan, and no latency is promised. Synthetic local D1 EXPLAIN checks
+assert executable SQL only. GET is idempotent/local-read; CLI `--dry-run` is
+N/A. No upstream, R2, browser or write work occurs. Acceptance oracle:
+`test/customerSyncedWindow.acceptance.test.ts`; run
+`npm run check:customer-synced-window`. See the
+[synthetic finite-window recipe](CONSUMER-QUICKSTART.md#customer-synced-window).
 
 ## Customer changes cursor validation
 

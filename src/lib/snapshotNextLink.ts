@@ -62,6 +62,10 @@ type SnapshotListQuery = {
   addressEnabled?: "true" | "false" | "any";
   hasPhone1?: "true" | "false" | "any";
   hasPhone2?: "true" | "false" | "any";
+  // Customer list only: validated, millisecond-normalized synced-window
+  // bounds; sibling lists omit these keys and keep unfiltered links.
+  syncedSince?: string;
+  syncedUntil?: string;
   fields?: string[];
   lowerId?: number;
   upperId?: number;
@@ -160,6 +164,11 @@ export function snapshotNextLink(
   // so the continuation cannot escape the traversal the caller chose to bound.
   if (query.lowerId !== undefined) params.set("lowerId", String(query.lowerId));
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
+  // Caller-held synced window (customer list only): the continuation keeps the
+  // normalized effective bounds so traversal stays inside the chosen window;
+  // omitted bounds stay omitted.
+  if (resource === "customer" && query.syncedSince !== undefined) params.set("syncedSince", query.syncedSince);
+  if (resource === "customer" && query.syncedUntil !== undefined) params.set("syncedUntil", query.syncedUntil);
   params.set("limit", String(query.limit));
   if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
   if (query.exactNext === "true") params.set("exactNext", "true");

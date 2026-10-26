@@ -40,3 +40,29 @@ export const customerChangesUntilQuery = changesTimestamp
   .optional()
   .describe("Inclusive synced_at upper bound with the same UTC Z datetime contract as since: seconds or 1–3 fractional digits, normalized to milliseconds before comparison. More than 3 digits is rejected, never rounded/truncated. Empty, offset and repeated values are invalid, and normalized since must not exceed until. Omit for the unbounded tail.")
   .openapi({ example: "2026-09-01T00:00:00.500Z" });
+
+/**
+ * Ordinary-list synced-window bounds. Same shared chain as the changes feed,
+ * but these are NEW parameters with no legacy leniency: an empty value for
+ * either bound is a 400 (only the changes feed's `since` keeps the
+ * empty-means-epoch preprocess). The window is a filter over current
+ * mirrored rows in the list's `customer_id` keyset order — never a changes
+ * feed, deletion history or snapshot isolation.
+ */
+export const customerSyncedSinceQuery = changesTimestamp
+  .optional()
+  .describe("Strict lower synced_at bound on the ordinary list: only rows stored after the instant qualify (synced_at > value; a row synced at the instant itself is excluded). UTC Z datetime with seconds or 1–3 fractional digits, normalized to milliseconds before comparison; more than 3 digits is rejected, never rounded/truncated. Empty, offset and repeated values are invalid — unlike the changes feed's since, an empty value here is a 400. Stored synced_at is mirror freshness, not upstream event time; for complete delta traversal use the changes feed. Omit for no lower bound.")
+  .openapi({ example: "2025-12-31T00:00:00.000Z" });
+
+export const customerSyncedUntilQuery = changesTimestamp
+  .optional()
+  .describe("Inclusive upper synced_at bound on the ordinary list: rows stored at or before the instant qualify (synced_at <= value; a row synced at the instant itself is included). Same UTC Z millisecond contract as syncedSince: seconds or 1–3 fractional digits, normalized to milliseconds before comparison, never rounded/truncated. Empty, offset and repeated values are invalid, and normalized syncedSince must not exceed syncedUntil. This is a filter over current mirrored rows, not the changes feed. Omit for no upper bound.")
+  .openapi({ example: "2026-09-01T00:00:00.500Z" });
+
+/**
+ * Both bounds are normalized `toISOString()` by now, so lexical is
+ * chronological. Equality stays valid: strict lower + inclusive upper at one
+ * instant is an empty 200, matching the changes feed's posture.
+ */
+export const customerSyncedWindowOrdered = (p: { syncedSince?: string; syncedUntil?: string }) =>
+  p.syncedSince === undefined || p.syncedUntil === undefined || p.syncedSince <= p.syncedUntil;
