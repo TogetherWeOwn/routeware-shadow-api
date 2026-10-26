@@ -47,6 +47,10 @@ type SnapshotListQuery = {
   phone?: string;
   comments?: string;
   enabled: "true" | "false" | "any";
+  // Container-only stored-flag selectors. Optional because the customer and
+  // address lists share this query shape without defining these keys.
+  onCall?: "true" | "false" | "any";
+  gpsLocked?: "true" | "false" | "any";
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
@@ -98,6 +102,10 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Non-any stored-flag selectors round-trip; `any`/omission stays canonical
+  // by omission, exactly like `enabled=any`.
+  if (query.onCall !== undefined && query.onCall !== "any") params.set("onCall", query.onCall);
+  if (query.gpsLocked !== undefined && query.gpsLocked !== "any") params.set("gpsLocked", query.gpsLocked);
   // Non-any only, like enabled: any/omission stays out of the canonical target.
   if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
     params.set("extrasAllowed", query.extrasAllowed);
