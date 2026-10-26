@@ -710,7 +710,7 @@ describe("RED: query-policy inventory lists the selectors", () => {
   it("names both selectors on the container list row, still ignoring unknown names", () => {
     expect(row(PATH)).toContain("`onCall`");
     expect(row(PATH)).toContain("`gpsLocked`");
-    expect(row(PATH)).toMatch(/\| Ignore \|/);
+    expect(row(PATH)).toMatch(/\| Ignore by default; reject when strictQuery=true \|/);
   });
 
   it("leaves the customer/address/changes rows without the selectors", () => {
