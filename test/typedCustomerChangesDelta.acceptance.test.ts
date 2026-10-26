@@ -1059,10 +1059,10 @@ describe("wire stability: conditional, auth, errors and ignored keys (controls)"
     }
   });
 
-  it("ignores until and unknown keys while fields projects sparse rows: same cursors/SQL, clean Link", async () => {
-    // Sparse `fields=` merged (#364): it projects rows and is retained in
-    // Link. The upper-timestamp bound (`until`) is still unsupported and
-    // unknown keys stay ignored: neither affects bytes/SQL nor echoes into Link.
+  it("composes until with sparse fields while ignoring unknown keys: stable rows/cursors, bounded SQL and Link", async () => {
+    // `fields=` projects rows; `until` bounds reads and is retained in Link.
+    // This fixture's page is inside the bound, so bytes/cursors stay unchanged.
+    // Unknown keys affect neither rows nor SQL and never echo into Link.
     const { db: cleanDb, statements: cleanStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
     const clean = await get(query({ limit: "2" }), { db: cleanDb });
     expect(clean.status).toBe(200);
@@ -1079,20 +1079,24 @@ describe("wire stability: conditional, auth, errors and ignored keys (controls)"
       expect(Object.keys(row).sort()).toEqual([...EXPECTED_COLUMNS].sort());
     }
 
-    // until + unknown keys (no fields): byte-identical full rows, same SQL, same Link.
-    const { db: ignoredDb, statements: ignoredStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
-    const ignored = await get(
+    // until + unknown keys (no fields): same in-window bytes, bounded SQL/Link.
+    const { db: boundedDb, statements: boundedStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
+    const bounded = await get(
       `${PATH}?limit=2&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`,
-      { db: ignoredDb }
+      { db: boundedDb }
     );
-    expect(ignored.status).toBe(200);
-    expect(await ignored.text()).toBe(cleanBytes);
-    expect(ignored.headers.get("link")).toBe(cleanLink);
-    expect(ignored.headers.get("link")).not.toMatch(/SYNTHETIC|fields|until|bogus/);
-    expect(ignoredStatements).toHaveLength(1);
-    expect(ignoredStatements.filter(isCount)).toHaveLength(0);
-    expect(ignoredStatements[0]?.sql).toBe(cleanStatements[0]?.sql);
-    expect(ignoredStatements[0]?.binds).toEqual(cleanStatements[0]?.binds);
+    expect(bounded.status).toBe(200);
+    expect(await bounded.text()).toBe(cleanBytes);
+    expect(bounded.headers.get("link")).toBe(
+      '</api/v1/customer-snapshot/changes?since=2026-09-01T00%3A00%3A00.000Z&since_id=9602&limit=2&until=2026-09-02T00%3A00%3A00.000Z>; rel="next"'
+    );
+    expect(bounded.headers.get("link")).not.toMatch(/SYNTHETIC|fields|bogus/);
+    expect(boundedStatements).toHaveLength(1);
+    expect(boundedStatements.filter(isCount)).toHaveLength(0);
+    expect(boundedStatements[0]?.sql).toMatch(
+      /\bWHERE\s+synced_at\s*>\s*\?\s+AND\s+synced_at\s*<=\s*\?\s+ORDER BY synced_at,\s*customer_id\s+LIMIT \?\s*$/i
+    );
+    expect(boundedStatements[0]?.binds).toEqual(["0000-01-01T00:00:00.000Z", RUN_2_AT, 2]);
 
     // fields=company_name projects to id + selector, keeping total/cursor; Link retains fields.
     const { db: sparseDb, statements: sparseStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
@@ -1126,12 +1130,29 @@ describe("wire stability: conditional, auth, errors and ignored keys (controls)"
       })
     );
 
-    // until + unknown keys stay ignored alongside a validated fields selector.
-    const taintedSparse = await get(
-      `${PATH}?limit=2&fields=company_name&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`
+    // The bound composes with sparse fields; only unknown keys stay ignored.
+    const { db: boundedSparseDb, statements: boundedSparseStatements } = spyDb(TEST_ENV.CUSTOMER_DB);
+    const boundedSparse = await get(
+      `${PATH}?limit=2&fields=company_name&until=${encodeURIComponent(RUN_2_AT)}&bogus=unknown-marker-SYNTHETIC`,
+      { db: boundedSparseDb }
     );
-    expect(taintedSparse.status).toBe(200);
-    expect(await taintedSparse.text()).toBe(sparseBytes);
-    expect(taintedSparse.headers.get("link")).toBe(sparseLink);
+    expect(boundedSparse.status).toBe(200);
+    expect(await boundedSparse.text()).toBe(sparseBytes);
+    const boundedSparseLink = boundedSparse.headers.get("link");
+    expect(boundedSparseLink).toMatch(/^<\/api\/v1\/customer-snapshot\/changes\?[^>]+>; rel="next"$/);
+    expect(boundedSparseLink).not.toMatch(/SYNTHETIC|bogus/);
+    const boundedSparseNext = new URL(boundedSparseLink?.match(/^<([^>]+)>/)?.[1] ?? "", "http://test.local");
+    expect(Object.fromEntries(boundedSparseNext.searchParams)).toEqual({
+      since: RUN_1_AT,
+      since_id: "9602",
+      limit: "2",
+      fields: "company_name",
+      until: RUN_2_AT
+    });
+    expect(boundedSparseLink).toContain("until=2026-09-02T00%3A00%3A00.000Z");
+    expect(boundedSparseStatements).toHaveLength(1);
+    expect(boundedSparseStatements.filter(isCount)).toHaveLength(0);
+    expect(boundedSparseStatements[0]?.sql).toBe(boundedStatements[0]?.sql);
+    expect(boundedSparseStatements[0]?.binds).toEqual(["0000-01-01T00:00:00.000Z", RUN_2_AT, 2]);
   });
 });
