@@ -410,7 +410,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
-      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled",
+      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled", "hasStreetAddress",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
