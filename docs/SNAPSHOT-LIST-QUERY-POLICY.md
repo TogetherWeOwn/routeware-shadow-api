@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -152,6 +152,39 @@ Pinned by `test/addressContainerPresence.acceptance.test.ts`; run
 `npm run check:address-container-presence` for the hermetic local-D1 contract
 and relevant list/link/conditional regressions, with no live credentials or
 upstream calls.
+
+## Container serial and RFID presence
+
+Only the ordinary container list recognizes `hasSerialNumber` and `hasRfid`,
+optional stored-text presence selectors: exact `true|false|any` (default
+`any`). `true` keeps only rows whose stored column reads present
+(`IS NOT NULL AND <> ''`); `false` keeps only null-or-empty stored text.
+Nonempty whitespace-only text counts as present. The two controls AND-compose
+with each other and with exact `serialNumber`/`rfid`; an exact value plus its
+presence=`false` yields an empty 200. Omission/`any` adds no predicate, and
+unscoped presence reads stay join-free so null-parent rows keep their orphan
+visibility.
+
+Stored identity text is mirrored report data, not a live tag scan, deployment
+proof or uniqueness guarantee: missing text includes upstream report gaps, not
+only untagged equipment. Absence is not proof of no tag and never authorizes
+deletion, reconciliation, outreach or data repair.
+
+The enum is exact and case-sensitive; invalid, blank or repeated keys fail
+with the existing value-free 400 after authentication and before D1. The
+predicates share the COUNT/page WHERE and binds on both joined and unjoined
+paths, AND-composing with parent scopes, IDs, material/color, location
+selectors, `q`, `enabled`, cursors and `upperId`. Count-only and count-free
+modes, sparse fieldsets, cursor-relative totals, both seek directions and
+conditional reads are unchanged. Filtering values round-trip in continuation
+Links; `any`/omitted leaves continuations unchanged. Presence filters may
+scan; no index, migration or performance promise. See the [synthetic
+tagged-vs-untagged recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence)
+and [fixed correction guidance](PROBLEMS.md#container-serial-and-rfid-presence-bad-request).
+Pinned by `test/containerSerialRfidPresence.acceptance.test.ts`; run
+`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+contract and relevant list/link/conditional regressions, with no live
+credentials or upstream calls.
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
