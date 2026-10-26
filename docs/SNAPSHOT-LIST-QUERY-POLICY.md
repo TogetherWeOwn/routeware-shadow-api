@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -1357,6 +1357,59 @@ absent.
 Run `npm run check:container-type-filter` for the focused synthetic-local-D1
 equality, composition, rejection, traversal, SQL-shape and contract
 regressions. No live replay.
+
+## Stored service-code entry-part filters
+
+Only the ordinary container list recognizes `serviceCodeType` and
+`serviceCodeInput`. Each is an optional exact equality on its stored
+snapshot column (`c.service_code_type`, `c.service_code_input`): the
+mirrored CSV entry text, not service history, dispatch state, proof of
+service or a controlled taxonomy, and never composed into or parsed out
+of the combined `service_code`. Each value is a case-sensitive opaque
+string of 1..100 Unicode code points containing a non-whitespace
+character, sent at most once; leading zeros and significant whitespace
+are preserved, not trimmed or normalized. Rows with a null stored part
+never match any supplied value, and a nonblank needle cannot equal
+empty stored text. Anything else — including a blank value, an
+overlength value or a repeated key, even percent-encoded — is the
+existing value-free 400 naming the offending key before any D1 work,
+after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-service-code-entry-part-filters-bad-request).
+
+The two selectors AND-compose with each other and with every existing
+list selector, including the composed `serviceCode` exact when it is
+independently merged, parent service-site scopes, exact equipment
+labels and installation fields, `q`, `upperId`, sparse `fields=`,
+offset or cursor pagination and `includeTotal=false`: one bound
+`c.service_code_type = ?` / `c.service_code_input = ?` predicate per
+supplied key is in both the page `SELECT` and the `COUNT`, on the
+container alias on both the bare and the parent-address-join paths,
+with no new migration, index or join. Equality may scan; no latency
+claim is implied. Both selectors are recognized under
+`strictQuery=true` and reused by `countOnly=true` (the latter returns
+only the count, with no page SELECT or next Link). A request that
+previously carried an ignored `serviceCodeType` or `serviceCodeInput`
+now filters on this list only; by-id reads, CSV exports and the
+changes feed still ignore them as unknown names. Omission preserves
+existing matches and wire behavior. When the page is non-terminal, the
+`Link` next target preserves each validated selector verbatim; an
+unfiltered page's next target carries neither. Synthetic example:
+
+```text
+GET /api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1
+
+{"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+```
+
+The second page replays both selectors with the cursor:
+`GET /api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1&cursor=9302`
+returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
+`Link` target leads to the terminal empty page. Stop only when `Link` is
+absent.
+
+Run `npm run check:container-service-code-parts` for the focused
+synthetic-local-D1 equality, composition, rejection, traversal,
+SQL-shape and contract regressions. No live replay.
 
 ## Hydrated entity reads are strict
 
