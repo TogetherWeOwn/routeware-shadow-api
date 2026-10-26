@@ -65,7 +65,7 @@ export const customerSnapshotListQuery = z.object({
   subCustomerNumber: customerAccountNumberQuery.optional()
     .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
     .openapi({ example: "North" }),
-  q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
+  q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (ASCII case-insensitive; maximum 100 Unicode code points). SQLite lower() folds A-Z only; non-ASCII case variants match only on exact case. A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
   phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
   comments: customerCommentsQuery,
   hasAddresses: customerAddressPresenceQuery,

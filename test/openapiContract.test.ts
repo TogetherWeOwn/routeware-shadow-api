@@ -365,7 +365,8 @@ function withoutExactNextParameter(doc: OpenApiDocument): OpenApiDocument {
 /**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
- * selector covered by addressZipFilter.acceptance.test.ts, city/state by
+ * selector covered by addressZipFilter.acceptance.test.ts, exact stored
+ * streets by addressStreetExact.acceptance.test.ts, city/state by
  * addressCityStateFilters.acceptance.test.ts and driverNote by
  * addressDriverNoteSearch.acceptance.test.ts. Keep all existing parameter
  * schemas, responses, tags and other operations in the legacy golden.
@@ -380,7 +381,7 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state", "driverNote"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote"].includes(parameter.name));
   return copy;
 }
 
@@ -414,6 +415,24 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   if (operation?.parameters) {
     operation.parameters = operation.parameters.filter((parameter) =>
       parameter.in !== "query" || parameter.name !== "hasContainers"
+    );
+  }
+  return copy;
+}
+
+// Stored last-audit-date exact and presence selection has semantic checks in
+// the Test Author-owned addressLastAuditDate.acceptance.test.ts, not frozen
+// as speculative parameter positions. The address description and 400 prose
+// are already projected out above; only the two new selectors move to
+// behavioral ownership here. All legacy parameters stay frozen.
+function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["lastAuditDate", "hasLastAuditDate"].includes(parameter.name ?? "")
     );
   }
   return copy;
@@ -474,6 +493,52 @@ function withoutCustomerTypeContract(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// The stored-type selector's facet, strict validation and composition are
+// asserted independently in containerTypeFilter.acceptance.test.ts, not frozen
+// as parameter position here. All legacy parameters stay frozen.
+function withoutContainerTypeFilter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "containerTypeId"
+    );
+  }
+  return copy;
+}
+
+/**
+ * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
+ * it checks the served schema and HTTP behavior without freezing new wording.
+ * Keep every pre-existing schema, response and unrelated query parameter pinned.
+ */
+function withoutDedicatedChangesIntervalMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const get = copy.paths["/api/v1/customer-snapshot/changes"]?.get as {
+    description?: string;
+    summary?: string;
+    parameters?: Array<{ name?: string; in?: string; description?: string; schema?: Record<string, unknown> }>;
+    responses?: Record<string, { description?: string }>;
+  } | undefined;
+  if (!get) return copy;
+  delete get.description;
+  delete get.summary;
+  if (get.parameters) {
+    get.parameters = get.parameters.filter((param) => !(param.in === "query" && param.name === "until"));
+    for (const param of get.parameters) {
+      if (param.name !== "since") continue;
+      delete param.description;
+      if (param.schema) delete param.schema.description;
+    }
+  }
+  if (get.responses?.["400"]) delete get.responses["400"].description;
+  return copy;
+}
+
 // The typed hydrated oracle owns ONLY these GET 200 schemas/examples and their
 // component closure. Other statuses, POSTs, parameters and unrelated components
 // remain golden-pinned. Shared components used by another operation stay pinned.
@@ -511,6 +576,36 @@ function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocumen
   }
   const shared = refs(copy.paths);
   for (const name of owned) if (!shared.has(name)) delete components[name];
+  return copy;
+}
+
+// Customer name-search supersedes this route's old company-only query narrative.
+// Its operation description and q parameter/schema descriptions are asserted
+// semantically in customerNameSearch.acceptance.test.ts (substring wording plus
+// company/first/last/any), not frozen as speculative prose here. The q schema
+// shape, all other parameters, responses and unrelated operations remain frozen.
+function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{
+        name?: string;
+        in?: string;
+        description?: string;
+        schema?: Record<string, unknown>;
+      }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    for (const parameter of operation.parameters ?? []) {
+      if (parameter.name !== "q" || parameter.in !== "query") continue;
+      delete parameter.description;
+      const schema = parameter.schema as Record<string, unknown> | undefined;
+      if (schema) delete schema.description;
+    }
+  }
   return copy;
 }
 
@@ -788,15 +883,22 @@ describe("published OpenAPI document", () => {
     // parent selectors move to containerParentScopes.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
-    // Unrelated golden contracts stay pinned.
+    // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
+    // its since schema and all unrelated golden contracts stay pinned.
+    // Only customer name-search operation/q prose additionally moves to its
+    // semantic oracle; unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     // The customer list's customerTypeId selector and filter/error prose move
-    // to customerTypeFilter.acceptance.test.ts the same way, and the address
-    // stored-extras selector moves to addressExtrasAllowed ownership; all
-    // other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))))).toMatchSnapshot();
+    // to customerTypeFilter.acceptance.test.ts the same way. Only the
+    // container list's containerTypeId query parameter is also projected out:
+    // its facet, strict validation and composition are independently pinned
+    // in `test/containerTypeFilter.acceptance.test.ts`. Only the address
+    // stored-extras selector additionally moves to addressExtrasAllowed
+    // ownership; last-audit-date exact/presence moves to
+    // addressLastAuditDate ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
   });
 });
 
