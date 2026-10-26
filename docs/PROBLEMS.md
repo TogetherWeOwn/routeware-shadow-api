@@ -339,6 +339,24 @@ ZIP that matches no rows returns 200 with an empty list. See the
 [address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
 [container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
 
+## Exact stored street address (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `streetAddress` is one optional opaque
+case-sensitive exact stored street string of 1..200 Unicode code points
+containing a non-whitespace character. Preserve nonblank whitespace, leading
+zeros and punctuation. Empty, whitespace-only, overlength and repeated values
+return the existing value-free `application/problem+json` bad-request type
+after authentication and before D1 (including conditional requests):
+
+`Invalid request query (streetAddress). URL-encode one nonblank stored street value or omit streetAddress and retry. See docs/PROBLEMS.md#bad-request.`
+
+The field list may include other invalid selectors. No submitted value or
+validation exception is echoed or logged. A valid street with zero matches
+returns 200 empty. Exact equality returns all matching site IDs, not an
+arbitrary first address or a city/ZIP/substring match. There is no normalization,
+postal verification, geocoding or uniqueness guarantee. See the
+[synthetic exact-street recipe](CONSUMER-QUICKSTART.md#exact-stored-street-address).
+
 ## Exact stored container labels (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, optional `materialStream` and `color`
