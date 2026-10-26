@@ -462,7 +462,18 @@ describe.each(SPECS)("$name: canonical lowerId validation and auth precedence", 
       await bad(spec, `lowerId=synthetic-private-lower&${mode}`);
     }
     await bad(spec, "lowerId=4&upperId=01", "upperId");
-    await bad(spec, "lowerId=10&upperId=4&countOnly=true&includeTotal=false", "countOnly");
+    // The countOnly=true&includeTotal=false conflict body is owned by the count-only
+    // oracle (test/snapshotCountOnly.acceptance.test.ts): the hook appends fixed
+    // next-action guidance, so mirror its matchers here instead of the exact body.
+    const conflict = await request(spec, "lowerId=10&upperId=4&countOnly=true&includeTotal=false", { headers: { "if-none-match": "*" } });
+    expect.soft(conflict.recorder.methods, "validation must precede every D1 entry point").toEqual([]);
+    expect(conflict.response.status).toBe(400);
+    posture(conflict.response);
+    expect(conflict.response.headers.get("content-type")).toContain("application/problem+json");
+    expect(conflict.response.headers.get("etag")).toBeNull();
+    const conflictText = await conflict.response.text();
+    expect(conflictText).toMatch(/(?:omit|remove).*includeTotal=false|includeTotal=false.*(?:omit|remove)/i);
+    expect(conflictText).toMatch(/countOnly=false/);
   });
   it.each([null, "synthetic-invalid-token"])("auth wins over bounds, strictQuery and wildcard 304 for %s", async token => {
     for (const query of ["lowerId=4&upperId=10", "lowerId=synthetic-private-lower", "lowerId=4&lowerId=6", "lowerId=10&upperId=4", "lowerId=4&upperId=bad", "lowerId=0&countOnly=true", "lowerId=0&strictQuery=true&unknown=synthetic-private"]) {
