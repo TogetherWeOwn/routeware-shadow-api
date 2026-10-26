@@ -448,6 +448,24 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// The stored-type selector's facet, strict validation and composition are
+// asserted independently in containerTypeFilter.acceptance.test.ts, not frozen
+// as parameter position here. All legacy parameters stay frozen.
+function withoutContainerTypeFilter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "containerTypeId"
+    );
+  }
+  return copy;
+}
+
 /**
  * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
  * it checks the served schema and HTTP behavior without freezing new wording.
@@ -827,9 +845,12 @@ describe("published OpenAPI document", () => {
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
+    // Only the container list's containerTypeId query parameter is also
+    // projected out: its facet, strict validation and composition are
+    // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))).toMatchSnapshot();
   });
 });
 
