@@ -46,6 +46,12 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("hasPhone1")
+        ? "Send one hasPhone1=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasPhone2")
+        ? "Send one hasPhone2=true, false or any, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("streetAddress")
         ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
         : "") +

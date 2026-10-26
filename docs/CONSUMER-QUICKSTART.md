@@ -1025,6 +1025,60 @@ claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
 [400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
 
+### Customer stored-phone presence
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select customers by stored primary/secondary phone text, without downloading
+every customer's phone values. Optional `hasPhone1=true|false|any` and
+`hasPhone2=true|false|any` (default `any`) test the stored slot as stored:
+`true` keeps rows where the slot is present (`IS NOT NULL AND <> ''`),
+`false` keeps the exact null-or-empty complement. Both flags AND-compose
+with each other and every existing customer selector, so
+`hasPhone1=false&hasPhone2=false` finds customers with no stored phone text
+in either slot. Whitespace-only stored text counts as present: no trimming,
+normalization, digit-stripping or number validation. Stored presence is **not**
+a valid number, a preferred channel, contact consent, deliverability or
+reachability, and never authorizes outreach or provider lookups. Send each
+supported key once as `true`, `false` or `any`, or omit it; invalid, blank,
+repeated or case-variant values return the existing value-free 400 before D1
+(authentication first).
+
+Synthetic local recipe: with customers 11–16, store `phone1` only for 12 and
+14, `phone2` only for 13, both for 15, and neither (null/empty) for 11 and
+16. Use only a local fixture service and its `$TOKEN`, not production data.
+The focused suite below creates a larger fixture automatically in test D1.
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=false&hasPhone2=false&countOnly=true"
+# {"rows":[],"total":2,"nextCursor":null} — customers 11 and 16, no row payloads
+```
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&limit=1&fields=enabled&includeTotal=false"
+# {"rows":[{"customer_id":12,"enabled":1}],"total":null,"nextCursor":12} — Link retains both flags
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&fields=enabled&limit=1&includeTotal=false&cursor=12"
+# Next: 14, then an empty terminal page; stop when Link is absent.
+```
+
+GET is an idempotent local D1 read, not an upstream call; CLI `--dry-run`
+is N/A. Counted totals are cursor-relative; `includeTotal=false` runs zero
+COUNTs and `countOnly=true` runs the existing COUNT-only path. The selectors
+compose with either paging direction, `upperId`, sparse fields and
+representation-correct ETag/304. No snapshot isolation is promised across
+concurrent writes. Presence-only selections may scan; no phone index exists
+and none is added.
+
+Run `npm run check:customer-phone-presence` for synthetic local-D1
+selection, validation/auth, full Link traversal and conditional-read
+regressions. This is local planner evidence only, not a production latency
+claim. No migration, new index, deployment or live probe. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-stored-phone-presence)
+and [400 correction guidance](PROBLEMS.md#bad-request).
+
 ### Address container presence
 
 Use the existing `listAddressSnapshot` operation to find mirrored service
