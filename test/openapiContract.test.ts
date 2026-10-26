@@ -342,6 +342,20 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
   return copy;
 }
 
+/** Only the new customer-list query parameters move to the independent
+ * customerPhonePresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || !["hasPhone1", "hasPhone2"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
 /**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
@@ -415,6 +429,24 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   if (operation?.parameters) {
     operation.parameters = operation.parameters.filter((parameter) =>
       parameter.in !== "query" || parameter.name !== "hasContainers"
+    );
+  }
+  return copy;
+}
+
+// Stored last-audit-date exact and presence selection has semantic checks in
+// the Test Author-owned addressLastAuditDate.acceptance.test.ts, not frozen
+// as speculative parameter positions. The address description and 400 prose
+// are already projected out above; only the two new selectors move to
+// behavioral ownership here. All legacy parameters stay frozen.
+function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["lastAuditDate", "hasLastAuditDate"].includes(parameter.name ?? "")
     );
   }
   return copy;
@@ -816,7 +848,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
+    const doc = withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -850,8 +882,9 @@ describe("published OpenAPI document", () => {
     // projected out: its facet, strict validation and composition are
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
-    // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))).toMatchSnapshot();
+    // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
+    // addressLastAuditDate ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))).toMatchSnapshot();
   });
 });
 

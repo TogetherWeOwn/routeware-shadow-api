@@ -38,6 +38,7 @@ type SnapshotListQuery = {
   city?: string;
   state?: string;
   driverNote?: string;
+  lastAuditDate?: string;
   q?: string;
   phone?: string;
   comments?: string;
@@ -45,7 +46,10 @@ type SnapshotListQuery = {
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
+  hasLastAuditDate?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  hasPhone1?: "true" | "false" | "any";
+  hasPhone2?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -59,7 +63,7 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
@@ -98,8 +102,21 @@ export function snapshotNextLink(
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
   }
+  // Stored audit-date presence (address only): carry only filtering values
+  // so any/omitted continuations stay byte-identical.
+  if (query.hasLastAuditDate !== undefined && query.hasLastAuditDate !== "any") {
+    params.set("hasLastAuditDate", query.hasLastAuditDate);
+  }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  // Customer-only stored-phone presence: carry only filtering values so
+  // any/omitted continuations stay byte-identical.
+  if (resource === "customer" && query.hasPhone1 !== undefined && query.hasPhone1 !== "any") {
+    params.set("hasPhone1", query.hasPhone1);
+  }
+  if (resource === "customer" && query.hasPhone2 !== undefined && query.hasPhone2 !== "any") {
+    params.set("hasPhone2", query.hasPhone2);
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
