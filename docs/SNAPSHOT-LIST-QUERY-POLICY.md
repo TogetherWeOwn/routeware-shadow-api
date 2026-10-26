@@ -17,7 +17,7 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `hasEnabledAddresses`, `hasEnabledContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
@@ -89,6 +89,58 @@ planner evidence, not a production latency claim. No migration/index change.
 GET is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipe](CONSUMER-QUICKSTART.md#customer-address-presence) and
 [correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+## Customer enabled-descendant presence
+
+Only the ordinary customer list accepts `hasEnabledAddresses=true|false|any`
+and `hasEnabledContainers=true|false|any` (single exact enums, default `any`).
+True selects at least one stored descendant whose `enabled` is exactly 1:
+addresses must have the customer's `customer_id`; containers must be reachable
+through any owned stored address by `pickup_address_id`. The intermediate
+address's enabled state is irrelevant. Noncanonical stored values never count
+as enabled. Each false is the exact NOT EXISTS complement, including customers
+with zero descendants at that level and those whose descendants are all
+non-1. Omission/any adds no predicate; customer enabled remains independent.
+
+Both selectors AND-compose globally across the customer's owned sites, with
+each other and every merged selector, not inside a separate same-site cohort.
+An enabled site does not imply enabled equipment and vice versa:
+
+| Intersection | Result |
+| --- | --- |
+| `hasAddresses=false&hasEnabledAddresses=true` | Empty 200 |
+| `hasAddresses=false&hasEnabledContainers=true` | Empty 200 |
+| `hasAddresses=true&hasEnabledAddresses=false` | Stored sites, none enabled |
+| `hasEnabledAddresses=false&hasEnabledContainers=true` | Enabled equipment, no enabled site |
+| `hasEnabledAddresses=true&hasEnabledContainers=false` | Enabled site, no enabled equipment |
+| `hasContainers=false&hasEnabledContainers=true` | Empty 200 |
+| `hasContainers=true&hasEnabledContainers=false` | Stored equipment, none enabled |
+
+COUNT and page share correlated EXISTS/NOT EXISTS using the existing
+`address_snapshot.customer_id` and `container_snapshot.pickup_address_id`
+indexes, with no row fanout, child expansion or per-account descendant counts.
+`countOnly=true` is one COUNT, zero pages; `includeTotal=false` is zero COUNTs.
+Canonical IDs, sparse projection, order/cursor/offset/lowerId/upperId/exactNext,
+strictQuery, representation ETags/304 and no-store remain unchanged. Relative
+next Links retain effective true/false in either direction and offset-to-seek;
+any/default and unknown keys stay out. No new index/migration, scan-latency
+or snapshot-isolation guarantee is claimed.
+
+Send each selector once as exact true, false or any, or omit it and retry.
+Invalid/blank/repeated values (including encoded duplicate names) return fixed
+value-free bad-request guidance after auth and before D1/304. Mirrored report
+state is not current account eligibility, live service status, deployment
+proof or authorization. Absence is not proof of upstream emptiness and never
+authorizes deletion, reconciliation or sync. No upstream/R2 access or writes.
+GET is idempotent/local-read; CLI `--dry-run` is N/A.
+
+Run `npm run check:customer-enabled-descendants`; the independent
+`test/customerEnabledDescendants.acceptance.test.ts` pins synthetic real-D1
+truth tables, traversal, auth/zero-SQL rejection, mounted discovery and
+existing-FK-index EXPLAIN plans. This is local evidence, not deployment or
+production-performance proof. See the
+[active-footprint recipe](CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence)
+and [400 correction guidance](PROBLEMS.md#customer-enabled-descendant-presence-bad-request).
 
 ## Customer container presence
 

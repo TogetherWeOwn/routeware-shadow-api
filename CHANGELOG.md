@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Customer snapshot lists accept `hasEnabledAddresses=true|false|any` and
+  `hasEnabledContainers=true|false|any` (default `any`). True requires a
+  mirrored descendant whose stored `enabled` is exactly 1; enabled equipment
+  may sit on any owned address, regardless of that address's enabled state.
+  Each false is the exact NOT EXISTS complement, including zero descendants
+  and all-non-1 descendants; noncanonical stored values never count as enabled.
+  Customer enabled and separate site cohorts remain independent. Selectors
+  AND-compose with all existing filters, with shared COUNT/page predicates,
+  countOnly/count-free modes, sparse fields, bounded bidirectional traversal,
+  retaining relative next Links and ETag/304/no-store. Malformed/blank/repeated
+  values fail value-free after auth and before D1/304. Uses existing FK
+  indexes without expansion, migrations or new indexes. Mirrored report
+  state is not account eligibility, live service, deployment proof or
+  authorization. Local active-footprint count recipe:
+  `docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence`; check:
+  `npm run check:customer-enabled-descendants`.
+
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
