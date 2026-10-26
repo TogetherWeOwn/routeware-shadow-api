@@ -731,6 +731,45 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container stored cost-share and enclosure-door presence
+
+Use `listContainerSnapshot` with `hasCostShare` and/or
+`hasEnclosureDoors` (`true|false|any`, default `any`) to count or page equipment
+carrying stored cost-share or enclosure-door metadata without reading each
+value. Each control tests only stored-text presence (`IS NOT NULL AND <> ''`);
+`false` matches exactly null-or-empty rows, and any nonempty text counts as
+present, including whitespace-only values. Stored text is mirrored report
+metadata: never infer cost terms, door counts, compliance or a controlled
+taxonomy, and never treat missing text (which includes report-only
+unavailability) as proof of upstream absence.
+
+Send each key once as exact `true`, `false` or `any`. Invalid, blank or
+repeated keys fail value-free before D1 after auth; correct the named control
+and retry. Valid no-match is an empty 200.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:container-cost-share-enclosure
+```
+
+The oracle's `hasCostShare=true&hasEnclosureDoors=false&fields=enabled&limit=2&includeTotal=false`
+request returns containers `[50,80]`, then `[110]` with no further Link.
+Follow the returned [same-origin Link](#follow-the-servers-next-page-target)
+unchanged; filtering presence values stay encoded, `any` is omitted, and
+neither raw origins nor unknown query keys are copied. Add `countOnly=true`
+to inspect just the cohort count (one COUNT, no rows), or
+`includeTotal=false` to page rows with zero COUNTs.
+
+Both controls AND-compose with each other and every existing filter (parent
+scopes, IDs, material/color, serial/rfid, location) on joined and unjoined
+paths; omission preserves the old list and orphan visibility. Sparse fields,
+container-ID order, cursor/`upperId` bounds and representation ETags/304 stay
+intact. Presence may scan; no new index, deployment or production latency is
+claimed. GET is idempotent local-read, CLI dry-run N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-stored-cost-share-and-enclosure-door-presence)
+and [400 recovery](PROBLEMS.md#container-stored-cost-share-and-enclosure-door-presence-bad-request).
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an

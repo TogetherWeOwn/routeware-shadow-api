@@ -260,6 +260,32 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Container stored cost-share and enclosure-door presence (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `hasCostShare` and `hasEnclosureDoors`
+are each optional and exact:
+
+- `hasCostShare`: exactly `true`, `false` or `any` (default `any`). `true`
+  keeps only rows whose stored `ud_cost_share_ud` text is present
+  (`IS NOT NULL AND <> ''`); `false` keeps only null-or-empty rows.
+- `hasEnclosureDoors`: exactly `true`, `false` or `any` (default `any`).
+  `true` keeps only rows whose stored `ud_enclosure_doors_ud` text is present;
+  `false` keeps only null-or-empty rows.
+
+Any nonempty stored text counts as present, including whitespace-only values.
+The stored text is mirrored report metadata; never infer cost terms, door
+counts, compliance or a controlled taxonomy from presence, and never treat
+missing text as proof of upstream absence.
+
+Blank, invalid and repeated keys return a value-free 400 before D1 or
+conditional 304, after authentication:
+`Invalid request query (hasCostShare). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `hasEnclosureDoors`, or both supported keys.
+Correct the named format, send it once and retry; omit only if no presence
+scope is intended. Values are never logged or included in errors. Valid
+no-match returns 200 empty, not an error. See the
+[presence policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-stored-cost-share-and-enclosure-door-presence).
+
 ## Address stored extras-allowed selector (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,

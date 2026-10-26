@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -715,6 +715,44 @@ R2 or writes. See the [parent-cohort recipe](CONSUMER-QUICKSTART.md#container-pa
 Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
+GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Container stored cost-share and enclosure-door presence
+
+The existing container list accepts `hasCostShare` and `hasEnclosureDoors`
+(`true|false|any`, default `any`). Each tests only whether its stored
+custom-field text is present: `c.ud_cost_share_ud` and
+`c.ud_enclosure_doors_ud` respectively. Present means
+`IS NOT NULL AND <> ''`; `false` matches exactly the null-or-empty complement.
+Any nonempty stored text counts as present, including whitespace-only values.
+Omission or `any` adds no predicate and never alters stored data.
+
+Stored custom-field text is mirrored report metadata from the last container
+import, never parsed cost terms, door counts, compliance state or a controlled
+taxonomy. Missing text includes report-only unavailability: absence never proves
+the upstream equipment lacks cost sharing or doors, and presence never
+authorizes inference about obligations, counts or compliance. Never infer cost
+terms, door counts, compliance or a controlled vocabulary from these controls.
+
+Send each key once as exact `true`, `false` or `any`. Invalid, blank or
+repeated presence keys fail with fixed value-free `application/problem+json`
+guidance after authentication and before D1; correct the named control and
+retry, or omit it. See [recovery](PROBLEMS.md#container-stored-cost-share-and-enclosure-door-presence-bad-request).
+
+Both controls AND-compose with each other and every existing filter (parent
+scopes, IDs, material/color, serial/rfid, location selectors) on the joined and
+unjoined paths. COUNT and page share the same WHERE/binds; omission preserves
+the original no-join SQL and orphan visibility. `countOnly` and
+`includeTotal=false` keep their single-statement and zero-COUNT budgets;
+canonical IDs, sparse projection, order/cursor/`upperId`, `exactNext`,
+`strictQuery`, no-store and representation-byte ETags/304 are unchanged.
+
+Validated presence values survive relative next Links with `any` omitted;
+unknown keys stay ignored, never echoed. Presence-only selections may scan;
+no new index or migration is added and no production performance is promised.
+
+Run `npm run check:container-cost-share-enclosure` with synthetic local D1, no
+upstream, R2 or writes. See the [presence recipe](CONSUMER-QUICKSTART.md#container-stored-cost-share-and-enclosure-door-presence).
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
 
 ## Mutating POST query keys are strict

@@ -30,6 +30,8 @@ type SnapshotListQuery = {
   parentRouteId?: number;
   parentFranchiseId?: string;
   parentEnabled?: "true" | "false" | "any";
+  hasCostShare?: "true" | "false" | "any";
+  hasEnclosureDoors?: "true" | "false" | "any";
   zip?: string;
   locationAddress?: string;
   city?: string;
@@ -100,6 +102,14 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
+  }
+  // Container-only stored-text presence selectors: carry only filtering
+  // values so any/omitted continuations stay byte-identical.
+  if (resource === "container" && query.hasCostShare !== undefined && query.hasCostShare !== "any") {
+    params.set("hasCostShare", query.hasCostShare);
+  }
+  if (resource === "container" && query.hasEnclosureDoors !== undefined && query.hasEnclosureDoors !== "any") {
+    params.set("hasEnclosureDoors", query.hasEnclosureDoors);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the
