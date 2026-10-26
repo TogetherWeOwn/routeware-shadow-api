@@ -17,7 +17,7 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
@@ -133,14 +133,27 @@ migration/index change. GET is an idempotent local-read operation; CLI
 ## Customer service-site cohorts
 
 Only the ordinary customer list recognizes `addressRouteId`,
-`addressFranchiseId` and `addressEnabled=true|false|any` (default `any`).
-Effective scopes AND inside one customer-correlated `EXISTS`, so route,
-franchise and site state must match the same stored address: split scopes
+`addressFranchiseId`, `addressEnabled=true|false|any`,
+`addressExtrasAllowed=true|false|any` (both enums default `any`) and
+`addressLastAuditDate`. Effective scopes AND inside one customer-correlated
+`EXISTS`, so route, franchise, site state, extras and audit text must match
+ the same stored address: split scopes
 across different children never match, duplicate matching sites never
 duplicate the customer, and null stored scalars never match equality. All
 stored children, including disabled, remain eligible unless `addressEnabled`
 explicitly filters them; customer `enabled` stays independent. Omitted
-scopes, or `addressEnabled=any` alone, add no child-cohort predicate.
+scalars with only `any` enums add no child-cohort predicate.
+
+`addressExtrasAllowed=true` matches stored `extras_allowed = 1`; `false`
+matches 0, not absence of sites. It is a mirrored service-policy marker,
+not billing authorization. `addressLastAuditDate` matches stored
+`last_audit_date` exactly: one nonblank string of 1..100 Unicode code points,
+case-sensitive, preserved verbatim including significant whitespace. Never
+parse it as a date, range or schedule: `2026-1-5` and `2026-01-05` are distinct.
+Stored NULL never matches and valid unknown text returns an empty 200. This
+is mirrored report data, not audit compliance, certification or proof an
+audit occurred. These scopes neither expand sites nor constrain the separate
+global `hasContainers` presence lookup to the matched site.
 
 `addressRouteId` is one canonical unpadded ASCII decimal safe integer
 `0..9007199254740991`; zero matches literal stored zero, not all routes.
