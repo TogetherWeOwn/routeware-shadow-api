@@ -334,7 +334,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), child-cohort `addressRouteId` / `addressFranchiseId` / `addressEnabled=true\|false\|any` ([cohort recipes](docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts)), stored-phone presence `hasPhone1` / `hasPhone2` (`true\|false\|any`, default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), child-cohort `addressRouteId` / `addressFranchiseId` / `addressEnabled=true\|false\|any` ([cohort recipes](docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts)), stored-phone presence `hasPhone1` / `hasPhone2` (`true\|false\|any`, default `any`), mirrored-grandchild `hasContainers=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional inclusive `until` bounds the window (`synced_at <= until`, same UTC Z millisecond contract; normalized `since` must not exceed it); omit it for the unbounded tail. Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
@@ -426,6 +426,29 @@ and none is added. Run `npm run check:customer-phone-presence` for
 synthetic local-D1 contract coverage, not production performance evidence.
 CLI `--dry-run` is N/A. See the
 [neither-slot count recipe](docs/CONSUMER-QUICKSTART.md#customer-stored-phone-presence).
+
+### Customer container presence
+
+On the ordinary customer list only, `hasContainers=true|false|any` selects
+accounts by mirrored descendant equipment: `true` keeps customers with at
+least one stored container reachable through any stored address they own,
+`false` the exact complement; any/omission adds no predicate. Disabled
+addresses and containers count; customer `enabled` is independent. Presence
+is global to the customer across all owned addresses, never same-site
+membership. Absence is no currently mirrored reachable equipment — not
+upstream emptiness, active service or any authorization — and never
+authorizes deletion, reconciliation or sync. It AND-composes with
+`hasAddresses` and every other selector: `hasAddresses=false` plus
+`hasContainers=true` is an empty 200, while `hasAddresses=true` plus
+`hasContainers=false` keeps accounts with sites but no equipment. Send one
+supported value or omit it and retry invalid/empty/repeated selectors
+(value-free 400 after auth, before D1). The local-read GET composes with
+all existing filters/paging/fields/conditional reads; true/false stay in
+relative next Links and count-free mode runs zero COUNTs. No isolation
+promise. Run `npm run check:customer-container-presence` for synthetic
+local-D1 contract and existing-child-index EXPLAIN checks, not production
+performance evidence. CLI `--dry-run` is N/A. See the
+[present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-container-presence).
 
 ### Ordinary list direction
 
