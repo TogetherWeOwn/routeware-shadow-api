@@ -371,6 +371,21 @@ function withoutCustomerContainerPresence(doc: OpenApiDocument): OpenApiDocument
   return copy;
 }
 
+/** Only the new customer-list synced-window query parameters move to the
+ * independent customerSyncedWindow oracle; all legacy schemas/prose/endpoints
+ * stay frozen. */
+function withoutCustomerSyncedWindowParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || !["syncedSince", "syncedUntil"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
 /**
  * Customer child-cohort schemas, examples, single-list scope and outcomes are
  * independently owned by customerAddressCohorts.acceptance.test.ts. Remove only
@@ -904,7 +919,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
+    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerSyncedWindowParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -945,6 +960,10 @@ describe("published OpenAPI document", () => {
     // `test/customerContainerPresence.acceptance.test.ts`; the address list's
     // own single-level hasContainers stays separately projected via
     // withoutAddressContainerPresence above.
+    // Only the customer list's syncedSince/syncedUntil query parameters are
+    // also projected out: their shared-chain schema, window semantics and
+    // composition are independently pinned in
+    // `test/customerSyncedWindow.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to

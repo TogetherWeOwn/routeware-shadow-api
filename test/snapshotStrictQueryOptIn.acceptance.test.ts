@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "hasContainers", "syncedSince", "syncedUntil", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -104,7 +104,7 @@ const SPECS: Spec[] = [
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
       "comments=note", "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1", "containerTypeId=7"
+      "locationAddress=Loc-1", "containerTypeId=7", "syncedSince=2026-08-01T00:00:00.000Z", "syncedUntil=2026-09-01T00:00:00.000Z"
     ]
   },
   {
@@ -122,7 +122,7 @@ const SPECS: Spec[] = [
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
       "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
-      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
+      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "syncedSince=2026-08-01T00:00:00.000Z", "syncedUntil=2026-09-01T00:00:00.000Z"
     ]
   }
 ];
@@ -138,6 +138,7 @@ const SAMPLES: Record<string, string> = {
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true",
+  syncedSince: "2026-08-01T00:00:00.000Z", syncedUntil: "2026-09-01T00:00:00.000Z",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
   locationAddress: "Synthetic location",
