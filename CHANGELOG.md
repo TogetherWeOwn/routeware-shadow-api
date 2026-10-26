@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Container snapshot lists accept optional `syncedSince`, selecting stored
+- #426: Container snapshot lists accept optional `syncedSince`, selecting stored
   `synced_at` strictly after a normalized UTC Z instant using the existing
   customer-changes timestamp parser. Empty, offset, excess-precision,
   calendar-invalid and repeated values fail value-free after auth before D1/304.
