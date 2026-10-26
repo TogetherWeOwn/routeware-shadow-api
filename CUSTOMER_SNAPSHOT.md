@@ -334,7 +334,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), stored-phone presence `hasPhone1` / `hasPhone2` (`true\|false\|any`, default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional inclusive `until` bounds the window (`synced_at <= until`, same UTC Z millisecond contract; normalized `since` must not exceed it); omit it for the unbounded tail. Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
@@ -345,7 +345,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/address-snapshot/import` | Body = raw address CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, stored `containerTypeId` ([type-filter recipe](docs/CONSUMER-QUICKSTART.md#stored-container-type-filter)), `ids`, exact `serialNumber` / `rfid` / `materialStream` / `color` / stored container `zip` / `locationAddress` (1..200 code points) / `state` (1..100 code points), parent address `parentRouteId` / `parentFranchiseId` / `parentEnabled=true\|false\|any` ([parent-cohort recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts)), `q` (literal substring on location/serial/city/zip, not state), `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation) |
+| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, stored `containerTypeId` ([type-filter recipe](docs/CONSUMER-QUICKSTART.md#stored-container-type-filter)), `ids`, exact `serialNumber` / `rfid` / `materialStream` / `color` / stored container `zip` / `locationAddress` (1..200 code points) / `state` (1..100 code points), stored-text presence `hasSerialNumber=true\|false\|any` / `hasRfid=true\|false\|any` (default `any`; [tagged-vs-untagged recipe](docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence)), parent address `parentRouteId` / `parentFranchiseId` / `parentEnabled=true\|false\|any` ([parent-cohort recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts)), `q` (literal substring on location/serial/city/zip, not state), `enabled`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation) |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
 | GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
@@ -385,6 +385,25 @@ Run `npm run check:customer-address-presence` for synthetic local-D1 contract
 and existing-child-index EXPLAIN checks, not production performance evidence.
 CLI `--dry-run` is N/A. See the
 [present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-address-presence).
+
+### Customer stored-phone presence
+
+On the ordinary customer list only, `hasPhone1=true|false|any` and
+`hasPhone2=true|false|any` select rows by stored `phone1`/`phone2` text:
+`true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
+exact null-or-empty complement; any/omission adds no predicate. Both flags
+AND-compose with each other and every existing selector, so both `false`
+finds customers with no stored phone text in either slot. Whitespace-only
+stored text counts as present. Stored presence is not a valid number,
+preferred channel, contact consent, deliverability or reachability, and
+never authorizes outreach. Send each key once or omit it and retry
+invalid/blank/repeated/case-variant selectors (value-free 400 after auth,
+before D1). Effective values stay in relative next Links; count-free mode
+runs zero COUNTs. Presence-only selections may scan; no phone index exists
+and none is added. Run `npm run check:customer-phone-presence` for
+synthetic local-D1 contract coverage, not production performance evidence.
+CLI `--dry-run` is N/A. See the
+[neither-slot count recipe](docs/CONSUMER-QUICKSTART.md#customer-stored-phone-presence).
 
 ### Ordinary list direction
 

@@ -880,6 +880,68 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container serial and RFID presence
+
+Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or
+`hasRfid=true|false|any` (default `any`) to count tagged versus untagged
+equipment without reading every identity value. `true` keeps only rows whose
+stored column reads present (`IS NOT NULL AND <> ''`); `false` keeps only
+null-or-empty stored text. Nonempty whitespace-only text counts as present.
+The two controls AND-compose with each other and with exact `serialNumber`/
+`rfid`; an exact value plus its presence=`false` yields an empty 200, while
+omission/`any` adds no predicate. Invalid, blank or repeated keys fail
+value-free before D1 after auth ([correction
+guidance](PROBLEMS.md#container-serial-and-rfid-presence-bad-request)).
+
+Stored identity text is mirrored report data, never a live tag scan,
+deployment proof or uniqueness guarantee; missing text includes report gaps,
+not only untagged equipment. Unscoped presence reads stay join-free, so
+null-parent rows keep their orphan visibility. Presence filters may scan; no
+index, migration or performance promise.
+
+Tagged-vs-untagged count-only recipes (synthetic local service, `$TOKEN` only):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — tagged-equipment count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — untagged-or-gap count, no rows
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — RFID-present count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — RFID-missing count, no rows
+```
+
+Present-first multi-page traversal over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2"
+# {"rows":[...],"total":6,"nextCursor":206} — follow the Link target unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2&cursor=206"
+# {"rows":[...],"total":4,"nextCursor":208} — stop on null nextCursor / no Link
+```
+
+The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#container-serial-and-rfid-presence)
+pins the AND-composition with parent scopes, IDs, material/color, locality,
+`q` and equipment state, byte-identical `any`/omitted behavior, count-free
+zero-COUNT mode and sparse/conditional reads. Run
+`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+contract: real D1 fixtures pin NULL/empty/whitespace semantics, exact-plus-
+presence intersection and contradiction, both seek directions and Link
+round-trips through terminal and empty pages. These checks are not deployed
+performance evidence.
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an
@@ -978,6 +1040,60 @@ true/false. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
 [400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+### Customer stored-phone presence
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select customers by stored primary/secondary phone text, without downloading
+every customer's phone values. Optional `hasPhone1=true|false|any` and
+`hasPhone2=true|false|any` (default `any`) test the stored slot as stored:
+`true` keeps rows where the slot is present (`IS NOT NULL AND <> ''`),
+`false` keeps the exact null-or-empty complement. Both flags AND-compose
+with each other and every existing customer selector, so
+`hasPhone1=false&hasPhone2=false` finds customers with no stored phone text
+in either slot. Whitespace-only stored text counts as present: no trimming,
+normalization, digit-stripping or number validation. Stored presence is **not**
+a valid number, a preferred channel, contact consent, deliverability or
+reachability, and never authorizes outreach or provider lookups. Send each
+supported key once as `true`, `false` or `any`, or omit it; invalid, blank,
+repeated or case-variant values return the existing value-free 400 before D1
+(authentication first).
+
+Synthetic local recipe: with customers 11–16, store `phone1` only for 12 and
+14, `phone2` only for 13, both for 15, and neither (null/empty) for 11 and
+16. Use only a local fixture service and its `$TOKEN`, not production data.
+The focused suite below creates a larger fixture automatically in test D1.
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=false&hasPhone2=false&countOnly=true"
+# {"rows":[],"total":2,"nextCursor":null} — customers 11 and 16, no row payloads
+```
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&limit=1&fields=enabled&includeTotal=false"
+# {"rows":[{"customer_id":12,"enabled":1}],"total":null,"nextCursor":12} — Link retains both flags
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&fields=enabled&limit=1&includeTotal=false&cursor=12"
+# Next: 14, then an empty terminal page; stop when Link is absent.
+```
+
+GET is an idempotent local D1 read, not an upstream call; CLI `--dry-run`
+is N/A. Counted totals are cursor-relative; `includeTotal=false` runs zero
+COUNTs and `countOnly=true` runs the existing COUNT-only path. The selectors
+compose with either paging direction, `upperId`, sparse fields and
+representation-correct ETag/304. No snapshot isolation is promised across
+concurrent writes. Presence-only selections may scan; no phone index exists
+and none is added.
+
+Run `npm run check:customer-phone-presence` for synthetic local-D1
+selection, validation/auth, full Link traversal and conditional-read
+regressions. This is local planner evidence only, not a production latency
+claim. No migration, new index, deployment or live probe. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-stored-phone-presence)
+and [400 correction guidance](PROBLEMS.md#bad-request).
 
 ### Address container presence
 
