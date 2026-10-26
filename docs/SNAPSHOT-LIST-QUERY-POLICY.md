@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `eventCode`, `hasEventCode`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `eventCode`, `hasEventCode`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -233,12 +233,41 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
 
+## Customer personal or company name search
+
+Only the ordinary customer list matches `q` against personal names. The
+optional `q` stays a trimmed literal substring of at most 100 Unicode code
+points, validated before trimming; it now matches a row when the substring
+appears in any one of `company_name`, `first_name` or `last_name`. One bound
+value per column feeds the existing `instr(lower(coalesce(...)))` legs inside
+a single parenthesized OR group, so the whole group AND-composes with every
+other selector and cursor predicate. Quotes, `%` and `_` are literal data;
+there is no LIKE wildcard, name concatenation, token or fuzzy parsing.
+Matching is ASCII case-insensitive: SQLite `lower()` folds A-Z only, so
+non-ASCII case variants match only on exact case; no Unicode folding is added.
+A null column never matches a nonempty `q`; empty or whitespace-only `q` still means no filter,
+and omitting `q` preserves prior matches and shape.
+
+One row per canonical `customer_id`, original ordering, offset/seek
+conventions, cursor-relative counted totals, `includeTotal=false` zero-COUNT
+behavior, sparse projection and conditional ETags are unchanged. Continuation
+Links retain the validated `q`; no query value enters logs or error detail.
+Other lists and the changes feed keep their existing `q` behavior.
+
+Run `npm run check:customer-name-search` for the focused acceptance and list
+regressions, with real local test D1, synthetic fixtures and forbidden
+outbound fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#personal-or-company-name-search)
+walks a name search to its empty terminal page. Synthetic `EXPLAIN QUERY PLAN`
+still seeks the customer enabled index for enabled-plus-`q` pages, scans for
+`q`-alone substring filtering, and seeks (primary key or enabled index, with
+no join or temp B-tree) when a cursor joins the filter; no new index,
+production latency or customer-demand claim is made.
+
 ## Stored customer comment fragment
 
 Only the ordinary customer list recognizes `comments`: a literal substring
-of stored `customer_snapshot.comments`. Use `q` for company-name search,
-`phone` for stored phone text, and `comments` for mirrored notes; `q` is not
-widened. All selectors intersect by AND, including `hasAddresses` and IDs.
+of stored `customer_snapshot.comments`. Use `q` for company/first/last-name search,
+`phone` for stored phone text, and `comments` for mirrored notes; each filter searches only its documented columns. All selectors intersect by AND, including `hasAddresses` and IDs.
 
 Send one fragment of at most 100 Unicode code points **before trimming**
 boundary whitespace. A bounded blank fragment is omitted. Repeated keys and
@@ -726,10 +755,11 @@ GET /api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&include
 Link: </api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&includeTotal=false&cursor=102>; rel="next"
 ```
 
-Follow the returned same-origin Link unchanged through 104, 105, 125 and the
-empty terminal page. Validated selectors round-trip encoded, including
-significant whitespace; raw origins, credentials and unknown keys are never
-copied. `hasEventCode=any` is omitted from continuation targets.
+Follow the returned same-origin Link unchanged through 104, 105 and the
+partial final page at 125, then stop when Link is absent. A full terminal
+page may still link to an empty page. Validated selectors round-trip encoded,
+including significant whitespace; raw origins, credentials and unknown keys
+are never copied. `hasEventCode=any` is omitted from continuation targets.
 
 Run `npm run check:container-event-code` for a hermetic local-D1 recipe including
 literal codes, malformed/auth zero-work checks, both join paths, count-free
@@ -963,6 +993,51 @@ GET /api/v1/customer-snapshot?upperId=6&cursor=4&limit=2
 Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
 validation, resume, composition, discovery and header regressions. No live
 replay.
+
+## Stored container-type filter
+
+Only the ordinary container list recognizes `containerTypeId`. It is an
+optional exact equality on the stored snapshot column `container_type_id`
+(the mirrored CSV value, not a live Routeware lookup and not a type-name
+catalog): one unpadded ASCII decimal safe integer from `0` to
+`9007199254740991`, with no signs, whitespace, fractions, exponents,
+prefixes or padding, and a single `containerTypeId` key. `0` is a literal
+stored value, never a null/all sentinel; rows with a null stored type never
+match any supplied value. Anything else — including an empty value or a
+repeated key, even percent-encoded — is the existing value-free 400 naming
+`containerTypeId` before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request).
+
+The selector AND-composes with every existing list selector, including
+parent service-site scopes, exact equipment labels and installation fields,
+`upperId`, sparse `fields=`, offset or cursor pagination and
+`includeTotal=false`: one bound `c.container_type_id = ?` predicate is in
+both the page `SELECT` and the `COUNT`, on the container alias on both the
+bare and the parent-address-join paths, with no new migration, index or join.
+It is also recognized under `strictQuery=true` and reused by `countOnly=true`
+(the latter returns only the count, with no page SELECT or next Link). A
+request that previously carried an ignored `containerTypeId` now filters on
+this list only; by-id reads, CSV exports and the changes feed still ignore
+it as an unknown name. Omission preserves existing matches and wire
+behavior. When the page is non-terminal, the `Link` next target preserves
+the validated selector verbatim; an unfiltered page's next target carries
+no `containerTypeId`. Synthetic example:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+
+{"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+```
+
+The second page replays the selector with the cursor:
+`GET /api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302`
+returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
+`Link` target leads to the terminal empty page. Stop only when `Link` is
+absent.
+
+Run `npm run check:container-type-filter` for the focused synthetic-local-D1
+equality, composition, rejection, traversal, SQL-shape and contract
+regressions. No live replay.
 
 ## Hydrated entity reads are strict
 

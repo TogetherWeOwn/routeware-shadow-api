@@ -166,7 +166,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/container-snapshot?limit=2"
 ```
 
-List filters: `?q=<substring>` (company text on customers; stored street/city/zip on addresses;
+List filters: `?q=<substring>` (company/first/last name on customers; stored street/city/zip on addresses;
 location/serial/city/zip on containers), `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
@@ -175,7 +175,8 @@ exact stored `zip` / `city` / `state` selectors ([synthetic ZIP-page recipe](#ex
 literal stored `driverNote` substring ([synthetic note recipe](#stored-address-driver-note)),
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
 and mirrored-child `hasContainers=true|false|any` presence
-([synthetic present/absent recipe](#address-container-presence)). Every list response includes
+([synthetic present/absent recipe](#address-container-presence)). Customer `q` matches any one name column, not an exact identity or cross-column full name
+([synthetic name-search recipe](#personal-or-company-name-search)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -375,7 +376,7 @@ with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exa
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
-searching company names (`q`) or stored phone text (`phone`). These selectors
+searching company/first/last names (`q`) or stored phone text (`phone`). These selectors
 intersect by AND; `comments=handoff&q=North` requires both matches. This GET
 uses the existing read-token role and local D1 only; it is idempotent and
 `--dry-run` is not applicable.
@@ -389,7 +390,8 @@ Repeated/overlength input returns value-free 400 before D1, after auth; send
 one fragment within the limit, or omit comments and retry. Do not log selectors.
 
 **Synthetic local oracle:** customers 11, 23, 37 and 42 contain `handoff` in
-their comments (11 uses uppercase). Company-only/phone-only decoys do not match.
+their comments (11 uses uppercase). Decoys with the fragment only in their
+company or phone fields do not match `comments`.
 The following count-free sparse request returns only canonical IDs:
 
 ```text
@@ -417,7 +419,7 @@ Resolve an external account reference to canonical `customer_id` values on the
 existing `listCustomerSnapshot` operation (read token allowed, local D1 only).
 Optional `customerNumber` and `subCustomerNumber` are exact, case-sensitive opaque
 strings, not unique keys. Both together mean AND; they also compose with
-`customerId`, company-only `q`, `enabled`, sparse `fields` and pagination.
+`customerId`, name-substring `q`, `enabled`, sparse `fields` and pagination.
 Leading zeros and supplied nonblank whitespace are significant. Each key must
 occur once with 1..100 Unicode code points and not be whitespace-only. Do not
 trim, normalize or convert to numbers. Use URLSearchParams (or equivalent URL
@@ -459,6 +461,37 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Personal or company name search
+
+Find customer rows by personal name without downloading unrelated pages, on
+the existing `listCustomerSnapshot` operation (read token allowed, local D1
+only). Optional `q` is a literal ASCII case-insensitive substring of at most
+100 Unicode code points; SQLite `lower()` folds A-Z only, so non-ASCII case
+variants match only on exact case. A row matches when it appears in any one
+of `company_name`, `first_name` or `last_name`. Quotes, `%` and `_` are literal
+data, never wildcards. There is no full-name, token or fuzzy parsing: a query
+spanning first and last name does not match a split row, and a null column
+never matches a nonempty `q`. The match AND-composes with every other filter,
+and follow-next Links retain `q` verbatim.
+
+Synthetic multi-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:customer-name-search
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/customer-snapshot?q=needle&enabled=true&fields=first_name&order=asc&limit=2&includeTotal=false`.
+Its page IDs are `11,23`, then `42,58`, then the empty terminal page; each
+full page returns its last ID as `nextCursor` with a followable Link, and the
+empty page carries no Link. `total` is null on every page and each page
+executes one SELECT with no COUNT. Other fixtures prove trimmed matching,
+blank/omitted-`q` parity, ASCII-only case behavior, literal SQL-shaped text,
+100/101-code-point bounds, sparse fields that omit the matched column and
+conditional 304s on the final envelope. Synthetic `EXPLAIN QUERY PLAN` still
+seeks the customer enabled index for enabled-plus-`q` pages; no new index,
+migration or production latency claim is made.
+
 ### Stored phone fragment lookup
 
 Resolve which customer owns a phone number from a stored fragment (for
@@ -468,7 +501,7 @@ ASCII case-insensitive substring over the stored `phone1`/`phone2` text,
 matched as stored: SQLite `lower()` folds A-Z only, so non-ASCII case
 variants match only on exact case; no normalization, digit-stripping,
 trimming or equality fallback.
-It AND-composes with `customerId`, company-only `q`, `enabled`, sparse
+It AND-composes with `customerId`, customer-name `q`, `enabled`, sparse
 `fields` and pagination. Send the key once with 1..100 Unicode code points
 and at least one non-whitespace character. Use URLSearchParams (or
 equivalent URL encoding) so spaces, quotes, `%`, `_`, `+` and `&` remain
@@ -546,6 +579,53 @@ For a custom synthetic local request, construct the query with
 Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
+
+### Stored container-type filter
+
+Use the existing `listContainerSnapshot` operation to fetch one equipment
+type without downloading the whole mirrored inventory. Optional
+`containerTypeId` is exact equality on the stored snapshot column
+`container_type_id` — mirrored CSV state, not a live Routeware lookup —
+with no type-name catalog or inference. Send it at most once as one
+unpadded ASCII decimal safe integer `0..9007199254740991`; `0` matches
+literal stored zero while null stored types never match. The selector
+AND-composes with every existing list selector, including parent service-site
+scopes, exact equipment labels and installation fields, `upperId`, sparse
+`fields` and `includeTotal=false`. It is recognized under `strictQuery=true`
+and reused by `countOnly=true` (count only, no page SELECT or next Link).
+For row pages, the validated value round-trips in `Link` next targets for
+both `asc` and `desc` traversals.
+
+**Synthetic multi-page recipe:** the hermetic fixture holds stored types 0,
+5 (twice) and 7 across distinct addresses. Read one row per page:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+200 {"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+Link: </api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302>; rel="next"
+```
+
+Follow that relative Link against the same origin: the second page returns
+ID 9303 with `total: 1` and `nextCursor: 9303`, whose Link leads to the
+terminal empty page (`{"rows":[],"total":0,"nextCursor":null}`, no Link).
+A full final page may link to this empty page; stop only when Link is
+absent. A valid type with no matches is an HTTP 200 empty collection, not
+a reason to sync. Anything but the canonical spelling — empty, padded,
+signed, fractional, unsafe, or a repeated key — is the existing value-free
+400 before D1 ([correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request));
+omit the key to keep today's unfiltered matches.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:container-type-filter
+```
+
+The fixture seeds local test D1, traverses real next links in both
+directions through the empty tail, and checks zero COUNTs in count-free
+mode, sparse fields and conditional ETags without logging submitted
+values. No migration, index or upstream call is involved. See the
+[type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
 
 ### Address stored extras-allowed selector
 
@@ -725,9 +805,10 @@ npm run check:container-event-code
 ```
 
 The fixture's `eventCode=E-001&fields=event_code&limit=2&includeTotal=false`
-request returns IDs `[101,102]`, then `[104,105]`, then `[125]` and an empty
-terminal page by following the returned
-[same-origin Link](#follow-the-servers-next-page-target) unchanged.
+request returns IDs `[101,102]`, then `[104,105]`, then the partial final
+page `[125]` by following the returned
+[same-origin Link](#follow-the-servers-next-page-target) unchanged. Stop when
+Link is absent; a full terminal page may still link to an empty page.
 `hasEventCode=false` returns the `[108,112,126]` null-or-empty cohort.
 Validated selectors stay encoded, `hasEventCode=any` is omitted, and neither
 raw origins nor unknown query keys are copied.

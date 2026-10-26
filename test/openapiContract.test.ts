@@ -450,6 +450,24 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// The stored-type selector's facet, strict validation and composition are
+// asserted independently in containerTypeFilter.acceptance.test.ts, not frozen
+// as parameter position here. All legacy parameters stay frozen.
+function withoutContainerTypeFilter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "containerTypeId"
+    );
+  }
+  return copy;
+}
+
 /**
  * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
  * it checks the served schema and HTTP behavior without freezing new wording.
@@ -515,6 +533,36 @@ function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocumen
   }
   const shared = refs(copy.paths);
   for (const name of owned) if (!shared.has(name)) delete components[name];
+  return copy;
+}
+
+// Customer name-search supersedes this route's old company-only query narrative.
+// Its operation description and q parameter/schema descriptions are asserted
+// semantically in customerNameSearch.acceptance.test.ts (substring wording plus
+// company/first/last/any), not frozen as speculative prose here. The q schema
+// shape, all other parameters, responses and unrelated operations remain frozen.
+function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{
+        name?: string;
+        in?: string;
+        description?: string;
+        schema?: Record<string, unknown>;
+      }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    for (const parameter of operation.parameters ?? []) {
+      if (parameter.name !== "q" || parameter.in !== "query") continue;
+      delete parameter.description;
+      const schema = parameter.schema as Record<string, unknown> | undefined;
+      if (schema) delete schema.description;
+    }
+  }
   return copy;
 }
 
@@ -794,12 +842,17 @@ describe("published OpenAPI document", () => {
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
     // its since schema and all unrelated golden contracts stay pinned.
+    // Only customer name-search operation/q prose additionally moves to its
+    // semantic oracle; unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
+    // Only the container list's containerTypeId query parameter is also
+    // projected out: its facet, strict validation and composition are
+    // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutDedicatedChangesIntervalMetadata(doc)))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))).toMatchSnapshot();
   });
 });
 

@@ -2450,7 +2450,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, exact \`customerNumber\` and/or \`subCustomerNumber\`, company substring \`q\`, stored-phone substring \`phone\`, \`enabled\`, or mirrored-child \`hasAddresses\`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. \`phone\` is an ASCII case-insensitive substring over the stored \`phone1\`/\`phone2\` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (\`q\` or \`phone\` without a selective predicate) scan the table: no phone index exists and none is added. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
         "parameters": [
           {
             "in": "query",
@@ -2491,12 +2490,10 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Company name substring (case-insensitive; maximum 100 Unicode code points)",
               "example": "ExampleCo",
               "maxLength": 100,
               "type": "string",

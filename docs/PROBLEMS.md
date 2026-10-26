@@ -122,7 +122,7 @@ statement or conditional 304. For this field alone the fixed detail is:
 No fragment or unrelated unknown key is echoed or logged. A valid unmatched
 fragment returns a successful empty collection. SQLite folds only ASCII A-Z;
 non-ASCII case differences do not imply missing data. This is literal stored
-comment search, not company-name `q` search. See the
+comment search, not company/first/last-name `q` search. See the
 [synthetic recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
 
 ## Stored phone fragment (`bad-request`)
@@ -238,6 +238,23 @@ The field may instead be `franchiseId` (or both). Correct the named field's
 format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
+
+## Stored container-type filter (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send the optional `containerTypeId`
+key at most once: an exact unpadded ASCII decimal safe integer from `0`
+through `9007199254740991`. No signs, padding, whitespace, fractions,
+exponents, prefixes or unsafe integers. Zero matches literal stored type
+`0`, not nulls and not all rows; null stored types never match. This
+filters the mirrored snapshot column, not live Routeware state, and there
+is no type-name catalog to consult.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (containerTypeId). See docs/PROBLEMS.md#bad-request.`
+Correct the named key to one canonical spelling and retry; omit it only
+when no type filter is intended. Authentication still precedes validation.
+A valid type that matches no rows returns 200 with an empty list. See the
+[type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
 
 ## Container parent service-site scopes (`bad-request`)
 
