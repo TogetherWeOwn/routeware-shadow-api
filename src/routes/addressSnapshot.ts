@@ -63,7 +63,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, exact `routeId`, `franchiseId` and stored `zip`, free-text `q` over street, city or zip (a match in any one column), `enabled`, mirrored-child `hasContainers`, and NULL-only stored-pair `hasCoordinates` (not geographic validity). Supplied filters intersect by AND; null scope columns do not match supplied values. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId` and stored `zip`, `city` and `state`, free-text `q` over street, city or zip (a match in any one column), `enabled`, mirrored-child `hasContainers`, and NULL-only stored-pair `hasCoordinates` (not geographic validity). Supplied filters intersect by AND; null scope columns do not match supplied values. City/state-only equality may scan without a dedicated index; no geography inference or normalization. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -87,6 +87,16 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Opaque case-sensitive exact stored-zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
         .openapi({ type: "string", minLength: 1, maxLength: 100, example: "02139" }),
+      city: z.string()
+        .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+        .optional()
+        .describe("Opaque case-sensitive exact stored-city equality: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace and punctuation are preserved, not trimmed or normalized. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
+        .openapi({ type: "string", minLength: 1, maxLength: 100, example: "Killeen" }),
+      state: z.string()
+        .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+        .optional()
+        .describe("Opaque case-sensitive exact stored-state equality: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace and punctuation are preserved, not trimmed or normalized; no abbreviation conversion or state enum. Blank/whitespace-only values and repeated keys are invalid. URL-encode the value, send one key and retry.")
+        .openapi({ type: "string", minLength: 1, maxLength: 100, example: "TX" }),
       q: snapshotSearchQuery.optional().describe("Substring on street, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points)").openapi({ example: "Main" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       hasCoordinates: z.enum(["true", "false", "any"]).optional().default("any")
@@ -130,7 +140,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip` as one nonblank exact stored postcode of 1..100 Unicode code points; repeated scope keys are invalid. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an invalid/empty/repeated `hasCoordinates` value (send one hasCoordinates=true, false or any, or omit it), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown `hasContainers` value, an invalid/empty/repeated `hasCoordinates` value (send one hasCoordinates=true, false or any, or omit it), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -164,6 +174,14 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.zip !== undefined) {
     where.push("zip = ?");
     binds.push(p.zip);
+  }
+  if (p.city !== undefined) {
+    where.push("city = ?");
+    binds.push(p.city);
+  }
+  if (p.state !== undefined) {
+    where.push("state = ?");
+    binds.push(p.state);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
     // Locality search: one parenthesized OR across street, city and zip,

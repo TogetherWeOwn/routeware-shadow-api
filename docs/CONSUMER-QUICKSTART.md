@@ -408,6 +408,56 @@ The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
 or rows. Authentication, no-store, ETags and existing count semantics remain
 unchanged. These checks are not deployed performance evidence.
 
+### Exact stored address city and state
+
+Use `listAddressSnapshot` with optional `city` and/or `state` to select an
+exact stored cohort, not substring false positives. Each selector is a
+case-sensitive opaque string of 1..100 Unicode code points containing a
+non-whitespace character. Preserve nonblank supplied whitespace, punctuation
+and Unicode spelling; do not trim, normalize abbreviations or coerce numbers.
+Stored nulls never match supplied strings. Omission keeps current results;
+a valid no-match is 200 empty. This is equality, while `q` remains the
+street/city/zip substring search and does not search state.
+
+Both selectors AND-compose with each other, `zip`, route/franchise,
+customer/primary IDs, `enabled`, `hasContainers`, `q` and cursor/`upperId`
+bounds. Counted pages keep cursor-relative totals; `includeTotal=false`
+executes one page SELECT and no COUNT. Sparse rows keep their primary ID;
+ETags still describe the returned representation. City/state-only equality
+may scan without a dedicated index: no latency or index-use promise, no
+geographic inference. This GET is idempotent/local-read; CLI `--dry-run` is N/A.
+
+Hermetic synthetic test recipe (no running service or real credentials):
+
+```bash
+npm run check:address-city-state
+```
+
+For a custom synthetic local service, encode one value per key. This example
+keeps the spaces and reserved characters as data; it need not match any row:
+
+```bash
+curl --get --include -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode "city= 雪'\"%_ /+?&#🚛 " \
+  --data-urlencode "state= Ω'\"%_ /+?&#🌿 " \
+  --data-urlencode 'fields=city,state' \
+  --data-urlencode 'includeTotal=false' --data-urlencode 'limit=1' \
+  'http://localhost:8787/api/v1/address-snapshot'
+# Follow the returned relative Link target unchanged; it replaces cursor,
+# drops offset and retains both encoded selectors. Stop when Link is absent.
+```
+
+Use the [same-origin continuation loop](#follow-the-servers-next-page-target),
+not a rebuilt URL or an unvalidated foreign target. Do not log selectors,
+rows or credentials. Blank, whitespace-only, repeated or overlength values
+return the existing value-free 400 before D1 (authentication first): correct
+the named field, URL-encode one nonblank value and retry without trimming it.
+See [correction guidance](PROBLEMS.md#bad-request) and the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
+The focused check proves both seek directions, terminal/empty pages, composed
+filters, opaque Link traversal, zero-work invalid/auth requests and conditional
+reads on real local D1; it is not deployed performance or adoption evidence.
+
 ### Customer address presence
 
 Use the existing read-token-compatible `listCustomerSnapshot` operation to
