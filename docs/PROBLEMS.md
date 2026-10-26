@@ -310,6 +310,23 @@ intended. Valid no-match returns 200 empty, not an error; stored nulls never
 match supplied strings. See the
 [city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
 
+## Stored address driver note (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `driverNote` string of
+at most 100 Unicode code points **before trimming**. Repeated keys (including
+encoded aliases) and overlength strings fail before D1 or conditional 304;
+authentication stays first. Fixed detail for this field alone:
+
+`Invalid request query (driverNote). Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when no
+note filter is intended. Blank/whitespace-only values mean omitted, not an
+error. No submitted notes or unknown names are echoed or logged. Matching is
+literal, ASCII-case-insensitive and limited to stored `driver_note`, not
+address comments or locality. A valid fragment with no matches returns 200
+empty. See the [synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note)
+and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
+
 ## Exact stored container installation (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode
