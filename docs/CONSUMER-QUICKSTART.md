@@ -2269,8 +2269,9 @@ them. The ordinary `/data/*` save envelope is the exception described above.
 
 ### Problem `type` base override
 
-Operators can point snapshot archive 404/409/500/503 problem `type` URLs at
-their own catalog by setting `PROBLEM_TYPE_BASE` (`wrangler.toml` `[vars]`,
+Operators can point snapshot archive problem `type` URLs, including
+authentication and request-validation responses, at their own catalog by
+setting `PROBLEM_TYPE_BASE` (`wrangler.toml` `[vars]`,
 `.dev.vars`, or `wrangler secret put`) to the catalog URL with the trailing
 `#` included (e.g.
 `https://github.com/<owner>/routeware-shadow-api/blob/main/docs/PROBLEMS.md#`).
