@@ -24,6 +24,7 @@ type SnapshotListQuery = {
   ids?: number[];
   serialNumber?: string;
   rfid?: string;
+  serviceCode?: string;
   // Container list only; sibling lists omit these keys and keep unfiltered links.
   hasSerialNumber?: "true" | "false" | "any";
   hasRfid?: "true" | "false" | "any";
@@ -81,7 +82,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
