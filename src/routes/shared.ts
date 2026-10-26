@@ -42,7 +42,19 @@ export function validationFailureHook(
     type: problemType("bad-request", c?.env),
     title: "Bad Request",
     status: 400,
-    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
+      (result.target === "query" && unique.includes("hasAddresses")
+        ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("driverNote")
+        ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("countOnly")
+        ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("comments")
+        ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
 
@@ -620,30 +632,6 @@ export const containerSaveFormDocs: RouteDocs = {
   },
   responses: { 200: saveFormResponse() }
 };
-
-/**
- * Shared by the customer, address and container snapshot list routes. Keep this
- * a single instance — the `.openapi()` name registers one reusable component,
- * and three separate instances would register it three times.
- *
- * `nextCursor` is the last row's primary key when the page came back full
- * (there may be more rows), or `null` at the end of the result set — set on
- * every list response, not just cursor-driven ones, so an offset caller can
- * switch to cursor pagination once OFFSET gets expensive.
- */
-export const snapshotListResponse = z
-  .object({
-    rows: z.array(z.record(z.string(), z.unknown())),
-    total: z
-      .number()
-      .int()
-      .nullable()
-      .describe(
-        "Exact row count for this page's filters. Pass includeTotal=false to skip the COUNT query: total is then null, meaning deliberately not computed rather than zero, with the same rows and nextCursor."
-      ),
-    nextCursor: z.number().int().nullable()
-  })
-  .openapi("CustomerSnapshotList");
 
 /**
  * Worked 200 result for the snapshot import/sync responses.

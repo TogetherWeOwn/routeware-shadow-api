@@ -1,6 +1,9 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snapshotStrictQuery";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
+import { customerSnapshotListResponse, customerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
@@ -8,12 +11,9 @@ import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/c
 import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
-import {
-  snapshotListConditionalHeaders,
-  snapshotListEtagHeaders,
-  snapshotListNotModifiedResponse,
-  snapshotListJsonResponse
-} from "../lib/snapshotListConditional";
+import { customerAccountNumberQuery, customerAddressPresenceQuery, customerAddressPresencePredicate, customerCommentsQuery, customerPhoneFragmentPredicate, customerPhoneFragmentQuery } from "../lib/snapshotCustomerSelectors";
+import { snapshotListConditionalHeaders, snapshotListEtagHeaders, snapshotListNotModifiedResponse, snapshotListJsonResponse } from "../lib/snapshotListConditional";
+import { snapshotByIdConditional } from "../lib/snapshotByIdConditional";
 import { runCustomerSnapshotSync, syncCustomerSnapshotFromStream } from "../lib/d1SnapshotSync";
 import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
@@ -40,7 +40,6 @@ import {
   rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret,
-  snapshotListResponse,
   snapshotWriteResultExample,
   parsePositiveIdParam
 } from "./shared";
@@ -52,13 +51,6 @@ import {
 
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
 export const customerSnapshotRoutes = createRouteModule();
-
-// Keep account references opaque: trim only to detect blank input, never to
-// transform it. The UTF-16 guard bounds allocation before counting code points.
-const customerAccountNumberQuery = z.string()
-  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
-  .openapi({ minLength: 1, maxLength: 100 });
-
 const customerSnapshotListRoute = createRoute({
   method: "get",
   path: "/api/v1/customer-snapshot",
@@ -68,7 +60,7 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, customer-name substring `q` (a match in any one of `company_name`, `first_name` or `last_name`), or `enabled`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, customer-name substring `q` (a match in any one of `company_name`, `first_name` or `last_name`), stored-phone substring `phone`, `enabled`, or mirrored-child `hasAddresses`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. `phone` is an ASCII case-insensitive substring over the stored `phone1`/`phone2` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (`q` or `phone` without a selective predicate) scan the table: no phone index exists and none is added. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -80,7 +72,10 @@ const customerSnapshotListRoute = createRoute({
       subCustomerNumber: customerAccountNumberQuery.optional()
         .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
         .openapi({ example: "North" }),
-      q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (case-insensitive; maximum 100 Unicode code points). A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
+      q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (ASCII case-insensitive; maximum 100 Unicode code points). SQLite lower() folds A-Z only; non-ASCII case variants match only on exact case. A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
+      phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
+      comments: customerCommentsQuery,
+      hasAddresses: customerAddressPresenceQuery,
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -91,17 +86,14 @@ const customerSnapshotListRoute = createRoute({
         .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
       upperId: snapshotUpperIdQuery,
-      includeTotal: z
-        .enum(["true", "false"])
-        .optional()
-        .default("true")
+      includeTotal: z.enum(["true", "false"]).optional().default("true")
         .describe(
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("customer")
-    })
+      fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
   },
   responses: {
     200: {
@@ -109,21 +101,23 @@ const customerSnapshotListRoute = createRoute({
       headers: { ...snapshotListEtagHeaders, Link: snapshotNextLinkHeader },
       content: {
         "application/json": {
-          schema: snapshotListResponse,
-          example: { rows: [customerRowExample], total: 1, nextCursor: null }
+          schema: customerSnapshotListResponse,
+          examples: snapshotListModeExamples(customerRowExample)
         }
       }
     },
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const unknownQuery = rejectUnknownSnapshotListQuery(c, p.strictQuery, customerSnapshotListRoute.request.query);
+  if (unknownQuery) return unknownQuery;
   const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];
@@ -149,26 +143,32 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     const qv = p.q.trim();
     binds.push(qv, qv, qv);
   }
+  if (p.phone !== undefined) {
+    where.push(customerPhoneFragmentPredicate());
+    binds.push(p.phone, p.phone);
+  }
+  if (p.comments !== undefined) {
+    where.push("instr(lower(coalesce(comments, '')), lower(?)) > 0");
+    binds.push(p.comments);
+  }
   if (p.enabled === "true") {
     where.push("enabled = 1");
   }
   if (p.enabled === "false") {
     where.push("enabled = 0");
   }
+  if (p.hasAddresses !== "any") where.push(customerAddressPresencePredicate(p.hasAddresses));
   if (p.cursor !== undefined) {
     where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
-  // Caller-held inclusive ceiling: a fixed primary-key bound shared with the
-  // COUNT below through the same where/binds. An ascending cursor at or above
-  // the cap matches nothing; descending seeks retain this same inclusive cap.
+  // Inclusive caller-held ceiling shared by COUNT and page in either direction.
   if (p.upperId !== undefined) {
     where.push("customer_id <= ?");
     binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
-  // Count-free page: zero COUNT statements. `total: null` means the count was
-  // deliberately not computed, not that the page is empty.
+  // Count-free: total null means deliberately not computed, not an empty page.
   let total: number | null;
   if (p.includeTotal === "false") {
     total = null;
@@ -178,6 +178,9 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
       .bind(...binds)
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
+  }
+  if (p.countOnly === "true") {
+    return snapshotListJsonResponse(c, { rows: [], total, nextCursor: null });
   }
   // Cursor seeks follow the selected direction and never scan an OFFSET.
   const pageSql =
@@ -196,8 +199,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   const rows = results ?? [];
   const nextCursor =
     rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
-  // Sparse fieldset: same page, same envelope — only each row's keys shrink.
-  // The id stays on every row even when the selector omits it.
+  // Project only after paging; retain the canonical id on every sparse row.
   const fields = p.fields;
   const out =
     fields === undefined
@@ -233,7 +235,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
  * skip the same-timestamp rows past the page boundary (strict `>`), which is
  * why the resume key is the composite pair, never the timestamp alone.
  */
-// Own response schema, not `snapshotListResponse`: the changes cursor is the
+// Own response schema, not `customerSnapshotListResponse`: the changes cursor is the
 // composite `(synced_at, customer_id)` pair (`since` + `since_id`), never a
 // bare timestamp or a primary-key integer, so sharing the list schema would
 // publish (and typecheck) the wrong `nextCursor` type.
@@ -414,18 +416,21 @@ const customerSnapshotByIdRoute = createRoute({
     "Reads one row from the daily snapshot DB by `customerId`. Bearer-gated like every `/api/v1/*` route except `GET /api/v1/health`. Returns 404 when no row exists for that id.",
   request: {
     params: z.object({ customerId: z.coerce.number().int().openapi({ example: 345734 }) }),
+    headers: snapshotByIdConditional.headers,
     query: z.object({ fields: snapshotFieldsQuery("customer") })
   },
   responses: {
     200: {
       description: "Row",
+      headers: { ...snapshotByIdConditional.etagHeaders },
       content: {
         "application/json": {
-          schema: z.record(z.string(), z.unknown()),
+          schema: customerSnapshotRowSchema,
           example: customerRowExample
         }
       }
     },
+    304: snapshotByIdConditional.notModified,
     400: {
       description:
         "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
@@ -465,10 +470,7 @@ customerSnapshotRoutes.openapi(customerSnapshotByIdRoute, async (c) => {
     });
   }
   const fields = c.req.valid("query").fields;
-  return c.json(
-    fields === undefined ? row : projectSnapshotRow("customer", row, fields),
-    200
-  );
+  return snapshotByIdConditional.jsonResponse(c, fields === undefined ? row : projectSnapshotRow("customer", row, fields));
 });
 
 const customerSnapshotSyncRoute = createRoute({

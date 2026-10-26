@@ -123,6 +123,124 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
         ],
         "type": "object",
       },
+      "AddressSnapshotList": {
+        "properties": {
+          "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/AddressSnapshotRow",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+          "nextCursor",
+        ],
+        "type": "object",
+      },
+      "AddressSnapshotRow": {
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "city": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "comments": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_id": {
+            "type": "integer",
+          },
+          "driver_note": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "extras_allowed": {
+            "type": "integer",
+          },
+          "franchise_id": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "last_audit_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "pickup_address_id": {
+            "type": "integer",
+          },
+          "route_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "state": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+          "zip": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "pickup_address_id",
+        ],
+        "type": "object",
+      },
       "ContainerSaveDryRun": {
         "additionalProperties": false,
         "properties": {
@@ -254,6 +372,199 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "localSync",
           "pickupAddressId",
           "containerId",
+        ],
+        "type": "object",
+      },
+      "ContainerSnapshotList": {
+        "properties": {
+          "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ContainerSnapshotRow",
+            },
+            "type": "array",
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "rows",
+          "total",
+          "nextCursor",
+        ],
+        "type": "object",
+      },
+      "ContainerSnapshotRow": {
+        "properties": {
+          "city": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "color": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "container_id": {
+            "type": "integer",
+          },
+          "container_note": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "container_type_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "event_code": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "frequency_ids": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "gps_locked": {
+            "type": "integer",
+          },
+          "latitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "location_address": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "longitude": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "oncall": {
+            "type": "integer",
+          },
+          "pickup_address_id": {
+            "type": "integer",
+          },
+          "rfid": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "route_ids": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "serial_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code_input": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_code_type": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "service_date": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "state": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+          "ud_cost_share_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_enclosure_doors_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_last_compactor_inspection_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_last_enclosure_inspection_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "ud_material_stream_ud": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "zip": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+        },
+        "required": [
+          "container_id",
         ],
         "type": "object",
       },
@@ -487,6 +798,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
       "CustomerSnapshotList": {
         "properties": {
           "nextCursor": {
+            "description": "Primary-key page cursor: the last row's primary key when the page contains limit rows, including a terminal full page; null when fewer than limit rows are returned. Following a cursor from a terminal full page returns an empty page. Set on every list response, not just cursor-driven ones, so an offset caller can switch to cursor pagination once OFFSET gets expensive.",
             "type": [
               "integer",
               "null",
@@ -494,8 +806,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           },
           "rows": {
             "items": {
-              "additionalProperties": {},
-              "type": "object",
+              "$ref": "#/components/schemas/CustomerSnapshotRow",
             },
             "type": "array",
           },
@@ -510,6 +821,89 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "rows",
           "total",
           "nextCursor",
+        ],
+        "type": "object",
+      },
+      "CustomerSnapshotRow": {
+        "properties": {
+          "comments": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "company_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_id": {
+            "type": "integer",
+          },
+          "customer_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "customer_type_id": {
+            "type": [
+              "integer",
+              "null",
+            ],
+          },
+          "enabled": {
+            "type": "integer",
+          },
+          "first_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "last_name": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "middle_initial": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "name_suffix": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "phone1": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "phone2": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "sub_customer_number": {
+            "type": [
+              "string",
+              "null",
+            ],
+          },
+          "synced_at": {
+            "type": "string",
+          },
+        },
+        "required": [
+          "customer_id",
         ],
         "type": "object",
       },
@@ -1059,12 +1453,12 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
+            "description": "Substring on street, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points)",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Address line substring (case-insensitive; maximum 100 Unicode code points)",
+              "description": "Substring on street, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points)",
               "example": "Main",
               "maxLength": 100,
               "type": "string",
@@ -1165,6 +1559,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1195,14 +1605,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "total": 1,
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                  "$ref": "#/components/schemas/AddressSnapshotList",
                 },
               },
             },
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -1429,6 +1839,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1453,12 +1873,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "zip": "76541",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/AddressSnapshotRow",
                 },
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -1513,13 +1951,26 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
+            "description": "Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.",
+            "in": "query",
+            "name": "zip",
+            "required": false,
+            "schema": {
+              "description": "Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.",
+              "example": "02139",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
-              "example": "C-100",
+              "description": "Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.",
+              "example": "Killeen",
               "maxLength": 100,
               "type": "string",
             },
@@ -1619,6 +2070,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1662,14 +2129,14 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "total": 1,
                 },
                 "schema": {
-                  "$ref": "#/components/schemas/CustomerSnapshotList",
+                  "$ref": "#/components/schemas/ContainerSnapshotList",
                 },
               },
             },
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -1896,6 +2363,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1933,12 +2410,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "zip": "76541",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/ContainerSnapshotRow",
                 },
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -2001,6 +2496,36 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "schema": {
               "example": "ExampleCo",
               "maxLength": 100,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Stored phone1/phone2 fragment (ASCII case-insensitive substring; 1..100 Unicode code points, never blank). Matches stored text as stored: SQLite lower() folds ASCII A-Z only, so non-ASCII case variants (é vs É) match only on exact case; no normalization, digit-stripping, trimming, or other case folding. Quotes, %/_ and URL delimiters are literal data. Supply a single phone key; repeated keys are rejected. AND-composes with every other filter.",
+            "in": "query",
+            "name": "phone",
+            "required": false,
+            "schema": {
+              "description": "Stored phone1/phone2 fragment (ASCII case-insensitive substring; 1..100 Unicode code points, never blank). Matches stored text as stored: SQLite lower() folds ASCII A-Z only, so non-ASCII case variants (é vs É) match only on exact case; no normalization, digit-stripping, trimming, or other case folding. Quotes, %/_ and URL delimiters are literal data. Supply a single phone key; repeated keys are rejected. AND-composes with every other filter.",
+              "example": "5550107",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Mirrored address presence: "true" selects customers with at least one stored address, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses including disabled children; customer enabled stays independent. Absence is not proof of no upstream site and never authorizes deletion, reconciliation or sync. Send one hasAddresses=true, false or any, or omit the selector and retry.",
+            "in": "query",
+            "name": "hasAddresses",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "description": "Mirrored address presence: "true" selects customers with at least one stored address, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses including disabled children; customer enabled stays independent. Absence is not proof of no upstream site and never authorizes deletion, reconciliation or sync. Send one hasAddresses=true, false or any, or omit the selector and retry.",
+              "enum": [
+                "true",
+                "false",
+                "any",
+              ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -2099,6 +2624,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2134,7 +2675,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2521,6 +3062,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2543,12 +3094,30 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
                   "synced_at": "2026-01-01T00:00:00.000Z",
                 },
                 "schema": {
-                  "additionalProperties": {},
-                  "type": "object",
+                  "$ref": "#/components/schemas/CustomerSnapshotRow",
                 },
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -2808,75 +3377,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "address": {
-                    "address": "1 Main St",
-                    "city": "Example City",
-                    "comments": null,
-                    "customer_id": 345734,
-                    "driver_note": null,
-                    "enabled": 1,
-                    "extras_allowed": 0,
-                    "franchise_id": "1",
-                    "last_audit_date": null,
-                    "latitude": null,
-                    "longitude": null,
-                    "pickup_address_id": 10,
-                    "route_id": 1,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "zip": "76541",
-                  },
-                  "containers": [
-                    {
-                      "city": "Example City",
-                      "color": "Blue",
-                      "container_id": 100,
-                      "container_note": null,
-                      "container_type_id": 1,
-                      "enabled": 1,
-                      "event_code": null,
-                      "frequency_ids": null,
-                      "gps_locked": 0,
-                      "latitude": null,
-                      "location_address": "1 Main St",
-                      "longitude": null,
-                      "oncall": 0,
-                      "pickup_address_id": 10,
-                      "rfid": null,
-                      "route_ids": null,
-                      "serial_number": "C-100-A",
-                      "service_code": null,
-                      "service_code_input": null,
-                      "service_code_type": null,
-                      "service_date": null,
-                      "state": "TX",
-                      "synced_at": "2026-01-01T00:00:00.000Z",
-                      "ud_cost_share_ud": null,
-                      "ud_enclosure_doors_ud": null,
-                      "ud_last_compactor_inspection_ud": null,
-                      "ud_last_enclosure_inspection_ud": null,
-                      "ud_material_stream_ud": null,
-                      "zip": "76541",
-                    },
-                  ],
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },
@@ -3370,73 +3870,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "address": {
-                    "address": "1 Main St",
-                    "city": "Example City",
-                    "comments": null,
-                    "customer_id": 345734,
-                    "driver_note": null,
-                    "enabled": 1,
-                    "extras_allowed": 0,
-                    "franchise_id": "1",
-                    "last_audit_date": null,
-                    "latitude": null,
-                    "longitude": null,
-                    "pickup_address_id": 10,
-                    "route_id": 1,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "zip": "76541",
-                  },
-                  "container": {
-                    "city": "Example City",
-                    "color": "Blue",
-                    "container_id": 100,
-                    "container_note": null,
-                    "container_type_id": 1,
-                    "enabled": 1,
-                    "event_code": null,
-                    "frequency_ids": null,
-                    "gps_locked": 0,
-                    "latitude": null,
-                    "location_address": "1 Main St",
-                    "longitude": null,
-                    "oncall": 0,
-                    "pickup_address_id": 10,
-                    "rfid": null,
-                    "route_ids": null,
-                    "serial_number": "C-100-A",
-                    "service_code": null,
-                    "service_code_input": null,
-                    "service_code_type": null,
-                    "service_date": null,
-                    "state": "TX",
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                    "ud_cost_share_ud": null,
-                    "ud_enclosure_doors_ud": null,
-                    "ud_last_compactor_inspection_ud": null,
-                    "ud_last_enclosure_inspection_ud": null,
-                    "ud_material_stream_ud": null,
-                    "zip": "76541",
-                  },
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },
@@ -3935,77 +4368,6 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
           "200": {
             "content": {
               "application/json": {
-                "example": {
-                  "addresses": [
-                    {
-                      "address": "1 Main St",
-                      "city": "Example City",
-                      "comments": null,
-                      "containers": [
-                        {
-                          "city": "Example City",
-                          "color": "Blue",
-                          "container_id": 100,
-                          "container_note": null,
-                          "container_type_id": 1,
-                          "enabled": 1,
-                          "event_code": null,
-                          "frequency_ids": null,
-                          "gps_locked": 0,
-                          "latitude": null,
-                          "location_address": "1 Main St",
-                          "longitude": null,
-                          "oncall": 0,
-                          "pickup_address_id": 10,
-                          "rfid": null,
-                          "route_ids": null,
-                          "serial_number": "C-100-A",
-                          "service_code": null,
-                          "service_code_input": null,
-                          "service_code_type": null,
-                          "service_date": null,
-                          "state": "TX",
-                          "synced_at": "2026-01-01T00:00:00.000Z",
-                          "ud_cost_share_ud": null,
-                          "ud_enclosure_doors_ud": null,
-                          "ud_last_compactor_inspection_ud": null,
-                          "ud_last_enclosure_inspection_ud": null,
-                          "ud_material_stream_ud": null,
-                          "zip": "76541",
-                        },
-                      ],
-                      "customer_id": 345734,
-                      "driver_note": null,
-                      "enabled": 1,
-                      "extras_allowed": 0,
-                      "franchise_id": "1",
-                      "last_audit_date": null,
-                      "latitude": null,
-                      "longitude": null,
-                      "pickup_address_id": 10,
-                      "route_id": 1,
-                      "state": "TX",
-                      "synced_at": "2026-01-01T00:00:00.000Z",
-                      "zip": "76541",
-                    },
-                  ],
-                  "customer": {
-                    "comments": null,
-                    "company_name": "ExampleCo",
-                    "customer_id": 345734,
-                    "customer_number": "C-1001",
-                    "customer_type_id": 1,
-                    "enabled": 1,
-                    "first_name": "Jane",
-                    "last_name": "Doe",
-                    "middle_initial": null,
-                    "name_suffix": null,
-                    "phone1": "555-0100",
-                    "phone2": null,
-                    "sub_customer_number": null,
-                    "synced_at": "2026-01-01T00:00:00.000Z",
-                  },
-                },
                 "schema": {},
               },
             },

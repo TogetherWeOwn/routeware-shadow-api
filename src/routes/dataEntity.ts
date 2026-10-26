@@ -10,8 +10,20 @@ import {
 import {
   customerBundleExample,
   addressBundleExample,
-  containerBundleExample
+  containerBundleExample,
+  customerBundleProjectedExample,
+  addressBundleProjectedExample,
+  containerBundleProjectedExample,
+  customerBatchMixedExample,
+  addressBatchMixedExample,
+  containerBatchMixedExample,
+  hydratedBatchAllMissingExample
 } from "./payloadExamples";
+import {
+  hydratedAddressResponseSchema,
+  hydratedContainerResponseSchema,
+  hydratedCustomerResponseSchema
+} from "../lib/dataEntityBundleSchemas";
 import {
   handleGetDataAddress,
   handleGetDataContainer,
@@ -260,7 +272,20 @@ const dataCustomerGetRoute = createRoute({
   responses: {
     200: {
       description: "customer + nested addresses with containers (synthetic example)",
-      content: { "application/json": { schema: z.unknown(), example: customerBundleExample } }
+      content: {
+        "application/json": {
+          schema: hydratedCustomerResponseSchema,
+          examples: {
+            full: { summary: "Full customer bundle (synthetic)", value: customerBundleExample },
+            projected: {
+              summary: "Root-projected customer bundle (synthetic)",
+              value: customerBundleProjectedExample
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: customerBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
+          }
+        }
+      }
     },
     304: { description: "Not modified" },
     400: hydratedReadBadRequest,
@@ -328,7 +353,20 @@ const dataAddressGetRoute = createRoute({
   responses: {
     200: {
       description: "address, customer, containers (synthetic example)",
-      content: { "application/json": { schema: z.unknown(), example: addressBundleExample } }
+      content: {
+        "application/json": {
+          schema: hydratedAddressResponseSchema,
+          examples: {
+            full: { summary: "Full address bundle (synthetic)", value: addressBundleExample },
+            projected: {
+              summary: "Root-projected address bundle (synthetic)",
+              value: addressBundleProjectedExample
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: addressBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
+          }
+        }
+      }
     },
     304: { description: "Not modified" },
     400: hydratedReadBadRequest,
@@ -393,7 +431,20 @@ const dataContainerGetRoute = createRoute({
   responses: {
     200: {
       description: "container, address, customer (synthetic example)",
-      content: { "application/json": { schema: z.unknown(), example: containerBundleExample } }
+      content: {
+        "application/json": {
+          schema: hydratedContainerResponseSchema,
+          examples: {
+            full: { summary: "Full container bundle (synthetic)", value: containerBundleExample },
+            projected: {
+              summary: "Root-projected container bundle (synthetic)",
+              value: containerBundleProjectedExample
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: containerBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
+          }
+        }
+      }
     },
     304: { description: "Not modified" },
     400: hydratedReadBadRequest,
