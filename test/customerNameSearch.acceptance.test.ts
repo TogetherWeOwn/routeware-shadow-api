@@ -427,6 +427,24 @@ describe("customer q auth and value-free validation", () => {
   });
 });
 
+it.each(["parameter", "schema"] as const)("mounted OpenAPI comments %s description explains q's three-column name search", async (location) => {
+  const response = await app.fetch(new Request("http://test.local/openapi.json"), TEST_ENV);
+  expect(response.status).toBe(200);
+  const doc = await response.json() as { paths: Record<string, { get: {
+    parameters: Array<{ name: string; in: string; description?: string; schema?: { description?: string } }>
+  } }> };
+  const comments = doc.paths[PATH].get.parameters.filter((p) => p.name === "comments" && p.in === "query");
+  expect(comments).toHaveLength(1);
+  const description = location === "parameter" ? comments[0].description : comments[0].schema?.description;
+  expect(description).toEqual(expect.any(String));
+  expect.soft(description).not.toMatch(/company[ -]only/i);
+  expect.soft(description).toMatch(/\bq\s+searches\b/i);
+  for (const column of [/company[_ -]name/i, /first[_ -]name/i, /last[_ -]name/i]) {
+    expect.soft(description).toMatch(column);
+  }
+  expect.soft(description).toMatch(/\bor\b/i);
+});
+
 it("mounted OpenAPI keeps the operation/read contract and describes substring search across the three separate columns", async () => {
   const response = await app.fetch(new Request("http://test.local/openapi.json"), TEST_ENV);
   expect(response.status).toBe(200);
