@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -138,7 +138,7 @@ const SAMPLES: Record<string, string> = {
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
-  addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true",
+  addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   routeIdsExact: "1,2", frequencyIdsExact: "1,2", hasRouteIds: "any", hasFrequencyIds: "any",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
