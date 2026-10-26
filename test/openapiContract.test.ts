@@ -626,8 +626,8 @@ function registeredRoutes(): RegisteredRoute[] {
 
 describe("flat problem golden ownership boundary", () => {
   it("projects only the nine GET media additions, preserving unrelated statuses, methods and shared schema users", async () => {
-    const doc = await fetchOpenApiDocument();
-    const before = structuredClone(doc);
+    const before = withoutFlatSnapshotProblemDeclarations(await fetchOpenApiDocument());
+    const doc = structuredClone(before);
     const component = "SyntheticProblemBody";
     const ref = `#/components/schemas/${component}`;
     const media = { schema: { $ref: ref }, example: { type: "urn:synthetic", title: "Synthetic", status: 400 } };
