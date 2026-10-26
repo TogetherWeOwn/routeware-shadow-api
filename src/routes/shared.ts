@@ -87,6 +87,12 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("customerEnabled")
         ? "Send one customerEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressExtrasAllowed")
+        ? "Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressLastAuditDate")
+        ? "Send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
