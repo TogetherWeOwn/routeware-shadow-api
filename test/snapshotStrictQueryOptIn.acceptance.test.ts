@@ -116,6 +116,7 @@ const SPECS: Spec[] = [
     allowed: [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
+      "hasSerialNumber", "hasRfid",
       "materialStream", "color", "serviceCode", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
@@ -137,7 +138,7 @@ const SAMPLES: Record<string, string> = {
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
-  serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
+  serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location", serviceCode: "SVC-1",
   limit: "2", offset: "0", cursor: "101",
   lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
