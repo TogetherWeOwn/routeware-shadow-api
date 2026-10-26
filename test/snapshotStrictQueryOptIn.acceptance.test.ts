@@ -99,7 +99,7 @@ const SPECS: Spec[] = [
     field: "address",
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
-      "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
       "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -132,7 +132,7 @@ const SPECS: Spec[] = [
 const SAMPLES: Record<string, string> = {
   customerId: "101", pickupAddressId: "101", containerId: "101", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
+  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
   routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
@@ -371,6 +371,43 @@ describe("container list: serviceCode under strict mode", () => {
       const result = await page(spec, `${search}&strictQuery=${strictQuery}`);
       expect(result.bytes).toBe(omitted.bytes);
       expect(result.recorder.statements).toEqual(omitted.recorder.statements);
+    }
+  });
+});
+
+describe("address list: strictQuery and driverNote compose", () => {
+  it("filters both a strict page and count-only by the recognized stored note", async () => {
+    await TEST_ENV.CUSTOMER_DB.prepare(
+      "UPDATE address_snapshot SET driver_note = 'Synthetic access note' WHERE pickup_address_id IN (101, 104)"
+    ).run();
+    const spec = SPECS.find((s) => s.name === "address")!;
+    const search = "strictQuery=true&driverNote=access&enabled=true&fields=address";
+    const listed = await page(spec, search);
+    expect(idsOf(spec, listed.body)).toEqual([101, 104]);
+    expect(listed.body.total).toBe(2);
+    const counted = await request(`${spec.path}?${search}&countOnly=true&limit=1&offset=1`);
+    expect(counted.response.status).toBe(200);
+    expect(await counted.response.json()).toEqual({ rows: [], total: 2, nextCursor: null });
+    expect(counted.recorder.statements).toHaveLength(1);
+    expect(counted.recorder.statements.filter(isCount)).toHaveLength(1);
+    expect(counted.response.headers.get("link")).toBeNull();
+  });
+
+  it.each([
+    `driverNote=${"x".repeat(101)}`,
+    "driverNote=access&driverNote=access",
+    "driverNote=access&%64riverNote=access"
+  ])("rejects invalid driverNote under strict mode before D1: %s", async (fragment) => {
+    for (const suffix of ["", "&countOnly=true"]) {
+      const denied = forbiddenDb();
+      const logs = silence();
+      const { response } = await request(
+        `/api/v1/address-snapshot?strictQuery=true&${fragment}${suffix}`, { db: denied.db });
+      const detail = await expectBadQuery(response, ["access", "x".repeat(101)]);
+      expect(detail).toContain("driverNote");
+      expect(detail).not.toMatch(/unknown/i);
+      expect(denied.calls).toEqual([]);
+      for (const log of logs) expect(log).not.toHaveBeenCalled();
     }
   });
 });
