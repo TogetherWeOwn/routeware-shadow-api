@@ -88,7 +88,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "serialNumber=SN-1", "rfid=RF-1",
+      "city=Riverton", "state=ST", "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
@@ -99,7 +99,7 @@ const SPECS: Spec[] = [
     field: "address",
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state",
-      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -117,13 +117,13 @@ const SPECS: Spec[] = [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
-      "materialStream", "color", "serviceCode", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "serviceCode", "zip", "locationAddress", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
       "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1", "city=Riverton",
-      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true"
+      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
     ]
   }
 ];
@@ -134,8 +134,8 @@ const SPECS: Spec[] = [
 const SAMPLES: Record<string, string> = {
   customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
-  lastAuditDate: "2026-01-15", hasLastAuditDate: "any",
+  comments: "note", driverNote: "access", enabled: "true", onCall: "true", gpsLocked: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
+  lastAuditDate: "2026-01-15", hasLastAuditDate: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
