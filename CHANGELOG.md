@@ -5,6 +5,30 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #410: Optional `comments` and `hasComments` on the existing address
+  snapshot list: a bounded literal substring over the stored snapshot
+  column `comments` (mirrored CSV state, not a live lookup), so a site
+  reads by a known comment fragment, plus an exact stored-text presence
+  enum, so sites missing comment text count without downloading every
+  comment. One fragment of at most 100 Unicode code points before
+  trimming; blank means omitted and repeated/overlength keys are
+  value-free 400s before D1, after read-role authentication. Matching is
+  a bound `instr`/`lower` ASCII case-insensitive substring on address
+  comments only — never customer comments, `driver_note` or locality —
+  with quotes, `%` and `_` literal; `hasComments=true` keeps only
+  neither-null-nor-empty stored text while `false` keeps only the exact
+  null-or-empty complement, whitespace-only stored text counting as
+  present with no SQL trim. Fragment and presence AND-compose with every
+  existing filter, `upperId`, sparse `fields`, offset/cursor paging,
+  `exactNext` and `includeTotal=false` via shared predicates/binds in
+  both the page `SELECT` and the `COUNT`; `countOnly` reads the full
+  cohort through one COUNT with no payload fetch, and effective
+  selectors round-trip in `Link` next targets. Stored presence is not
+  comment quality, completeness, current upstream truth or permission to
+  act. No migration, index or latency guarantee: comment-only reads may
+  scan. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#stored-address-comments-and-presence`;
+  focused check: `npm run check:address-comments`.
 - #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
