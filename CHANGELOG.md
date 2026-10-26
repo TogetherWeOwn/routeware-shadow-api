@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #TBD: Container snapshot lists accept an optional exact stored `city`:
+- #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
   city. Leading zeros, case, punctuation and significant whitespace are
