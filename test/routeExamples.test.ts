@@ -411,6 +411,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
       "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled",
+      "equipmentMaterialStream", "equipmentTypeId", "equipmentEnabled",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
