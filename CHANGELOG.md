@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer snapshot lists accept `hasEnabledAddresses=true|false|any` and
+- #425: Customer snapshot lists accept `hasEnabledAddresses=true|false|any` and
   `hasEnabledContainers=true|false|any` (default `any`). True requires a
   mirrored descendant whose stored `enabled` is exactly 1; enabled equipment
   may sit on any owned address, regardless of that address's enabled state.
