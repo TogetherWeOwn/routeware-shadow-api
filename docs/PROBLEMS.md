@@ -160,6 +160,54 @@ is independent. No mirrored child is not proof of no upstream site and never
 authorizes deletion, reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
 
+## Customer container presence (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send one `hasContainers=true`, `false`
+or `any` (default), or omit the selector and retry. On this list the key
+selects by mirrored grandchild reachability (a stored container through any
+stored address the customer owns); the address list keeps its own
+direct-child selector of the same spelling with its existing detail below.
+The enum is exact and case-sensitive: unknown, empty and repeated values
+fail after authentication and before D1 with the existing value-free 400.
+Detail for this field alone:
+
+`Invalid request query (hasContainers). Send one hasContainers=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. Zero matches is a successful empty
+collection. Disabled stored addresses and containers count as present;
+customer `enabled` is independent. No mirrored reachable container is not
+proof of no upstream equipment and never authorizes deletion,
+reconciliation or sync. See the
+[local present/absent recipe](CONSUMER-QUICKSTART.md#customer-container-presence).
+
+## Customer service-site cohorts (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
+
+- `addressRouteId`: canonical unpadded ASCII decimal safe integer
+  `0..9007199254740991`; zero is literal stored zero.
+- `addressFranchiseId`: case-sensitive opaque exact string of 1..100
+  Unicode code points containing a non-whitespace character; leading zeros
+  and significant whitespace are preserved.
+- `addressEnabled`: exactly `true`, `false` or `any` (default `any`).
+
+Blank, invalid, overlength and repeated keys fail with the existing
+value-free 400 after authentication and before D1. Detail for one rejected
+field (the named field can instead be either sibling scope):
+
+`Invalid request query (addressRouteId). Send one addressRouteId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressFranchiseId). Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. A valid selection with zero matches
+is a successful empty collection, and `hasAddresses=false` plus an
+effective cohort scope is an empty contradiction, not an override. Mirrored
+membership is not current upstream assignment and never authorizes
+deletion, reconciliation or sync. See the
+[local cohort recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts).
+
 ## Address container presence (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,
@@ -175,6 +223,25 @@ No supplied value is echoed or logged. A valid selection with zero matches is
 a successful empty collection, not a validation error, and `false` means no
 currently mirrored child — not proof the upstream site is empty. See the
 [synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
+
+## Container serial and RFID presence (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `hasSerialNumber` and `hasRfid` are
+optional exact, case-sensitive enums: `true`, `false` or `any` (the default
+when omitted). Any other spelling — including blank, upper-case, numeric or
+comma-joined values — and any repeated key return the existing value-free 400
+after authentication and before D1 access. Correct the field to one exact enum
+value, or omit it, then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasSerialNumber). See docs/PROBLEMS.md#bad-request.`
+`Invalid request query (hasRfid). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error. Stored identity text is
+mirrored report data, not a live tag scan or deployment proof; `false` means
+null-or-empty stored text, which includes report gaps, not only untagged
+equipment. See the [synthetic tagged-vs-untagged
+recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence).
 
 ## Strict hydrated-read query keys (`bad-request`)
 
@@ -255,6 +322,26 @@ Correct the named key to one canonical spelling and retry; omit it only
 when no type filter is intended. Authentication still precedes validation.
 A valid type that matches no rows returns 200 with an empty list. See the
 [type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
+
+## Stored service-code entry-part filters (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional entry-part key
+at most once: `serviceCodeType` and `serviceCodeInput` are
+case-sensitive opaque exact strings of 1..100 Unicode code points,
+each containing a non-whitespace character. Leading zeros and
+significant whitespace are preserved; do not trim, fold case or
+normalize them. URL-encode the value. These filter mirrored snapshot
+entry text, not service history, dispatch state, proof of service or a
+controlled taxonomy, and they are never composed into the combined
+`service_code`.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (serviceCodeType). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `serviceCodeInput` (or both). Correct the named
+key to one supported-length nonblank spelling and retry; omit it only
+when no entry-part filter is intended. Authentication still precedes
+validation. A valid entry pair that matches no rows returns 200 with an
+empty list. See the [entry-part policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-service-code-entry-part-filters).
 
 ## Container parent service-site scopes (`bad-request`)
 
@@ -442,6 +529,23 @@ No submitted value is echoed or logged. Valid no-match returns 200 empty.
 These selectors match only the container's own columns, never parent-address
 values; stored nulls never match. See the
 [exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
+## Exact stored container city (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `city` is one case-sensitive
+exact opaque string of 1..100 Unicode code points containing a non-whitespace
+character. Empty/whitespace-only, repeated (including encoded duplicates) and
+overlength values fail after authentication but before D1 or conditional 304,
+with the existing value-free problem body:
+`Invalid request query (city). See docs/PROBLEMS.md#bad-request.`
+URL-encode one nonblank stored value within the limit or omit the key, then
+retry. Do not trim significant whitespace, change case, normalize Unicode or
+coerce leading zeros. No submitted value is echoed or logged. Valid no-match
+returns 200 empty. The selector matches only the container's own `city`,
+never the parent-address city; stored nulls never match. Unlike `city`, `q`
+is a trimmed substring over location/serial/city/zip. See the
+[exact city policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city)
+and [city recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
 
 ## Snapshot list direction (`bad-request`)
 

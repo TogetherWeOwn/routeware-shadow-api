@@ -144,9 +144,9 @@ const snapshotLatestArchiveRoute = createRoute({
   }
 });
 
-function archiveNotFound(url: string, table: string, date: string) {
+function archiveNotFound(url: string, table: string, date: string, env?: Env) {
   return problemJsonResponse({
-    type: problemType("not-found"),
+    type: problemType("not-found", env),
     title: "Not Found",
     status: 404,
     detail: `No snapshot archive for table=${table} date=${date}. See docs/PROBLEMS.md#not-found.`,
@@ -154,9 +154,9 @@ function archiveNotFound(url: string, table: string, date: string) {
   });
 }
 
-function latestArchiveNotFound(url: string, table: string) {
+function latestArchiveNotFound(url: string, table: string, env?: Env) {
   return problemJsonResponse({
-    type: problemType("not-found"),
+    type: problemType("not-found", env),
     title: "Not Found",
     status: 404,
     detail: `No snapshot archive for table=${table}. See docs/PROBLEMS.md#not-found.`,
@@ -164,9 +164,9 @@ function latestArchiveNotFound(url: string, table: string) {
   });
 }
 
-function latestPointerUnreadable(url: string, table: string) {
+function latestPointerUnreadable(url: string, table: string, env?: Env) {
   return problemJsonResponse({
-    type: problemType("internal"),
+    type: problemType("internal", env),
     title: "Internal Server Error",
     status: 500,
     detail:
@@ -176,9 +176,9 @@ function latestPointerUnreadable(url: string, table: string) {
   });
 }
 
-function archiveStoreUnavailable(url: string) {
+function archiveStoreUnavailable(url: string, env?: Env) {
   return problemJsonResponse({
-    type: problemType("misconfigured"),
+    type: problemType("misconfigured", env),
     title: "Service Unavailable",
     status: 503,
     detail:
@@ -289,21 +289,21 @@ snapshotArchiveRoutes.openapi(snapshotLatestArchiveRoute, async (c) => {
   const { table } = c.req.valid("param");
   const bucket = c.env.SNAPSHOTS;
   if (!bucket) {
-    return archiveStoreUnavailable(c.req.url);
+    return archiveStoreUnavailable(c.req.url, c.env);
   }
   // The pointer key is interpolated from the validated enum, never raw path
   // text; the CSV key below comes from the stored pointer, never the client.
   const pointer = await bucket.get(snapshotR2LatestObjectKey(table));
   if (!pointer) {
-    return latestArchiveNotFound(c.req.url, table);
+    return latestArchiveNotFound(c.req.url, table, c.env);
   }
   const csvKey = await readLatestPointerCsvKey(pointer, table);
   if (csvKey === null) {
-    return latestPointerUnreadable(c.req.url, table);
+    return latestPointerUnreadable(c.req.url, table, c.env);
   }
   const obj = await bucket.get(csvKey);
   if (!obj) {
-    return latestArchiveNotFound(c.req.url, table);
+    return latestArchiveNotFound(c.req.url, table, c.env);
   }
   return serveSpreadsheetSafeArchive({
     c,
@@ -311,10 +311,10 @@ snapshotArchiveRoutes.openapi(snapshotLatestArchiveRoute, async (c) => {
     key: csvKey,
     obj,
     filename: `${table}-latest.csv`,
-    notFound: () => latestArchiveNotFound(c.req.url, table),
+    notFound: () => latestArchiveNotFound(c.req.url, table, c.env),
     conflict: () =>
       problemJsonResponse({
-        type: problemType("conflict"),
+        type: problemType("conflict", c.env),
         title: "Conflict",
         status: 409,
         detail: `The snapshot archive for table=${table} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
@@ -329,14 +329,14 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
   const { table, date } = c.req.valid("param");
   const bucket = c.env.SNAPSHOTS;
   if (!bucket) {
-    return archiveStoreUnavailable(c.req.url);
+    return archiveStoreUnavailable(c.req.url, c.env);
   }
   // Interpolated from the validated enum + date shape, never raw path text:
   // identical to the writer's key in `src/lib/r2SnapshotArchive.ts`.
   const key = `snapshots/${date}/${table}.csv`;
   const obj = await bucket.get(key);
   if (!obj) {
-    return archiveNotFound(c.req.url, table, date);
+    return archiveNotFound(c.req.url, table, date, c.env);
   }
   return serveSpreadsheetSafeArchive({
     c,
@@ -344,10 +344,10 @@ snapshotArchiveRoutes.openapi(snapshotArchiveRoute, async (c) => {
     key,
     obj,
     filename: `${table}-${date}.csv`,
-    notFound: () => archiveNotFound(c.req.url, table, date),
+    notFound: () => archiveNotFound(c.req.url, table, date, c.env),
     conflict: () =>
       problemJsonResponse({
-        type: problemType("conflict"),
+        type: problemType("conflict", c.env),
         title: "Conflict",
         status: 409,
         detail: `The snapshot archive for table=${table} date=${date} was replaced during the download. Retry the download. See docs/PROBLEMS.md#conflict.`,
@@ -460,7 +460,7 @@ snapshotArchiveRoutes.openapi(snapshotArchiveDatesRoute, async (c) => {
   const bucket = c.env.SNAPSHOTS;
   if (!bucket) {
     return problemJsonResponse({
-      type: problemType("misconfigured"),
+      type: problemType("misconfigured", c.env),
       title: "Service Unavailable",
       status: 503,
       detail:
@@ -473,7 +473,7 @@ snapshotArchiveRoutes.openapi(snapshotArchiveDatesRoute, async (c) => {
     listing = await listSnapshotArchiveDatesForTable(bucket, table, limit);
   } catch {
     return problemJsonResponse({
-      type: problemType("internal"),
+      type: problemType("internal", c.env),
       title: "Internal Server Error",
       status: 500,
       detail:
