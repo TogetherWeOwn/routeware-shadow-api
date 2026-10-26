@@ -34,7 +34,7 @@ import {
   readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
-import { problemJsonResponse, problemType } from "../lib/problem";
+import { problemJsonResponse, problemType, snapshotProblem400Media, snapshotProblem404Media } from "../lib/problem";
 import {
   SNAPSHOT_POST_QUERY_KEYS,
   createRouteModule,
@@ -146,7 +146,8 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request.",
+      content: { "application/problem+json": snapshotProblem400Media }
     }
   }
 });
@@ -373,10 +374,12 @@ const addressSnapshotByIdRoute = createRoute({
     304: snapshotByIdConditional.notModified,
     400: {
       description:
-        "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
+        "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs. Correct the address id or fields selector and retry.",
+      content: { "application/problem+json": snapshotProblem400Media }
     },
     404: {
-      description: "Not found (application/problem+json)"
+      description: "Not found (application/problem+json). Verify the id and retry, or omit the lookup.",
+      content: { "application/problem+json": snapshotProblem404Media }
     }
   }
 });

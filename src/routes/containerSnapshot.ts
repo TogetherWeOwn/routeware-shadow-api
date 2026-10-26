@@ -35,7 +35,7 @@ import {
   readSnapshotExportPageSize,
   snapshotCsvResponse
 } from "../lib/snapshot/export";
-import { problemJsonResponse, problemType } from "../lib/problem";
+import { problemJsonResponse, problemType, snapshotProblem400Media, snapshotProblem404Media } from "../lib/problem";
 import {
   SNAPSHOT_POST_QUERY_KEYS,
   createRouteModule,
@@ -144,7 +144,8 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. For locationAddress or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. For locationAddress or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request.",
+      content: { "application/problem+json": snapshotProblem400Media }
     }
   }
 });
@@ -378,10 +379,12 @@ const containerSnapshotByIdRoute = createRoute({
     304: snapshotByIdConditional.notModified,
     400: {
       description:
-        "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
+        "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs. Correct the container id or fields selector and retry.",
+      content: { "application/problem+json": snapshotProblem400Media }
     },
     404: {
-      description: "Not found (application/problem+json)"
+      description: "Not found (application/problem+json). Verify the id and retry, or omit the lookup.",
+      content: { "application/problem+json": snapshotProblem404Media }
     }
   }
 });

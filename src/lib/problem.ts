@@ -1,3 +1,5 @@
+import { z } from "@hono/zod-openapi";
+
 const PROBLEM_JSON = "application/problem+json";
 
 /**
@@ -51,6 +53,66 @@ export type ProblemBody = {
   detail?: string;
   instance?: string;
   requestId?: string;
+};
+
+/**
+ * Mounted OpenAPI shape for the EXISTING `ProblemBody` wire bodies served by
+ * the six ordinary flat snapshot GETs (three lists plus three by-ID reads).
+ * Declaration-only: it types `/openapi.json`, never runtime validation —
+ * handlers keep serving the same `problemJsonResponse` bytes.
+ *
+ * The single shared component every scoped 400/404 references: `type`,
+ * `title` and `status` are always present; `detail`, `instance` and
+ * `requestId` travel only where the runtime sets them. Query-validator 400s
+ * omit `instance`; flat snapshot 400/404 bodies omit `requestId` and
+ * propagate correlation via the `x-request-id` response header instead (only
+ * the existing 401 body echoes it). The `type` URI slug after `#` is the
+ * stable error identity; its base is deployment-configurable, so the schema
+ * deliberately carries no enum, const, pattern or format facet.
+ */
+export const problemBodySchema = z.object({
+  type: z.string().openapi({
+    description: "Stable problem-type URI; the slug after `#` is the error identity (e.g. `bad-request`). The base follows the deployment `PROBLEM_TYPE_BASE`, never a closed enum."
+  }),
+  title: z.string().openapi({ description: "Fixed HTTP reason title for the status." }),
+  status: z.number().int().openapi({ description: "HTTP status code, equal to the response status." }),
+  detail: z.string().optional().openapi({
+    description: "Fixed value-free guidance naming the rejected field or missing key, never submitted values."
+  }),
+  instance: z.string().optional().openapi({
+    description: "Request path (plus handler fragment) on ID and missing-row failures; omitted on query-validator failures."
+  }),
+  requestId: z.string().optional().openapi({
+    description: "Echoed only on the existing 401 body; flat snapshot 400/404 bodies omit it (see the `x-request-id` response header)."
+  })
+}).openapi("ProblemBody");
+
+const PROBLEM_EXAMPLE_BASE = "https://example.invalid/problems#";
+
+/**
+ * Synthetic value-free media payloads for the scoped 400/404 contracts.
+ * Fixed correction guidance only — no live identifiers, phone data, tokens
+ * or tracker references. Shared by all nine error responses so machine
+ * clients see one shape per status.
+ */
+export const snapshotProblem400Media = {
+  schema: problemBodySchema,
+  example: {
+    type: `${PROBLEM_EXAMPLE_BASE}bad-request`,
+    title: "Bad Request",
+    status: 400,
+    detail: "Invalid request query (limit). See docs/PROBLEMS.md#bad-request."
+  }
+};
+
+export const snapshotProblem404Media = {
+  schema: problemBodySchema,
+  example: {
+    type: `${PROBLEM_EXAMPLE_BASE}not-found`,
+    title: "Not Found",
+    status: 404,
+    detail: "No snapshot row for the requested id. See docs/PROBLEMS.md#not-found."
+  }
 };
 
 export function problemJsonResponse(body: ProblemBody): Response {

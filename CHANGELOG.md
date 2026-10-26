@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #TBD: The six ordinary flat snapshot GETs publish their existing 400 and
+  missing-row 404 `application/problem+json` bodies as typed contracts in the
+  mounted `/openapi.json`. All nine error responses share one `ProblemBody`
+  component (`type`/`title`/`status` required; `detail`/`instance`/`requestId`
+  only where the runtime sets them) with synthetic value-free examples and
+  fixed correction guidance. The `type` slug after `#` is the stable error
+  identity; its base follows the deployment `PROBLEM_TYPE_BASE`. Flat snapshot
+  400/404 bodies omit `requestId` (read the `x-request-id` response header);
+  query-validator 400s omit `instance`. Wire bytes, status policy, auth
+  ordering, cache headers, ETags, success/304 schemas and existing selector
+  prose are unchanged. See `docs/PROBLEMS.md#typed-snapshot-error-contracts`.
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3

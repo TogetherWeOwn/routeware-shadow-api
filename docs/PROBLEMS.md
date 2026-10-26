@@ -1033,3 +1033,20 @@ Browser Rendering (`auto` mode) or a bare login failure (`http` mode): there
 are no cookies to fall back from, so a browser retry would burn Browser
 Rendering budget on a platform gap, not a markup change. The detail carries
 only the fixed capability message — never URL, body, cookie, or PII.
+
+## Typed snapshot error contracts
+
+The six ordinary flat snapshot GETs (`GET /api/v1/{customer,address,container}-snapshot`
+and the three flat by-ID reads) publish their existing 400 and missing-row 404
+bodies as typed `application/problem+json` in the mounted `/openapi.json`.
+All nine error responses share one `ProblemBody` component: `type`, `title`
+and `status` are always present, while `detail`, `instance` and `requestId`
+travel only where the runtime sets them. The slug after `#` in `type` is the
+stable error identity (`bad-request`, `not-found`); its base follows the
+deployment `PROBLEM_TYPE_BASE`, so never match it against a closed origin
+list. Query-validator 400s omit `instance`. Flat snapshot 400/404 bodies omit
+`requestId` even when the request carries one — read correlation from the
+`x-request-id` response header instead (only the existing 401 body echoes it).
+Each error response carries a synthetic value-free example and fixed
+correction guidance in its description; success, 304, authentication ordering,
+cache headers and query behavior are unchanged.

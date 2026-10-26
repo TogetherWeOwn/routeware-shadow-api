@@ -27,7 +27,7 @@ import {
   snapshotCsvResponse
 } from "../lib/snapshot/export";
 import { invalidateDataEntity } from "../lib/entityDataCache";
-import { problemJsonResponse, problemType } from "../lib/problem";
+import { problemJsonResponse, problemType, snapshotProblem400Media, snapshotProblem404Media } from "../lib/problem";
 import { isForeignKeyConstraintFailure } from "../lib/snapshot/upsert";
 import {
   SNAPSHOT_POST_QUERY_KEYS,
@@ -106,7 +106,8 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request.",
+      content: { "application/problem+json": snapshotProblem400Media }
     }
   }
 });
@@ -425,10 +426,12 @@ const customerSnapshotByIdRoute = createRoute({
     304: snapshotByIdConditional.notModified,
     400: {
       description:
-        "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs."
+        "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs. Correct the customer id or fields selector and retry.",
+      content: { "application/problem+json": snapshotProblem400Media }
     },
     404: {
-      description: "Not found (application/problem+json)"
+      description: "Not found (application/problem+json). Verify the id and retry, or omit the lookup.",
+      content: { "application/problem+json": snapshotProblem404Media }
     }
   }
 });
