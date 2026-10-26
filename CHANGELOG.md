@@ -5,6 +5,38 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+  (stored `extras_allowed` = 1/0/no predicate) and opaque exact
+  `addressLastAuditDate` (1..100 Unicode code points, nonblank,
+  case-sensitive and verbatim, never date-parsed). Both AND with existing
+  route/franchise/site-state scopes inside one same-address EXISTS:
+  split-site matches are excluded and multiple matching sites never duplicate
+  accounts. Null audit text never matches; valid unknown text is an empty
+  200. Extras is a mirrored service-policy marker, not billing authorization;
+  audit is report data, not compliance, certification or proof an audit occurred.
+  Shared COUNT/page predicates, COUNT-only/count-free modes, sparse fields,
+  ETags/304 and bidirectional relative next Links are preserved. Malformed,
+  blank, overlength or repeated decoded keys fail value-free after auth and
+  before D1/304. No writes, new index/migration or latency promise. Local
+  recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
+  check: `npm run check:customer-address-service-policy`.
+
+- #419: Container snapshot lists accept an optional exact stored `city`:
+  one nonblank case-sensitive opaque string of 1..100 Unicode code points
+  bound as `c.city = ?` on the container row only, never the parent address
+  city. Leading zeros, case, punctuation and significant whitespace are
+  preserved; stored nulls never match and valid unknown cities return an
+  empty 200. The selector AND-composes with every existing container filter
+  with shared COUNT/page scope, COUNT-only `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and city-retaining relative
+  next Links in asc/desc, including offset-to-seek. Unlike `city`, `q` stays
+  a trimmed substring over location/serial/city/zip; supplying both
+  intersects. Empty/whitespace-only, repeated and overlength values fail with
+  the existing value-free 400 after auth and before D1. Stored city is
+  mirrored text, not geolocation; unscoped equality scans with no
+  index/migration or latency claim. Synthetic city-vs-`q` recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-container-city`; local check:
+  `npm run check:container-exact-city`.
 - #415: Optional `hasContainers=true|false|any` (default `any`) on the
   existing customer snapshot list: `true` keeps accounts with at least one
   stored container reachable through any stored address they own, `false`
@@ -24,7 +56,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   lookup indexes; no new index, migration or latency promise. Synthetic
   present/absent and contradiction recipes: `docs/CONSUMER-QUICKSTART.md`;
   focused check: `npm run check:customer-container-presence`.
-
 - #412: Optional `addressRouteId`, `addressFranchiseId` and
   `addressEnabled=true|false|any` (default `any`) on the ordinary customer
   snapshot list only, selecting accounts in a mirrored

@@ -206,6 +206,11 @@ For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
   Unicode code points containing a non-whitespace character; leading zeros
   and significant whitespace are preserved.
 - `addressEnabled`: exactly `true`, `false` or `any` (default `any`).
+- `addressExtrasAllowed`: exactly `true`, `false` or `any` (default `any`),
+  requiring stored extras_allowed 1/0/no predicate on that same site.
+- `addressLastAuditDate`: one nonblank case-sensitive opaque string of
+  1..100 Unicode code points, preserved verbatim, never date-parsed.
+  Null never matches; valid unknown text is an empty 200.
 
 Blank, invalid, overlength and repeated keys fail with the existing
 value-free 400 after authentication and before D1. Detail for one rejected
@@ -216,6 +221,15 @@ field (the named field can instead be either sibling scope):
 `Invalid request query (addressFranchiseId). Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
 
 `Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressExtrasAllowed). Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressLastAuditDate). Send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+Extras is a mirrored service-policy marker, not billing authorization;
+audit text is report data, not compliance, certification or proof an audit
+occurred. Extras and audit must match the same stored site as every other
+cohort scope; they do not infer date ranges or schedules.
 
 No supplied value is echoed or logged. A valid selection with zero matches
 is a successful empty collection, and `hasAddresses=false` plus an
@@ -520,6 +534,23 @@ No submitted value is echoed or logged. Valid no-match returns 200 empty.
 These selectors match only the container's own columns, never parent-address
 values; stored nulls never match. See the
 [exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
+## Exact stored container city (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `city` is one case-sensitive
+exact opaque string of 1..100 Unicode code points containing a non-whitespace
+character. Empty/whitespace-only, repeated (including encoded duplicates) and
+overlength values fail after authentication but before D1 or conditional 304,
+with the existing value-free problem body:
+`Invalid request query (city). See docs/PROBLEMS.md#bad-request.`
+URL-encode one nonblank stored value within the limit or omit the key, then
+retry. Do not trim significant whitespace, change case, normalize Unicode or
+coerce leading zeros. No submitted value is echoed or logged. Valid no-match
+returns 200 empty. The selector matches only the container's own `city`,
+never the parent-address city; stored nulls never match. Unlike `city`, `q`
+is a trimmed substring over location/serial/city/zip. See the
+[exact city policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city)
+and [city recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
 
 ## Snapshot list direction (`bad-request`)
 
