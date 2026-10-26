@@ -2267,6 +2267,26 @@ Worker-generated problem responses are `application/problem+json` with a
 `type` URL pointing at the [`PROBLEMS.md`](./PROBLEMS.md) section that explains
 them. The ordinary `/data/*` save envelope is the exception described above.
 
+### Problem `type` base override
+
+Operators can point snapshot archive problem `type` URLs, including
+authentication and request-validation responses, at their own catalog by
+setting `PROBLEM_TYPE_BASE` (`wrangler.toml` `[vars]`,
+`.dev.vars`, or `wrangler secret put`) to the catalog URL with the trailing
+`#` included (e.g.
+`https://github.com/<owner>/routeware-shadow-api/blob/main/docs/PROBLEMS.md#`).
+The value is used verbatim after trimming; absent, empty or whitespace-only
+keeps the default byte-identical. Consumers must match the status and the
+documented slug, not a fixed hostname.
+
+This is not a universal route guarantee: `DELETE /api/v1/customer-snapshot/{customerId}`
+still uses the default catalog for its non-positive-id 400, absent-row 404 and
+referenced-by-addresses 400. Those responses do not indicate stale configuration;
+redeploying does not change them. For an **archive** response that unexpectedly
+uses the default catalog, confirm the binding in the deployed environment
+(`[vars]` vs secret); updating the binding requires redeployment. Archive routes
+read the effective base from their request environment.
+
 ## Correlate retries with `X-Request-Id`
 
 Send one id per logical attempt and reuse it across that attempt's retries;
