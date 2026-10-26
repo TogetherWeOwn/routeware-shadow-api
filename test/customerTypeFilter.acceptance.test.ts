@@ -649,8 +649,9 @@ describe("served OpenAPI description and synthetic example", () => {
 
   it("shows the stored classification in the served 200 example row", async () => {
     const doc = await openApi();
-    const example = doc.paths[PATH]?.get?.responses?.["200"]?.content?.["application/json"]?.example as
-      | { rows?: Array<Record<string, unknown>> } | undefined;
+    const media = doc.paths[PATH]?.get?.responses?.["200"]?.content?.["application/json"] as unknown as
+      | { examples?: Record<string, { value?: { rows?: Array<Record<string, unknown>> } }> } | undefined;
+    const example = media?.examples?.counted?.value;
     expect(example?.rows?.[0]).toHaveProperty("customer_type_id");
   });
 
