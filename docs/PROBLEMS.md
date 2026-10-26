@@ -195,6 +195,11 @@ For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
   non-whitespace character; leading zeros and significant whitespace are
   preserved, with no trimming, normalization or abbreviation conversion.
   Each must match the same stored address as the other scopes.
+- `addressExtrasAllowed`: exactly `true`, `false` or `any` (default `any`),
+  requiring stored extras_allowed 1/0/no predicate on that same site.
+- `addressLastAuditDate`: one nonblank case-sensitive opaque string of
+  1..100 Unicode code points, preserved verbatim, never date-parsed.
+  Null never matches; valid unknown text is an empty 200.
 
 Blank, invalid, overlength and repeated keys fail with the existing
 value-free 400 after authentication and before D1. Detail for one rejected
@@ -207,6 +212,15 @@ field (the named field can instead be either sibling scope):
 `Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
 
 `Invalid request query (addressCity). Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.` — the same fixed shape names `addressState` or `addressZip` when that locality key is the rejected field. Site locality is mirrored text, not a headquarters location, geocoding result or territory eligibility.
+
+`Invalid request query (addressExtrasAllowed). Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressLastAuditDate). Send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+Extras is a mirrored service-policy marker, not billing authorization;
+audit text is report data, not compliance, certification or proof an audit
+occurred. Extras and audit must match the same stored site as every other
+cohort scope; they do not infer date ranges or schedules.
 
 No supplied value is echoed or logged. A valid selection with zero matches
 is a successful empty collection, and `hasAddresses=false` plus an

@@ -29,7 +29,8 @@ export function customerContainerPresencePredicate(value: "true" | "false"): str
 
 /**
  * Ordinary customer-list child-cohort scopes: `addressRouteId`,
- * `addressFranchiseId` and `addressEnabled`.
+ * `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed` and
+ * `addressLastAuditDate`.
  *
  * Single source of truth for the lexical contracts, so the shape cannot
  * drift between the route schema, the served OpenAPI and the SQL below.
@@ -87,6 +88,16 @@ export const customerAddressZipQuery = z.string()
   .describe("Opaque case-sensitive exact stored-zip equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points, including a non-whitespace character. Leading zeros and nonblank whitespace are preserved, not trimmed or normalized; a null stored zip never matches and a valid unknown zip returns an empty 200. Site locality is mirrored text on the service address, not a customer headquarters location, geocoding result, postal verification, service-territory eligibility or proof of service. Send one addressZip of 1..100 Unicode code points that is not blank, or omit it and retry; repeated keys are invalid.")
   .openapi({ type: "string", minLength: 1, maxLength: 100, example: "02139" });
 
+export const customerAddressExtrasAllowedQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Child extras_allowed equality on the SAME stored address as every other cohort scope: "true" requires stored 1, "false" requires stored 0; "any" or omission adds no predicate. Mirrored service-policy marker only, not billing authorization or permission to change service terms. Send one addressExtrasAllowed=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+export const customerAddressLastAuditDateQuery = z.string()
+  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
+  .optional()
+  .describe("Opaque case-sensitive exact last_audit_date equality on the SAME stored address as every other cohort scope: 1..100 Unicode code points including a non-whitespace character. Supplied text is preserved verbatim, never parsed as a date, range or schedule. Null never matches; unknown text returns an empty 200. Mirrored report data only, not audit compliance, certification or proof an audit occurred. URL-encode one nonblank addressLastAuditDate or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "2026-01-05" });
+
 export type CustomerAddressCohortScope = {
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -94,16 +105,18 @@ export type CustomerAddressCohortScope = {
   addressCity?: string;
   addressState?: string;
   addressZip?: string;
+  addressExtrasAllowed: "true" | "false" | "any";
+  addressLastAuditDate?: string;
 };
 
 /**
  * One customer-correlated EXISTS over the stored child addresses: route,
- * franchise, enabled-state and stored-locality (city/state/zip) scopes AND
- * inside the same child, so split scopes across different children never
- * match and duplicate matching sites never duplicate the customer. Null
- * stored scalars never match equality. Returns null when no scope is
- * effective (omitted scalars, or `addressEnabled=any` alone), leaving the
- * caller's SQL/binds untouched; any supplied locality alone is effective.
+ * franchise, enabled-state, stored-locality (city/state/zip), extras and
+ * audit scopes AND inside the same child, so split scopes across different
+ * children never match and duplicate matching sites never duplicate the
+ * customer. Null stored scalars never match equality. Returns null when no
+ * scope is effective (omitted scalars, or only `any` enums), leaving the
+ * caller's SQL/binds untouched; any supplied scalar alone is effective.
  * The caller appends `binds` in order; COUNT and page share both.
  */
 export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope): { sql: string; binds: unknown[] } | null {
@@ -132,6 +145,14 @@ export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope
   if (scope.addressEnabled !== "any") {
     predicates.push("enabled = ?");
     binds.push(scope.addressEnabled === "true" ? 1 : 0);
+  }
+  if (scope.addressExtrasAllowed !== "any") {
+    predicates.push("extras_allowed = ?");
+    binds.push(scope.addressExtrasAllowed === "true" ? 1 : 0);
+  }
+  if (scope.addressLastAuditDate !== undefined) {
+    predicates.push("last_audit_date = ?");
+    binds.push(scope.addressLastAuditDate);
   }
   if (predicates.length === 0) return null;
   return {

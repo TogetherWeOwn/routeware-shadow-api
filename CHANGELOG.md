@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+  (stored `extras_allowed` = 1/0/no predicate) and opaque exact
+  `addressLastAuditDate` (1..100 Unicode code points, nonblank,
+  case-sensitive and verbatim, never date-parsed). Both AND with existing
+  route/franchise/site-state scopes inside one same-address EXISTS:
+  split-site matches are excluded and multiple matching sites never duplicate
+  accounts. Null audit text never matches; valid unknown text is an empty
+  200. Extras is a mirrored service-policy marker, not billing authorization;
+  audit is report data, not compliance, certification or proof an audit occurred.
+  Shared COUNT/page predicates, COUNT-only/count-free modes, sparse fields,
+  ETags/304 and bidirectional relative next Links are preserved. Malformed,
+  blank, overlength or repeated decoded keys fail value-free after auth and
+  before D1/304. No writes, new index/migration or latency promise. Local
+  recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
+  check: `npm run check:customer-address-service-policy`.
 - #431: Customer snapshot lists accept optional `addressCity`, `addressState`
   and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
   code points including a non-whitespace character; leading zeros and
@@ -26,6 +41,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic account-by-site-locality recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
   check: `npm run check:customer-address-locality`.
+
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
