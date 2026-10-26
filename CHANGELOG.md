@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Container snapshot lists accept optional whole stored route/frequency
+- #430: Container snapshot lists accept optional whole stored route/frequency
   list-text selectors: `routeIdsExact` / `frequencyIdsExact` match the
   entire stored `route_ids` / `frequency_ids` cell by case-sensitive binary
   equality (`COLLATE BINARY = ?`), one string of 1..500 Unicode code points.
