@@ -360,7 +360,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "hasContainers",
+      "addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
@@ -460,7 +460,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     // Keep the date insertion separate from adjacent stored-type inventory edits.
     parameterNames: [
-      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
+      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "serviceCode", "containerTypeId",
       "hasSerialNumber", "hasRfid",
       "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
       "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"

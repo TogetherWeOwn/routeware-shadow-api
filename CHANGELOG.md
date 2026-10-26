@@ -5,6 +5,31 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #375: Container snapshot lists accept an optional `serviceCode` exact,
+  case-sensitive filter (1..100 Unicode code points) matching the stored
+  service code. Opaque values retain leading zeros and nonblank whitespace;
+  invalid/repeated selectors return value-free 400s before D1. The filter
+  composes with AND alongside every existing selector, preserves duplicate
+  matches and travels in encoded next-page links. Existing count-free,
+  sparse and conditional reads are preserved. Local read-only D1 only; no
+  schema/index, upstream or auth changes. Synthetic lookup recipe and
+  focused check: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+  (stored `extras_allowed` = 1/0/no predicate) and opaque exact
+  `addressLastAuditDate` (1..100 Unicode code points, nonblank,
+  case-sensitive and verbatim, never date-parsed). Both AND with existing
+  route/franchise/site-state scopes inside one same-address EXISTS:
+  split-site matches are excluded and multiple matching sites never duplicate
+  accounts. Null audit text never matches; valid unknown text is an empty
+  200. Extras is a mirrored service-policy marker, not billing authorization;
+  audit is report data, not compliance, certification or proof an audit occurred.
+  Shared COUNT/page predicates, COUNT-only/count-free modes, sparse fields,
+  ETags/304 and bidirectional relative next Links are preserved. Malformed,
+  blank, overlength or repeated decoded keys fail value-free after auth and
+  before D1/304. No writes, new index/migration or latency promise. Local
+  recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
+  check: `npm run check:customer-address-service-policy`.
+
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
