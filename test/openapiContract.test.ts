@@ -503,15 +503,18 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 }
 
 // Exact identifiers, stored labels, installation selectors, parent scopes and
-// serial/RFID presence and stored-flag selectors supersede this route's old
-// query/error narrative. Their schemas, composition and error discovery are asserted independently in
+// service-code entry parts, serial/RFID presence and stored-flag selectors
+// supersede this route's old query/error narrative. Their schemas,
+// composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
+// containerServiceCodeParts.acceptance.test.ts,
 // containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative prose
-// or parameter position. All legacy parameters and unrelated operations remain frozen.
+// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative
+// prose or parameter position. All legacy parameters and unrelated operations
+// remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -526,7 +529,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
