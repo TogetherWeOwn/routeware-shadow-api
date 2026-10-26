@@ -781,8 +781,10 @@ describe("address hasContainers served OpenAPI contract", () => {
 
   it("keeps hasContainers off the sibling lists, the changes feed and the by-id reads", async () => {
     const doc = await openApi();
+    // The customer list has its own grandchild hasContainers (containers via
+    // any owned address), pinned by test/customerContainerPresence.acceptance.test.ts;
+    // only the remaining sibling list stays excluded here.
     for (const path of [
-      "/api/v1/customer-snapshot",
       "/api/v1/container-snapshot",
       "/api/v1/customer-snapshot/changes",
       "/api/v1/customer-snapshot/{customerId}",
@@ -800,7 +802,10 @@ describe("address hasContainers query-policy inventory and recipe", () => {
     const row = (path: string) =>
       policyDoc.split("\n").find((line) => line.startsWith(`| \`${path}\` |`)) ?? "";
     expect(row("/api/v1/address-snapshot"), "address row").toContain("`hasContainers`");
-    expect(row("/api/v1/customer-snapshot"), "customer row").not.toContain("hasContainers");
+    // The customer list carries its own grandchild hasContainers (see
+    // test/customerContainerPresence.acceptance.test.ts); only the container
+    // list stays excluded.
+    expect(row("/api/v1/customer-snapshot"), "customer row").toContain("`hasContainers`");
     expect(row("/api/v1/container-snapshot"), "container row").not.toContain("hasContainers");
     expect(policyDoc).toContain("test/addressContainerPresence.acceptance.test.ts");
   });
@@ -815,8 +820,10 @@ describe("address hasContainers query-policy inventory and recipe", () => {
 
   it("shows synthetic present/absent multi-page quickstart recipes without credentials", () => {
     const blocks = [...quickstartDoc.matchAll(/^```bash\n([\s\S]*?)^```/gm)].map((m) => m[1]);
-    const present = blocks.find((b) => b.includes("hasContainers=true"));
-    const absent = blocks.find((b) => b.includes("hasContainers=false"));
+    // Path-scoped: the customer list has its own hasContainers recipes sharing
+    // the enum spelling (see test/customerContainerPresence.acceptance.test.ts).
+    const present = blocks.find((b) => b.includes("hasContainers=true") && b.includes("/api/v1/address-snapshot"));
+    const absent = blocks.find((b) => b.includes("hasContainers=false") && b.includes("/api/v1/address-snapshot"));
     expect(present, "present recipe").toBeDefined();
     expect(absent, "absent recipe").toBeDefined();
     for (const block of [present!, absent!]) {

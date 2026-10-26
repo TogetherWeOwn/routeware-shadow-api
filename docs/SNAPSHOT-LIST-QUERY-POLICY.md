@@ -11,16 +11,16 @@ count and pagination cursor as the request without that parameter; the extra
 name does not become a SQL filter or bind. This preserves the existing
 `z.object(...)` query-schema behavior, rather than changing API compatibility.
 
-| GET route | Recognized query keys | Unknown-name policy |
-| --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
-
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
 children, including disabled rows; absence is not proof of no upstream site
 and never authorizes deletion or reconciliation.
+
+| GET route | Recognized query keys | Unknown-name policy |
+| --- | --- | --- |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
 
@@ -89,6 +89,46 @@ planner evidence, not a production latency claim. No migration/index change.
 GET is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipe](CONSUMER-QUICKSTART.md#customer-address-presence) and
 [correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+## Customer container presence
+
+Only the ordinary customer list recognizes `hasContainers=true|false|any`
+with grandchild reachability semantics (the address list keeps its own
+direct-child selector of the same spelling). `true` keeps customers with at
+least one stored container reachable through any stored address they own;
+`false` keeps those with none. Omission/`any` adds no predicate. Every
+stored address and container counts, including disabled rows; customer
+`enabled` remains independent. Presence is **global** to the customer
+across all owned addresses — never read it as same-site membership for any
+separate site cohort. No mirrored container is **not proof of no upstream
+equipment** or active service and never authorizes deletion,
+reconciliation or a sync.
+
+Send one exact case-sensitive supported value, or omit the selector and
+retry. Empty, unknown or repeated values return value-free
+`application/problem+json` 400 after authentication and before D1,
+including conditional requests. The nested correlated `EXISTS`/`NOT EXISTS`
+over the existing child `customer_id` and `pickup_address_id` indexes never
+joins/expands parents or returns child payloads. It shares the COUNT/page
+WHERE and binds, AND-composing with `hasAddresses`
+(`hasAddresses=false&hasContainers=true` is an empty 200;
+`hasAddresses=true&hasContainers=false` keeps accounts with sites but no
+equipment) and every other customer selector. Count-free mode still runs
+one SELECT and zero COUNTs. Canonical `customer_id`, sparse fields,
+cursor-relative totals and exact-representation ETag/304 semantics are
+unchanged. Validated true/false travel in relative next Links; any/default
+and unknown keys do not. A full terminal page may link to an empty page;
+concurrent writes are not snapshot-isolated.
+
+Run `npm run check:customer-container-presence`; the independent
+`test/customerContainerPresence.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2 and verifies complete bidirectional traversal, no
+duplicate parents and child-index SEARCH plans for both COUNT and rows.
+This is local planner evidence, not a production latency claim. No
+migration/index change. GET is an idempotent local-read operation; CLI
+`--dry-run` is N/A. See the
+[local recipe](CONSUMER-QUICKSTART.md#customer-container-presence) and
+[correction guidance](PROBLEMS.md#customer-container-presence-bad-request).
 
 ## Customer service-site cohorts
 
@@ -169,7 +209,7 @@ and [correction guidance](PROBLEMS.md#bad-request).
 
 ## Address container presence
 
-Only the address list recognizes `hasContainers`, an optional mirrored-child
+On the address list, `hasContainers` is an optional mirrored-child
 presence selector: `true` keeps only addresses with at least one stored
 container row sharing their `pickup_address_id`, `false` keeps only addresses
 with none, and `any` (the default when omitted) adds no predicate. Presence is
