@@ -586,7 +586,8 @@ describe("mounted comments discovery", () => {
     const inventory = [...row!.split("|")[2].matchAll(/`([^`]+)`/g)].map((m) => m[1]).sort();
     expect(inventory).toContain("comments");
     expect(inventory).toEqual(doc.paths[PATH].get.parameters?.filter((p) => p.in === "query").map((p) => p.name).sort());
-    for (const path of ["/api/v1/address-snapshot", "/api/v1/container-snapshot", `${PATH}/changes`, `${PATH}/export`, `${PATH}/{customerId}`]) {
+    // The ordinary address list now independently owns its stored comments selector.
+    for (const path of ["/api/v1/container-snapshot", `${PATH}/changes`, `${PATH}/export`, `${PATH}/{customerId}`]) {
       expect(doc.paths[path].get.parameters?.map((p) => p.name) ?? [], path).not.toContain("comments");
     }
     expect(Object.keys(doc.paths).filter((path) => /comments/i.test(path))).toEqual([]);
