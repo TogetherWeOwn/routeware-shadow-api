@@ -14,7 +14,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -628,6 +628,46 @@ oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date)
 and [local query-plan
 evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
+
+## Sites by parent customer enabled state
+
+Only the existing address list accepts `parentCustomerEnabled`, selecting
+sites by the stored `enabled` of their related mirrored customer
+(`customer_snapshot.customer_id = address_snapshot.customer_id`, qualified
+columns). It is one optional exact `true|false|any` (default `any`): true
+keeps only sites whose stored customer row has `enabled = 1`, false keeps
+only `enabled = 0`. Omission or `any` adds no parent predicate, so
+unconstrained reads still include pre-existing orphan rows and customers
+with noncanonical stored values; explicit true/false never matches a
+missing parent or a noncanonical stored value. The site's own `enabled`
+stays independent: parent and site state intersect by AND with each other
+and with `customerId`, IDs, route/franchise, locality/street, `q`,
+`driverNote`, `extrasAllowed`, `hasContainers`, audit-date selection and
+traversal bounds; contradictions return empty 200. Mirrored stored customer
+enabled is not current account eligibility, service permission, billing
+status or authorization, and never replaces the site predicate. Invalid,
+blank or repeated (including encoded duplicate) values return the existing
+value-free bad-request problem before D1, after auth; submitted values are
+never echoed or logged.
+
+One correlated `EXISTS (SELECT 1 FROM customer_snapshot ...)` literal
+predicate (no JOIN, no binds, no parent payload expansion) shares the
+WHERE between COUNT and page; `includeTotal=false` still issues zero
+COUNTs and `countOnly` stays COUNT-only. Sparse fields and ETag/304
+describe the same final envelope. Relative next Links retain a filtering
+parent value (omit `any`) in either order and when moving offset-to-seek;
+unknown raw parameters and origins never travel.
+
+The lookup uses the customer primary key; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/addressParentCustomerEnabled.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-parent-customer-enabled` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
 
 ## Address street or locality search
 
