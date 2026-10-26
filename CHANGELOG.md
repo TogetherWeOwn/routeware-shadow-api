@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
+  (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
+  fields/ETag, and emits a cursor/relative next Link only if another matching row
+  exists. The cursor is the last returned primary ID, never the lookahead row.
+  Default/false preserves terminal false positives and existing SQL/binds;
+  count-free reads still run zero COUNTs. Strict single boolean validation fails
+  value-free before D1 after auth. No snapshot isolation or latency guarantee:
+  concurrent inserts/deletes can change later pages. No new endpoint/index,
+  upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
+  see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
+
 - #381: The existing customer snapshot list `q` filter now matches a literal,
   trimmed substring in any one of `company_name`, `first_name` or `last_name`
   (previously company name only), so residential records without a company
@@ -99,6 +110,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   upstream/R2/write, isolation, migration or no-scan performance promise.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
   focused check: `npm run check:snapshot-count-only`.
+
+- #394: Each existing hydrated GET publishes registry-derived v1 field catalogs
+  on all three typed selectors, plus root-specific legal-mode guidance:
+  distinct types compose, flat fields conflicts with the typed root, and batch
+  ids rejects every fieldset. Remove the redundant unknown-selector branch;
+  mounted guards already prevent submitted key/value reflection. Authentication,
+  successful bytes, projection, full-cache contents, ETags and batch schemas
+  are unchanged. Offline synthetic extraction recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused mounted contract and safety check:
+  `npm run check:hydrated-fieldset-discovery`. No deployment or access change.
 
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive

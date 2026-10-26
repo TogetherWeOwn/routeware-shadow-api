@@ -13,9 +13,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -171,6 +171,38 @@ and [400 recovery](PROBLEMS.md#snapshot-count-only-bad-request).
 Run `npm run check:snapshot-count-only` for the independent local-D1 oracle and
 pagination/auth/fieldset/conditional/mounted-OpenAPI regressions. No live data or
 production/staging probes; this idempotent local-read GET has no CLI dry-run mode.
+
+## Exact next-page signal (opt-in)
+
+Only the three ordinary flat lists accept `exactNext=true|false` (default
+`false`). This is not snapshot isolation: concurrent inserts/deletes can still
+change later pages. Omitted/false preserves the existing page SQL/binds and
+full-terminal false positives (a full page may link to an empty page).
+
+True uses the existing single page SELECT with `limit+1` (at most 501 fetched),
+returns at most `limit`, and emits `nextCursor`/`Link` only when the extra matching
+row exists. The cursor is the **last returned canonical primary ID**, never the
+lookahead row; trimming happens before sparse projection and ETag generation.
+The same filters/joins/upperId/order apply to lookahead, including offset-first
+and seek continuation. Seek SQL never adds OFFSET. Totals retain cursor-relative
+meaning; `includeTotal=false` still runs zero COUNTs. No second page query,
+upstream call, R2 access, write, migration or index is introduced.
+`countOnly=true` takes precedence over exact pagination: it performs one COUNT,
+no page SELECT or lookahead, and returns no cursor or next Link. `strictQuery=true`
+recognizes `exactNext` and stays enabled in generated continuation links.
+
+Send one exact case-sensitive boolean, or omit `exactNext` and retry. Invalid,
+empty or repeated values return value-free 400 after auth and before D1, even
+for conditional reads. Relative next links retain true and validated selectors,
+fields, limit and explicit order/count flags; false/default, unknown keys,
+origins and credentials are not propagated. No-store and 200/304 Link parity
+remain unchanged. Other endpoints do not gain this capability.
+
+Run `npm run check:snapshot-exact-next`: the independent
+`test/snapshotExactNext.acceptance.test.ts` proves complete distinct traversal,
+terminal signals, unchanged default behavior and bounded query work with local
+synthetic fixtures. See the [consumer recipe](CONSUMER-QUICKSTART.md#exact-next-page-signal).
+No production latency or stable-snapshot claim is made.
 
 ## Exact customer account numbers
 

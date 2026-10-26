@@ -22,6 +22,17 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Exact next-page flag (`bad-request`)
+
+On the three ordinary snapshot list GETs, send `exactNext=true` to opt in or
+`exactNext=false` (the default) to keep legacy pagination. Supply the key once,
+using those exact case-sensitive strings, with no surrounding whitespace.
+Empty, other or repeated values fail with the value-free detail
+`Invalid request query (exactNext). See docs/PROBLEMS.md#bad-request.`
+after authentication and before any D1 read, including conditional requests.
+Correct the named key or omit it, then retry; never put credentials in queries.
+See the [query contract](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
+
 ## Snapshot count-only (`bad-request`)
 
 On the three ordinary flat snapshot list GETs, send `countOnly` once as exact
