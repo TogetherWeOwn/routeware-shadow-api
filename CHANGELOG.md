@@ -5,6 +5,28 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #429: The ordinary customer snapshot list accepts optional `syncedSince`
+  (strict: stored `synced_at` after the instant) and `syncedUntil`
+  (inclusive: at or before the instant) bounds, validated and normalized by
+  the same lossless UTC-Z millisecond chain as the customer changes feed
+  (seconds or 1–3 fractional digits, calendar-valid, never
+  rounded/truncated). These are new parameters with no legacy leniency: an
+  empty value for either bound is a 400, as are offset forms, more than 3
+  fractional digits, calendar-invalid days, repeated keys and a normalized
+  `syncedSince` later than `syncedUntil` — all after auth and before D1/304
+  with the existing value-free 400; equal bounds are a valid empty 200 and
+  either bound may be supplied alone. The bounds AND-compose with every
+  ordinary customer selector over shared COUNT/page predicates, keep the
+  `customer_id` keyset order, cursors, sparse fields and ETag/304 behavior,
+  and relative next Links retain the normalized effective bounds in both
+  directions (omitted bounds stay omitted). Stored sync time is mirror
+  freshness, not upstream event time or proof of change content: this is a
+  filter over current mirrored rows, not a changes feed, deletion history
+  or completeness claim — complete delta traversal stays on
+  `/api/v1/customer-snapshot/changes`. Unscoped window reads may scan; no
+  index, migration or latency promise. Synthetic finite-window recipe:
+  `docs/CONSUMER-QUICKSTART.md#customer-synced-window`; local check:
+  `npm run check:customer-synced-window`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
