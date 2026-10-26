@@ -199,7 +199,10 @@ describe("customer changes fields: selectors and preserved defaults", () => {
   it("ignores unrelated unknown keys even when repeated, without enabling other filters", async () => {
     const params = { fields: "company_name", limit: "2" };
     const plain = await page(query(params));
-    const extra = await page(`${query(params)}&unknown=SYNTHETIC&unknown=other&include=addresses&until=invalid&enabled=true&includeTotal=false&offset=99`);
+    // `until` is a recognized changes-feed key (pinned by
+    // customerChangesUntil.acceptance.test.ts), so it cannot serve as an
+    // unknown-key probe here; `untilX` keeps an until-adjacent unknown name.
+    const extra = await page(`${query(params)}&unknown=SYNTHETIC&unknown=other&include=addresses&untilX=invalid&enabled=true&includeTotal=false&offset=99`);
     expect(extra).toEqual(plain);
     expect(extra.rows).toEqual(selected(FIXTURES.slice(0, 2), "company_name"));
     expect(extra.total).toBe(2);
@@ -351,7 +354,7 @@ describe("customer changes fields: mounted machine-readable contract", () => {
     const fields = operation?.parameters?.find((p) => p.name === "fields");
     expect(fields).toMatchObject({ in: "query", required: false, schema: { type: "string" } });
     expect(fields).toEqual(doc.paths["/api/v1/customer-snapshot"]?.get?.parameters?.find((p) => p.name === "fields"));
-    expect(operation?.parameters?.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(["fields", "limit", "since", "since_id"]);
+    expect(operation?.parameters?.filter((p) => p.in === "query").map((p) => p.name).sort()).toEqual(["fields", "limit", "since", "since_id", "until"]);
     expect(operation?.responses?.["200"]?.content?.["application/json"]?.schema).toEqual({ $ref: "#/components/schemas/CustomerSnapshotChanges" });
   });
 

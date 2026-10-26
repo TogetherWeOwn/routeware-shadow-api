@@ -273,13 +273,15 @@ exports[`'customer' snapshot: followable next links > preserves pre-feature JSON
       "binds": [
         2,
         "synthetic & +/雪? #"<x>",
+        "synthetic & +/雪? #"<x>",
+        "synthetic & +/雪? #"<x>",
         1,
         0,
       ],
       "method": "all",
       "sql": "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
               name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-       FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND instr(lower(coalesce(company_name, '')), lower(?)) > 0 AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?",
+       FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND (instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0) AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?",
     },
   ],
 }

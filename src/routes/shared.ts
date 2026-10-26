@@ -15,7 +15,7 @@ import type { AppEnv } from "./types";
  * `bad-request` problem+json, and the handler never runs.
  *
  * `detail` names the rejected target and fields, never values: query strings
- * here can carry customer PII (company-name/company substrings), so the zod
+ * here can carry customer PII (customer-name substrings), so the zod
  * messages (which echo received values) are deliberately not forwarded.
  */
 export function validationFailureHook(
@@ -48,6 +48,24 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("hasCoordinates")
         ? "Send one hasCoordinates=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("streetAddress")
+        ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("driverNote")
+        ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("lastAuditDate")
+        ? "Send one nonblank lastAuditDate of 1..100 Unicode code points, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasLastAuditDate")
+        ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("countOnly")
+        ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("comments")
+        ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }

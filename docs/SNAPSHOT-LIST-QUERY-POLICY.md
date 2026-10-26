@@ -1,9 +1,11 @@
 # Snapshot/data list query policy
 
-## Unknown parameter names: documented ignore
+## Unknown parameter names: default ignore, opt-in strict
 
-The JSON snapshot list routes below **ignore unknown query parameter names**.
-They validate only the named keys in their allowlists. For example,
+The JSON snapshot list routes below **ignore unknown query parameter names by default**.
+The three ordinary flat lists can opt into rejection with `strictQuery=true`;
+`strictQuery=false` or omission preserves existing behavior. They validate
+only the named keys in their mounted schemas. For example,
 `GET /api/v1/customer-snapshot?bogus_param=1` returns the same 200 JSON rows,
 count and pagination cursor as the request without that parameter; the extra
 name does not become a SQL filter or bind. This preserves the existing
@@ -11,10 +13,51 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `hasContainers`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `zip`, `q`, `enabled`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
+
+Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
+children, including disabled rows; absence is not proof of no upstream site
+and never authorizes deletion or reconciliation.
+
+## Opt-in typo detection (`strictQuery=`)
+
+Only the three ordinary flat list GETs accept one exact, case-sensitive
+`strictQuery=true|false` (default `false`). With `true`, every decoded raw
+URLSearchParams name must belong to that resource's actual mounted query
+schema, including `strictQuery` itself and all merged selectors. The runtime
+derives this set directly from the schema; it does not share a sibling
+resource's names or maintain a second hardcoded inventory. Even empty,
+percent-encoded, Unicode or control-like unknown names return the fixed
+`bad-request` problem after authentication, before D1 or conditional 304
+handling. No submitted names/values or dynamic unknown-key lists are
+returned or logged:
+
+```json
+{"type":"https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#bad-request","title":"Bad Request","status":400,"detail":"Unknown query parameter. Use supported query names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. See docs/PROBLEMS.md#bad-request."}
+```
+
+Use supported names from the mounted OpenAPI operation, remove unknown keys,
+or deliberately set `strictQuery=false` to retain lenient compatibility.
+Invalid, empty or repeated `strictQuery` (including encoded duplicate names
+and mixed true/false) fails value-free before D1 in either mode. Known
+invalid/repeated controls remain invalid; false is not a validation bypass.
+
+Successful strict pages have identical SQL, rows, counts, projection and
+representation ETag/no-store behavior. Relative next Links carry validated
+`strictQuery=true`, never false/default or unknown keys; follow them unchanged
+in either direction. By-ID reads, changes, CSV exports, archives, hydrated
+reads and mutating POST policies do not gain this opt-in.
+
+Run `npm run check:snapshot-strict-query` for the independent
+`test/snapshotStrictQueryOptIn.acceptance.test.ts` and unchanged default-ignore,
+auth, pagination, conditional and mounted discovery regressions. All use
+synthetic local fixtures; no production/staging, upstream, R2 or writes.
+GET is idempotent/local-read; CLI `--dry-run` is N/A. See the
+[local agent recipe](CONSUMER-QUICKSTART.md#opt-in-query-typo-detection) and
+[correction guidance](PROBLEMS.md#opt-in-list-query-keys-bad-request).
 
 ## Customer address presence
 
@@ -88,8 +131,78 @@ a repeated key) is a value-free 400 before any D1 access. Pinned by
 
 **Ignoring a name is not ignoring an invalid value.** A known key such as
 `limit=501` still returns 400 `application/problem+json` identifying `limit`,
-before any D1 query. A typo such as `custmer_id` is ignored, so clients must use
-the exact documented query names; this API does not detect those typos.
+before any D1 query. A typo such as `custmer_id` is ignored in default/false
+mode, so clients must use the exact documented query names. Set
+`strictQuery=true` on an ordinary list to reject those typos instead.
+
+## Count-only inspection
+
+Only the three ordinary flat lists accept `countOnly=true|false` (default
+`false`). Choose the retrieval mode explicitly:
+
+| Mode | D1 statements | Existing response envelope |
+| --- | --- | --- |
+| Default / `countOnly=false` | One COUNT plus one page SELECT | Rows, integer total, normal nextCursor/Link |
+| `includeTotal=false` | One page SELECT, zero COUNTs | Same rows/cursor/Link, `total:null` |
+| `countOnly=true` | Exactly one COUNT, zero page/payload SELECTs | `{"rows":[],"total":N,"nextCursor":null}`, no next Link |
+
+Count-only reuses the existing COUNT predicates and binds, including every
+resource filter, IDs, container parent join, direction-dependent exclusive
+`cursor` and inclusive `upperId`. Counts are **cursor-relative at query time**:
+ascending counts IDs above the cursor; descending counts IDs below it, within
+the ceiling. Neither `limit` nor `offset` subtracts from total. Empty cohorts
+return `0`, not `null`. This is not a whole-traversal total, historical
+snapshot isolation or a promise that the database avoids scanning stored rows.
+Counts can change between requests as the mirror changes.
+
+Send each mode key once with an exact lowercase supported value. The conflicting
+`countOnly=true&includeTotal=false` returns a value-free 400 before D1: omit
+`includeTotal=false` or set `countOnly=false` and retry. All other known
+parameters, including unused fields/limit/offset, still validate after auth and
+before D1 or conditional success. Unknown-name policy is unchanged.
+
+Existing read tokens, `Cache-Control: no-store` and exact-envelope ETag/304 apply.
+A conditional request still runs one fresh COUNT before comparing the tag; equal
+count envelopes share a tag even when selected fields or nonmatching payloads
+change. No count cache, upstream/R2 access, writes, endpoint, migration or access
+expansion is introduced. Changes/hydrated/by-ID/export/archive reads do not gain
+this mode. See the [synthetic recipe](CONSUMER-QUICKSTART.md#count-before-fetching-payloads)
+and [400 recovery](PROBLEMS.md#snapshot-count-only-bad-request).
+Run `npm run check:snapshot-count-only` for the independent local-D1 oracle and
+pagination/auth/fieldset/conditional/mounted-OpenAPI regressions. No live data or
+production/staging probes; this idempotent local-read GET has no CLI dry-run mode.
+
+## Exact next-page signal (opt-in)
+
+Only the three ordinary flat lists accept `exactNext=true|false` (default
+`false`). This is not snapshot isolation: concurrent inserts/deletes can still
+change later pages. Omitted/false preserves the existing page SQL/binds and
+full-terminal false positives (a full page may link to an empty page).
+
+True uses the existing single page SELECT with `limit+1` (at most 501 fetched),
+returns at most `limit`, and emits `nextCursor`/`Link` only when the extra matching
+row exists. The cursor is the **last returned canonical primary ID**, never the
+lookahead row; trimming happens before sparse projection and ETag generation.
+The same filters/joins/upperId/order apply to lookahead, including offset-first
+and seek continuation. Seek SQL never adds OFFSET. Totals retain cursor-relative
+meaning; `includeTotal=false` still runs zero COUNTs. No second page query,
+upstream call, R2 access, write, migration or index is introduced.
+`countOnly=true` takes precedence over exact pagination: it performs one COUNT,
+no page SELECT or lookahead, and returns no cursor or next Link. `strictQuery=true`
+recognizes `exactNext` and stays enabled in generated continuation links.
+
+Send one exact case-sensitive boolean, or omit `exactNext` and retry. Invalid,
+empty or repeated values return value-free 400 after auth and before D1, even
+for conditional reads. Relative next links retain true and validated selectors,
+fields, limit and explicit order/count flags; false/default, unknown keys,
+origins and credentials are not propagated. No-store and 200/304 Link parity
+remain unchanged. Other endpoints do not gain this capability.
+
+Run `npm run check:snapshot-exact-next`: the independent
+`test/snapshotExactNext.acceptance.test.ts` proves complete distinct traversal,
+terminal signals, unchanged default behavior and bounded query work with local
+synthetic fixtures. See the [consumer recipe](CONSUMER-QUICKSTART.md#exact-next-page-signal).
+No production latency or stable-snapshot claim is made.
 
 ## Stored coordinate-pair presence
 
@@ -150,6 +263,67 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 `EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for both COUNT and page
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
+
+## Customer personal or company name search
+
+Only the ordinary customer list matches `q` against personal names. The
+optional `q` stays a trimmed literal substring of at most 100 Unicode code
+points, validated before trimming; it now matches a row when the substring
+appears in any one of `company_name`, `first_name` or `last_name`. One bound
+value per column feeds the existing `instr(lower(coalesce(...)))` legs inside
+a single parenthesized OR group, so the whole group AND-composes with every
+other selector and cursor predicate. Quotes, `%` and `_` are literal data;
+there is no LIKE wildcard, name concatenation, token or fuzzy parsing.
+Matching is ASCII case-insensitive: SQLite `lower()` folds A-Z only, so
+non-ASCII case variants match only on exact case; no Unicode folding is added.
+A null column never matches a nonempty `q`; empty or whitespace-only `q` still means no filter,
+and omitting `q` preserves prior matches and shape.
+
+One row per canonical `customer_id`, original ordering, offset/seek
+conventions, cursor-relative counted totals, `includeTotal=false` zero-COUNT
+behavior, sparse projection and conditional ETags are unchanged. Continuation
+Links retain the validated `q`; no query value enters logs or error detail.
+Other lists and the changes feed keep their existing `q` behavior.
+
+Run `npm run check:customer-name-search` for the focused acceptance and list
+regressions, with real local test D1, synthetic fixtures and forbidden
+outbound fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#personal-or-company-name-search)
+walks a name search to its empty terminal page. Synthetic `EXPLAIN QUERY PLAN`
+still seeks the customer enabled index for enabled-plus-`q` pages, scans for
+`q`-alone substring filtering, and seeks (primary key or enabled index, with
+no join or temp B-tree) when a cursor joins the filter; no new index,
+production latency or customer-demand claim is made.
+
+## Stored customer comment fragment
+
+Only the ordinary customer list recognizes `comments`: a literal substring
+of stored `customer_snapshot.comments`. Use `q` for company/first/last-name search,
+`phone` for stored phone text, and `comments` for mirrored notes; each filter searches only its documented columns. All selectors intersect by AND, including `hasAddresses` and IDs.
+
+Send one fragment of at most 100 Unicode code points **before trimming**
+boundary whitespace. A bounded blank fragment is omitted. Repeated keys and
+overlength input (even blank or padded input) return value-free
+`application/problem+json` 400 after authentication and before any D1 work
+or 304. Send one fragment within the limit, or omit comments and retry; see
+[fixed correction guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
+Never log the fragment, credentials or unrelated unknown query keys.
+
+Both page and COUNT share `instr(lower(coalesce(comments, '')), lower(?)) > 0`
+and the same bound fragment. SQLite folds ASCII A-Z only; non-ASCII case,
+Unicode composition, quotes, `%` and `_` remain literal. Null comments never
+match a nonblank fragment; stored text is not normalized. No dedicated index
+or migration is added: substring-only reads may scan, with no latency claim.
+Count-free mode still executes zero COUNTs. Canonical IDs, sparse fields,
+representation ETags/304 and both pagination directions remain unchanged.
+Relative next Links retain only the validated, trimmed fragment, omitting
+blank and unrelated unknown keys; cursor replaces offset and preserves upperId.
+Concurrent writes are not snapshot-isolated; a full terminal page may link to
+an empty page. This GET is idempotent and local-read; `--dry-run` is N/A.
+
+Run `npm run check:customer-comments-search` for the independent synthetic
+local-D1 oracle and focused list/auth/discovery regressions. No live token,
+upstream request, R2 access or cache write is required. See the
+[synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
 
 ## Stored phone fragment
 
@@ -213,6 +387,44 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
 
+## Address stored extras-allowed selector
+
+Only the address list recognizes `extrasAllowed`. It is an optional exact,
+case-sensitive enum — `true`, `false` or `any` (default `any`) — sent once.
+`true` matches stored `extras_allowed = 1`, `false` matches stored `0`, and
+`any`/omission adds no predicate, so `any` and omission produce identical
+bodies and identical SQL. The flag is stored snapshot state from the last
+sync, not permission to mutate service terms or proof of current upstream
+policy. Malformed, blank, padded, case-mismatched and repeated keys fail
+through the existing value-free 400 hook after authentication and before D1;
+no coercion, source-default change or derived eligibility meaning is added.
+
+The literal `extras_allowed = 1` / `= 0` predicate (no bind) intersects by
+AND with `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`,
+`zip`, `city`, `state`, `q`, `enabled`, `hasContainers` and cursor/`upperId`
+scope in both the `COUNT` and the page
+`SELECT`, which keep one shared WHERE clause. The selector never joins, so a
+row with child containers still appears exactly once and presence/absence
+changes nothing. No deduplication, indexes, migrations, extra D1 calls, new
+endpoint or upstream request are added. Omission leaves the old behavior
+intact. Valid no-match is 200 empty; fields only project the matched rows.
+Offset/seek ordering and cursor-relative totals are unchanged; count-free
+mode still executes one SELECT and no COUNT. Conditional ETags still describe
+the served envelope.
+
+Next links retain a validated non-any selector and omit `any` canonically,
+just like `enabled=any`, while still replacing cursor and dropping offset;
+do not reconstruct or log the selector while following them. Unrelated
+unknown keys, including `extrasAllowed` on sibling flat lists, are ignored
+only when `strictQuery` is omitted or `false`; `strictQuery=true` rejects
+unknown names with a value-free 400 before D1. See the [synthetic follow-next
+recipe](CONSUMER-QUICKSTART.md#address-stored-extras-allowed-selector),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-extras-allowed-predicate-audit).
+Run `npm run check:address-extras-allowed` for the hermetic local-D1 contract
+and relevant list/link/conditional regressions; no live credentials or
+upstream calls.
+
 ## Exact stored address ZIP
 
 On the address list, `zip` is an optional exact,
@@ -246,6 +458,36 @@ Run `npm run check:address-zip` for the hermetic local-D1 contract and
 relevant list/link/conditional/auth/OpenAPI regressions; no live credentials
 or upstream calls.
 
+## Exact stored street address
+
+On the existing address list, `streetAddress` is optional case-sensitive exact
+`address_snapshot.address` equality, not a substring or a city/ZIP match. Send
+one opaque stored string of 1..200 Unicode code points containing a non-whitespace
+character. Nonblank whitespace, punctuation and leading zeros are significant;
+there is no trimming, case folding or Unicode/address normalization. Null never
+matches; duplicate streets return **all** matching canonical `pickup_address_id`
+rows. Omission leaves existing behavior unchanged. This is no postal verification,
+geocoding or uniqueness guarantee.
+
+The value is bound once in `address = ?`, AND-composed with every existing
+selector (including `q`, `zip`, IDs, route/franchise, enabled, child presence
+and cursor/upperId) in the shared COUNT/page predicates. `includeTotal=false`
+performs zero COUNTs. Sparse projection, representation ETags/304, asc/desc
+seek/offset pagination and envelopes are unchanged. Relative next links retain
+the validated value through URLSearchParams; origins, credentials and unknown
+keys are never copied. No dedicated street index or migration is added, so
+street equality may scan; there is no latency or deployed-plan claim.
+
+Empty, whitespace-only, overlength and repeated values fail after auth and
+before D1 with the existing value-free `application/problem+json` bad-request
+type. Fixed next action: URL-encode one nonblank stored street value or omit
+streetAddress and retry. No submitted value is echoed in problems or logs.
+This GET is an idempotent local read; `--dry-run` is not applicable. See the
+[synthetic exact-street recipe](CONSUMER-QUICKSTART.md#exact-stored-street-address)
+and [problem guidance](PROBLEMS.md#exact-stored-street-address-bad-request).
+Run `npm run check:address-street-exact` for synthetic local D1 coverage,
+with network/R2 denied and no credentials, probes or deploys.
+
 ## Exact stored address city and state
 
 Only the address list recognizes `city` and `state`. Each is optional and
@@ -278,6 +520,76 @@ Run `npm run check:address-city-state` for the protected real local-D1
 acceptance oracle and neighboring contracts. The
 [encoded consumer recipe](CONSUMER-QUICKSTART.md#exact-stored-address-city-and-state)
 uses synthetic values only, with no live credentials or network probes.
+
+## Stored address driver note
+
+Only the existing address list accepts `driverNote`, a literal substring of
+stored `address_snapshot.driver_note` only. It never matches address comments,
+street, city, state or ZIP; `q` keeps its street/city/ZIP-only meaning. Reuse
+the search contract: one optional string, maximum 100 Unicode code points
+**before trimming**; trim boundaries and omit blank/whitespace-only values.
+Null notes act as empty. SQLite `lower()` folds ASCII only; non-ASCII case
+variants remain distinct. `%`, `_`, quotes and Unicode are bound literal data,
+not LIKE wildcards or instructions to execute. Repeated or overlength input
+returns the existing value-free bad-request problem before D1, after auth;
+[fixed correction guidance](PROBLEMS.md#stored-address-driver-note-bad-request)
+never echoes submitted notes or unknown names. Do not log search values.
+
+One bound `instr(lower(coalesce(driver_note, '')), lower(?)) > 0` predicate
+AND-composes with q, IDs, route/franchise, ZIP, city/state, enabled, mirrored
+child presence and traversal bounds. COUNT and page share predicates/binds;
+`includeTotal=false` still issues zero COUNTs. Duplicate notes remain distinct
+sites by canonical `pickup_address_id`. Sparse fields and ETag/304 describe
+the same final envelope. Relative next Links retain only the validated,
+trimmed note (omit blank), with URLSearchParams encoding in either order and
+when moving offset-to-seek; unknown raw parameters and origins never travel.
+
+Note-only reads may scan; no index/migration or production performance,
+operational scheduling or accuracy claim is added. This GET is idempotent,
+local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-driver-note` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note).
+
+## Stored address last audit date
+
+Only the existing address list accepts `lastAuditDate` and
+`hasLastAuditDate`, selecting on stored `address_snapshot.last_audit_date`
+only. `lastAuditDate` is one optional opaque case-sensitive exact string of
+1..100 Unicode code points with at least one non-whitespace character;
+supplied text binds verbatim with `=`, never trimmed, parsed as a date,
+ranged or pattern-matched. `hasLastAuditDate` is one optional exact
+`true|false|any` (default `any`): true keeps stored text that is not null
+and not empty (whitespace-only counts as present), false keeps exactly the
+null-or-empty complement. Exact value and presence AND-compose with each
+other and with IDs, route/franchise, ZIP, city/state, `q`, `driverNote`,
+`enabled`, `extrasAllowed`, mirrored child presence and traversal bounds; an
+exact value plus false matches nothing. Null stored text never matches a
+supplied value, and a valid unknown value returns 200 empty. Stored text is
+mirrored data, not audit compliance, a schedule, overdue status or
+permission to act. Blank/whitespace-only, overlength, invalid-enum and
+repeated (including encoded duplicate) keys return the existing value-free
+bad-request problem before D1, after auth; [fixed correction
+guidance](PROBLEMS.md#stored-address-last-audit-date-bad-request) never
+echoes submitted values. Do not log audit values.
+
+One bound `last_audit_date = ?` predicate and the literal presence
+predicates share predicates/binds between COUNT and page;
+`includeTotal=false` still issues zero COUNTs and `countOnly` stays
+COUNT-only. Sparse fields and ETag/304 describe the same final envelope.
+Relative next Links retain the validated exact value verbatim and a
+filtering presence (omit any), with URLSearchParams encoding in either
+order and when moving offset-to-seek; unknown raw parameters and origins
+never travel.
+
+Audit-date-only reads may scan; no index/migration, date-range support or
+production performance/latency claim is added. This GET is idempotent,
+local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-last-audit-date` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date)
+and [local query-plan
+evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
 
 ## Address street or locality search
 
@@ -347,6 +659,39 @@ not applicable. Run `npm run check:container-locality` for independent fixtures,
 auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
 
+## Exact stored container installation
+
+Only the existing container list accepts `locationAddress` (1..200 Unicode code
+points) and `state` (1..100). Each optional selector is one case-sensitive exact
+opaque string containing a non-whitespace character. Significant whitespace,
+punctuation, leading zeros and Unicode are preserved, never trimmed, case-folded
+or normalized. Empty/whitespace-only, repeated and overlength values fail before
+D1 with the existing value-free `application/problem+json` 400 after auth.
+URL-encode one nonblank stored value within the named limit or omit the key,
+then retry; never log raw selectors. See [error guidance](PROBLEMS.md#exact-stored-container-installation-bad-request).
+
+Bound `c.location_address = ?` and `c.state = ?` predicates use only the
+container's own columns on both customer-join and no-join paths: no parent
+fallback, null matching, substring search or geographic inference. Quotes, `%`
+and `_` are literal data. This differs from `q`, which trims and searches
+location/serial/city/zip substrings with ASCII case folding, never state.
+
+Both selectors AND-compose with one another, `q`, `zip`, identifiers, IDs,
+`enabled`, cursor and `upperId`. COUNT and page share predicates/binds;
+`includeTotal=false` still emits zero COUNTs. Duplicate matches remain separate
+canonical `container_id` rows. Sparse fields, envelope and ETag/304 semantics
+are unchanged. Relative next Links preserve both encoded exact strings in asc
+and desc, including offset-to-seek and upperId-bound traversal; unknown keys,
+request origin and credentials are never copied.
+
+There is no dedicated location/state index or migration. Unscoped exact-column
+reads scan stored rows; existing ID, enabled or join scopes may narrow work.
+Synthetic local D1 EXPLAIN checks assert executable SQL and unscoped scans,
+not production latency. GET is idempotent/local-read; CLI `--dry-run` is N/A.
+No upstream, R2, browser or write work occurs. Run
+`npm run check:container-exact-location` for the immutable oracle and regressions.
+See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#exact-stored-container-installation).
+
 ## Exact container asset lookup
 
 Only the existing container list accepts `serialNumber` and `rfid`. Each is a
@@ -390,6 +735,88 @@ qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
 predicates. This demonstrates executable synthetic query shape only, not a
 runtime latency improvement. No new indexes, migrations, bindings or upstream
 requests are introduced.
+
+## Exact stored container labels
+
+Only the existing container list accepts optional `materialStream` and `color`.
+`materialStream` binds `c.ud_material_stream_ud = ?`; `color` binds
+`c.color = ?`. These are case-sensitive opaque stored labels, not inferred
+recycling categories or a defined vocabulary. Each must contain 1..100 Unicode
+code points and a non-whitespace character. Leading zeros, significant
+whitespace, punctuation and Unicode composition are preserved exactly;
+quotes, `%` and `_` are literal data, not SQL or wildcards. Null never matches
+a supplied string. Valid unknown labels return an empty 200.
+
+URL-encode one supported-length nonblank stored label per key, or omit the
+selector and retry if no label scope is intended. Empty, whitespace-only,
+overlength and repeated keys fail with the existing value-free
+`application/problem+json` bad-request after authentication and before D1.
+See [correction guidance](PROBLEMS.md#exact-stored-container-labels-bad-request).
+
+Both selectors AND-compose with each other and all existing filters on the
+joined and unjoined paths. COUNT and page queries share the same bound scope;
+duplicates are retained and paginated. `includeTotal=false` executes zero
+COUNTs. IDs, sparse projection, `upperId`, asc/desc seeks and representation
+ETags retain their existing contracts. Response/`fields` uses the stored name
+`ud_material_stream_ud`, not query name `materialStream`.
+
+Synthetic local fixture example (IDs 101, 104, 105 have both labels):
+
+```text
+GET /api/v1/container-snapshot?materialStream=001&color=Blue&fields=ud_material_stream_ud,color&limit=1&includeTotal=false
+
+{"rows":[{"container_id":101,"ud_material_stream_ud":"001","color":"Blue"}],"total":null,"nextCursor":101}
+Link: </api/v1/container-snapshot?materialStream=001&color=Blue&fields=ud_material_stream_ud%2Ccolor&limit=1&includeTotal=false&cursor=101>; rel="next"
+```
+
+Follow the returned same-origin Link unchanged through 104, 105 and the empty
+terminal page. Validated selectors round-trip encoded, including reserved
+characters and significant whitespace; raw origins, credentials and unknown
+keys are never copied. Omission preserves the unfiltered behavior.
+
+Run `npm run check:container-labels` for a hermetic local-D1 recipe including
+literal labels, malformed/auth zero-work checks, both join paths, count-free
+pagination, sparse fields, ETags and followed links. Equality queries may scan;
+no new index/migration or performance claim is made. GET is an idempotent
+local-read with no upstream, R2, browser or write work; CLI `--dry-run` is N/A.
+
+## Container parent service-site scopes
+
+The existing container list accepts `parentRouteId`, `parentFranchiseId` and
+`parentEnabled=true|false|any` (default `any`). These select only the mirrored
+parent address's scalar `a.route_id`, opaque `a.franchise_id` and `a.enabled`.
+They never parse equipment `route_ids`/`frequency_ids`, infer paired assignments
+or select by customer enabled. Equipment `enabled` remains independent.
+
+`parentRouteId` is one canonical unpadded ASCII decimal safe integer
+`0..9007199254740991`; zero matches literal stored zero, not all routes.
+`parentFranchiseId` is one case-sensitive opaque exact string of 1..100 Unicode
+code points containing a non-whitespace character. Preserve leading zeros,
+nonblank whitespace and punctuation without trimming or normalization. Use
+`URLSearchParams` or curl `--data-urlencode`. Repeated, blank, overlength or
+invalid keys fail value-free after authentication and before D1/304; send one
+supported value per named key and retry. See [recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
+An effective parent selector or `customerId` requires one shared INNER JOIN on
+unique `pickup_address_id`. Supplied predicates AND-compose with every existing
+filter in both COUNT and page SQL; siblings are not collapsed or duplicated.
+An effective scope excludes missing/null parent links (and null values cannot
+match equality). `parentEnabled=any` alone and omission preserve the original
+no-join SQL and orphan visibility; a supplied customerId still requires its join.
+`parentEnabled=true|false` alone does not require non-null route/franchise.
+
+Validated parent scopes survive relative next Links, with `any` omitted. The
+container primary key, upper fence, both seek directions, offset precedence,
+fields and representation-byte ETags/304 are unchanged. `includeTotal=false`
+runs zero COUNTs; sparse membership is recomputed even if the parent scope
+columns are not projected. Unknown query names remain ignored, never echoed.
+
+Run `npm run check:container-parent-scopes` with synthetic local D1, no upstream,
+R2 or writes. See the [parent-cohort recipe](CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts).
+Parent route/franchise equality and state can require scans; no new index or
+migration is added, and neither production latency nor assignment accuracy is
+claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
+GET is idempotent local-read; a CLI dry-run flag is not applicable.
 
 ## Mutating POST query keys are strict
 
@@ -617,6 +1044,51 @@ Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
 validation, resume, composition, discovery and header regressions. No live
 replay.
 
+## Stored container-type filter
+
+Only the ordinary container list recognizes `containerTypeId`. It is an
+optional exact equality on the stored snapshot column `container_type_id`
+(the mirrored CSV value, not a live Routeware lookup and not a type-name
+catalog): one unpadded ASCII decimal safe integer from `0` to
+`9007199254740991`, with no signs, whitespace, fractions, exponents,
+prefixes or padding, and a single `containerTypeId` key. `0` is a literal
+stored value, never a null/all sentinel; rows with a null stored type never
+match any supplied value. Anything else — including an empty value or a
+repeated key, even percent-encoded — is the existing value-free 400 naming
+`containerTypeId` before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request).
+
+The selector AND-composes with every existing list selector, including
+parent service-site scopes, exact equipment labels and installation fields,
+`upperId`, sparse `fields=`, offset or cursor pagination and
+`includeTotal=false`: one bound `c.container_type_id = ?` predicate is in
+both the page `SELECT` and the `COUNT`, on the container alias on both the
+bare and the parent-address-join paths, with no new migration, index or join.
+It is also recognized under `strictQuery=true` and reused by `countOnly=true`
+(the latter returns only the count, with no page SELECT or next Link). A
+request that previously carried an ignored `containerTypeId` now filters on
+this list only; by-id reads, CSV exports and the changes feed still ignore
+it as an unknown name. Omission preserves existing matches and wire
+behavior. When the page is non-terminal, the `Link` next target preserves
+the validated selector verbatim; an unfiltered page's next target carries
+no `containerTypeId`. Synthetic example:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+
+{"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+```
+
+The second page replays the selector with the cursor:
+`GET /api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302`
+returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
+`Link` target leads to the terminal empty page. Stop only when `Link` is
+absent.
+
+Run `npm run check:container-type-filter` for the focused synthetic-local-D1
+equality, composition, rejection, traversal, SQL-shape and contract
+regressions. No live replay.
+
 ## Hydrated entity reads are strict
 
 The three hydrated single-entity GETs do the opposite of the GET lists
@@ -709,8 +1181,10 @@ keeps sparse pages. Both cursor halves replace the previous boundary
 together, including when starting with bare/omitted `since`. No unknown key,
 request origin, forwarded host, credential or arbitrary path is copied.
 This feed recognizes optional `fields` (sparse projection after cursor
-derivation; omit for full rows) but not `until`, which keeps the existing
-unknown-name ignore policy. The ordinary-list helper and its integer cursor
+derivation; omit for full rows) and optional `until` (inclusive upper bound,
+carried normalized in the target so followed links cannot escape the window);
+other unknown keys keep the ignore policy. An unbounded page's next target
+carries no `until`. The ordinary-list helper and its integer cursor
 contract are unchanged.
 
 A full terminal page can link to an empty page; short/empty pages have null
@@ -727,6 +1201,55 @@ traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
 prove zero application writes and fail on any unexpected outbound fetch.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
 Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
+
+### Bounded changes window (`until=`)
+
+Only the customer changes feed recognizes `until`: an optional inclusive
+upper bound conjoined with the unchanged lower-bound/composite tuple
+predicate as a bound `synced_at <= ?`, so callers read a finite
+caller-chosen time window instead of chasing newly synchronized timestamps.
+Omit `until` for the unbounded tail; omission keeps the previous SQL, binds,
+JSON and Link bytes untouched.
+
+Validation reuses the `since` lossless UTC `Z`/millisecond contract:
+seconds and 1–3 fraction digits normalize to the stored millisecond form
+before comparison, while empty, repeated, calendar-invalid, offset and
+overprecision values fail with the existing stable value-free 400 before D1,
+after read-role authentication. Legacy empty-`since` initial-page semantics
+are unchanged. Normalized `since` must not exceed `until` (a 400 naming
+`until`); equality stays valid — a bare `since` then yields no rows at that
+instant, while a composite `since_id` resumes the remaining same-timestamp
+rows inside the inclusive bound. Ordering, `limit` 1..500, page-length
+`total`, the full-page maybe-more cursor and cursor-before-projection
+derivation are unchanged, as are canonical ids, auth precedence, no-store,
+operation identity and the single-SELECT budget (no COUNT or lookahead).
+
+Every non-null `nextCursor` still advertises a relative `rel="next"` Link
+that replaces `since` and `since_id` together and retains the effective
+limit, the validated `fields` selector and now the normalized `until`;
+unrelated unknown keys stay ignored and are never copied into Link. See the
+[synthetic bounded two-page recipe](CONSUMER-QUICKSTART.md#bounded-changes-window-until).
+
+This remains a current-row upserts-only feed: a concurrent overwrite can move
+a row outside the window between pages, bulk imports advance timestamps,
+and there are no delete events, historical versions or snapshot isolation,
+so bounded traversal does not guarantee completeness.
+
+Synthetic query-shape evidence (Node `node:sqlite`, in-memory, all committed
+D1 migrations, 6 synthetic rows, production SELECT columns): the initial and
+bare bound shapes plan as
+`SEARCH customer_snapshot USING INDEX idx_customer_snapshot_synced_at (synced_at>? AND synced_at<?)`
+(EQP renders the inclusive bound as `<`; the SQL is `synced_at <= ?` with
+bound values and the limit bind last), and the composite bound shape plans
+as a `MULTI-INDEX OR` over the same index with `USE TEMP B-TREE FOR ORDER BY`.
+The executable `test/customerChangesUntil.acceptance.test.ts` records every
+actual handler SELECT/bind against real local test D1 and runs
+`EXPLAIN QUERY PLAN` on the emitted bound shapes. No index, migration,
+latency measurement or production-performance claim is made.
+
+Run `npm run check:customer-changes-until` for the focused synthetic-local-D1
+window, validation/auth-precedence, traversal, Link-carry and contract
+regressions. No live replay.
 
 ## Coverage boundary and non-list classifications
 
