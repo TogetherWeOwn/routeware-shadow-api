@@ -502,7 +502,7 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
-// Exact identifiers, stored labels, installation selectors, parent scopes and
+// Exact identifiers, stored labels, installation/city selectors, parent scopes and
 // service-code entry parts, serial/RFID presence and stored-flag selectors
 // supersede this route's old query/error narrative. Their schemas,
 // composition and error discovery are asserted independently in
@@ -510,6 +510,7 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerServiceCode.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
+// containerCityFilter.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
 // containerServiceCodeParts.acceptance.test.ts,
 // containerSerialRfidPresence.acceptance.test.ts and
@@ -530,7 +531,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
