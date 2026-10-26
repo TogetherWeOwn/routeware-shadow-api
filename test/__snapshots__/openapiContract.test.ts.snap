@@ -1559,6 +1559,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1596,7 +1612,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -1823,6 +1839,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1852,6 +1878,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -1906,13 +1951,26 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
+            "description": "Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.",
+            "in": "query",
+            "name": "zip",
+            "required": false,
+            "schema": {
+              "description": "Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.",
+              "example": "02139",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.",
             "in": "query",
             "name": "q",
             "required": false,
             "schema": {
-              "description": "Substring on location or serial (case-insensitive; maximum 100 Unicode code points)",
-              "example": "C-100",
+              "description": "Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.",
+              "example": "Killeen",
               "maxLength": 100,
               "type": "string",
             },
@@ -2012,6 +2070,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2062,7 +2136,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2289,6 +2363,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2331,6 +2415,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",
@@ -2347,7 +2450,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
     },
     "/api/v1/customer-snapshot": {
       "get": {
-        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, exact \`customerNumber\` and/or \`subCustomerNumber\`, company substring \`q\`, stored-phone substring \`phone\`, or \`enabled\`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. \`phone\` is an ASCII case-insensitive substring over the stored \`phone1\`/\`phone2\` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (\`q\` or \`phone\` without a selective predicate) scan the table: no phone index exists and none is added. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
+        "description": "Reads the cached Routeware customer CSV (see \`CUSTOMER_SNAPSHOT.md\`). Filter by \`customerId\`, exact \`customerNumber\` and/or \`subCustomerNumber\`, company substring \`q\`, stored-phone substring \`phone\`, \`enabled\`, or mirrored-child \`hasAddresses\`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. \`phone\` is an ASCII case-insensitive substring over the stored \`phone1\`/\`phone2\` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (\`q\` or \`phone\` without a selective predicate) scan the table: no phone index exists and none is added. Pass \`cursor\` (the previous page's \`nextCursor\`) instead of \`offset\` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with \`SHADOW_API_TOKEN\` (or \`SHADOW_API_READ_TOKEN\` for GET-only access), select Test Request, and Send with \`limit=10\` and \`enabled=true\`. This only reads local D1; it does not import, sync, or contact Routeware.",
         "parameters": [
           {
             "in": "query",
@@ -2409,6 +2512,23 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "example": "5550107",
               "maxLength": 100,
               "minLength": 1,
+              "type": "string",
+            },
+          },
+          {
+            "description": "Mirrored address presence: "true" selects customers with at least one stored address, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses including disabled children; customer enabled stays independent. Absence is not proof of no upstream site and never authorizes deletion, reconciliation or sync. Send one hasAddresses=true, false or any, or omit the selector and retry.",
+            "in": "query",
+            "name": "hasAddresses",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "description": "Mirrored address presence: "true" selects customers with at least one stored address, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses including disabled children; customer enabled stays independent. Absence is not proof of no upstream site and never authorizes deletion, reconciliation or sync. Send one hasAddresses=true, false or any, or omit the selector and retry.",
+              "enum": [
+                "true",
+                "false",
+                "any",
+              ],
+              "example": "true",
               "type": "string",
             },
           },
@@ -2507,6 +2627,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2542,7 +2678,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2926,6 +3062,16 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "description": "Validate the final JSON row with a quoted ETag, weak tag, comma-separated tag list or *. Saves response bytes only: authentication, id/fields validation and the D1 lookup still run; Cache-Control remains no-store. Malformed validators do not match.",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2953,6 +3099,25 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               },
             },
             "description": "Row",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
+          },
+          "304": {
+            "description": "If-None-Match matched the current JSON row. Empty body; unchanged D1 work and no-store policy.",
+            "headers": {
+              "ETag": {
+                "description": "Quoted SHA-256 of the exact served JSON row, after fields projection.",
+                "schema": {
+                  "type": "string",
+                },
+              },
+            },
           },
           "400": {
             "description": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate \`fields\` name is rejected before any D1 query runs.",

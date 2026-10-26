@@ -21,6 +21,168 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   completeness promise. No index or migration. See the synthetic bounded
   two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+- #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
+  (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
+  fields/ETag, and emits a cursor/relative next Link only if another matching row
+  exists. The cursor is the last returned primary ID, never the lookahead row.
+  Default/false preserves terminal false positives and existing SQL/binds;
+  count-free reads still run zero COUNTs. Strict single boolean validation fails
+  value-free before D1 after auth. No snapshot isolation or latency guarantee:
+  concurrent inserts/deletes can change later pages. No new endpoint/index,
+  upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
+  see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
+
+- #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
+  of stored `driver_note` only, not comments or locality. Raw input is limited
+  to 100 Unicode code points before trimming; blank means omitted. SQLite
+  ASCII-only case folding and literal punctuation are preserved. The selector
+  intersects all other filters with identical COUNT/page scope, count-free
+  zero-COUNT behavior and normalized relative next Links. Repeated/overlength
+  input fails before D1 with fixed value-free retry guidance; auth, sparse
+  fields and ETags remain unchanged. Note-only reads may scan; no index,
+  migration, upstream call or operational scheduling/accuracy claim. Synthetic
+  recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-driver-note`;
+  local check: `npm run check:address-driver-note`.
+
+- #399: Container snapshot lists accept optional `parentRouteId`,
+  `parentFranchiseId` and `parentEnabled=true|false|any` for the mirrored
+  service-site address's scalar route, opaque franchise and enabled state.
+  Parent state stays independent of container `enabled`; equipment route/frequency
+  text is never parsed as parent assignment. One shared conditional join preserves
+  unscoped orphan visibility; validated scopes AND-compose in count/page reads
+  and relative next links. Single-value bounds, sparse ETags/304 and count-free
+  pagination stay intact. No migration/index or performance promise is added.
+  Synthetic local check: `npm run check:container-parent-scopes`; see the
+  parent-cohort recipe in `docs/CONSUMER-QUICKSTART.md`.
+
+- #376: `GET /api/v1/address-snapshot` accepts an optional stored
+  `extrasAllowed=true|false|any` selector (default `any`), intersected by AND
+  with existing filters in both `COUNT` and page reads. `true` matches stored
+  `extras_allowed = 1`, `false` matches stored `0`, and `any`/omission adds no
+  predicate. The flag is stored snapshot state, not permission to mutate
+  service terms or proof of current upstream policy. Exact case-sensitive
+  enum spelling, sent once; malformed, blank or repeated keys reject before
+  D1 with value-free guidance. Next links preserve a non-any selector and
+  omit `any` canonically; pagination, projection, count-free and conditional
+  reads remain compatible. No new endpoint, index, migration, access or write
+  behavior. Synthetic recipe: `npm run check:address-extras-allowed` and
+  `docs/CONSUMER-QUICKSTART.md`.
+
+- #401: Three ordinary flat snapshot lists add `strictQuery=true|false` (default
+  false). True rejects unknown decoded names after auth and before D1/304,
+  using each mounted schema as its allowlist and a fixed no-echo bad-request
+  correction. Relative next Links retain true; false/omitted keep existing
+  ignore behavior, SQL and response bytes. Other query policies are unchanged.
+  Local synthetic check: `npm run check:snapshot-strict-query`; recipe:
+  `docs/CONSUMER-QUICKSTART.md#opt-in-query-typo-detection`.
+
+- Follow-up to #339: hydrated customer/address/container batches hydrate each
+  unique ID (including misses) once per request, with a fixed maximum of four
+  complete root jobs in flight. Duplicate entries and request order are preserved;
+  the 1..50 input bound, full bundles, no-store and ignored conditional headers
+  stay unchanged. A failure stops queued starts and drains in-flight work before
+  the sanitized 500, with no partial response or retries. Four roots does not cap
+  nested D1 query totals, graph fanout or bytes for high-fanout customers. No
+  cross-request cache, resource, migration or measured latency claim. Local check:
+  `npm run check:hydrated-batch-budget`; budget guidance: `docs/CONSUMER-QUICKSTART.md`.
+
+- #397: Container snapshot lists accept exact stored
+  `locationAddress` (1..200 Unicode code points) and `state` (1..100).
+  Case-sensitive opaque values preserve significant whitespace and leading
+  zeros; no parent fallback or normalization. Bound AND scopes and encoded
+  next Links preserve count-free, sparse and ETag/304 contracts. Invalid or
+  repeated values fail value-free before D1. No index/migration or live-location
+  claim; unscoped reads scan. Synthetic recipe: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:container-exact-location`.
+
+- #398: Detail-full post-save refreshes preserve eight existing report-only container
+  metadata fields instead of clearing them when the source cannot supply them.
+  New containers still insert nulls; supported fields and timestamps still update.
+  CSV/report imports and default upserts retain deliberate null clearing. No extra
+  reads, migration or upstream behavior change. Previously lost metadata needs an
+  authoritative report, not a repeated save. See
+  `CUSTOMER_SNAPSHOT.md#detail-full-container-source-availability`; local check:
+  `npx vitest run test/detailFullReportMetadata.acceptance.test.ts --maxWorkers=2`.
+
+- #400: Ordinary customer/address/container snapshot lists add `countOnly=true|false`
+  (default false): one existing filtered COUNT, zero page/payload SELECTs,
+  `{rows:[],total:N,nextCursor:null}` and no next Link. Counts remain
+  cursor-relative at query time, including IDs, order and upperId; limit/offset
+  do not subtract, and empty cohorts return zero. Conflicting includeTotal=false
+  or malformed/repeated countOnly fails value-free before D1; every known
+  parameter still validates. Normal and count-free pages stay unchanged.
+  Existing auth, no-store and ETag/304 apply (304 still counts). No cache,
+  upstream/R2/write, isolation, migration or no-scan performance promise.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
+  focused check: `npm run check:snapshot-count-only`.
+
+- #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
+  (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
+  opaque strings of 1..100 Unicode code points preserve significant nonblank
+  whitespace, leading zeros and punctuation without taxonomy inference.
+  Labels AND-compose with all existing filters; nulls do not match, duplicate
+  matches are paginated, and valid unknown labels return empty 200s. Malformed
+  or repeated keys fail value-free before D1. Validated next links preserve
+  encoded labels; counts, count-free reads, fields, upperId and ETags remain
+  compatible. No index/migration is added and equality may scan. Idempotent
+  local-read GET, CLI dry-run N/A. Synthetic recipe:
+  `npm run check:container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
+
+- #396: Customer snapshot lists accept optional `comments` for literal stored-comment
+  substring lookup, distinct from company-only `q` and stored-phone `phone`.
+  One fragment is bounded to 100 Unicode code points before boundary trimming;
+  bounded blank means omitted. SQLite folds ASCII only; quotes, `%` and `_`
+  remain literal, null comments do not match, and repeated/overlength input
+  fails value-free before D1 with fixed retry guidance. The bound predicate
+  AND-composes with existing selectors in COUNT and page reads; normalized
+  relative next Links, count-free mode, sparse fields and ETags/304 stay intact.
+  No dedicated index/migration/upstream call is added; substring reads may scan.
+  Synthetic local check: `npm run check:customer-comments-search`; recipe:
+  `docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment`.
+
+- #391: Hydrated customer/address/container GET 200 declarations now compose
+  their existing named single bundles with named typed batch envelopes.
+  Batches preserve 1..50 request-ordered entries and duplicates, require full
+  resource-specific found payloads, and represent misses with only `id` and
+  `found: false`. Mounted synthetic mixed/all-missing examples and the named
+  `check:typed-hydrated-batch-contracts` check validate the served contract.
+  This is declaration-only: single projections/ETag/304 and missing-root 404
+  stay unchanged; batches remain no-store/no ETag/no 304 and reject all
+  fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+
+- #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
+  `state` equality selectors. Each case-sensitive opaque string is 1..100
+  Unicode code points and nonblank; significant whitespace and punctuation
+  are preserved without normalization or coercion. Bound AND predicates
+  share page/COUNT scope, and next Links preserve the encoded values.
+  Invalid/repeated values fail value-free before D1; count-free, sparse and
+  conditional reads retain their contracts. City/state-only equality may
+  scan without a dedicated index; no migration or geography inference.
+  This GET is idempotent/local-read. Synthetic recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:address-city-state`.
+
+- #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
+  to select customers by mirrored address presence without expanding parents.
+  All stored addresses count, including disabled children; customer `enabled`
+  is independent. Indexed correlated EXISTS/NOT EXISTS shares COUNT/page
+  predicates; count-free mode, sparse fields, ETags and pagination remain
+  compatible. Relative next Links retain true/false, omitting any/default.
+  Invalid, empty or repeated values fail before D1 with fixed retry guidance.
+  No mirrored child is not proof of no upstream site and never authorizes
+  deletion, reconciliation or sync. Local recipe and focused check:
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:customer-address-presence`.
+  No new endpoint, upstream call, migration, index or access change.
+
+- #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
+  opaque case-sensitive `zip` (1..100 Unicode code points) preserves leading
+  zeros and nonblank whitespace. Literal substring `q` now matches stored
+  container city/zip as well as location/serial, in one grouped OR intersected
+  with every other selector. Normalized next links preserve zip and trimmed q;
+  invalid/repeated selectors fail value-free before D1. No parent-address
+  fallback, live geolocation, index/migration or production performance claim:
+  unscoped locality reads scan. Focused check: `npm run check:container-locality`;
+  synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-locality`.
+
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
   optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
   code points matched against stored `phone1`/`phone2` text as stored
@@ -60,6 +222,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Absence means no currently mirrored child, not proof an upstream site is empty.
   Synthetic recipe: `npm run check:address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
+- #384 (follow-up to #334): mounted OpenAPI now describes the existing combined-sync
+  failure contract instead of only 200/401. HTTP 500 declares both
+  `application/problem+json` (default and unclassified failures) and
+  `application/json` (opt-in partial progress with the named
+  `DataSnapshotSyncPartialProgress` and `ChainedSyncFailureClassification`
+  schemas, fixed table/code enums, HTTP-only optional `status`, and synthetic
+  per-classification examples), plus the existing 400 validation, 401 auth,
+  and 503 pre-work-secret shapes. Recovery guidance — completed tables keep
+  counts, `null` means failed/unattempted/skipped, unknown outcomes stay
+  generic, and partial counts neither authorize blind POST retries nor prove
+  a full consistent sync — is in the 500 description and
+  `CUSTOMER_SNAPSHOT.md`. No runtime, status, or byte changes.
 - #372: The existing address snapshot list `q` matches a literal
   ASCII case-insensitive substring against street, city or postcode: a row
   matches when any one column contains the trimmed needle. SQLite `lower()`
@@ -412,6 +586,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Served bytes, SELECTs, cursors, auth and query behavior are unchanged.
   Synthetic resume recipe: `docs/CONSUMER-QUICKSTART.md` §2c; focused check:
   `npm run check:customer-changes-delta`.
+
+- #378: The three flat snapshot by-ID GETs (`GET
+  /api/v1/customer|address|container-snapshot/{id}`) return a quoted SHA-256
+  `ETag` over exactly the served row bytes, after `fields` projection, and
+  answer a matching `If-None-Match` with a bodyless 304 carrying the current
+  tag. Weak tags, comma-separated tag lists and standalone `*` match;
+  malformed validators miss. Authentication, id/`fields` validation and the
+  single D1 lookup still run first, so absent rows stay 404, invalid input
+  stays 400 and errors never become 304. Bare responses keep byte-identical
+  bodies, operationIds and `application/json`; a selected-value change
+  invalidates the tag while selected-out changes leave sparse tags alone.
+  Bandwidth-only optimization with unchanged D1 work and `no-store`, not a
+  cache hit or measured performance gain: served OpenAPI declares the
+  optional header plus `ETag`/`304`, CORS exposure is unchanged, and the
+  synthetic recipe lives in `docs/CONSUMER-QUICKSTART.md`. Focused check:
+  `npx vitest run test/snapshotByIdConditional.acceptance.test.ts`.
 
 ## [1.0.0] - 2026-10-22
 
