@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
   (stored `extras_allowed` = 1/0/no predicate) and opaque exact
   `addressLastAuditDate` (1..100 Unicode code points, nonblank,
   case-sensitive and verbatim, never date-parsed). Both AND with existing
