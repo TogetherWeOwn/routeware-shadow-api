@@ -1559,6 +1559,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -1596,7 +1612,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2054,6 +2070,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2104,7 +2136,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",
@@ -2595,6 +2627,22 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
               "type": "string",
             },
           },
+          {
+            "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+            "in": "query",
+            "name": "strictQuery",
+            "required": false,
+            "schema": {
+              "default": "false",
+              "description": "Opt-in typo detection: true rejects unknown decoded query names with a value-free 400 before D1 or conditional responses. Omit or send false (default) to ignore unknown names. Send this key once as true or false.",
+              "enum": [
+                "true",
+                "false",
+              ],
+              "example": "true",
+              "type": "string",
+            },
+          },
         ],
         "responses": {
           "200": {
@@ -2630,7 +2678,7 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             "description": "Rows and total count for pagination",
             "headers": {
               "Link": {
-                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit and includeTotal=false; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
+                "description": "Optional continuation: <relative-target>; rel="next" exactly when nextCursor is non-null. Preserves filters, explicit fields, effective limit, includeTotal=false and strictQuery=true; replaces cursor and omits offset. A full terminal page may link to an empty page (no lookahead). Omission means stop. Resolve against the same origin.",
                 "required": false,
                 "schema": {
                   "type": "string",

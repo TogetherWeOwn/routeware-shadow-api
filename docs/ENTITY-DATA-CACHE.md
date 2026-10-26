@@ -2,7 +2,11 @@
 
 The `GET /api/v1/data/customer|address|container` routes serve customer PII out
 of D1 snapshots, fronted by the Workers Cache API (`src/lib/entityDataCache.ts`).
-This note records where freshness comes from and how to tune it.
+This note records where freshness comes from and how to tune it for **single-ID**
+reads. Batch `ids` reads bypass this cache: their typed `{entries}` response is
+always `no-store`, has no ETag, ignores `If-None-Match` and never returns 304.
+Batch entries stay full; `ids` plus any fieldset is a value-free 400. See the
+[single-or-batch contract](CONSUMER-QUICKSTART.md#typed-single-or-batch-hydrated-responses).
 
 ## Where the TTL lives
 
