@@ -5,6 +5,7 @@ import { containerSnapshotListResponse, containerSnapshotRowSchema } from "./sna
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
+import { changesTimestamp } from "../lib/customerChangesTimestamp";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
@@ -131,6 +132,9 @@ const containerSnapshotListRoute = createRoute({
         .openapi({ example: "St-01" }),
       q: snapshotSearchQuery.optional().describe("Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.").openapi({ example: "Killeen" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
+      syncedSince: changesTimestamp.optional()
+        .describe("Stored c.synced_at strictly greater than this UTC Z instant, normalized to milliseconds using the customer-changes timestamp parser (seconds required, optional 1–3 fractional digits). Empty, offsets, calendar-invalid and repeated values are invalid; send one valid instant or omit syncedSince and retry. Mirror freshness only, not upstream event/service time or proof of changed content. A filter, not a changes feed: container_id ordering/cursors stay unchanged, with no deletion history, isolation or completeness guarantee; concurrent sync can move rows across the window. May scan; no index or performance promise.")
+        .openapi({ example: "2026-09-01T00:00:00.500Z" }),
       onCall: z
         .enum(["true", "false", "any"])
         .optional()
@@ -180,7 +184,7 @@ const containerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects a non-canonical `containerTypeId` (anything but one unpadded ASCII nonnegative safe integer; `0` is literal stored zero), empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled`/`onCall`/`gpsLocked` value, an invalid/blank/repeated `hasSerialNumber` or `hasRfid` (send one exact true, false or any for each, or omit it and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. For locationAddress, city or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. For serviceCodeType/serviceCodeInput, URL-encode one supported-length nonblank stored entry or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects a non-canonical `containerTypeId` (anything but one unpadded ASCII nonnegative safe integer; `0` is literal stored zero), empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled`/`onCall`/`gpsLocked` value, an invalid/blank/repeated `hasSerialNumber` or `hasRfid` (send one exact true, false or any for each, or omit it and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. For locationAddress, city or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. For serviceCodeType/serviceCodeInput, URL-encode one supported-length nonblank stored entry or omit it and retry. Send syncedSince once as a calendar-valid UTC Z datetime with seconds and at most 3 fractional digits (normalized to milliseconds); empty, offsets, excess precision and repeated values fail before D1/304 after auth. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -322,6 +326,10 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   }
   if (p.gpsLocked === "false") {
     where.push("c.gps_locked = 0");
+  }
+  if (p.syncedSince !== undefined) {
+    where.push("c.synced_at > ?");
+    binds.push(p.syncedSince);
   }
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
