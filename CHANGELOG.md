@@ -5,6 +5,28 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #434: Optional `equipmentMaterialStream`, `equipmentTypeId` and
+  `equipmentEnabled=true|false|any` (default `any`) on the ordinary address
+  snapshot list only, selecting service sites whose stored equipment
+  attributes all hold on one stored child container. Effective scopes AND
+  inside one address-correlated `EXISTS` over `container_snapshot`, so
+  split-child scopes never match, duplicate matching containers never
+  duplicate the site, and null stored attributes never match equality.
+  Stream is one opaque case-sensitive exact string of 1..100 Unicode code
+  points (no trim/fold/normalize); type is one canonical unpadded ASCII
+  safe integer `0..9007199254740991` (zero is literal); enabled scopes
+  stored container `enabled` 1/0 while site `enabled` stays independent.
+  The cohort is independent of `hasContainers` (any stored child may
+  satisfy presence) and AND-composes with every merged selector in the
+  shared COUNT/page WHERE. Effective scopes round-trip in relative next
+  Links; invalid/blank/overlength/repeated keys fail with fixed value-free
+  per-field 400 guidance after read-role authentication and before D1.
+  Mirrored equipment attributes are not live inventory, material
+  acceptance, service eligibility or recycling-outcome truth. Uses the
+  existing container `pickup_address_id` index; no new index, migration or
+  latency promise. Synthetic cohort recipe:
+  `docs/CONSUMER-QUICKSTART.md#address-same-container-equipment-cohorts`;
+  focused check: `npm run check:address-equipment-cohort`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
