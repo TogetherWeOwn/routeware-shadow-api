@@ -6,6 +6,7 @@ import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { customerChangesSinceQuery, customerChangesUntilQuery } from "../lib/customerChangesTimestamp";
@@ -82,6 +83,7 @@ const customerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 345733 }),
+      lowerId: snapshotLowerIdQuery,
       upperId: snapshotUpperIdQuery,
       includeTotal: z.enum(["true", "false"]).optional().default("true")
         .describe(
@@ -163,7 +165,8 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
-  // Inclusive caller-held ceiling shared by COUNT and page in either direction.
+  // Inclusive caller-held window shared by COUNT and page in either direction.
+  if (p.lowerId !== undefined) { where.push("customer_id >= ?"); binds.push(p.lowerId); }
   if (p.upperId !== undefined) {
     where.push("customer_id <= ?");
     binds.push(p.upperId);

@@ -196,6 +196,25 @@ a successful empty collection, not a validation error, and `false` means no
 currently mirrored child — not proof the upstream site is empty. See the
 [synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
 
+## Container serial and RFID presence (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `hasSerialNumber` and `hasRfid` are
+optional exact, case-sensitive enums: `true`, `false` or `any` (the default
+when omitted). Any other spelling — including blank, upper-case, numeric or
+comma-joined values — and any repeated key return the existing value-free 400
+after authentication and before D1 access. Correct the field to one exact enum
+value, or omit it, then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasSerialNumber). See docs/PROBLEMS.md#bad-request.`
+`Invalid request query (hasRfid). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error. Stored identity text is
+mirrored report data, not a live tag scan or deployment proof; `false` means
+null-or-empty stored text, which includes report gaps, not only untagged
+equipment. See the [synthetic tagged-vs-untagged
+recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)

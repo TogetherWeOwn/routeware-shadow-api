@@ -251,6 +251,26 @@ describe("customer container presence selection", () => {
     expectPage(await page({ hasContainers: presence, enabled }), [...want], want.length);
   });
 
+  describe.each([
+    ["disabled-address-only", 0, 1],
+    ["disabled-container-only", 1, 0],
+    ["both-disabled", 0, 0]
+  ] as const)("sole reachable path: %s", (_label, addressEnabled, containerEnabled) => {
+    it.each([
+      ["true", [12], 1], ["false", [], 0]
+    ] as const)("hasContainers=%s keeps stored presence independent of enabled", async (presence, want, total) => {
+      // Customer 12 has only address 101 and container 201. An enabled-only
+      // predicate cannot hide behind an alternative enabled path here.
+      const db = TEST_ENV.CUSTOMER_DB;
+      const updated = await db.batch([
+        db.prepare("UPDATE address_snapshot SET enabled = ? WHERE pickup_address_id = 101").bind(addressEnabled),
+        db.prepare("UPDATE container_snapshot SET enabled = ? WHERE container_id = 201").bind(containerEnabled)
+      ]);
+      expect(updated.map((result) => result.meta.changes)).toEqual([1, 1]);
+      expectPage(await page({ hasContainers: presence, customerId: 12 }), [...want], total);
+    });
+  });
+
   it("presence is global: an account with an unequipped site stays present via another site", async () => {
     // Customer 13 owns empty site 103 alongside equipped 102/104: ANY-site
     // reachability selects 13. Never read this as same-site membership.
