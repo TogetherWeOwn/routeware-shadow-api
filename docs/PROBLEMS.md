@@ -190,6 +190,11 @@ For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
   Unicode code points containing a non-whitespace character; leading zeros
   and significant whitespace are preserved.
 - `addressEnabled`: exactly `true`, `false` or `any` (default `any`).
+- `addressCity`, `addressState`, `addressZip`: case-sensitive opaque exact
+  stored-locality strings of 1..100 Unicode code points containing a
+  non-whitespace character; leading zeros and significant whitespace are
+  preserved, with no trimming, normalization or abbreviation conversion.
+  Each must match the same stored address as the other scopes.
 
 Blank, invalid, overlength and repeated keys fail with the existing
 value-free 400 after authentication and before D1. Detail for one rejected
@@ -200,6 +205,8 @@ field (the named field can instead be either sibling scope):
 `Invalid request query (addressFranchiseId). Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
 
 `Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressCity). Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.` — the same fixed shape names `addressState` or `addressZip` when that locality key is the rejected field. Site locality is mirrored text, not a headquarters location, geocoding result or territory eligibility.
 
 No supplied value is echoed or logged. A valid selection with zero matches
 is a successful empty collection, and `hasAddresses=false` plus an
