@@ -149,7 +149,7 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
 
 /**
  * Copy of the document with the free-text `description`/`example` of the
- * `includeTotal` query parameter and of `CustomerSnapshotList.total` removed.
+ * `includeTotal` query parameter and of each `*SnapshotList.total` removed.
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
@@ -158,14 +158,23 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
  * so only those two strings are excluded here. Its fields schema and all
  * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
- * parameter, response, header, schema and operation.
+ * parameter, response, header, schema and operation. countOnly's three query
+ * declarations and new mode examples are owned by snapshotCountOnly.acceptance;
+ * named examples normalize back to the SAME old nonempty counted example.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
     paths?: Record<string, Record<string, {
       description?: string;
       parameters?: Array<Record<string, unknown>>;
-      responses?: Record<string, { description?: string; headers?: Record<string, unknown> }>;
+      responses?: Record<string, {
+        description?: string;
+        headers?: Record<string, unknown>;
+        content?: Record<string, {
+          example?: unknown;
+          examples?: Record<string, { value?: { rows?: unknown[]; total?: number | null } }>;
+        }>;
+      }>;
     }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
@@ -183,8 +192,10 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
       }
     }
   }
-  const total = copy.components?.schemas?.CustomerSnapshotList?.properties?.total;
-  if (total) delete total.description;
+  for (const envelope of ["CustomerSnapshotList", "AddressSnapshotList", "ContainerSnapshotList"]) {
+    const total = copy.components?.schemas?.[envelope]?.properties?.total;
+    if (total) delete total.description;
+  }
   const changes = copy.paths?.["/api/v1/customer-snapshot/changes"]?.get;
   if (changes) {
     delete changes.description;
@@ -201,10 +212,18 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
         !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "query" && ["upperId", "countOnly"].includes(String(param.name)))
       );
     }
     if (operation.responses) delete operation.responses["304"];
+    const media = operation.responses?.["200"]?.content?.["application/json"];
+    if (media?.examples) {
+      const countedPages = Object.values(media.examples).map((entry) => entry.value)
+        .filter((value) => value && (value.rows?.length ?? 0) > 0 && typeof value.total === "number");
+      expect(countedPages, `${path}: preserve one legacy counted full-page example`).toHaveLength(1);
+      media.example = countedPages[0];
+      delete media.examples;
+    }
     const headers = operation.responses?.["200"]?.headers;
     if (headers) {
       for (const name of Object.keys(headers)) {
@@ -214,6 +233,70 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     }
   }
   return copy;
+}
+
+/**
+ * Failure declarations are owned by combinedSyncFailureOpenapi.acceptance.
+ * Permit only their reachable new component schemas, not arbitrary additions.
+ * Inline those refs before removing them so a shared completed-count definition
+ * can be reused by the existing 200 schema without re-recording its contract.
+ * The 200 response, query params and all unrelated operations stay frozen.
+ */
+function withoutDedicatedSyncFailureMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/data-snapshot/sync"]?.post as {
+    responses?: Record<string, unknown>;
+  } | undefined;
+  const schemas = copy.components?.schemas ?? {};
+  const legacySchemas = new Set([
+    "AddressSaveDryRun", "AddressSaveOutcome", "ContainerSaveDryRun",
+    "ContainerSaveOutcome", "CustomerSaveDryRun", "CustomerSaveOutcome",
+    "CustomerSnapshotChanges", "CustomerSnapshotChangesRow", "CustomerSnapshotList",
+    "DataSnapshotSyncResult",
+    "HealthResponse", "LocalSyncCode", "LocalSyncSummary",
+    "ReadinessResponse", "ShadowHealthResponse",
+    "SnapshotOrphanReport", "SnapshotOrphanSample"
+  ]);
+  const owned = new Set<string>();
+  function collect(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) { value.forEach(collect); return; }
+    const node = value as Record<string, unknown>;
+    if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+      const name = node.$ref.slice("#/components/schemas/".length);
+      if (!legacySchemas.has(name) && !owned.has(name)) {
+        owned.add(name);
+        collect(schemas[name]);
+      }
+    }
+    Object.values(node).forEach(collect);
+  }
+  for (const status of ["400", "401", "500", "503"]) collect(operation?.responses?.[status]);
+  function inline(value: unknown, seen: string[] = []): unknown {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((entry) => inline(entry, seen));
+    const node = value as Record<string, unknown>;
+    const ref = node.$ref;
+    if (typeof ref === "string" && owned.has(ref.slice("#/components/schemas/".length))) {
+      expect(seen, "combined-sync schema refs must not cycle").not.toContain(ref);
+      const name = ref.slice("#/components/schemas/".length);
+      expect(schemas[name], `missing combined-sync schema ${name}`).toBeDefined();
+      const { $ref: _ref, ...siblings } = node;
+      return { ...inline(schemas[name], [...seen, ref]) as object, ...inline(siblings, seen) as object };
+    }
+    return Object.fromEntries(Object.entries(node).map(([key, entry]) => [key, inline(entry, seen)]));
+  }
+  const result = inline(copy) as OpenApiDocument;
+  for (const name of owned) delete result.components!.schemas![name];
+  const responses = (result.paths["/api/v1/data-snapshot/sync"]?.post as typeof operation)?.responses;
+  if (responses) {
+    delete responses["400"];
+    delete responses["500"];
+    delete responses["503"];
+    // This response was description-only before the dedicated failure oracle.
+    if (responses["401"]) responses["401"] = { description: "Unauthorized" };
+  }
+  return result;
 }
 
 /**
@@ -236,9 +319,28 @@ function withoutIdSelectionExtension(doc: unknown): unknown {
 }
 
 /**
+ * The comments query contract is owned by customerCommentsSearch.acceptance.
+ * Exclude only that new query parameter; all legacy prose, parameters, responses
+ * and unrelated endpoints remain frozen. Put new guidance on the new parameter.
+ */
+function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) => p.in !== "query" || p.name !== "comments");
+  }
+  return copy;
+}
+
+/**
  * Scope parameters and the address list's evolving filter/recovery prose have
- * semantic checks in addressScopeFilters.acceptance.test.ts. Keep all existing
- * parameter schemas, responses, tags and other operations in the legacy golden.
+ * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
+ * selector covered by addressZipFilter.acceptance.test.ts and city/state
+ * declarations independently pinned by addressCityStateFilters.acceptance.test.ts.
+ * Keep all existing parameter schemas, responses, tags and other operations
+ * in the legacy golden.
  */
 function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -250,14 +352,53 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state"].includes(parameter.name));
   return copy;
 }
 
-// Exact identifiers supersede this route's old query/error narrative. Their
-// schema, composition and error discovery are asserted independently in
-// containerIdentifierFilters.acceptance.test.ts, not frozen as speculative prose
-// or parameter position. All legacy parameters and unrelated operations remain frozen.
+/**
+ * The stored extras-allowed selector has semantic checks in
+ * addressExtrasAllowed.acceptance.test.ts. Project out only its new parameter;
+ * address filter/recovery prose is already owned by
+ * withoutAddressScopeContract. Keep all existing parameter schemas in the
+ * legacy golden.
+ */
+function withoutAddressExtrasAllowedContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"].get as {
+    parameters: Array<{ name: string; in: string }>;
+  };
+  operation.parameters = operation.parameters.filter(parameter =>
+    parameter.in !== "query" || parameter.name !== "extrasAllowed");
+  return copy;
+}
+
+// Mirrored-child presence selection (`hasContainers`) has semantic checks in
+// the Test Author-owned addressContainerPresence.acceptance.test.ts, not
+// frozen as a speculative parameter position. The address description and 400
+// prose are already projected out above; only the new selector moves to
+// behavioral ownership here. All legacy parameters stay frozen.
+function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "hasContainers"
+    );
+  }
+  return copy;
+}
+
+// Exact identifiers, stored labels, installation selectors and parent scopes
+// supersede this route's old query/error narrative. Their schemas, composition
+// and error discovery are asserted independently in
+// containerIdentifierFilters.acceptance.test.ts,
+// containerMaterialColorFilters.acceptance.test.ts,
+// containerExactLocation.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
+// parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -272,7 +413,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -294,6 +435,46 @@ function withoutContainerTypeFilter(doc: OpenApiDocument): OpenApiDocument {
       parameter.in !== "query" || parameter.name !== "containerTypeId"
     );
   }
+  return copy;
+}
+
+// The typed hydrated oracle owns ONLY these GET 200 schemas/examples and their
+// component closure. Other statuses, POSTs, parameters and unrelated components
+// remain golden-pinned. Shared components used by another operation stay pinned.
+function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const components = copy.components?.schemas ?? {};
+  const refs = (value: unknown, found = new Set<string>()): Set<string> => {
+    if (Array.isArray(value)) {
+      for (const item of value) refs(item, found);
+    } else if (value !== null && typeof value === "object") {
+      const node = value as Record<string, unknown>;
+      if (typeof node.$ref === "string" && node.$ref.startsWith("#/components/schemas/")) {
+        const name = node.$ref.slice("#/components/schemas/".length).replace(/~1/g, "/").replace(/~0/g, "~");
+        if (!found.has(name)) {
+          found.add(name);
+          refs(components[name], found);
+        }
+      }
+      for (const child of Object.values(node)) refs(child, found);
+    }
+    return found;
+  };
+  const owned = new Set<string>();
+  for (const kind of ["customer", "address", "container"]) {
+    const get = copy.paths[`/api/v1/data/${kind}`].get as {
+      responses: Record<string, { content?: Record<string, Record<string, unknown>> }>;
+    };
+    const media = get.responses["200"].content?.["application/json"];
+    refs(media, owned);
+    if (media) {
+      media.schema = {};
+      delete media.example;
+      delete media.examples;
+    }
+  }
+  const shared = refs(copy.paths);
+  for (const name of owned) if (!shared.has(name)) delete components[name];
   return copy;
 }
 
@@ -330,7 +511,7 @@ describe("published OpenAPI document", () => {
 
   it("declares the tags, shared schemas and bearer security scheme", async () => {
     // Arrange
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument());
 
     // Assert
     expect(doc.openapi).toBe("3.1.0");
@@ -339,21 +520,27 @@ describe("published OpenAPI document", () => {
     // package.json#version must move the spec version with no other edit.
     expect(doc.info.version).toBe(packageJson.version);
     expect(doc.tags?.map((t) => t.name)).toEqual(EXPECTED_TAGS);
-    // Registered once each: `CustomerSnapshotList` is shared by the customer,
-    // address and container snapshot list routes, and `CustomerSnapshotChanges`
-    // carries the composite `{since, since_id}` cursor instead of
-    // the integer primary-key cursor. `CustomerSnapshotChangesRow` types its
-    // delta rows with storage-faithful integer/text/null columns.
-    expect(Object.keys(doc.components?.schemas ?? {}).sort()).toEqual([
+    // Registered once each: every snapshot list has its own typed envelope
+    // (`*SnapshotList`) whose rows resolve to its own reusable row schema
+    // (`*SnapshotRow`), and `CustomerSnapshotChanges` carries the composite
+    // `{since, since_id}` cursor instead of the integer primary-key cursor.
+    // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
+    // integer/text/null columns.
+    expect(Object.keys(withoutHydratedBundleDeclarations(doc).components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
+      "AddressSnapshotList",
+      "AddressSnapshotRow",
       "ContainerSaveDryRun",
       "ContainerSaveOutcome",
+      "ContainerSnapshotList",
+      "ContainerSnapshotRow",
       "CustomerSaveDryRun",
       "CustomerSaveOutcome",
       "CustomerSnapshotChanges",
       "CustomerSnapshotChangesRow",
       "CustomerSnapshotList",
+      "CustomerSnapshotRow",
       "DataSnapshotSyncResult",
       "HealthResponse",
       "LocalSyncCode",
@@ -542,7 +729,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = await fetchOpenApiDocument();
+    const doc = withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -560,15 +747,20 @@ describe("published OpenAPI document", () => {
     // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
-    // additions move to containerIdentifierFilters.acceptance.test.ts;
-    // unrelated golden contracts stay pinned.
+    // additions move to containerIdentifierFilters.acceptance.test.ts; the three
+    // parent selectors move to containerParentScopes.acceptance.test.ts.
+    // Typed hydrated GET 200 declarations/examples move to the seeded semantic
+    // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
+    // Unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     // Only the container list's containerTypeId query parameter is also
     // projected out: its facet, strict validation and composition are
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(doc))))))).toMatchSnapshot();
+    // Only the address stored-extras selector additionally moves to
+    // addressExtrasAllowed ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))))).toMatchSnapshot();
   });
 });
 
