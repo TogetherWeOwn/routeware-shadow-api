@@ -334,6 +334,20 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
   return copy;
 }
 
+/** Only the new customer-list query parameters move to the independent
+ * customerPhonePresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || !["hasPhone1", "hasPhone2"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
 /**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
@@ -711,7 +725,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()));
+    const doc = withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
