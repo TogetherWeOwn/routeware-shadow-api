@@ -419,16 +419,16 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
-// Exact identifiers, stored labels, installation selectors, parent scopes and
-// service-date selectors supersede this route's old query/error narrative.
-// Their schemas, composition and error discovery are asserted independently in
+// Exact identifiers, stored labels, installation selectors and parent scopes
+// supersede this route's old query/error narrative. Their schemas, composition
+// and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
-// containerServiceDateFilters.acceptance.test.ts, not frozen as speculative
-// prose or parameter position. All legacy parameters and unrelated operations
-// remain frozen.
+// containerServiceDateFilters.acceptance.test.ts; service-date selectors join
+// the same ownership, not frozen as speculative prose or parameter position.
+// All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
