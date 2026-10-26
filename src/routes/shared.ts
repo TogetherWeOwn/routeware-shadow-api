@@ -46,8 +46,17 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("streetAddress")
+        ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
+        : "") +
       (result.target === "query" && unique.includes("driverNote")
         ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("lastAuditDate")
+        ? "Send one nonblank lastAuditDate of 1..100 Unicode code points, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasLastAuditDate")
+        ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
         : "") +
       (result.target === "query" && unique.includes("countOnly")
         ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
