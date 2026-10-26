@@ -134,8 +134,11 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 List filters: `?q=<company-substring>`, `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
-also accept `customerId` / `pickupAddressId` and exact `routeId` / `franchiseId`
-scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)). Every list response includes
+also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
+scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
+an exact stored `zip` selector ([synthetic ZIP-page recipe](#exact-stored-address-zip))
+and mirrored-child `hasContainers=true|false|any` presence
+([synthetic present/absent recipe](#address-container-presence)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -208,6 +211,58 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Stored phone fragment lookup
+
+Resolve which customer owns a phone number from a stored fragment (for
+example its last seven digits) on the existing `listCustomerSnapshot`
+operation (read token allowed, local D1 only). Optional `phone` is an
+ASCII case-insensitive substring over the stored `phone1`/`phone2` text,
+matched as stored: SQLite `lower()` folds A-Z only, so non-ASCII case
+variants match only on exact case; no normalization, digit-stripping,
+trimming or equality fallback.
+It AND-composes with `customerId`, company-only `q`, `enabled`, sparse
+`fields` and pagination. Send the key once with 1..100 Unicode code points
+and at least one non-whitespace character. Use URLSearchParams (or
+equivalent URL encoding) so spaces, quotes, `%`, `_`, `+` and `&` remain
+literal data.
+
+**Synthetic lookup-to-next-page recipe:** the hermetic fixture has four
+customers whose stored phones contain `5550107`, IDs 11, 23, 37 and 42.
+Request two IDs per page without computing totals:
+
+```text
+GET /api/v1/customer-snapshot?phone=5550107&fields=phone1&limit=2&includeTotal=false
+200 {"rows":[{"customer_id":11,"phone1":"+1 (202) 5550107"},{"customer_id":23,"phone1":null}],"total":null,"nextCursor":23}
+Link: </api/v1/customer-snapshot?phone=5550107&fields=phone1&limit=2&includeTotal=false&cursor=23>; rel="next"
+```
+
+Follow that relative Link against the same origin using the follow-next recipe
+below. The next page returns IDs 37 and 42 with `nextCursor: 42` and a Link
+with `cursor=42`. Follow it once more: `{"rows":[],"total":null,"nextCursor":null}`
+with no Link. A full final page may link to this empty page; stop only when
+Link is absent. Do not stop at the first match: several customers can share
+one fragment, and null or empty stored phones never match. A valid lookup
+with no matches is also an HTTP 200 empty collection, not a reason to sync
+or retry writes. Omit `includeTotal=false` for the unchanged exact
+cursor-relative count.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:customer-phone-search
+```
+
+The focused command walks encoded continuations to terminal and empty pages,
+checks zero COUNTs in count-free mode, replays conditional 304s with the
+selector in the URL, and records bound SELECT shapes with synthetic EXPLAIN
+plans, without logging phone values; it compares stored rows before/after
+repeated reads. Current plans scan the synthetic table; no phone index or
+production latency is claimed. No migrations or upstream calls are involved.
+For a 400, correct or omit the named phone field and retry; errors are fixed
+and value-free even with If-None-Match. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-phone-fragment).
+
 ### Address route and franchise scopes
 
 Use the existing `listAddressSnapshot` operation to avoid fetching unrelated
@@ -243,6 +298,123 @@ For a custom synthetic local request, construct the query with
 Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
+
+### Exact stored address ZIP
+
+Use the existing `listAddressSnapshot` operation to read mirrored sites
+in one postcode across bounded pages. Follow each returned Link to read every
+match. Optional `zip` is an opaque,
+case-sensitive exact string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Preserve leading zeros
+(`02139` never becomes `2139`) and nonblank whitespace; URL-encode the value
+rather than interpolating it into a URL. The selector intersects by AND with
+`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, street/locality `q`,
+`enabled` and the cursor in both the page and the count. Blank, repeated or
+overlength values return the existing value-free 400 before D1
+([correction guidance](PROBLEMS.md#bad-request)); a valid ZIP with no matches
+returns 200 empty. Stored nulls never match a supplied value.
+
+Synthetic ZIP-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-zip
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?zip=02139&fields=zip&limit=2&includeTotal=false`.
+Its first IDs are `10,20`, next IDs `30,50`, then `120,130`; it follows each
+returned Link unchanged and stops after the final empty page. Every row keeps
+its address ID with the exact stored ZIP, `total` is null and each page
+executes one SELECT with no COUNT. The counted offset/seek cases retain
+cursor-relative totals and pickup-address-ID order in both directions. Other
+fixtures prove case/leading-zero distinction, padding and embedded whitespace
+as data, 100-code-point astral and ASCII boundaries, SQL-looking input that
+cannot widen selection, literal `%`/`_`, null exclusion and encoded
+Unicode/reserved characters. Network-deny and read-only D1/R2 doubles fail on
+unexpected side effects. No upstream lookup or write is added.
+
+For a custom synthetic local request, construct the query with
+`new URLSearchParams({ zip: "02139" })` and use the
+[same-origin next-page loop](#follow-the-servers-next-page-target) below.
+The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
+or rows. Authentication, no-store, ETags and existing count semantics remain
+unchanged. These checks are not deployed performance evidence.
+
+### Address container presence
+
+Use the existing `listAddressSnapshot` operation to find mirrored service
+sites with (or without) equipment, without downloading child rows. Optional
+`hasContainers=true|false|any` (default `any`) selects by stored container
+presence: `true` keeps only addresses with at least one stored container
+sharing their `pickup_address_id`, `false` keeps only addresses with none.
+Presence counts every stored child including disabled containers; address
+`enabled` stays independent. Invalid, blank or repeated keys return the
+existing value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
+`false` means no currently mirrored child — not proof the upstream site is
+empty, and not authorization to delete or reconcile.
+
+Present-first multi-page recipe (synthetic local service, `$TOKEN` only):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=true&limit=1"
+# {"rows":[...],"total":3,"nextCursor":12} — follow the Link target unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=true&limit=1&cursor=12"
+# {"rows":[...],"total":2,"nextCursor":13} — stop on null nextCursor / no Link
+```
+
+Absent-first recipe over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=false&limit=2"
+# {"rows":[...],"total":3,"nextCursor":15} — Link carries hasContainers=false
+```
+
+The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#address-container-presence)
+pins the AND-composition with every other filter, byte-identical `any`/omitted
+behavior, count-free zero-COUNT mode and sparse/conditional reads. Run
+`npm run check:address-container-presence` for the hermetic local-D1 contract:
+real D1 fixtures with zero, one, multiple and disabled-only children prove
+exact membership, cursor-relative totals, both seek directions and Link
+round-trips through terminal and empty pages. These checks are not deployed
+performance evidence.
+
+### Address street or locality search
+
+The existing address-list `q` matches a literal ASCII case-insensitive substring
+against street, city **or** postcode: a row matches when **any one** column
+contains the trimmed needle. SQLite `lower()` preserves non-ASCII case
+distinctions: `q=åbc` does not match `ÅBC`, while `q=Åbc` does.
+Empty and whitespace-only `q` behave as omitted;
+longer than 100 Unicode code points, or a repeated `q` key, is the existing
+value-free 400 before D1 ([correction guidance](PROBLEMS.md#bad-request)).
+Quotes, `%`, `_` and Unicode are literal bound data, never wildcards; leading
+zeros in postcodes are significant. The grouped OR intersects by AND with
+`customerId`, `pickupAddressId`, `routeId`, `franchiseId`, exact `zip`, `enabled` and cursor
+predicates, and the trimmed needle round-trips in follow-next `Link` targets.
+
+Locality search is **not** an exact postal or geographic scope filter: a
+postcode fragment such as `741` also matches street and city text, and a city
+fragment matches anywhere inside the stored city string. For exact membership,
+use the exact scopes above rather than `q`.
+
+Synthetic follow-next recipe, with no running service or real credentials:
+
+```bash
+npm run check:address-locality
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/address-snapshot?q=741&customerId=101&enabled=true&fields=address,city,zip&limit=2`.
+Its street, city and postcode legs match IDs `11,23,37,42`; the test follows
+the returned Link unchanged through each matching ID once, then stops on the
+terminal empty page. Counted pages keep cursor-relative totals; count-free
+pages execute one SELECT with no COUNT. Other fixtures prove null/empty
+localities, literal punctuation, 100-code-point boundaries, conditional 304s
+and auth-before-D1. Network-deny and read-only D1 doubles fail on unexpected
+side effects. These checks are not deployed performance evidence.
 
 ### Highest primary IDs first
 

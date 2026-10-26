@@ -21,6 +21,77 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   completeness promise. No index or migration. See the synthetic bounded
   two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+- #370: Stored phone fragment lookup on the existing customer snapshot list:
+  optional `phone` is an ASCII case-insensitive substring of 1..100 Unicode
+  code points matched against stored `phone1`/`phone2` text as stored
+  (SQLite `lower()` folds A-Z only, so non-ASCII case variants match only
+  on exact case; no normalization or digit-stripping), bound twice across
+  the two-term OR and
+  AND-composed with existing filters. A last-seven-digits fragment resolves
+  its owner without downloading every customer. Blank, repeated or overlength
+  fragments fail value-free before D1; null or empty stored phones never
+  match. Next-page Links retain the selector with URL encoding. No new index,
+  migration, upstream call or count-free COUNT query; fragment-only reads
+  scan like `q`-alone. See `docs/CONSUMER-QUICKSTART.md` for the synthetic
+  lookup-to-next-page recipe; focused check:
+  `npm run check:customer-phone-search`.
+
+- #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
+  selector, intersected by AND with existing filters. The opaque
+  case-sensitive string (1..100 Unicode code points) preserves leading zeros
+  and nonblank whitespace; invalid/repeated values reject before D1 with
+  value-free guidance. One bound `zip = ?` equality applies in both the page
+  and COUNT SQL, making the existing `idx_address_snapshot_zip` eligible;
+  index usage is locally verified for ZIP-only reads, not promised for
+  combined filters or deployed queries. Next
+  links preserve the encoded selector; pagination, projection, count-free
+  and conditional reads remain compatible. No new endpoint, index, migration,
+  access or write behavior. Synthetic recipe: `npm run check:address-zip`
+  and `docs/CONSUMER-QUICKSTART.md`.
+
+- #377: `GET /api/v1/address-snapshot` accepts optional `hasContainers=true|false|any`
+  (default `any`), selecting addresses by mirrored container presence. `true` keeps
+  only addresses with a stored container child, `false` only those with none; any
+  stored child counts including disabled containers, and address `enabled` stays
+  independent. Correlated EXISTS/NOT EXISTS over the child's existing index shares
+  the COUNT/page WHERE with no new binds, join, migration or payload expansion.
+  Filtering values round-trip in continuation Links; `any`/omitted stays
+  byte-identical. Invalid/repeated values reject before D1 with value-free guidance.
+  Absence means no currently mirrored child, not proof an upstream site is empty.
+  Synthetic recipe: `npm run check:address-container-presence` and
+  `docs/CONSUMER-QUICKSTART.md`.
+- #372: The existing address snapshot list `q` matches a literal
+  ASCII case-insensitive substring against street, city or postcode: a row
+  matches when any one column contains the trimmed needle. SQLite `lower()`
+  preserves non-ASCII case distinctions. The parenthesized OR uses
+  bound values with the existing trim, empty-as-omitted, 100-Unicode-code-point
+  and repeated-key rules and AND-composes with every other selector; omitted
+  `q` preserves old behavior. Postcodes stay opaque text with significant
+  leading zeros; quotes, `%` and `_` are literal, never wildcards. Continuation
+  Links carry the trimmed needle. Locality `q` is not an exact postal or
+  geographic scope filter — for exact membership use the exact selectors.
+  Query count, ordering, totals, count-free/conditional semantics, auth order
+  and value-free errors are unchanged; no new parameter, index or migration.
+  Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:address-locality`.
+- #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
+  200 responses publish three distinct named bundle schemas instead of
+  `any`: root row plus nested relations, every stored column declared with
+  storage-faithful integer/string/null types. Only each row's primary id is
+  required, so `fields=` and `fields[TYPE]` projections validate, and each
+  operation carries full and root-projected synthetic examples.
+  Declaration only: no runtime parsing or validator, no byte, SELECT,
+  cache, auth or ETag change. Focused check:
+  `npm run check:typed-hydrated-bundles`.
+- #368: Test-only: `test/routeExamples.test.ts` pins expected query/path
+  parameter names per operation beside the pinned operation inventory instead
+  of one hand-counted global total; the checked total is derived as the sum
+  of the per-operation records, and a missing, extra or renamed parameter
+  fails naming the operation and the name. Adding a selector now edits only
+  its own operation's record, so unrelated selector PRs no longer collide on
+  a shared integer. No route, runtime, docs-rendering, workflow or migration
+  change. Focused checks: `npx vitest run test/routeExamples.test.ts` and
+  `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
@@ -309,6 +380,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   registry GET is neither referenced in `docs/CONSUMER-QUICKSTART.md` nor
   named in its reasoned allowlist (routeware passthroughs, orphan audit).
   No Worker behavior change.
+
+- #371: The six flat snapshot reads (`GET
+  /api/v1/customer|address|container-snapshot` and the three flat by-ID GETs)
+  publish storage-faithful row contracts: one reusable flat row schema per
+  resource plus one resource-specific list envelope, with list `rows.items`
+  and the by-ID 200 sharing the same row `$ref`. Row property sets are
+  derived from the `SNAPSHOT_FIELDSETS` registry with only the primary
+  identity required; every other selectable column is optional with accurate
+  nullability when present. Stored INTEGER flags stay `0`/`1` integers and
+  coordinate/date/route-list TEXT stays unconstrained text with no invented
+  format, enum, range or timestamp guarantees. `total` keeps its count-free
+  "deliberately not computed" meaning and `nextCursor` documents its
+  page-cursor meaning; operationIds, headers, examples and response codes are
+  unchanged. Declaration-only: served bytes, SELECT plans, projection,
+  conditional and auth behavior are identical. See
+  `docs/TYPED-FLAT-SNAPSHOT-ROWS.md`; focused check:
+  `npm run check:typed-flat-snapshot-rows`.
 
 - #373: The existing customer `changes` feed
   (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows

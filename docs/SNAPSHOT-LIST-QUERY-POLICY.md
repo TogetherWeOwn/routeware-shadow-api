@@ -11,10 +11,37 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `q`, `enabled`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `serialNumber`, `rfid`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `fields` | Ignore |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
+
+## Address container presence
+
+Only the address list recognizes `hasContainers`, an optional mirrored-child
+presence selector: `true` keeps only addresses with at least one stored
+container row sharing their `pickup_address_id`, `false` keeps only addresses
+with none, and `any` (the default when omitted) adds no predicate. Presence is
+a correlated `EXISTS` over the child's existing `pickup_address_id` index — no
+join, no per-row lookup, no child payload — and counts every stored child
+including disabled containers. Address `enabled` stays an independent filter.
+`false` means no currently mirrored child: it is not proof the upstream site
+is empty, and not authorization to delete or reconcile anything.
+
+The enum is exact and case-sensitive; invalid, blank or repeated keys fail
+with the existing value-free 400 after authentication and before D1. The
+predicate AND-composes with `customerId`, `pickupAddressId`, `ids`, `routeId`,
+`franchiseId`, `q`, `enabled` and the cursor in both COUNT and page SQL, with
+unchanged cursor-relative totals, offset/seek behavior, count-free zero-COUNT
+mode, sparse fieldsets and conditional reads. Filtering values round-trip in
+continuation Links; `any`/omitted leaves continuations unchanged. See the
+[synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence),
+[fixed correction guidance](PROBLEMS.md#bad-request) and
+[local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-container-presence-predicate-audit).
+Pinned by `test/addressContainerPresence.acceptance.test.ts`; run
+`npm run check:address-container-presence` for the hermetic local-D1 contract
+and relevant list/link/conditional regressions, with no live credentials or
+upstream calls.
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
@@ -62,6 +89,40 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
 
+## Stored phone fragment
+
+Only the ordinary customer list recognizes `phone`. It is an optional
+ASCII case-insensitive substring of 1..100 Unicode code points, never blank,
+with a single occurrence of the key. The fragment matches stored text as
+stored: SQLite `lower()` folds ASCII A-Z only, so non-ASCII case variants
+(é vs É) match only on exact case; no normalization, digit-stripping,
+trimming or other case folding, so formatting variance across sources is
+matched literally. Quotes, `%`, `_` and URL delimiters are data, never SQL or
+wildcards. Empty, whitespace-only, repeated and overlength values return the
+existing value-free 400 before D1 or conditional 304 success; authentication
+remains first. See [fixed correction guidance](PROBLEMS.md#bad-request).
+
+The predicate is one bound value bound twice across both stored columns —
+`(instr(lower(coalesce(phone1,'')), lower(?)) > 0 OR
+instr(lower(coalesce(phone2,'')), lower(?)) > 0)` — AND-composed with
+`customerId`, `q`, `enabled` and every other selector. Stored nulls and empty
+strings never match. A row matching both columns is returned once; zero
+matches is an HTTP 200 empty collection. Sparse fields, offset/keyset
+conventions, cursor-relative totals, count-free zero-COUNT behavior, ETags
+and no-store remain unchanged. Continuation Links retain the selector using
+URLSearchParams encoding and still replace cursor/drop offset. Unknown
+unrelated keys remain ignored. Other lists and the changes feed do not gain
+this selector.
+
+Run `npm run check:customer-phone-search` for the focused acceptance and
+list regressions, with real local test D1, synthetic fixtures and forbidden
+outbound fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup)
+walks a fragment lookup to its empty terminal page. Synthetic
+`EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for the fragment-only
+SELECT and COUNT shapes; the same honest substring-scan boundary as `q`-alone
+(see [predicate audit](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-phone-predicate-audit)).
+No new index, migration or binding is introduced.
+
 ## Address route and franchise scopes
 
 Only the address list recognizes `routeId` and `franchiseId`. Each is optional
@@ -89,6 +150,74 @@ See the [synthetic scoped-page recipe](CONSUMER-QUICKSTART.md#address-route-and-
 [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#address-scope-predicate-audit).
 Run `npm run check:address-scope` for the hermetic local-D1 contract and relevant
 list/link/conditional regressions; no live credentials or upstream calls.
+
+## Exact stored address ZIP
+
+Only the address list recognizes `zip`. It is an optional exact,
+case-sensitive opaque string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Leading zeros (for example
+`02139`) and nonblank whitespace are preserved; no trimming, case folding,
+digit coercion or Unicode normalization occurs. Empty, whitespace-only,
+repeated (including percent-encoded aliases) and overlength values return the
+existing value-free 400 naming `zip` before D1, after authentication. See
+[fixed correction guidance](PROBLEMS.md#bad-request).
+
+One bound `zip = ?` equality is applied on the single-table path,
+AND-composed with `customerId`, `pickupAddressId`, `routeId`, `franchiseId`,
+`q`, `enabled` and the cursor in both the page `SELECT` and the `COUNT`.
+Stored nulls never match a supplied value; omission preserves current
+behavior. No new index or migration is introduced: the existing
+`idx_address_snapshot_zip` is eligible, and local `EXPLAIN QUERY PLAN`
+reports `SEARCH ... idx_address_snapshot_zip (zip=?)` for ZIP-only reads —
+a local plan observation, not a deployed-plan or latency claim. Substring
+postcode semantics belong to the address `q` search below; this selector is
+exact equality and composes AND with it.
+
+Next links retain the validated ZIP using URLSearchParams encoding; do not
+reconstruct or log ZIP values while following them. Canonical
+`pickup_address_id` rows, offset/seek ordering, cursor-relative totals,
+count-free zero-COUNT behavior, sparse fields and conditional ETags are
+unchanged. Unrelated unknown keys keep list-ignore policy. See the
+[synthetic ZIP-page recipe](CONSUMER-QUICKSTART.md#exact-stored-address-zip)
+and [local query-plan evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#exact-stored-address-zip-predicate-audit).
+Run `npm run check:address-zip` for the hermetic local-D1 contract and
+relevant list/link/conditional/auth/OpenAPI regressions; no live credentials
+or upstream calls.
+
+## Address street or locality search
+
+Only the address list searches `q` across three columns. The existing `q` is a
+single optional literal substring, trimmed before matching: a row matches when
+the street (`address`), `city` or `zip` contains the needle, ASCII
+case-insensitively. SQLite `lower()` preserves non-ASCII case distinctions:
+`q=åbc` does not match `ÅBC`, while `q=Åbc` does. Empty and whitespace-only `q`
+behave exactly as omitted. Raw input over 100 Unicode code points (measured
+before trimming) or a repeated `q` key returns the existing value-free 400
+after authentication and before D1. Quotes, `%`, `_`, backslashes and Unicode are literal bound
+data, never `LIKE` wildcards; postcodes stay opaque text with significant
+leading zeros. No state search, full-address parser, numeric conversion,
+geocoding or postal/geographic expansion is performed: locality `q` is not an
+exact postal or geographic scope filter.
+
+The match is one parenthesized three-column OR, AND-composed with
+`customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `enabled`
+and cursor/ceiling predicates by the shared WHERE join. Null and empty
+locality columns match nothing on their own legs. One row per
+`pickup_address_id`, ordering, offset/seek, cursor-relative counted totals,
+count-free zero-COUNT behavior, sparse projection and conditional ETags are
+unchanged; omitted `q` preserves old behavior. Continuation Links carry the
+trimmed needle with the same encoding as every other preserved selector.
+
+Query count is unchanged (one COUNT plus one SELECT, or one SELECT
+count-free). `q` alone still scans — `instr()` substring legs cannot seek a
+B-tree — while composed shapes keep their existing index plans
+(`test/snapshotTextFilterIndexes.test.ts` pins both). No join, index,
+migration or lookahead query is added. See the
+[synthetic follow-next recipe](CONSUMER-QUICKSTART.md#address-street-or-locality-search)
+and [fixed correction guidance](PROBLEMS.md#bad-request). Run
+`npm run check:address-locality` for the hermetic local-D1 contract, the
+SQL/bind/EXPLAIN oracles and relevant list/link/validation regressions; no
+live credentials, upstream calls or production-performance claims.
 
 ## Exact container asset lookup
 

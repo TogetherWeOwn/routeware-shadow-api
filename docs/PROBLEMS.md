@@ -64,6 +64,42 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored phone fragment (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, `phone` is an optional ASCII
+case-insensitive substring of 1..100 Unicode code points over the stored
+`phone1`/`phone2` text; it may appear only once and must not be blank or
+whitespace-only. SQLite `lower()` folds A-Z only, so non-ASCII case variants
+match only on exact case. The fragment is never trimmed, normalized or
+digit-stripped, so nonblank whitespace and punctuation are significant.
+After authentication, invalid
+fragments return a stable, value-free 400 before D1 access or conditional
+304 success. Correct the named field to a single nonblank value within the
+limit, or omit it, then retry.
+
+The existing detail remains fixed, for example:
+`Invalid request query (phone). See docs/PROBLEMS.md#bad-request.`
+The field can instead be another invalid selector or multiple invalid
+fields; no supplied phone value is echoed or logged. A valid lookup with
+zero matches is a successful empty collection, not a validation error. See
+the [synthetic lookup recipe](CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup).
+
+## Address container presence (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,
+case-sensitive enum: `true`, `false` or `any` (the default when omitted). Any
+other spelling — including blank, upper-case, numeric or comma-joined values —
+and any repeated key return the existing value-free 400 after authentication
+and before D1 access. Correct the field to one exact enum value, or omit it,
+then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasContainers). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error, and `false` means no
+currently mirrored child — not proof the upstream site is empty. See the
+[synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
+
 ## Strict hydrated-read query keys (`bad-request`)
 
 The three hydrated single-entity GETs (`GET /api/v1/data/customer|address|container`)
@@ -123,6 +159,21 @@ The field may instead be `franchiseId` (or both). Correct the named field's
 format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
+
+## Exact stored address ZIP (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `zip` is an optional exact,
+case-sensitive opaque string of 1..100 Unicode code points over the stored
+`zip` column — not a number, prefix or substring. Leading zeros (for example
+`02139`) and nonblank whitespace are significant; do not trim, case-fold or
+numerically coerce it. Send the key once, URL-encoded.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (zip). See docs/PROBLEMS.md#bad-request.`
+Correct the named field's format, send it once, then retry; omit it only if
+no ZIP scope is intended. Authentication still precedes validation. A valid
+ZIP that matches no rows returns 200 with an empty list. See the
+[ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip).
 
 ## Snapshot list direction (`bad-request`)
 
