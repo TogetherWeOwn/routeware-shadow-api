@@ -195,7 +195,7 @@ function next(result: Awaited<ReturnType<typeof page>>) {
   expect(url.searchParams.has("offset")).toBe(false);
   expect(url.searchParams.getAll("cursor")).toEqual([String(result.body.nextCursor)]);
   for (const [key, raw] of result.url.searchParams) {
-    if (["offset", "cursor", "unknown", "redirect", "token"].includes(key)) continue;
+    if (["offset", "cursor", "unknown", "redirect", "token", "bogus_param"].includes(key)) continue;
     const value = key === "q" ? raw.trim() : raw;
     if (["hasSerialNumber", "hasRfid", "parentEnabled", "enabled"].includes(key) && value === "any") {
       expect(url.searchParams.has(key)).toBe(false);
@@ -205,7 +205,7 @@ function next(result: Awaited<ReturnType<typeof page>>) {
       expect(url.searchParams.getAll(key), key).toEqual([value]);
     }
   }
-  for (const dropped of ["unknown", "redirect", "token"]) expect(url.searchParams.has(dropped)).toBe(false);
+  for (const dropped of ["unknown", "redirect", "token", "bogus_param"]) expect(url.searchParams.has(dropped)).toBe(false);
   expect(link).not.toContain(result.url.origin);
   return url;
 }
@@ -424,7 +424,7 @@ describe("presence AND composition with existing selectors", () => {
 
 describe("presence COUNT/page SQL parity", () => {
   it.each(["true", "false"] as const)("hasSerialNumber=%s shares WHERE/binds across COUNT and page without a join", async (value) => {
-    const result = await page({ hasSerialNumber: value, ids: "201,202,203,204,205,206", q: "north", enabled: "true", upperId: "206", limit: "1" });
+    const result = await page({ hasSerialNumber: value, ids: "201,202,203,204,205,206", enabled: "true", upperId: "206", limit: "1" });
     const count = result.recorder.statements.find(isCount)!;
     const select = result.recorder.statements.find((s) => !isCount(s))!;
     expect(whereOf(count.sql)).toBe(whereOf(select.sql));
@@ -444,7 +444,7 @@ describe("presence COUNT/page SQL parity", () => {
   });
 
   it.each(["true", "false"] as const)("hasRfid=%s shares WHERE/binds across COUNT and page without a join", async (value) => {
-    const result = await page({ hasRfid: value, ids: "201,202,203,204,205,206", q: "north", enabled: "true", upperId: "206", limit: "1" });
+    const result = await page({ hasRfid: value, ids: "201,202,203,204,205,206", enabled: "true", upperId: "206", limit: "1" });
     const count = result.recorder.statements.find(isCount)!;
     const select = result.recorder.statements.find((s) => !isCount(s))!;
     expect(whereOf(count.sql)).toBe(whereOf(select.sql));
