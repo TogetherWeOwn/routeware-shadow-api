@@ -188,6 +188,7 @@ describe("owning numbers: literal stored references on the same customer", () =>
     { query: BOTH, want: BOTH_IDS },
     { query: { owningCustomerNumber: "00042", owningSubCustomerNumber: "north" }, want: [51] },
     { query: { owningCustomerNumber: "42" }, want: [41] },
+    { query: { owningCustomerNumber: "0004" }, want: [211] },
     { query: { owningCustomerNumber: "Case" }, want: [71] },
     { query: { owningCustomerNumber: "case" }, want: [81] },
     { query: { owningSubCustomerNumber: "A" }, want: [71] },
@@ -221,16 +222,21 @@ describe("owning numbers: literal stored references on the same customer", () =>
       expect(row).toEqual(stored);
     }
   });
-  it("qualifies one customer join, binds values, and shares COUNT/page predicates", async () => {
-    const { recorder } = await page({ owningCustomerNumber: SPECIAL, owningSubCustomerNumber: SUB_SPECIAL });
+  it.each<Query>([
+    { owningCustomerNumber: SPECIAL, owningSubCustomerNumber: SUB_SPECIAL },
+    { owningCustomerNumber: SPECIAL }, { owningSubCustomerNumber: SUB_SPECIAL },
+    { owningCustomerNumber: SPECIAL, owningSubCustomerNumber: SUB_SPECIAL, parentCustomerEnabled: "true" },
+  ])("qualifies one customer join, binds values, and shares COUNT/page predicates: %j", async scope => {
+    const { recorder } = await page(scope);
     for (const read of recorder.reads) {
-      expect(read.sql.match(/\bJOIN\s+customer_snapshot\b/gi)).toHaveLength(1);
+      expect(read.sql.match(/\bJOIN\s+customer_snapshot\b/gi) ?? [], "one conditional owning-customer join").toHaveLength(1);
       expect(read.sql).toMatch(/\baddress_snapshot\.customer_id\b/);
       expect(read.sql).toMatch(/\bcustomer_snapshot\.customer_id\b/);
-      expect(read.sql).toMatch(/\bcustomer_snapshot\.customer_number\s*=\s*\?/);
-      expect(read.sql).toMatch(/\bcustomer_snapshot\.sub_customer_number\s*=\s*\?/);
+      if (scope.owningCustomerNumber !== undefined) expect(read.sql).toMatch(/\bcustomer_snapshot\.customer_number\s*=\s*\?/);
+      if (scope.owningSubCustomerNumber !== undefined) expect(read.sql).toMatch(/\bcustomer_snapshot\.sub_customer_number\s*=\s*\?/);
       expect(read.sql).not.toContain(SPECIAL); expect(read.sql).not.toContain(SUB_SPECIAL);
-      expect(read.binds).toEqual(expect.arrayContaining([SPECIAL, SUB_SPECIAL]));
+      const values = KEYS.filter(key => scope[key] !== undefined).map(key => scope[key]);
+      expect(read.binds).toEqual(expect.arrayContaining(values));
       expect(read.sql).not.toMatch(/\b(?:LIKE|GLOB|REGEXP)\b|COLLATE\s+NOCASE/i);
     }
     const [count, rows] = recorder.reads;
@@ -287,7 +293,9 @@ describe.each(["true", "false"])("owning-number intersections includeTotal=%s", 
 
 describe("owning numbers: count modes, sparse conditional reads and safety", () => {
   it.each<[Query, number]>([[BOTH, 5], [{ owningCustomerNumber: "00042" }, 7], [{ owningSubCustomerNumber: "North" }, 7],
-    [{ ...BOTH, parentCustomerEnabled: "false" }, 2], [{ ...BOTH, customerId: "3" }, 0]])(
+    [{ ...BOTH, parentCustomerEnabled: "false" }, 2], [{ ...BOTH, customerId: "3" }, 0],
+    [{ ...BOTH, cursor: "12" }, 3], [{ ...BOTH, order: "desc", cursor: "21" }, 3],
+    [{ ...BOTH, lowerId: "12", upperId: "21" }, 3], [{ ...BOTH, parentCustomerEnabled: "true", cursor: "12" }, 1]])(
     "countOnly applies the same scope and ignores offset/limit: %j", async (scope, total) => {
       const result = await page({ ...scope, countOnly: "true", limit: "1", offset: "999", strictQuery: "true" });
       expect(result.body).toEqual({ rows: [], total, nextCursor: null });
