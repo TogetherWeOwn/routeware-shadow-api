@@ -164,12 +164,8 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push(`customer_id ${order.seek} ?`);
     binds.push(p.cursor);
   }
-  // Inclusive caller-held floor shared by COUNT and page in either direction.
-  if (p.lowerId !== undefined) {
-    where.push("customer_id >= ?");
-    binds.push(p.lowerId);
-  }
-  // Inclusive caller-held ceiling shared by COUNT and page in either direction.
+  // Inclusive caller-held window shared by COUNT and page in either direction.
+  if (p.lowerId !== undefined) { where.push("customer_id >= ?"); binds.push(p.lowerId); }
   if (p.upperId !== undefined) {
     where.push("customer_id <= ?");
     binds.push(p.upperId);
