@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Address snapshot lists accept optional `syncedSince` (strict `synced_at >`)
+- #423: Address snapshot lists accept optional `syncedSince` (strict `synced_at >`)
   and `syncedUntil` (inclusive `synced_at <=`) filters. Both reuse the customer
   changes feed's lossless UTC-Z timestamp validation and normalize seconds or
   1–3 fractional digits to milliseconds; empty, repeated, offset, calendar-invalid,
