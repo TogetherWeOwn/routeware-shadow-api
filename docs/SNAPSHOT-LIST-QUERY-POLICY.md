@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -1069,6 +1069,44 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Container parent service-site locality
+
+Only the ordinary container list accepts `parentCity`, `parentState` and
+`parentZip`. They compare the mirrored service site's stored `a.city`,
+`a.state` and `a.zip` by case-sensitive exact equality, reached through
+`c.pickup_address_id = a.pickup_address_id`. The lexical shape is identical
+to the address list's city/state/zip: one opaque string of 1..100 Unicode
+code points containing a non-whitespace character. Leading zeros,
+punctuation and nonblank whitespace survive unchanged: no trimming,
+normalization, abbreviation conversion or enum. This is not equipment GPS,
+live geolocation, postal verification or service territory eligibility.
+
+All three AND-compose with each other, the container's own `locationAddress`,
+`city`, `state`, `zip`, `customerId`, parent route/franchise/enabled and every
+other merged container selector. Parent and equipment locality may differ;
+contradictions and valid unknown values return empty 200 pages. Missing
+parents and null parent locality never match a supplied selector. One shared
+unique-key address join serves every effective parent scope and customerId,
+without multiplying rows or expanding parents/children. With all parent
+scopes omitted, the existing unjoined SQL and orphan visibility are unchanged.
+
+COUNT and page share predicates/binds. COUNT-only, zero-COUNT pages, sparse
+projection, canonical IDs, order/fences/seek, strictQuery and no-store ETag/304
+behavior are unchanged. Validated locality is retained verbatim in relative
+next Links, including descending and offset-to-seek continuations. Malformed,
+blank, whitespace-only, overlength or repeated keys (including encoded names)
+fail after auth before D1/304 with fixed value-free corrective guidance:
+URL-encode one nonblank value within the limit per named key, or omit it and
+retry. See [recovery](PROBLEMS.md#container-parent-service-site-locality-bad-request).
+
+Run `npm run check:container-parent-locality` for synthetic real local-D1
+selection, omission/orphan parity, full Link traversal and a nonempty EXPLAIN
+plan. Equality through the join may scan; the address zip index may or may not
+serve a joined query. No index, migration, production performance claim or
+snapshot isolation is added. GET is an idempotent local-read, with no upstream,
+R2 or writes; CLI dry-run is N/A. See the
+[cohort recipe](CONSUMER-QUICKSTART.md#container-parent-service-site-locality).
 
 ## Mutating POST query keys are strict
 

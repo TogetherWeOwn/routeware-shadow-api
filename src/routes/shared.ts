@@ -70,6 +70,9 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasLastAuditDate")
         ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.some((field) => ["parentCity", "parentState", "parentZip"].includes(field))
+        ? "URL-encode one nonblank stored parent locality value of 1..100 Unicode code points per named key, preserving significant whitespace, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("countOnly")
         ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
         : "") +
