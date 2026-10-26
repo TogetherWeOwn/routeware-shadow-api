@@ -1093,6 +1093,67 @@ bearer from step 1. No separately published static spec is required. Run the
 credential-free, synthetic, network-denying discovery oracle plus existing
 projection/OpenAPI checks with `npm run check:snapshot-fieldset-discovery`.
 
+#### Typed hydrated-fieldset discovery
+
+On each of the three hydrated GETs above, all three `fields[customer]`,
+`fields[address]` and `fields[container]` parameters publish the same v1
+`x-snapshot-fieldset` shape for their own type. Selectable names and mandatory
+identities come from the same registry as validation, never from record values.
+Typed selectors project **every object of that type**, including nested relations;
+flat `fields` projects only the route root. Omitted types stay full.
+
+Each hydrated `fields`/`fields[type]` string schema also declares this adjacent,
+operation-local `x-snapshot-fieldset-mode` v1 extension:
+
+| Key | Contract |
+|---|---|
+| `schemaVersion` | Integer `1`; stop selection for an unsupported version. |
+| `rootResource` | This route's `customer`, `address` or `container` root. |
+| `projectionScope` | `root` for flat `fields`, `type` for a typed selector. |
+| `omittedTypes` | `full`: unselected types retain their full representation. |
+| `singleIdOnly` | `true`; no batch projection is advertised. |
+| `conflictsWith` | Sorted query names: always `ids`, plus the same-root typed selector for `fields`, or `fields` for the typed root. |
+| `composesWith` | Sorted other field-selector names that may accompany this selector. Distinct typed selectors compose; flat fields composes with non-root types. |
+
+This guidance is not a new runtime mode, endpoint or global capability registry.
+`ids` rejects **all** fieldsets; unsupported operations advertise no typed
+selectors or mode extension. Unknown typed-selector keys are rejected without
+echoing submitted names or values; correction guidance names supported keys only.
+Mixed invalid IDs preserve existing validation and auth ordering.
+Auth precedence, full/projected bytes, canonical full-cache contents and
+representation-specific ETags are unchanged. Batch entries still stay full.
+
+This offline, synthetic recipe composes two legal typed selectors from a saved
+`openapi.json` (no record request or credential access):
+
+```bash
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const doc = JSON.parse(readFileSync(0, "utf8"));
+const op = doc.paths["/api/v1/data/customer"].get;
+const selections = [["fields[address]", "address", ["city", "address"]], ["fields[container]", "container", ["serial_number"]]];
+const query = new URLSearchParams({ id: "42" });
+const selected = selections.map(([name]) => name);
+const identities = {};
+for (const [name, type, wanted] of selections) {
+  const p = op.parameters.find(p => p.in === "query" && p.name === name);
+  const f = p?.schema?.["x-snapshot-fieldset"], m = p?.schema?.["x-snapshot-fieldset-mode"];
+  if (f?.schemaVersion !== 1 || f.resource !== type) throw Error("Unsupported catalog");
+  if (m?.schemaVersion !== 1 || m.rootResource !== "customer" || m.projectionScope !== "type" || !m.singleIdOnly || m.omittedTypes !== "full") throw Error("Unsupported mode");
+  if (selected.some(k => m.conflictsWith.includes(k) || (k !== name && !m.composesWith.includes(k)))) throw Error("Incompatible selectors");
+  if (!wanted.every(n => f.selectableFields.includes(n))) throw Error("Unavailable selection");
+  query.set(name, wanted.join(f.delimiter));
+  identities[name] = f.alwaysIncludedFields;
+}
+console.log(JSON.stringify({ query: query.toString(), identities }));
+' < openapi.json
+```
+
+Run `npm run check:hydrated-fieldset-discovery` for mounted catalogs, legal-mode
+request parity, synthetic examples, strict rejection/auth/no-work controls and
+full/projected/cache/ETag preservation. GET remains idempotent; `--dry-run` is
+not applicable. Discovery and source checks are not deployment or adoption proof.
+
 ## 2a. Upstream customer pagination: `skip`/`take` or `start`/`limit`
 
 `POST /api/v1/routeware/customer/customers-read` is an **upstream read**, not
@@ -1465,7 +1526,10 @@ npx vitest run test/hydratedFields.acceptance.test.ts
 Each single-ID read above also accepts `fields[customer]`, `fields[address]`
 and `fields[container]`, projecting every object of that type — the root and
 all nested relations — from the same strict per-type allowlists. Omitted types
-stay full; every projected object keeps its primary id. Synthetic examples:
+stay full; every projected object keeps its primary id. Discover legal per-type
+names and combinations from the existing document using
+[typed hydrated-fieldset discovery](#typed-hydrated-fieldset-discovery).
+Synthetic examples:
 
 ```bash
 curl -H "Authorization: Bearer $SYNC" \
