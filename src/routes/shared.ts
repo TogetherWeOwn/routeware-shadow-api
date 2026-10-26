@@ -72,6 +72,15 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("comments")
         ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressRouteId")
+        ? "Send one addressRouteId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressFranchiseId")
+        ? "Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressEnabled")
+        ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }

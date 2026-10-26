@@ -175,6 +175,34 @@ stored latitude/longitude TEXT, not valid/complete geographic coordinates,
 accuracy, GPS lock or live position; containers do not inherit parent pairs.
 See the [local recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence).
 
+## Customer service-site cohorts (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
+
+- `addressRouteId`: canonical unpadded ASCII decimal safe integer
+  `0..9007199254740991`; zero is literal stored zero.
+- `addressFranchiseId`: case-sensitive opaque exact string of 1..100
+  Unicode code points containing a non-whitespace character; leading zeros
+  and significant whitespace are preserved.
+- `addressEnabled`: exactly `true`, `false` or `any` (default `any`).
+
+Blank, invalid, overlength and repeated keys fail with the existing
+value-free 400 after authentication and before D1. Detail for one rejected
+field (the named field can instead be either sibling scope):
+
+`Invalid request query (addressRouteId). Send one addressRouteId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressFranchiseId). Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. A valid selection with zero matches
+is a successful empty collection, and `hasAddresses=false` plus an
+effective cohort scope is an empty contradiction, not an override. Mirrored
+membership is not current upstream assignment and never authorizes
+deletion, reconciliation or sync. See the
+[local cohort recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts).
+
 ## Address container presence (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,
