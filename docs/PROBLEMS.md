@@ -318,6 +318,26 @@ when no type filter is intended. Authentication still precedes validation.
 A valid type that matches no rows returns 200 with an empty list. See the
 [type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
 
+## Stored service-code entry-part filters (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional entry-part key
+at most once: `serviceCodeType` and `serviceCodeInput` are
+case-sensitive opaque exact strings of 1..100 Unicode code points,
+each containing a non-whitespace character. Leading zeros and
+significant whitespace are preserved; do not trim, fold case or
+normalize them. URL-encode the value. These filter mirrored snapshot
+entry text, not service history, dispatch state, proof of service or a
+controlled taxonomy, and they are never composed into the combined
+`service_code`.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (serviceCodeType). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `serviceCodeInput` (or both). Correct the named
+key to one supported-length nonblank spelling and retry; omit it only
+when no entry-part filter is intended. Authentication still precedes
+validation. A valid entry pair that matches no rows returns 200 with an
+empty list. See the [entry-part policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-service-code-entry-part-filters).
+
 ## Container parent service-site scopes (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, send each optional parent key once:

@@ -121,6 +121,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   index, migration, date-range support or latency guarantee. Synthetic
   recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
   local check: `npm run check:address-last-audit-date`.
+- #411: Optional `serviceCodeType` and `serviceCodeInput` on the existing container
+  snapshot list: exact case-sensitive equalities on the stored snapshot columns
+  `service_code_type` and `service_code_input` (mirrored CSV entry text, not service
+  history, dispatch state, proof of service or a controlled taxonomy), so equipment
+  carrying one known entry reads without downloading the whole inventory or guessing
+  from the composed `service_code`. Each is a single opaque string of 1..100 Unicode
+  code points with a non-whitespace character; leading zeros and significant
+  whitespace are preserved, null stored parts never match, and valid unknown values
+  return an empty 200. The two selectors AND-compose with each other and every
+  existing filter, `q`, `upperId`, sparse `fields`, offset/cursor paging and
+  `includeTotal=false` via one bound predicate per key in both the page `SELECT`
+  and the `COUNT`, on the container alias on both the bare and customer-join paths;
+  validated selectors round-trip in `Link` next targets. No composition, parsing,
+  migration, index or join; equality may scan with no latency claim; omission
+  preserves existing matches. Blank, overlength and repeated values are value-free
+  400s before D1, after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-service-code-parts`.
 - #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
   `streetAddress` binds case-sensitive equality on the stored `address`,
   returning all matching site IDs rather than partial-street/city/ZIP matches.

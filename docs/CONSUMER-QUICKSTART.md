@@ -774,6 +774,61 @@ mode, sparse fields and conditional ETags without logging submitted
 values. No migration, index or upstream call is involved. See the
 [type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
 
+### Stored service-code entry-part filters
+
+Use the existing `listContainerSnapshot` operation to fetch equipment
+carrying one known stored service-code type or input entry without
+downloading the whole mirrored inventory or guessing from the composed
+service code. Optional `serviceCodeType` is exact equality on the
+stored snapshot column `service_code_type` and `serviceCodeInput` on
+`service_code_input` — mirrored CSV entry text, not service history,
+dispatch state, proof of service or a controlled taxonomy, and never
+composed into the combined `service_code`. Send each key at most once
+as a case-sensitive opaque string of 1..100 Unicode code points
+containing a non-whitespace character; leading zeros and significant
+whitespace are preserved, and null stored parts never match. The two
+selectors AND-compose with each other and with every existing list
+selector, including `q` (an intersection, never a widening), parent
+service-site scopes, `upperId`, sparse `fields` and
+`includeTotal=false`. Both are recognized under `strictQuery=true` and
+reused by `countOnly=true` (count only, no page SELECT or next Link).
+For row pages, each validated value round-trips in `Link` next targets
+for both `asc` and `desc` traversals.
+
+**Synthetic multi-page recipe:** the hermetic fixture holds the
+`T-1`/`IN-1` entry pair twice across distinct addresses. Read one row
+per page:
+
+```text
+GET /api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1
+200 {"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+Link: </api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1&cursor=9302>; rel="next"
+```
+
+Follow that relative Link against the same origin: the second page returns
+ID 9303 with `total: 1` and `nextCursor: 9303`, whose Link leads to the
+terminal empty page (`{"rows":[],"total":0,"nextCursor":null}`, no Link).
+A full final page may link to this empty page; stop only when Link is
+absent. A valid entry pair with no matches is an HTTP 200 empty
+collection, not a reason to sync; substring, case and whitespace
+near-misses never widen the match. Anything but the canonical spelling —
+blank, overlength, or a repeated key — is the existing value-free 400
+before D1 ([correction guidance](PROBLEMS.md#stored-service-code-entry-part-filters-bad-request));
+omit the key to keep today's unfiltered matches.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:container-service-code-parts
+```
+
+The fixture seeds local test D1, traverses real next links in both
+directions through the empty tail, and checks zero COUNTs in count-free
+mode, sparse fields and conditional ETags without logging submitted
+values. No migration, index or upstream call is involved; equality may
+scan, with no latency claim. See the
+[entry-part policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-service-code-entry-part-filters).
+
 ### Address stored extras-allowed selector
 
 Use the existing `listAddressSnapshot` operation to read only sites that
