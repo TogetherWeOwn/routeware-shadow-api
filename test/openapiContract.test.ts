@@ -460,6 +460,36 @@ function withoutHydratedBundleDeclarations(doc: OpenApiDocument): OpenApiDocumen
   return copy;
 }
 
+// Customer name-search supersedes this route's old company-only query narrative.
+// Its operation description and q parameter/schema descriptions are asserted
+// semantically in customerNameSearch.acceptance.test.ts (substring wording plus
+// company/first/last/any), not frozen as speculative prose here. The q schema
+// shape, all other parameters, responses and unrelated operations remain frozen.
+function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | {
+      description?: string;
+      parameters?: Array<{
+        name?: string;
+        in?: string;
+        description?: string;
+        schema?: Record<string, unknown>;
+      }>;
+    }
+    | undefined;
+  if (operation) {
+    delete operation.description;
+    for (const parameter of operation.parameters ?? []) {
+      if (parameter.name !== "q" || parameter.in !== "query") continue;
+      delete parameter.description;
+      const schema = parameter.schema as Record<string, unknown> | undefined;
+      if (schema) delete schema.description;
+    }
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -733,13 +763,14 @@ describe("published OpenAPI document", () => {
     // parent selectors move to containerParentScopes.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
-    // Unrelated golden contracts stay pinned.
+    // Only customer name-search operation/q prose additionally moves to its
+    // semantic oracle; unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(doc)))))))))).toMatchSnapshot();
   });
 });
 
