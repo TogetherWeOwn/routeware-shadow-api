@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #436: Container snapshot lists accept optional exact stored `costShare`
+  and `enclosureDoors`: one nonblank case-sensitive opaque string each of
+  1..100 Unicode code points bound as `c.ud_cost_share_ud = ?` /
+  `c.ud_enclosure_doors_ud = ?` on the container row only. Leading zeros,
+  case, punctuation and significant whitespace are preserved; stored nulls
+  never match, the two columns never spill into each other, and valid
+  unknown texts return an empty 200. `50` and `50%` are different texts,
+  never parsed or summed; mirrored report texts only, never billing or
+  enclosure truth. Both selectors AND-compose with every existing container
+  filter with shared COUNT/page scope, COUNT-only `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and text-retaining relative
+  next Links in asc/desc, including offset-to-seek. Empty/whitespace-only,
+  repeated and overlength values fail with the existing value-free 400 after
+  auth and before D1. Unscoped equality scans with no index/migration or
+  latency claim. Synthetic report-text recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-container-report-texts`; local check:
+  `npm run check:container-cost-share-enclosure-texts`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
