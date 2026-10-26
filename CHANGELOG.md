@@ -5,6 +5,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Address snapshot lists accept optional `syncedSince` (strict `synced_at >`)
+  and `syncedUntil` (inclusive `synced_at <=`) filters. Both reuse the customer
+  changes feed's lossless UTC-Z timestamp validation and normalize seconds or
+  1–3 fractional digits to milliseconds; empty, repeated, offset, calendar-invalid,
+  overprecise and inverted bounds fail after auth and before D1 or 304. Equal
+  bounds yield an empty 200. Windows AND-compose with existing filters and
+  retain normalized bounds in relative next Links without changing ID keyset
+  order, COUNT modes, sparse fields or ETags. This is mirror-freshness filtering,
+  not a changes feed, event/service time or proof of changed content; finite
+  windows and overlap do not promise completeness or snapshot isolation. No new
+  index or migration; scans remain possible. See the finite-window recipe in
+  `docs/CONSUMER-QUICKSTART.md` and `npm run check:address-synced-window`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address

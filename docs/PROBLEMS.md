@@ -33,6 +33,22 @@ after authentication and before any D1 read, including conditional requests.
 Correct the named key or omit it, then retry; never put credentials in queries.
 See the [query contract](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
 
+## Address mirror-freshness window (`bad-request`)
+
+Only `GET /api/v1/address-snapshot` accepts `syncedSince` / `syncedUntil`.
+Send each bound once as a calendar-valid UTC `Z` datetime with seconds or
+1–3 fractional digits, or omit unused bounds. Empty, repeated, offset,
+calendar-invalid and overprecise values fail after authentication and before
+D1 or conditional 304, without reflecting or logging submitted values.
+Normalization is lossless to milliseconds, never rounded or truncated.
+Normalized `syncedSince` must not exceed `syncedUntil`; equal bounds are valid
+but empty because the lower filter is strict and the upper inclusive.
+
+The fixed correction guidance is:
+`Send each synced bound once as a calendar-valid UTC Z datetime with seconds or 1–3 fractional digits, with syncedSince <= syncedUntil; omit unused bounds and retry.`
+The existing problem prefix names only invalid fields, never their values.
+See the [filter contract](SNAPSHOT-LIST-QUERY-POLICY.md#address-mirror-freshness-window).
+
 ## Snapshot count-only (`bad-request`)
 
 On the three ordinary flat snapshot list GETs, send `countOnly` once as exact

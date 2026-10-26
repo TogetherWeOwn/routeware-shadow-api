@@ -84,6 +84,9 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && (unique.includes("syncedSince") || unique.includes("syncedUntil"))
+        ? "Send each synced bound once as a calendar-valid UTC Z datetime with seconds or 1–3 fractional digits, with syncedSince <= syncedUntil; omit unused bounds and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }

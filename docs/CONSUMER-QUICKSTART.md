@@ -191,6 +191,41 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Finite address mirror-freshness window
+
+Only the ordinary address list accepts `syncedSince` (strict `synced_at >`)
+plus `syncedUntil` (inclusive `synced_at <=`). Either bound may stand alone;
+this finite polling recipe fixes both. Store the exact window you used before
+requesting its first page, and follow each returned relative `Link: rel="next"`
+verbatim until none remains. Links carry the normalized millisecond bounds in
+both ID traversal directions, including offset-to-seek transitions.
+
+```bash
+# Synthetic local D1 only; use your locally configured read/general bearer.
+# Store this window with your consumer checkpoint; do not advance it per page.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  'http://localhost:8787/api/v1/address-snapshot?syncedSince=2026-03-01T10%3A00%3A00.1Z&syncedUntil=2026-03-01T10%3A00%3A00.500Z&includeTotal=false&limit=2&fields=pickup_address_id,synced_at'
+```
+
+After traversal, keep the window used and choose the next window deliberately.
+Overlap is safe for a consumer that deduplicates by canonical `pickup_address_id`;
+exactness is not promised. The ordinary list stays ID-keyset ordered, not sync-time
+ordered. This is a filter, not a changes feed: there is no deletion log, snapshot
+isolation or completeness guarantee under concurrent refreshes. Stored sync time
+is mirror freshness, not upstream event time, service time or proof of changed
+content; a reimport can refresh an unchanged row. A finite window does not freeze
+rows for the duration of traversal.
+
+Use UTC `Z` timestamps with seconds or 1–3 fractional digits; normalization is
+lossless to milliseconds, never rounded or truncated. Empty, offset, repeated,
+calendar-invalid or overprecise values, and normalized since-after-until, return
+a value-free 400 after auth and before SQL or 304. Equal bounds are valid but
+empty. Both bounds AND-compose with all existing selectors and count modes;
+no new index or migration is added and filters may scan. Credential-free check:
+`npm run check:address-synced-window`. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-mirror-freshness-window) and
+[correction guidance](PROBLEMS.md#address-mirror-freshness-window-bad-request).
+
 ### Stored address driver note
 
 Use `listAddressSnapshot` with `driverNote` when you know a fragment of the

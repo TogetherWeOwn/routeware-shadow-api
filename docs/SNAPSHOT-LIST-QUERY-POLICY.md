@@ -18,9 +18,40 @@ and never authorizes deletion or reconciliation.
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `syncedSince`, `syncedUntil`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
+
+## Address mirror-freshness window
+
+Only the ordinary address list accepts optional `syncedSince` and `syncedUntil`.
+The lower bound is strict (`synced_at > syncedSince`), the upper inclusive
+(`synced_at <= syncedUntil`); either may be supplied alone. Both reuse the
+customer-changes timestamp chain: calendar-valid UTC `Z`, seconds or 1–3
+fractional digits, normalized losslessly to `toISOString()` milliseconds,
+never rounded or truncated. Empty, repeated, offset, calendar-invalid and
+more-precise values fail with fixed value-free 400 guidance after auth and
+before D1/304. Normalized since-after-until also fails; equal bounds are valid
+and return an empty 200.
+
+Bounds AND-compose with every address selector in the shared COUNT/page WHERE.
+COUNT-only, zero-COUNT `includeTotal=false`, sparse fields and representation
+ETag/no-store behavior stay unchanged. Normalized effective bounds travel in
+relative next Links for asc/desc and offset-to-seek; omitted bounds stay omitted.
+Order and cursors remain solely `pickup_address_id` keysets. This is a filter,
+not a changes feed: no deletion history, completeness or snapshot-isolation
+claim. Stored sync time is mirror freshness, not upstream event time, service
+time or proof of changed content. A refresh can restamp an unchanged row.
+
+The caller stores its finite window and follows returned links unchanged;
+overlap is safe with canonical-ID deduplication, not a promise of exactness.
+No upstream/R2 access, application writes, index or migration is introduced.
+Unscoped timestamp predicates may scan: no address `synced_at` index exists.
+The synthetic local D1 EXPLAIN in
+`test/addressSyncedWindow.acceptance.test.ts` verifies the executed query shape,
+not production performance. Run `npm run check:address-synced-window`; see the
+[finite-window recipe](CONSUMER-QUICKSTART.md#finite-address-mirror-freshness-window)
+and [correction guidance](PROBLEMS.md#address-mirror-freshness-window-bad-request).
 
 ## Opt-in typo detection (`strictQuery=`)
 

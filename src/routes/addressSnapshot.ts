@@ -3,6 +3,7 @@ import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snap
 import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { customerChangesUntilQuery } from "../lib/customerChangesTimestamp";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
@@ -66,7 +67,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId`, stored `zip`, `city` and `state`, and case-sensitive `streetAddress` (all exact stored street matches, not city/ZIP or partial-street matches), free-text `q` over street, city or zip (a match in any one column), literal stored `driverNote` substring on `driver_note` only (not comments/locality), `enabled`, stored `extrasAllowed`, mirrored-child `hasContainers`, exact stored `lastAuditDate` equality and stored `hasLastAuditDate` presence on `last_audit_date`, and `parentCustomerEnabled` on the related stored customer's `enabled` (independent of the site's own `enabled`). Supplied filters intersect by AND; null scope columns do not match supplied values. City/state/street-only equality, driverNote-only substring and audit-date-only reads may scan without a dedicated index; none is added. No geography inference, normalization, note interpretation, audit-compliance/scheduling/overdue meaning or operational scheduling/accuracy claim. Stored text is mirrored data, not permission to act. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId`, stored `zip`, `city` and `state`, and case-sensitive `streetAddress` (all exact stored street matches, not city/ZIP or partial-street matches), free-text `q` over street, city or zip (a match in any one column), literal stored `driverNote` substring on `driver_note` only (not comments/locality), `enabled`, stored `extrasAllowed`, mirrored-child `hasContainers`, exact stored `lastAuditDate` equality and stored `hasLastAuditDate` presence on `last_audit_date`, and `parentCustomerEnabled` on the related stored customer's `enabled` (independent of the site's own `enabled`). Supplied filters intersect by AND; null scope columns do not match supplied values. City/state/street-only equality, driverNote-only substring and audit-date-only reads may scan without a dedicated index; none is added. No geography inference, normalization, note interpretation, audit-compliance/scheduling/overdue meaning or operational scheduling/accuracy claim. Stored text is mirrored data, not permission to act. Optional `syncedSince` (strict >) and `syncedUntil` (inclusive <=) AND-filter stored `synced_at` with lossless UTC Z millisecond normalization and normalized bounds retained in next Links. This is a filter, not a changes feed: ID keyset order/cursors stay unchanged, with no deletion history, completeness or snapshot-isolation guarantee. Sync time is mirror freshness, not upstream event time, service time or proof of changed content. Timestamp-only reads may scan; no index or migration is added. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -127,6 +128,13 @@ const addressSnapshotListRoute = createRoute({
       parentCustomerEnabled: z.enum(["true", "false", "any"]).optional().default("any")
         .describe("Parent stored-customer enabled selection: \"true\" keeps only sites whose related stored customer row has enabled = 1, \"false\" keeps only stored enabled = 0, \"any\" (default) adds no parent predicate. A missing parent or a noncanonical stored value never matches true or false. The site's own `enabled` stays independent; parent and site state AND-compose with each other and every other filter. Mirrored stored customer enabled is not current account eligibility, service permission, billing status or authorization. Exact case-sensitive spelling, sent once; malformed, blank or repeated keys are invalid. Correct the value and retry.")
         .openapi({ example: "true" }),
+      // Reuse the feed's strict bound chain, not its legacy empty-since leniency.
+      syncedSince: customerChangesUntilQuery
+        .describe("Strict stored synced_at lower filter (>). One calendar-valid UTC Z datetime with seconds or 1–3 fractional digits, normalized losslessly to milliseconds, never rounded/truncated. Empty, offset, repeated and overprecise values are invalid. AND-composes with every address selector; normalized syncedSince must not exceed syncedUntil. Equal bounds return an empty 200. Omit for no lower filter.")
+        .openapi({ example: "2026-03-01T10:00:00.100Z" }),
+      syncedUntil: customerChangesUntilQuery
+        .describe("Inclusive stored synced_at upper filter (<=), using the same lossless UTC Z millisecond contract as syncedSince. Empty, offset, repeated and overprecise values are invalid; normalized syncedSince must not exceed syncedUntil. Omit for no upper filter. Relative next Links retain normalized effective bounds; pickup_address_id order and cursor stay unchanged.")
+        .openapi({ example: "2026-03-01T10:00:00.500Z" }),
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
       cursor: z.coerce
@@ -149,6 +157,8 @@ const addressSnapshotListRoute = createRoute({
       order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("address"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
     }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
+      .refine((p) => p.syncedSince === undefined || p.syncedUntil === undefined || p.syncedSince <= p.syncedUntil,
+        { path: ["syncedUntil"] })
   },
   responses: {
     200: {
@@ -164,7 +174,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. streetAddress must be one nonblank stored street value of 1..200 Unicode code points; empty, whitespace-only, overlength and repeated values are invalid. URL-encode one nonblank stored street value or omit streetAddress and retry. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. Send `lastAuditDate` as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated keys are invalid. Send `hasLastAuditDate` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `parentCustomerEnabled` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. Send each syncedSince/syncedUntil once as a calendar-valid UTC Z datetime with seconds or 1–3 fractional digits, with normalized syncedSince <= syncedUntil. Empty, offset, repeated, calendar-invalid and overprecise bounds are invalid; omit unused bounds and retry. streetAddress must be one nonblank stored street value of 1..200 Unicode code points; empty, whitespace-only, overlength and repeated values are invalid. URL-encode one nonblank stored street value or omit streetAddress and retry. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. Send `lastAuditDate` as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated keys are invalid. Send `hasLastAuditDate` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `parentCustomerEnabled` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -296,6 +306,14 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.upperId !== undefined) {
     where.push("pickup_address_id <= ?");
     binds.push(p.upperId);
+  }
+  if (p.syncedSince !== undefined) {
+    where.push("synced_at > ?");
+    binds.push(p.syncedSince);
+  }
+  if (p.syncedUntil !== undefined) {
+    where.push("synced_at <= ?");
+    binds.push(p.syncedUntil);
   }
   const whereSql = where.join(" AND ");
   // Count-free page: zero COUNT statements. `total: null` means the count was
