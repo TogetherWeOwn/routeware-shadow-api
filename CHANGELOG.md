@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
+- #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
   dated and latest downloads (404 not-found, 409 replacement conflict),
   the unreadable latest-pointer 500, the date-listing 500, and the
   unbound-store 503 all resolve their problem `type` from the request
