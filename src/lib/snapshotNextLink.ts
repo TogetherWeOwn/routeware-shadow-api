@@ -51,6 +51,8 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  hasPhone1?: "true" | "false" | "any";
+  hasPhone2?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
   limit: number;
@@ -114,6 +116,14 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  // Customer-only stored-phone presence: carry only filtering values so
+  // any/omitted continuations stay byte-identical.
+  if (resource === "customer" && query.hasPhone1 !== undefined && query.hasPhone1 !== "any") {
+    params.set("hasPhone1", query.hasPhone1);
+  }
+  if (resource === "customer" && query.hasPhone2 !== undefined && query.hasPhone2 !== "any") {
+    params.set("hasPhone2", query.hasPhone2);
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
