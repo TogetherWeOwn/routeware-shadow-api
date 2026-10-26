@@ -91,7 +91,8 @@ const CUST_SELECT =
   "name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at FROM customer_snapshot";
 const ADDR_Q =
   "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)";
-const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
+const CUST_Q =
+  "(instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0)";
 const CONT_Q =
   "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0 OR instr(lower(coalesce(c.city, '')), lower(?)) > 0 OR instr(lower(coalesce(c.zip, '')), lower(?)) > 0)";
 // Same join shape as src/routes/containerSnapshot.ts `customerId` filter.
@@ -145,13 +146,13 @@ beforeAll(async () => {
   // capture them BEFORE 0003 to prove 0003 is a no-op for that table.
   plans.custEnabledQBefore = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
-    "acme"
+    "acme", "acme", "acme"
   );
 
   await applyMigration(m3);
@@ -198,17 +199,17 @@ beforeAll(async () => {
   // boundary, and pin the container customerId-join + enabled + q plan.
   plans.custEnabledQAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
-    "acme"
+    "acme", "acme", "acme"
   );
   plans.custQAloneAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
@@ -273,14 +274,14 @@ beforeAll(async () => {
   plans.custIdQEnabledAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
     1,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountIdQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1`,
     1,
-    "acme"
+    "acme", "acme", "acme"
   );
 });
 
@@ -425,7 +426,7 @@ describe("container locality SQL oracle: honest residual locality work", () => {
   });
 });
 
-describe("customer text filter (q over company_name)", () => {
+describe("customer text filter (q over company_name OR first_name OR last_name)", () => {
   it("already seeks 0001's enabled index before 0003", () => {
     expect(plans.custEnabledQBefore.join(" ")).toContain(
       "SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)"
@@ -449,7 +450,7 @@ describe("customer text filter (q over company_name)", () => {
   it("still returns the right rows for enabled + q (filter proof)", async () => {
     const r = await db()
       .prepare(`${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`)
-      .bind("acme", 50, 0)
+      .bind("acme", "acme", "acme", 50, 0)
       .all<{ customer_id: number }>();
     expect((r.results ?? []).map((x) => x.customer_id)).toEqual([1]);
   });

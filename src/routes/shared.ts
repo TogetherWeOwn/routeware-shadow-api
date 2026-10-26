@@ -15,7 +15,7 @@ import type { AppEnv } from "./types";
  * `bad-request` problem+json, and the handler never runs.
  *
  * `detail` names the rejected target and fields, never values: query strings
- * here can carry customer PII (company-name/company substrings), so the zod
+ * here can carry customer PII (customer-name substrings), so the zod
  * messages (which echo received values) are deliberately not forwarded.
  */
 export function validationFailureHook(
@@ -45,6 +45,9 @@ export function validationFailureHook(
     detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("streetAddress")
+        ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
         : "") +
       (result.target === "query" && unique.includes("driverNote")
         ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "

@@ -156,7 +156,7 @@ type Spec = {
   idColumn: string;
   /** Exact WHERE fragment the free-text `q` filter appends. */
   qClause: string;
-  /** One bind per searched column: customer 1, address 3, container 4. */
+  /** One bind per searched column: customer 3, address 3, container 4. */
   qBinds: number;
   exportPathVar: string;
   queryIdVar: string;
@@ -174,8 +174,8 @@ const SPECS: Spec[] = [
     prefix: "",
     idParam: "customerId",
     idColumn: "customer_id",
-    qClause: "instr(lower(coalesce(company_name, '')), lower(?)) > 0",
-    qBinds: 1,
+    qClause: "(instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0)",
+    qBinds: 3,
     exportPathVar: "CUSTOMER_REPORT_EXPORT_PATH",
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
@@ -354,6 +354,9 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const whereOf = (sql: string) => sql.slice(sql.indexOf("WHERE")).split(" ORDER BY ")[0];
       expect(whereOf(calls[1].sql)).toContain(whereOf(calls[0].sql));
       expect(calls[1].binds.slice(0, calls[0].binds.length)).toEqual(calls[0].binds);
+      expect(whereOf(calls[0].sql)).toContain(`AND ${spec.qClause}`);
+      expect(calls[0].binds).toEqual([7, ...Array(spec.qBinds).fill("x")]);
+      expect(calls[1].binds).toEqual([7, ...Array(spec.qBinds).fill("x"), 50, 0]);
     });
 
     it("orders by the primary key so pagination is stable across pages", async () => {
