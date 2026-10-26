@@ -456,11 +456,12 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     path: "/api/v1/container-snapshot",
     method: "get",
     mediaType: "application/json",
+    // Keep the date insertion separate from adjacent stored-type inventory edits.
     parameterNames: [
-      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
-      "materialStream", "color", "serviceDate", "hasServiceDate", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
+      "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
       "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ]
+    ].flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name])
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",
