@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #000: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
+- #433: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
   existing address snapshot list only, selecting sites by the owning stored
   customer's mirrored business numbers without resolving the numeric
   customer ID first. Each is one exact case-sensitive opaque string of
