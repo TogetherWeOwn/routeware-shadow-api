@@ -64,6 +64,9 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasLastAuditDate")
         ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("hasStreetAddress")
+        ? "Send one hasStreetAddress=true, false or any, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("countOnly")
         ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
         : "") +

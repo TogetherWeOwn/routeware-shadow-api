@@ -54,6 +54,7 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
+  hasStreetAddress?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -126,6 +127,11 @@ export function snapshotNextLink(
   // so any/omitted continuations stay byte-identical.
   if (resource === "address" && query.parentCustomerEnabled !== undefined && query.parentCustomerEnabled !== "any") {
     params.set("parentCustomerEnabled", query.parentCustomerEnabled);
+  }
+  // Stored street-text presence (address only): carry only filtering values
+  // so any/omitted continuations stay byte-identical.
+  if (resource === "address" && query.hasStreetAddress !== undefined && query.hasStreetAddress !== "any") {
+    params.set("hasStreetAddress", query.hasStreetAddress);
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);

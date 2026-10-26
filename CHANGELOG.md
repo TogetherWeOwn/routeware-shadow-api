@@ -5,6 +5,29 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Optional `hasStreetAddress=true|false|any` (default `any`) on the
+  existing address snapshot list (`GET /api/v1/address-snapshot`):
+  selects sites by stored street-text presence on `address` — `true`
+  keeps stored text that is not null and not empty (whitespace-only
+  counts as present), `false` keeps exactly the null-or-empty
+  complement — so missing-street cohorts can be counted without
+  downloading each stored address value. Omission/`any` adds no
+  predicate; no normalization or data change. Presence AND-composes
+  with exact `streetAddress` (a nonblank exact street plus `false`
+  returns empty 200), `q`/locality, IDs, customer/route/franchise,
+  `enabled`, `extrasAllowed`, `hasContainers`, audit-date and
+  parent-customer selection in the shared COUNT/page WHERE with
+  literal no-bind predicates; `countOnly` stays COUNT-only,
+  `includeTotal=false` count-free, and relative next Links retain a
+  filtering value. Stored presence is a data-quality cohort only,
+  separate from postal validity, geocoding, coordinates,
+  deliverability or live service; missing text can be a mirror or
+  report gap. Invalid, blank or repeated values fail with the fixed
+  value-free 400 after auth and before D1. Presence-only reads may
+  scan; no new index or migration. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#stored-street-text-presence`; focused
+  check: `npm run check:address-street-presence`.
+
 - #412: Optional `addressRouteId`, `addressFranchiseId` and
   `addressEnabled=true|false|any` (default `any`) on the ordinary customer
   snapshot list only, selecting accounts in a mirrored

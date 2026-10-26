@@ -449,6 +449,26 @@ mirrored data, not audit compliance. See the [synthetic
 recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date) and [query
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
+## Stored street-text presence (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `hasStreetAddress`
+spelled exactly `true`, `false` or `any`. Blank, invalid-enum and repeated
+keys (including encoded aliases) fail before D1 or conditional 304;
+authentication stays first. Fixed detail for the field alone:
+
+`Invalid request query (hasStreetAddress). Send one hasStreetAddress=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when
+no presence filter is intended. No submitted values or unknown names are
+echoed or logged. Presence reads stored `address` only: true keeps stored
+street text that is not null and not empty (whitespace-only counts as
+present), false keeps the null-or-empty complement. A valid value with no
+matches returns 200 empty. Stored presence is mirrored data — a
+data-quality cohort, not postal validity, geocoding or deliverability;
+missing text can be a mirror or report gap. See the [synthetic
+recipe](CONSUMER-QUICKSTART.md#stored-street-text-presence) and [query
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-street-text-presence).
+
 ## Exact stored container installation (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode

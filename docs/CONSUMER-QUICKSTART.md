@@ -176,8 +176,10 @@ literal stored `driverNote` substring ([synthetic note recipe](#stored-address-d
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
 mirrored-child `hasContainers=true|false|any` presence
 ([synthetic present/absent recipe](#address-container-presence)),
-and exact stored `lastAuditDate` / `hasLastAuditDate=true|false|any` audit selection
-([synthetic audit-cohort recipe](#stored-address-last-audit-date)). Customer `q` matches any one name column, not an exact identity or cross-column full name
+exact stored `lastAuditDate` / `hasLastAuditDate=true|false|any` audit selection
+([synthetic audit-cohort recipe](#stored-address-last-audit-date)),
+and stored `hasStreetAddress=true|false|any` street-text presence
+([synthetic missing-street recipe](#stored-street-text-presence)). Customer `q` matches any one name column, not an exact identity or cross-column full name
 ([synthetic name-search recipe](#personal-or-company-name-search)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
@@ -334,6 +336,50 @@ Run `npm run check:address-parent-customer-enabled` for synthetic local-D1
 acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
+
+### Stored street-text presence
+
+Use `listAddressSnapshot` with `hasStreetAddress=false` to count sites
+whose stored street text is null or empty, without downloading every
+stored address value; `true` keeps only present text (not null, not
+empty; whitespace-only counts as present), `any` (default) adds no
+predicate. This is a stored-data-quality cohort only — separate from
+postal validity, geocoding, coordinates, deliverability or live service;
+missing text can be a mirror or report gap. Combine with exact
+`streetAddress` for an AND intersection (a nonblank exact street plus
+`false` matches nothing), or with `q`/locality, customer/route/franchise,
+`enabled`, `extrasAllowed`, child presence and traversal bounds. Never
+log street values or continuation targets.
+
+Count the missing-street cohort without returning rows:
+
+```text
+GET /api/v1/address-snapshot?hasStreetAddress=false&countOnly=true
+{"rows":[],"total":2,"nextCursor":null}
+```
+
+Page it sparsely — the street column itself need not be returned — then
+follow the relative next Link unchanged on the same origin; a filtering
+presence is retained in either order and `any`/omitted stays out:
+
+```text
+GET /api/v1/address-snapshot?hasStreetAddress=false&fields=city,zip&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11,"city":null,"zip":null}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?hasStreetAddress=false&fields=city,zip&limit=1&includeTotal=false&cursor=11>; rel="next"
+```
+
+COUNT/page share scope; count-free is zero COUNTs; ETag/304 and no-store
+remain unchanged. Presence-only reads may scan: no new index or
+production performance claim. GET is idempotent and local-read, no
+upstream/R2/write effects; CLI `--dry-run` is N/A. Invalid, blank or
+repeated values receive fixed value-free 400 correction before D1, after
+auth; see
+[recovery](PROBLEMS.md#stored-street-text-presence-bad-request).
+
+Run `npm run check:address-street-presence` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network
+probe is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-street-text-presence).
 
 ### Opt-in query typo detection
 

@@ -14,7 +14,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `hasStreetAddress`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -709,6 +709,42 @@ effects; CLI `--dry-run` is N/A. Run
 local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
 contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
+
+## Stored street-text presence
+
+Only the existing address list accepts `hasStreetAddress`, selecting on
+stored `address_snapshot.address` only. It is one optional exact
+`true|false|any` (default `any`): true keeps stored street text that is
+not null and not empty (whitespace-only counts as present), false keeps
+exactly the null-or-empty complement. Omission or `any` adds no predicate;
+no normalization or data change is applied. Exact `streetAddress` and
+presence AND-compose with each other and with `q`/locality, IDs,
+customer/route/franchise, `enabled`, `extrasAllowed`, `hasContainers`,
+audit-date and parent-customer selection and traversal bounds; a nonblank
+exact street plus false matches nothing (empty 200). Locality text in
+`city`, `zip`, comments or notes never rescues a null or empty street.
+Stored presence is a data-quality cohort only — separate from postal
+validity, geocoding, coordinates, deliverability or live service; missing
+text can be a mirror or report gap, and present text is not permission to
+act. Invalid, blank or repeated (including encoded duplicate) values
+return the existing value-free bad-request problem before D1, after auth;
+[fixed correction guidance](PROBLEMS.md#stored-street-text-presence-bad-request)
+never echoes submitted values. Do not log street values.
+
+The literal presence predicates (no binds, no JOIN) share predicates/binds
+between COUNT and page; `includeTotal=false` still issues zero COUNTs and
+`countOnly` stays COUNT-only. Sparse fields and ETag/304 describe the same
+final envelope. Relative next Links retain a filtering presence (omit
+`any`) in either order and when moving offset-to-seek; unknown raw
+parameters and origins never travel.
+
+Presence-only reads may scan; no index/migration or production
+performance/latency claim is added. This GET is idempotent, local-read,
+with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-street-presence` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-street-text-presence).
 
 ## Address street or locality search
 
