@@ -5,6 +5,30 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #000: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
+  existing address snapshot list only, selecting sites by the owning stored
+  customer's mirrored business numbers without resolving the numeric
+  customer ID first. Each is one exact case-sensitive opaque string of
+  1..100 Unicode code points preserving leading zeros, case and significant
+  whitespace; no trimming, normalization or hierarchy inference. Both
+  supplied numbers must match the SAME owning-customer row through one
+  conditional qualified JOIN on the customer primary key, so a repeated
+  number returns every owning account's sites exactly once each with no
+  fanout, no duplicate sites and no response-shape change. Stored NULLs
+  never match, a site whose owning customer is missing from the mirror
+  never matches an explicit number, and valid unknown numbers return an
+  empty 200. The scope AND-composes with every existing address selector in
+  the shared COUNT/page WHERE; `countOnly` stays COUNT-only,
+  `includeTotal=false` stays count-free, and each supplied number
+  round-trips in relative next Links in either order and across
+  offset-to-seek. Omission keeps the pre-existing join-free reads. Stored
+  numbers are mirrored report text, not a billing identity, account
+  hierarchy, service territory or proof of service. Empty/whitespace-only,
+  repeated (including encoded duplicates) and overlength values fail with
+  the existing value-free 400 after auth and before D1. No new index,
+  migration or latency claim. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#sites-by-owning-account-business-numbers`;
+  focused check: `npm run check:address-owning-account-numbers`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
