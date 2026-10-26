@@ -5,6 +5,46 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #412: Optional `addressRouteId`, `addressFranchiseId` and
+  `addressEnabled=true|false|any` (default `any`) on the ordinary customer
+  snapshot list only, selecting accounts in a mirrored
+  route/franchise/site-state cohort without downloading sites. Effective
+  scopes AND inside one customer-correlated `EXISTS`, so all three must
+  match the same stored address: split-child scopes never match, duplicate
+  matching sites never duplicate the customer, and null stored scalars
+  never match equality. Route is one canonical unpadded ASCII safe integer
+  `0..9007199254740991` (zero is literal); franchise is one case-sensitive
+  opaque string of 1..100 Unicode code points preserving leading zeros and
+  significant whitespace. All stored children, including disabled, remain
+  eligible unless `addressEnabled` explicitly filters them; customer
+  `enabled` stays independent. The scope AND-composes with `hasAddresses`
+  and every merged selector in both COUNT and page SQL with identical
+  predicates/binds; `hasAddresses=false` plus an effective scope returns
+  an empty 200 contradiction. Effective scopes round-trip in relative next
+  Links; invalid/blank/overlength/repeated keys fail with the existing
+  fixed value-free 400 after read-role authentication and before D1.
+  Mirrored membership is not current upstream assignment, not a permission,
+  and not snapshot isolation. No migration or index; synthetic local
+  EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
+  `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
+  check: `npm run check:customer-address-cohorts`.
+
+- Optional `parentCustomerEnabled=true|false|any` (default `any`) on the
+  existing address snapshot list (`GET /api/v1/address-snapshot`): selects
+  sites by the related stored customer's `enabled` — `true` keeps only
+  stored `1`, `false` only stored `0` — via one correlated `EXISTS` with
+  qualified columns and no row multiplication, so enabled/disabled account
+  cohorts read without enumerating customers. Omission/`any` adds no parent
+  predicate and keeps orphan and noncanonical rows visible; explicit values
+  never match a missing parent. The site's own `enabled` stays independent
+  and both AND-compose with every existing selector in the shared COUNT/page
+  WHERE; `countOnly` stays COUNT-only, `includeTotal=false` count-free, and
+  relative next Links retain a filtering value. Mirrored stored customer
+  enabled is not current account eligibility, service permission, billing
+  status or authorization. Invalid, blank or repeated values fail with the
+  fixed value-free 400 after auth and before D1. No new index, migration or
+  latency claim; focused check:
+  `npm run check:address-parent-customer-enabled`.
 - #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
   stored-state selectors (`true`|`false`|`any`, default `any`). Exact
   case-sensitive enums match stored `1`/`0` via integer-literal predicates;

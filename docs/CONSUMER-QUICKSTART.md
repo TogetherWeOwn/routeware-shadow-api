@@ -283,6 +283,58 @@ acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
+### Sites by parent customer enabled state
+
+Use `listAddressSnapshot` with `parentCustomerEnabled=true` to list only
+sites whose related stored customer is enabled, or
+`parentCustomerEnabled=false` for sites of disabled stored customers,
+without enumerating accounts first. The site's own `enabled` stays
+independent — combine both for the exact parent/site cohort. Mirrored
+stored customer enabled is not current account eligibility, service
+permission, billing status or authorization. Omission or `any` adds no
+parent predicate; a missing parent or noncanonical stored value never
+matches `true` or `false`. Invalid, blank or repeated values receive the
+fixed value-free 400 before D1, after auth.
+
+Sites of enabled stored customers, counted first:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&countOnly=true"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&limit=2"
+```
+
+Sites of disabled stored customers:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=false&limit=2"
+```
+
+Independent parent/site state — disabled sites of enabled customers — then
+follow the relative next Link (or pass its `cursor`) on the same origin; the
+parent scope is retained and `any`/omitted stays out:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1"
+# Link: </api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1&cursor=12>; rel="next"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1&cursor=12"
+```
+
+COUNT/page share scope; `countOnly` stays COUNT-only and count-free is zero
+COUNTs; ETag/304 and no-store are unchanged. The parent lookup uses the
+existing customer primary key: no new index or production latency claim.
+GET is idempotent and local-read, no upstream/R2/write effects; CLI
+`--dry-run` is N/A.
+
+Run `npm run check:address-parent-customer-enabled` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
+
 ### Opt-in query typo detection
 
 On the three ordinary flat lists, add `strictQuery=true` to reject unknown
@@ -1084,6 +1136,59 @@ true/false. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
 [400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+### Customer service-site cohorts
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select accounts in a mirrored route/franchise/site-state cohort without
+downloading sites. `addressRouteId`, `addressFranchiseId` and
+`addressEnabled=true|false|any` (default `any`) AND inside one
+customer-correlated child lookup, so every supplied scope must match the
+same stored address: route on one site plus franchise on another never matches, and
+duplicate matching sites never duplicate the customer. Null stored scalars
+never match equality. Every stored child, including disabled, stays
+eligible unless `addressEnabled` explicitly filters it; customer `enabled`
+is independent. Omission, or `addressEnabled=any` alone, keeps the
+unfiltered list. `hasAddresses=false` plus an effective cohort scope is a
+contradiction: an empty 200, not an override.
+
+Route IDs are canonical unpadded ASCII decimals `0..9007199254740991`
+(zero is literal). Franchises are case-sensitive opaque nonblank strings
+of 1..100 Unicode code points; preserve leading zeros and significant
+whitespace. Send each key once. Invalid, blank, overlength or repeated
+keys fail value-free before D1 after auth; correct the named field and
+retry. Valid no-match is an empty 200.
+
+Synthetic local cohort recipe (fixture service and its `$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&addressFranchiseId=001&limit=2&includeTotal=false"
+# {"rows":[{"customer_id":11,...},{"customer_id":13,...}],"total":null,"nextCursor":13}
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&addressFranchiseId=001&limit=2&includeTotal=false&cursor=13"
+# Next: 14, 15, then 29 alone; stop when Link is absent.
+```
+
+Contradiction recipe: presence-false plus a cohort scope stays empty:
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&hasAddresses=false&limit=2"
+# {"rows":[],"total":0,"nextCursor":null} — no Link; nothing further to follow.
+```
+
+Mirrored membership is not current upstream assignment, not a permission,
+and promises no snapshot isolation. GET is an idempotent local D1 read;
+CLI `--dry-run` is N/A. The scope composes with every merged selector,
+either paging direction, `upperId`, sparse fields, count modes and
+representation-correct ETag/304. Run
+`npm run check:customer-address-cohorts` for synthetic local-D1 selection,
+contradiction, full Link traversal and conditional-read regressions plus
+child-index EXPLAIN evidence. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-cohorts)
+and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
 ### Customer stored-phone presence
 

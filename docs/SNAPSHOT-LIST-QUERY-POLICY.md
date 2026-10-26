@@ -13,8 +13,8 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -89,6 +89,47 @@ planner evidence, not a production latency claim. No migration/index change.
 GET is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipe](CONSUMER-QUICKSTART.md#customer-address-presence) and
 [correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+## Customer service-site cohorts
+
+Only the ordinary customer list recognizes `addressRouteId`,
+`addressFranchiseId` and `addressEnabled=true|false|any` (default `any`).
+Effective scopes AND inside one customer-correlated `EXISTS`, so route,
+franchise and site state must match the same stored address: split scopes
+across different children never match, duplicate matching sites never
+duplicate the customer, and null stored scalars never match equality. All
+stored children, including disabled, remain eligible unless `addressEnabled`
+explicitly filters them; customer `enabled` stays independent. Omitted
+scopes, or `addressEnabled=any` alone, add no child-cohort predicate.
+
+`addressRouteId` is one canonical unpadded ASCII decimal safe integer
+`0..9007199254740991`; zero matches literal stored zero, not all routes.
+`addressFranchiseId` is one case-sensitive opaque exact string of 1..100
+Unicode code points containing a non-whitespace character: leading zeros
+and significant whitespace are preserved, never trimmed or normalized.
+Invalid, blank, overlength or repeated scope keys fail with the existing
+fixed value-free 400 after authentication and before D1/304; send one
+supported value per named key, or omit it, and retry.
+
+The cohort scope AND-composes with `hasAddresses` and every other merged
+customer selector in both COUNT and page SQL, with identical
+predicates/binds. `hasAddresses=false` plus an effective positive child
+scope returns an empty 200 — a contradiction, not an override. Effective
+scopes travel in relative next Links; `any`/omission and unknown keys do
+not. Mirrored membership is not current upstream assignment, not a
+permission, and not snapshot isolation: concurrent writes are not
+snapshot-isolated, and cohort membership never authorizes deletion,
+reconciliation or sync.
+
+Run `npm run check:customer-address-cohorts`; the independent
+`test/customerAddressCohorts.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2/writes and verifies same-child membership,
+contradictions, count-mode parity, complete bidirectional traversal and
+child-index SEARCH plans for both COUNT and rows. This is local planner
+evidence, not a production latency claim. No migration/index change. GET
+is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
+[local recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts) and
+[correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
 ## Customer stored-phone presence
 
@@ -628,6 +669,46 @@ oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date)
 and [local query-plan
 evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
+
+## Sites by parent customer enabled state
+
+Only the existing address list accepts `parentCustomerEnabled`, selecting
+sites by the stored `enabled` of their related mirrored customer
+(`customer_snapshot.customer_id = address_snapshot.customer_id`, qualified
+columns). It is one optional exact `true|false|any` (default `any`): true
+keeps only sites whose stored customer row has `enabled = 1`, false keeps
+only `enabled = 0`. Omission or `any` adds no parent predicate, so
+unconstrained reads still include pre-existing orphan rows and customers
+with noncanonical stored values; explicit true/false never matches a
+missing parent or a noncanonical stored value. The site's own `enabled`
+stays independent: parent and site state intersect by AND with each other
+and with `customerId`, IDs, route/franchise, locality/street, `q`,
+`driverNote`, `extrasAllowed`, `hasContainers`, audit-date selection and
+traversal bounds; contradictions return empty 200. Mirrored stored customer
+enabled is not current account eligibility, service permission, billing
+status or authorization, and never replaces the site predicate. Invalid,
+blank or repeated (including encoded duplicate) values return the existing
+value-free bad-request problem before D1, after auth; submitted values are
+never echoed or logged.
+
+One correlated `EXISTS (SELECT 1 FROM customer_snapshot ...)` literal
+predicate (no JOIN, no binds, no parent payload expansion) shares the
+WHERE between COUNT and page; `includeTotal=false` still issues zero
+COUNTs and `countOnly` stays COUNT-only. Sparse fields and ETag/304
+describe the same final envelope. Relative next Links retain a filtering
+parent value (omit `any`) in either order and when moving offset-to-seek;
+unknown raw parameters and origins never travel.
+
+The lookup uses the customer primary key; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/addressParentCustomerEnabled.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-parent-customer-enabled` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
 
 ## Address street or locality search
 
