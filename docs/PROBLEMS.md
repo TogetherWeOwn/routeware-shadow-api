@@ -207,13 +207,19 @@ when zero. If sending `since_id`, pair it with nonempty valid `since` and
 use an unpadded ASCII decimal integer from `0` through `9007199254740991`.
 Do not use signs, spaces, exponents, prefixes, fractions or repeated cursor
 keys. Omit both cursor fields for the initial page, or replay both fields
-from the previous `nextCursor` for tie-safe continuation. See
-[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+from the previous `nextCursor` for tie-safe continuation. Optional `until`
+is an inclusive upper bound with the same UTC `Z` millisecond contract:
+empty, repeated, offset and overprecise values are invalid, and normalized
+`since` must not exceed `until` (equality stays valid). Omit `until` for
+the unbounded tail. See
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation)
+and the [bounded window](SNAPSHOT-LIST-QUERY-POLICY.md#bounded-changes-window-until).
 
 Validation happens before D1 and returns fixed, value-free guidance:
 `Invalid request query (since_id). See docs/PROBLEMS.md#bad-request.`
-The named field can instead be `since` (or multiple invalid fields); no
-submitted timestamp or id is echoed. Authentication still precedes validation.
+The named field can instead be `since` or `until` (or multiple invalid
+fields); no submitted timestamp or id is echoed. Authentication still
+precedes validation.
 
 ## Address route and franchise scopes (`bad-request`)
 

@@ -1293,13 +1293,15 @@ never appear as tombstones, so re-list to detect disappearance.
 
 Prefer the server's `Link: <relative-target>; rel="next"` to rebuilding the
 pair from JSON. It appears exactly when `nextCursor` is non-null, replaces
-both cursor halves and retains the effective limit (1..500, default 50) and
-the validated `fields` selector, so sparse traversal keeps sparse pages.
+both cursor halves and retains the effective limit (1..500, default 50),
+the normalized `until` and the validated `fields` selector, so sparse
+bounded traversal keeps sparse bounded pages.
 The target is always `/api/v1/customer-snapshot/changes` with URL-encoded
-`since`, `since_id`, `limit` and, when requested, `fields`: unknown keys,
+`since`, `since_id`, `limit` and, when requested, `until`/`fields`: unknown keys,
 origins and credentials are never echoed. This feed recognizes optional
 `fields` (sparse stored-column projection after cursor derivation; omit for
-full rows) but not `until`. Other unknown keys remain ignored.
+full rows) and optional `until` (inclusive upper bound; omit for the
+unbounded tail). Other unknown keys remain ignored.
 
 Omission means stop. A full terminal page may link to an empty page; short,
 empty and error pages have no next link. JSON bytes/shape, row ordering,
@@ -1349,6 +1351,46 @@ application writes and fails on unexpected outbound fetch. The recipe oracle
 executes this exact block with synthetic responses and no real network. Both
 run in normal `npm test`/CI. These are source regressions, not installed or
 production verification.
+
+### Bounded changes window (until)
+
+Pass `until` for a finite caller-chosen window: only rows with
+`synced_at <= until` qualify, using the same UTC `Z` millisecond contract as
+`since` (seconds or 1–3 fraction digits; empty, repeated, offset and
+overprecise values are 400s, and normalized `since` must not exceed `until`).
+The Link retains the normalized bound, so rows synced after the first page
+cannot extend the traversal. Disposable synthetic local fixture, not a live
+probe:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?until=2026-09-01T00:00:00.5Z&limit=2"
+# {"rows":[...2 rows at/below 00:00:00.500Z...],"total":2,
+#  "nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
+# Link: </api/v1/customer-snapshot/changes?since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=2&until=2026-09-01T00%3A00%3A00.500Z>; rel="next"
+```
+
+Follow the Link target unchanged for page two; the terminal page carries no
+Link:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.100Z&since_id=8402&limit=2&until=2026-09-01T00:00:00.500Z"
+# {"rows":[...remaining rows at/below the bound...],"total":1,"nextCursor":null}
+```
+
+Equal endpoints stay valid: bare `since == until` yields no rows at that
+instant, while the composite pair resumes the remaining same-stamp rows.
+This is still current-row upserts only — overwrites can move rows outside
+the window and bulk imports advance timestamps — with no delete events,
+historical versions, snapshot isolation or completeness promise. Focused
+command (no Worker, credentials or network needed):
+
+```bash
+npm run check:customer-changes-until
+```
+
+### Typed changes rows
 
 Delta rows are typed in `/openapi.json` (`CustomerSnapshotChangesRow`): every
 stored customer column with storage-faithful integer/text/null types.
