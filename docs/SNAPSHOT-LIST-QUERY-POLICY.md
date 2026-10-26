@@ -13,12 +13,13 @@ name does not become a SQL filter or bind. This preserves the existing
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
 children, including disabled rows; absence is not proof of no upstream site
-and never authorizes deletion or reconciliation.
+and never authorizes deletion or reconciliation. The address-only
+`hasEnabledContainers` instead counts only stored children with enabled exactly 1.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `hasEnabledContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -233,6 +234,51 @@ Pinned by `test/addressContainerPresence.acceptance.test.ts`; run
 `npm run check:address-container-presence` for the hermetic local-D1 contract
 and relevant list/link/conditional regressions, with no live credentials or
 upstream calls.
+
+## Address enabled-container presence
+
+Only the ordinary address list accepts `hasEnabledContainers=true|false|any`
+(default `any`). `true` is a correlated `EXISTS` for a stored child with the
+same `pickup_address_id` and `container_snapshot.enabled = 1`. `false` is its
+exact `NOT EXISTS` complement: zero-container sites, all-disabled sites and
+sites with only noncanonical child enabled values all qualify. Values other
+than stored 1 never count as enabled. Omission/`any` adds no predicate.
+Address `enabled` remains independent, as does parent customer state.
+
+All combinations intersect by AND, never overriding either selector:
+
+| `hasContainers` | `hasEnabledContainers` | Matching sites |
+| --- | --- | --- |
+| `any` | `any` | All sites |
+| `any` | `true` | At least one stored enabled child |
+| `any` | `false` | No stored enabled child, including zero-container sites |
+| `true` | `any` | At least one stored child of any enabled state |
+| `true` | `true` | At least one stored enabled child |
+| `true` | `false` | Stored equipment exists, but none is enabled |
+| `false` | `any` | Zero stored children |
+| `false` | `true` | Empty 200 (contradiction) |
+| `false` | `false` | Zero stored children |
+
+The predicate uses the existing child foreign-key lookup, without joins,
+row fanout, child expansion, per-site counts, new indexes or migrations.
+COUNT and page share the same WHERE/binds. It AND-composes with every merged
+address selector (IDs, customer/route/franchise, locality/street, note/search,
+site enabled, extrasAllowed, audit-date and parent customer enabled) and the
+cursor/lowerId/upperId bounds. Count-only uses one COUNT and no page; count-free
+uses no COUNT. Sparse fields, exactNext, order, ETag/304 and no-store retain
+their existing behavior. Asc/desc next Links retain effective true/false values,
+including offset-to-seek continuations, and omit `any`/default.
+
+Invalid, blank or repeated keys, including encoded duplicates, fail after auth
+and before D1 or 304 with the fixed value-free problem and
+[corrective guidance](PROBLEMS.md#address-enabled-container-presence-bad-request).
+This is mirrored state, not live service status, deployment proof, upstream
+emptiness or reconciliation authority. No upstream/R2/writes or performance
+promise. See the [synthetic cohort recipe](CONSUMER-QUICKSTART.md#address-enabled-container-presence).
+Run `npm run check:address-enabled-container-presence`; the independent
+`test/addressEnabledContainerPresence.acceptance.test.ts` executes synthetic
+real local D1, including both emitted query plans and auth/malformed zero-SQL
+checks. Local planner evidence is not a production latency claim.
 
 ## Container serial and RFID presence
 

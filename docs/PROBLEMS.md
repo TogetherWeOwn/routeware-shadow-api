@@ -224,6 +224,23 @@ a successful empty collection, not a validation error, and `false` means no
 currently mirrored child — not proof the upstream site is empty. See the
 [synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
 
+## Address enabled-container presence (`bad-request`)
+
+Only `GET /api/v1/address-snapshot` recognizes `hasEnabledContainers`.
+Send one exact, case-sensitive `hasEnabledContainers=true`, `false` or `any`
+(default `any`), or omit the selector and retry. Blank, malformed or repeated
+values, including percent-encoded duplicate keys, fail after authentication
+and before D1 access or a conditional 304. The detail is fixed and value-free:
+
+`Invalid request query (hasEnabledContainers). See docs/PROBLEMS.md#bad-request.`
+
+No submitted value is echoed or logged. `false` means no currently mirrored
+child with enabled exactly 1, including zero-container and all-disabled sites.
+`hasContainers=false&hasEnabledContainers=true` is an empty 200, not a bad
+request. Mirror absence is not live service status, upstream emptiness or
+authority to reconcile. See the
+[synthetic cohort recipe](CONSUMER-QUICKSTART.md#address-enabled-container-presence).
+
 ## Container serial and RFID presence (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, `hasSerialNumber` and `hasRfid` are

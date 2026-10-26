@@ -176,6 +176,8 @@ literal stored `driverNote` substring ([synthetic note recipe](#stored-address-d
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
 mirrored-child `hasContainers=true|false|any` presence
 ([synthetic present/absent recipe](#address-container-presence)),
+`hasEnabledContainers=true|false|any` for stored children with enabled exactly 1
+([synthetic enabled-child cohorts](#address-enabled-container-presence)),
 and exact stored `lastAuditDate` / `hasLastAuditDate=true|false|any` audit selection
 ([synthetic audit-cohort recipe](#stored-address-last-audit-date)). Customer `q` matches any one name column, not an exact identity or cross-column full name
 ([synthetic name-search recipe](#personal-or-company-name-search)). Every list response includes
@@ -1395,6 +1397,63 @@ real D1 fixtures with zero, one, multiple and disabled-only children prove
 exact membership, cursor-relative totals, both seek directions and Link
 round-trips through terminal and empty pages. These checks are not deployed
 performance evidence.
+
+### Address enabled-container presence
+
+The ordinary address list also accepts `hasEnabledContainers=true|false|any`
+(default `any`). `true` selects sites with at least one stored child sharing
+`pickup_address_id` whose enabled is exactly 1; `false` is the exact complement,
+including zero-container, all-disabled and noncanonical-only sites. Address
+`enabled` is independent. `hasContainers` still counts every stored child.
+These are mirrored cohorts, not live service status, upstream emptiness,
+deployment proof or reconciliation authority.
+
+Synthetic local fixture: site 11 has no children, 12 has [1], 13 has [1,1,0],
+14 has [0], 15 has none, 16 has [2], 17 has [2,0], and 18 has [-1,1], where
+brackets list stored child enabled values. No live service or credentials are
+needed for the hermetic check below; curl shows the same requests against a
+local service seeded with those synthetic rows. Enabled-present traversal:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasEnabledContainers=true&limit=2&exactNext=true"
+# IDs 12,13; total 3; nextCursor 13. Follow the returned Link unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasEnabledContainers=true&limit=2&exactNext=true&cursor=13"
+# ID 18; total 1; nextCursor null; no Link.
+```
+
+Enabled-absent and compact count-only cohort recipes over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasEnabledContainers=false&limit=2&exactNext=true"
+# IDs 11,14; total 5; nextCursor 14; Link retains hasEnabledContainers=false.
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasEnabledContainers=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — one COUNT, no page/Link.
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=true&hasEnabledContainers=false&countOnly=true"
+# {"rows":[],"total":3,"nextCursor":null} — sites 14,16,17 have equipment, none enabled.
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasContainers=false&hasEnabledContainers=true&countOnly=true"
+# {"rows":[],"total":0,"nextCursor":null} — contradiction, successful empty 200.
+```
+
+Both directions and offset-to-seek next Links retain effective true/false and
+omit `any`/default. Count-free `includeTotal=false`, sparse fields, bounds,
+ETag/304 and no-store retain the existing contract; countOnly cannot combine
+with includeTotal=false. Malformed, blank or repeated selectors fail after auth
+and before D1/304; send one exact enum or omit and retry
+([fixed guidance](PROBLEMS.md#address-enabled-container-presence-bad-request)).
+
+Run `npm run check:address-enabled-container-presence` for synthetic real-D1
+selection, all nine truth-table combinations, bidirectional Link traversal,
+conditional/auth/validation and mounted-schema regressions. The
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-enabled-container-presence)
+documents the full truth table. Only the existing child foreign-key lookup is
+used; no new index/migration, upstream/R2 call, deployment or production
+performance promise.
 
 ### Address street or locality search
 

@@ -54,6 +54,7 @@ type SnapshotListQuery = {
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
+  hasEnabledContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
@@ -119,6 +120,10 @@ export function snapshotNextLink(
   // any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
+  }
+  // Enabled-child presence is address-only; any/omitted stays canonical.
+  if (resource === "address" && query.hasEnabledContainers !== undefined && query.hasEnabledContainers !== "any") {
+    params.set("hasEnabledContainers", query.hasEnabledContainers);
   }
   // Stored audit-date presence (address only): carry only filtering values
   // so any/omitted continuations stay byte-identical.

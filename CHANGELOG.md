@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Address snapshot lists accept `hasEnabledContainers=true|false|any`
+  (default `any`): true requires a stored child sharing `pickup_address_id`
+  with enabled exactly 1; false is the exact NOT EXISTS complement, including
+  zero-container, all-disabled and noncanonical-only sites. Address enabled
+  remains independent. The selector AND-composes with `hasContainers` and
+  every merged filter in the shared COUNT/page predicate, without fanout;
+  in `hasContainers` × `hasEnabledContainers` order, false+true is an empty
+  200 and true+false keeps equipment-with-none-enabled.
+  Count-only/count-free, sparse fields, ETag/304, no-store and bidirectional
+  next Links retain their contracts; effective true/false round-trips while
+  any/default is omitted. Invalid, blank and repeated keys (including encoded
+  duplicates) fail value-free after auth and before D1/304. Mirror state is
+  not live service status, upstream emptiness, deployment proof or
+  reconciliation authority. Existing child foreign-key lookup only; no new
+  index, migration or performance claim. Full truth table and synthetic
+  count-only cohort recipe: `docs/CONSUMER-QUICKSTART.md#address-enabled-container-presence`;
+  local check: `npm run check:address-enabled-container-presence`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
