@@ -1033,6 +1033,68 @@ claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-stored-phone-presence)
 and [400 correction guidance](PROBLEMS.md#bad-request).
 
+### Customer container presence
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select accounts by mirrored descendant equipment, without downloading child
+rows. Optional `hasContainers=true|false|any` (default `any`) on this list
+has grandchild reachability semantics — distinct from the address list's
+direct-child selector of the same spelling: `true` keeps customers with at
+least one stored container reachable through any stored address they own,
+`false` keeps the exact complement. Disabled addresses and containers
+count; customer `enabled` stays independent. Presence is **global** to the
+customer across all owned addresses — an account with one unequipped site
+stays present via another site, so never read it as same-site membership.
+Absence is no currently mirrored reachable equipment, **not** proof of no
+upstream equipment or active service, and never authorizes deletion,
+reconciliation or sync. Send the supported key once as `true`, `false` or
+`any`, or omit it; invalid, blank, repeated or case-variant values return
+the existing value-free 400 before D1 (authentication first).
+
+Synthetic local recipe: with customers 11–16, give 12 one equipped address
+and 13 three addresses (two equipped, one empty), 14 one unequipped
+address, and 11/15/16 no addresses. Present is [12, 13]; absent is
+[11, 14, 15, 16]. Use only a local fixture service and its `$TOKEN`, not
+production data. The focused suite below creates this fixture
+automatically in test D1.
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasContainers=true&limit=1&fields=enabled&includeTotal=false"
+# {"rows":[{"customer_id":12,"enabled":1}],"total":null,"nextCursor":12} — Link retains hasContainers=true
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasContainers=true&fields=enabled&limit=1&includeTotal=false&cursor=12"
+# Next: 13 (present via its equipped sites despite the empty one), then stop when Link is absent.
+```
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasContainers=false&hasAddresses=true&fields=enabled"
+# {"rows":[{"customer_id":14,"enabled":1}],"total":1,"nextCursor":null} — sites but no equipment
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasContainers=true&hasAddresses=false"
+# {"rows":[],"total":0,"nextCursor":null} — contradiction is an empty 200, not an error
+```
+
+GET is an idempotent local D1 read, not an upstream call; CLI `--dry-run`
+is N/A. Counted totals are cursor-relative; `includeTotal=false` runs zero
+COUNTs and `countOnly=true` runs the existing COUNT-only path. The selector
+composes with either paging direction, `upperId`, sparse fields and
+representation-correct ETag/304. No snapshot isolation is promised across
+concurrent writes.
+
+Run `npm run check:customer-container-presence` for synthetic local-D1
+selection, validation/auth, full Link traversal and conditional-read
+regressions. The acceptance suite executes EXPLAIN on both emitted
+COUNT/page statements and checks the existing
+`idx_address_snapshot_customer_id` and
+`idx_container_snapshot_pickup_address_id` SEARCH plans, for both
+true/false. This is local planner evidence only, not a production latency
+claim. No migration, new index, deployment or live probe. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-container-presence)
+and [400 correction guidance](PROBLEMS.md#customer-container-presence-bad-request).
+
 ### Address container presence
 
 Use the existing `listAddressSnapshot` operation to find mirrored service

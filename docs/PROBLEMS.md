@@ -160,6 +160,26 @@ is independent. No mirrored child is not proof of no upstream site and never
 authorizes deletion, reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
 
+## Customer container presence (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send one `hasContainers=true`, `false`
+or `any` (default), or omit the selector and retry. On this list the key
+selects by mirrored grandchild reachability (a stored container through any
+stored address the customer owns); the address list keeps its own
+direct-child selector of the same spelling with its existing detail below.
+The enum is exact and case-sensitive: unknown, empty and repeated values
+fail after authentication and before D1 with the existing value-free 400.
+Detail for this field alone:
+
+`Invalid request query (hasContainers). Send one hasContainers=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. Zero matches is a successful empty
+collection. Disabled stored addresses and containers count as present;
+customer `enabled` is independent. No mirrored reachable container is not
+proof of no upstream equipment and never authorizes deletion,
+reconciliation or sync. See the
+[local present/absent recipe](CONSUMER-QUICKSTART.md#customer-container-presence).
+
 ## Address container presence (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `hasContainers` is an optional exact,

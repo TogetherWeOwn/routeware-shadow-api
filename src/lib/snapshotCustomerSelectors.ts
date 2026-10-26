@@ -17,6 +17,16 @@ export function customerAddressPresencePredicate(value: "true" | "false"): strin
   return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id)`;
 }
 
+/** Exact enum: repeated query keys arrive as arrays and fail before D1. */
+export const customerContainerPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Mirrored container presence: "true" selects customers with at least one stored container reachable through any stored address they own, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses and containers including disabled rows; customer enabled stays independent. Presence is global to the customer across all owned addresses, never same-site membership for any separate site cohort. Absence is not proof of no upstream equipment or active service and never authorizes deletion, reconciliation or sync. Send one hasContainers=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+/** Nested correlated grandchild lookup, no binds or join expansion; disabled rows count. */
+export function customerContainerPresencePredicate(value: "true" | "false"): string {
+  return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id))`;
+}
+
 /**
  * Stored phone-slot presence selectors for the ordinary customer list.
  *
