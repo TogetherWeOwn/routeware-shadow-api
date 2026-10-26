@@ -162,7 +162,7 @@ describe("equipment cohort same-child truth table", () => {
     [{ equipmentEnabled: "true" }, [11, 12, 13, 14, 16, 19, 21, 22]],
     [{ equipmentEnabled: "false" }, [13, 17, 18, 20, 24]],
     [{ equipmentMaterialStream: "X", equipmentTypeId: "5" }, [11, 13, 14, 21, 22, 23, 24]],
-    [{ equipmentMaterialStream: "X", equipmentEnabled: "true" }, MATCH],
+    [{ equipmentMaterialStream: "X", equipmentEnabled: "true" }, [11, 12, 14, 21, 22]],
     [{ equipmentTypeId: "5", equipmentEnabled: "true" }, [11, 12, 13, 14, 19, 21, 22]],
     [COHORT, MATCH],
     [{ ...COHORT, equipmentEnabled: "false" }, [13, 24]],
