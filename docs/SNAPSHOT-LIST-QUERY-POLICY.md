@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `hasEnabledAddresses`, `hasEnabledContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -996,6 +996,53 @@ qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
 predicates. This demonstrates executable synthetic query shape only, not a
 runtime latency improvement. No new indexes, migrations, bindings or upstream
 requests are introduced.
+
+## Exact stored service-code lookup
+
+Only the existing container list accepts `serviceCode`. It is a single
+optional, case-sensitive opaque exact string of 1..100 Unicode code points
+matching the stored `service_code` column — not the type/input columns, a
+number or a substring. Leading zeros and nonblank whitespace are preserved;
+no trimming, case folding or Unicode normalization occurs. Empty,
+whitespace-only, repeated and overlength selectors receive a stable value-free
+400 before D1: `Invalid request query (serviceCode). See docs/PROBLEMS.md#bad-request.`
+Correct the named selector and retry; do not log service codes. Quotes, `%`
+and `_` are literal bound data, never SQL/wildcards.
+
+The selector composes with AND with every existing filter on both SQL paths
+(the plain list and the `customerId` address join). Stored nulls and blanks
+do not match; codes need not be unique. Counts and rows use the same scope;
+`includeTotal=false` issues zero COUNT statements. Filtering never changes
+canonical `container_id`, sparse fields or conditional JSON-read semantics.
+Unknown keys remain ignored by default; `strictQuery=true` opts into the
+mounted-schema rejection policy above, where `serviceCode` is recognized.
+
+Synthetic fixture recipe (not a production request): seed matching containers
+101, 102, 103 and 104 locally, then request:
+
+```text
+GET /api/v1/container-snapshot?serviceCode=001Swap&fields=service_code&limit=2&includeTotal=false
+
+{"rows":[{"container_id":101,"service_code":"001Swap"},{"container_id":102,"service_code":"001Swap"}],"total":null,"nextCursor":102}
+Link: </api/v1/container-snapshot?serviceCode=001Swap&fields=service_code&limit=2&includeTotal=false&cursor=102>; rel="next"
+```
+
+Follow the returned same-origin Link exactly rather than reconstructing it.
+The selector is URL-encoded independently, including whitespace, quotes,
+Unicode and delimiters. The next IDs in this fixture are 103, then 104, then
+an empty terminal page; a full last page can still emit a continuation. With
+counts enabled, totals remain cursor-relative. Do not stop at the first
+duplicate match.
+
+Run `npm run check:container-service-code` for synthetic local-D1 lookup,
+validation/auth precedence, composition, count, field, conditional-read and
+followed-link checks. Network/R2/browser doubles deny unexpected access; a
+read-only recorder and before/after fixture/schema comparison prove zero writes.
+The suite executes `EXPLAIN QUERY PLAN` on emitted COUNT/row SELECTs with the
+bound `c.service_code = ?` predicate. Synthetic equality-query plans report
+`SCAN c` for both statements on the fixture; no service-code index or
+production latency claim is made. No new indexes, migrations, bindings or
+upstream requests are introduced.
 
 ## Stored on-call and GPS-lock selection
 
