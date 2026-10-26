@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `compactorInspection`, `enclosureInspection`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -1447,6 +1447,57 @@ returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
 absent.
 
 Run `npm run check:container-service-code-parts` for the focused
+synthetic-local-D1 equality, composition, rejection, traversal,
+SQL-shape and contract regressions. No live replay.
+
+## Stored inspection-text filters
+
+Only the ordinary container list recognizes `compactorInspection` and
+`enclosureInspection`. Each is an optional exact equality on its own
+stored snapshot column (`c.ud_last_compactor_inspection_ud`,
+`c.ud_last_enclosure_inspection_ud`): mirrored report text only — not
+inspection compliance, certification, schedule, or proof an inspection
+happened. Missing text includes report/detail gaps, never proof of
+non-inspection. Date-shaped text is opaque data, never a date: stored
+`2026-1-5` and `2026-01-05` are different values, neither parsed,
+ranged, or read as overdue/due state. Each value is a case-sensitive
+opaque string of 1..100 Unicode code points containing a
+non-whitespace character, sent at most once; leading zeros and
+significant whitespace are preserved, not trimmed or normalized. Rows
+with a null stored text never match any supplied value, and a nonblank
+needle cannot equal empty stored text. Anything else — including a
+blank value, an overlength value or a repeated key, even
+percent-encoded — is the existing value-free 400 naming the offending
+key before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-inspection-text-filters-bad-request).
+
+The two selectors are fully independent — text stored in one inspection
+column never matches the other column's selector — and AND-compose with
+each other and with every existing list selector: one bound
+`c.ud_last_compactor_inspection_ud = ?` /
+`c.ud_last_enclosure_inspection_ud = ?` predicate per supplied key is
+in both the page `SELECT` and the `COUNT`, on the container alias on
+both the bare and the parent-address-join paths, with no new migration,
+index or join. Equality may scan; no latency claim is implied. Both
+selectors are recognized under `strictQuery=true`; a valid unknown text
+returns an empty 200. Omission preserves existing matches and wire
+behavior. When the page is non-terminal, the `Link` next target
+preserves each validated selector verbatim in both directions and
+across offset-to-seek; an unfiltered page's next target carries
+neither. Count a stored inspection-text cohort without paging rows:
+
+```text
+GET /api/v1/container-snapshot?compactorInspection=2026-01-05&countOnly=true
+
+{"rows":[],"total":2,"nextCursor":null}
+```
+
+`countOnly=true` with `compactorInspection` (or `enclosureInspection`)
+returns only the count, with no page SELECT or next Link. Paged
+traversal replays both selectors with the cursor; stop only when
+`Link` is absent.
+
+Run `npm run check:container-inspection-texts` for the focused
 synthetic-local-D1 equality, composition, rejection, traversal,
 SQL-shape and contract regressions. No live replay.
 

@@ -343,6 +343,25 @@ when no entry-part filter is intended. Authentication still precedes
 validation. A valid entry pair that matches no rows returns 200 with an
 empty list. See the [entry-part policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-service-code-entry-part-filters).
 
+## Stored inspection-text filters (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional inspection-text
+key at most once: `compactorInspection` and `enclosureInspection` are
+case-sensitive opaque exact strings of 1..100 Unicode code points, each
+containing a non-whitespace character. Leading zeros and significant
+whitespace are preserved; do not trim, fold case or normalize them.
+URL-encode the value. These filter mirrored report text only — not
+inspection compliance, certification, schedule, or proof an inspection
+happened — and date-shaped text is opaque data, never parsed as a date.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (compactorInspection). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `enclosureInspection` (or both). Correct the
+named key to one supported-length nonblank spelling and retry; omit it
+only when no inspection-text filter is intended. Authentication still
+precedes validation. A valid inspection text that matches no rows returns
+200 with an empty list. See the [inspection-text policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-inspection-text-filters).
+
 ## Container parent service-site scopes (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, send each optional parent key once:

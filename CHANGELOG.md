@@ -5,6 +5,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Container snapshot lists accept optional exact stored inspection texts:
+  `compactorInspection` bound as `c.ud_last_compactor_inspection_ud = ?`
+  and `enclosureInspection` bound as
+  `c.ud_last_enclosure_inspection_ud = ?`, each reading only its own
+  column. Each value is one nonblank case-sensitive opaque string of
+  1..100 Unicode code points; leading zeros, case and significant
+  whitespace are preserved, stored nulls never match and valid unknown
+  texts return an empty 200. Date-shaped text stays opaque data
+  (`2026-1-5` never equals `2026-01-05`): these are mirrored report texts
+  only — not inspection compliance, certification, schedule, or proof an
+  inspection happened — and missing text includes report/detail gaps,
+  never proof of non-inspection. The selectors AND-compose with each
+  other and every existing container filter with shared COUNT/page scope,
+  COUNT-only `countOnly`, zero-COUNT `includeTotal=false`, sparse fields,
+  ETags/304 and selector-retaining relative next Links in asc/desc,
+  including offset-to-seek. Empty/whitespace-only, repeated and
+  overlength values fail with the existing value-free 400 after auth and
+  before D1. Unscoped equality scans with no index/migration or latency
+  claim. Synthetic count-only cohort recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-inspection-texts`; local
+  check: `npm run check:container-inspection-texts`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address

@@ -519,6 +519,45 @@ retry. These idempotent local GETs do no upstream/R2/write work; CLI
 equality scans. Run `npm run check:container-exact-city` with synthetic local
 D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city).
 
+### Exact stored inspection texts
+
+Select equipment carrying one specific stored inspection text with
+`compactorInspection` (stored `ud_last_compactor_inspection_ud`) or
+`enclosureInspection` (stored `ud_last_enclosure_inspection_ud`) on the
+existing container list: one nonblank case-sensitive opaque exact string
+of 1..100 Unicode code points each, reading only its own column. These
+are mirrored report texts only — not inspection compliance,
+certification, schedule, or proof an inspection happened; missing text
+includes report/detail gaps, never proof of non-inspection. Date-shaped
+text is opaque data: stored `2026-1-5` never matches `2026-01-05`.
+Leading zeros, case and significant whitespace are preserved; stored
+nulls never match and a valid unknown text returns an empty 200.
+
+Count a synthetic inspection-text cohort without paging rows:
+
+```text
+GET /api/v1/container-snapshot?compactorInspection=2026-01-05&countOnly=true
+{"rows":[],"total":2,"nextCursor":null}
+```
+
+The same `countOnly=true` form works with `enclosureInspection`, and both
+selectors together intersect by AND with each other and with every other
+container filter (identifiers, locality, parent scopes, `q`, `enabled`,
+IDs and ID windows). Counts are cursor-relative when requested;
+`includeTotal=false` still runs zero COUNTs, sparse fields keep the
+canonical `container_id`, and relative next Links retain both selectors
+in asc/desc, including offset-to-seek. Conditional ETags/304 work
+unchanged.
+
+Use `new URLSearchParams({ compactorInspection: " 2026-01-05 " })` to keep
+significant whitespace and reserved characters literal; never concatenate
+raw data or log query values. Invalid/repeated/overlength selectors
+return value-free 400 before D1. These idempotent local GETs do no
+upstream/R2/write work; CLI `--dry-run` is N/A. No index/migration or
+latency claim: unscoped equality scans. Run
+`npm run check:container-inspection-texts` with synthetic local D1 only.
+See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-inspection-text-filters).
+
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
