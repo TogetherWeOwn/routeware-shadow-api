@@ -502,6 +502,25 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// Caller-held synced-window selection (`syncedSince`/`syncedUntil`) has
+// semantic checks in the Test Author-owned
+// addressSyncedWindow.acceptance.test.ts, not frozen as speculative
+// parameter positions. The address description and 400 prose are already
+// projected out above; only the two new selectors move to behavioral
+// ownership here. All legacy parameters stay frozen.
+function withoutAddressSyncedWindow(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["syncedSince", "syncedUntil"].includes(parameter.name ?? "")
+    );
+  }
+  return copy;
+}
+
 // Exact identifiers, stored labels, installation/city selectors, parent scopes and
 // service-code entry parts, serial/RFID presence and stored-flag selectors
 // supersede this route's old query/error narrative. Their schemas,
@@ -949,7 +968,7 @@ describe("published OpenAPI document", () => {
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to
     // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutAddressSyncedWindow(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
   });
 });
 
