@@ -12,7 +12,8 @@ import { writeSync } from "node:fs";
  *
  * Usage text itself stays per-wrapper (purpose differs). The pair suite
  * pins the transport contract only: exit 0, `Usage:` on stdout, the
- * script basename, a `--flag` token, and no side effects. Each of the 17
+ * script basename, a `--flag` token, no side effects, and a synthetic
+ * >128 KiB usage delivered whole to a pipe. Each of the 17
  * migrated usages additionally states purpose, supported flags, exit
  * codes, and one example; the 5 pre-existing `--help` texts keep their
  * own shorter format.
