@@ -1,6 +1,7 @@
 import { z } from "@hono/zod-openapi";
 import { snapshotIdSelectionQuery } from "./snapshotIdSelection";
 import { snapshotUpperIdQuery } from "./snapshotUpperId";
+import { snapshotLowerIdQuery } from "./snapshotLowerId";
 import { snapshotOrderQuery } from "./snapshotListOrder";
 import { snapshotSearchQuery } from "./snapshotSearchQuery";
 import { snapshotFieldsQuery } from "./sparseFieldsets";
@@ -79,6 +80,7 @@ export const customerSnapshotListQuery = z.object({
     .optional()
     .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
     .openapi({ example: 345733 }),
+  lowerId: snapshotLowerIdQuery,
   upperId: snapshotUpperIdQuery,
   includeTotal: z
     .enum(["true", "false"])
