@@ -45,6 +45,7 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   fields?: string[];
+  lowerId?: number;
   upperId?: number;
   limit: number;
   // Routes pass order/includeTotal only when the request spelled them out, so
@@ -103,8 +104,9 @@ export function snapshotNextLink(
     params.set("parentEnabled", query.parentEnabled);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
-  // Caller-held inclusive ceiling: the next target keeps the same cap so the
-  // continuation cannot escape the traversal the caller chose to bound.
+  // Caller-held inclusive window: the next target keeps the same floor and cap
+  // so the continuation cannot escape the traversal the caller chose to bound.
+  if (query.lowerId !== undefined) params.set("lowerId", String(query.lowerId));
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
   if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
