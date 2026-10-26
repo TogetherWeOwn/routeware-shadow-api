@@ -635,6 +635,53 @@ Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
 
+### Stored container-type filter
+
+Use the existing `listContainerSnapshot` operation to fetch one equipment
+type without downloading the whole mirrored inventory. Optional
+`containerTypeId` is exact equality on the stored snapshot column
+`container_type_id` — mirrored CSV state, not a live Routeware lookup —
+with no type-name catalog or inference. Send it at most once as one
+unpadded ASCII decimal safe integer `0..9007199254740991`; `0` matches
+literal stored zero while null stored types never match. The selector
+AND-composes with every existing list selector, including parent service-site
+scopes, exact equipment labels and installation fields, `upperId`, sparse
+`fields` and `includeTotal=false`. It is recognized under `strictQuery=true`
+and reused by `countOnly=true` (count only, no page SELECT or next Link).
+For row pages, the validated value round-trips in `Link` next targets for
+both `asc` and `desc` traversals.
+
+**Synthetic multi-page recipe:** the hermetic fixture holds stored types 0,
+5 (twice) and 7 across distinct addresses. Read one row per page:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+200 {"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+Link: </api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302>; rel="next"
+```
+
+Follow that relative Link against the same origin: the second page returns
+ID 9303 with `total: 1` and `nextCursor: 9303`, whose Link leads to the
+terminal empty page (`{"rows":[],"total":0,"nextCursor":null}`, no Link).
+A full final page may link to this empty page; stop only when Link is
+absent. A valid type with no matches is an HTTP 200 empty collection, not
+a reason to sync. Anything but the canonical spelling — empty, padded,
+signed, fractional, unsafe, or a repeated key — is the existing value-free
+400 before D1 ([correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request));
+omit the key to keep today's unfiltered matches.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:container-type-filter
+```
+
+The fixture seeds local test D1, traverses real next links in both
+directions through the empty tail, and checks zero COUNTs in count-free
+mode, sparse fields and conditional ETags without logging submitted
+values. No migration, index or upstream call is involved. See the
+[type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
+
 ### Address stored extras-allowed selector
 
 Use the existing `listAddressSnapshot` operation to read only sites that
