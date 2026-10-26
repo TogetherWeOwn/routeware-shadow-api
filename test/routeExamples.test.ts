@@ -524,7 +524,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     path: "/api/v1/customer-snapshot/changes",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["since", "since_id", "limit", "fields"]
+    parameterNames: ["since", "since_id", "until", "limit", "fields"]
   },
   {
     path: "/api/v1/customer-snapshot/{customerId}",
