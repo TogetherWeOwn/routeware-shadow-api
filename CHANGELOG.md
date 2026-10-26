@@ -29,6 +29,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   scan. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md#stored-address-comments-and-presence`;
   focused check: `npm run check:address-comments`.
+- #375: Container snapshot lists accept an optional `serviceCode` exact,
+  case-sensitive filter (1..100 Unicode code points) matching the stored
+  service code. Opaque values retain leading zeros and nonblank whitespace;
+  invalid/repeated selectors return value-free 400s before D1. The filter
+  composes with AND alongside every existing selector, preserves duplicate
+  matches and travels in encoded next-page links. Existing count-free,
+  sparse and conditional reads are preserved. Local read-only D1 only; no
+  schema/index, upstream or auth changes. Synthetic lookup recipe and
+  focused check: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
 - #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
   (stored `extras_allowed` = 1/0/no predicate) and opaque exact
   `addressLastAuditDate` (1..100 Unicode code points, nonblank,
