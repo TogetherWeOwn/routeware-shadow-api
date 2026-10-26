@@ -14,8 +14,9 @@ import { z } from "@hono/zod-openapi";
  * `migrations/d1/0001_customer_snapshot.sql` and
  * `migrations/d1/0002_address_container.sql` (D1 INTEGER → integer,
  * D1 TEXT → string, nullable unless the column is NOT NULL). Every property
- * is optional except each row's primary id, so `fields`/`fields[TYPE]`
- * projections and sparse-relation rows validate.
+ * within a row is optional except its primary id, so `fields`/`fields[TYPE]`
+ * projections validate. Bundle/relationship keys are always present; batch
+ * payloads require full rows derived from the same column authority.
  */
 
 const customerRowFields = {
@@ -108,44 +109,97 @@ export const snapshotContainerRowSchema = z.object(containerRowFields).openapi("
  */
 export const snapshotAddressWithContainersSchema = z.object({
   ...addressRowFields,
-  containers: z.array(snapshotContainerRowSchema).optional().openapi({
+  containers: z.array(snapshotContainerRowSchema).openapi({
     description: "Containers homed at this address, in container_id order; empty when none are stored."
   })
 }).openapi("SnapshotAddressWithContainers", {
-  description: "One address_snapshot row nested in a customer bundle, with its containers. Only pickup_address_id is required."
+  description: "One address_snapshot row nested in a customer bundle. pickup_address_id and containers are required; other row columns may be projected out."
 });
 
-/** `GET /api/v1/data/customer` 200: root customer plus nested addresses with containers. */
-export const hydratedCustomerBundleSchema = z.object({
-  customer: snapshotCustomerRowSchema.optional(),
-  addresses: z.array(snapshotAddressWithContainersSchema).optional()
+/** Single-ID 200: root customer plus nested addresses with containers. */
+export const hydratedCustomerBundleSchema = z.strictObject({
+  customer: snapshotCustomerRowSchema,
+  addresses: z.array(snapshotAddressWithContainersSchema)
 }).openapi("HydratedCustomerBundle", {
-  description: "Hydrated customer aggregate: the root customer row plus its addresses, each with containers. Bundle keys stay optional so projections validate; rows always retain their primary id."
+  description: "Hydrated customer aggregate: required root customer and addresses, each with containers. Row columns may be projected out, but primary ids and relationship keys remain."
 });
 
-/** `GET /api/v1/data/address` 200: root address plus its customer and containers. */
-export const hydratedAddressBundleSchema = z.object({
-  address: snapshotAddressRowSchema.optional(),
-  customer: snapshotCustomerRowSchema.nullable().optional().openapi({
+/** Single-ID 200: root address plus its customer and containers. */
+export const hydratedAddressBundleSchema = z.strictObject({
+  address: snapshotAddressRowSchema,
+  customer: z.object(customerRowFields).nullable().openapi({
     description: "Owning customer row, or null when the parent is missing (stale/racing reads)."
   }),
-  containers: z.array(snapshotContainerRowSchema).optional()
+  containers: z.array(snapshotContainerRowSchema)
 }).openapi("HydratedAddressBundle", {
-  description: "Hydrated address aggregate: the root address row plus its owning customer and containers. Bundle keys stay optional so projections validate; rows always retain their primary id."
+  description: "Hydrated address aggregate: required address, customer and containers. Row columns may be projected out; primary ids remain. A missing parent is null and empty children are []."
 });
 
-/** `GET /api/v1/data/container` 200: root container plus its address and customer. */
-export const hydratedContainerBundleSchema = z.object({
-  container: snapshotContainerRowSchema.optional(),
-  address: snapshotAddressRowSchema.nullable().optional().openapi({
+/** Single-ID 200: root container plus its address and customer. */
+export const hydratedContainerBundleSchema = z.strictObject({
+  container: snapshotContainerRowSchema,
+  address: z.object(addressRowFields).nullable().openapi({
     description: "Owning address row, or null when the parent is missing (stale/racing reads)."
   }),
-  customer: snapshotCustomerRowSchema.nullable().optional().openapi({
+  customer: z.object(customerRowFields).nullable().openapi({
     description: "Owning customer row, or null when the parent is missing (stale/racing reads)."
   })
 }).openapi("HydratedContainerBundle", {
-  description: "Hydrated container aggregate: the root container row plus its owning address and customer. Bundle keys stay optional so projections validate; rows always retain their primary id."
+  description: "Hydrated container aggregate: required container, address and customer. Row columns may be projected out; primary ids remain. Missing parents are null."
 });
+
+// Batch does not support fieldsets. Intersect the stable bundle references with
+// full rows derived from the same schemas, never a second column registry.
+// Inline nullable objects: OpenAPI 3.0 allOf($ref, nullable) does not make the
+// referenced non-null object nullable for independent schema consumers.
+const fullCustomerRow = z.object(customerRowFields).required();
+const fullAddressRow = z.object(addressRowFields).required();
+const fullContainerRow = z.object(containerRowFields).required();
+const fullCustomerBundle = z.intersection(hydratedCustomerBundleSchema, z.object({
+  customer: fullCustomerRow,
+  addresses: z.array(fullAddressRow.extend({ containers: z.array(fullContainerRow) }))
+}));
+const fullAddressBundle = z.intersection(hydratedAddressBundleSchema, z.object({
+  address: fullAddressRow,
+  customer: fullCustomerRow.nullable(),
+  containers: z.array(fullContainerRow)
+}));
+const fullContainerBundle = z.intersection(hydratedContainerBundleSchema, z.object({
+  container: fullContainerRow,
+  address: fullAddressRow.nullable(),
+  customer: fullCustomerRow.nullable()
+}));
+const batchId = z.number().int().min(1).max(Number.MAX_SAFE_INTEGER);
+const missingEntry = z.strictObject({ id: batchId, found: z.literal(false) });
+const batchDescription =
+  "Batch ids response: 1..50 entries in request order, preserving duplicates. " +
+  "found=true carries the full hydrated bundle; found=false carries only id/found. " +
+  "No fieldsets, no-store, no ETag or conditional 304; all-missing is still 200.";
+
+export const hydratedCustomerBatchSchema = z.strictObject({
+  entries: z.array(z.discriminatedUnion("found", [
+    z.strictObject({ id: batchId, found: z.literal(true), customer: fullCustomerBundle }),
+    missingEntry
+  ])).min(1).max(50)
+}).openapi("HydratedCustomerBatch", { description: batchDescription });
+
+export const hydratedAddressBatchSchema = z.strictObject({
+  entries: z.array(z.discriminatedUnion("found", [
+    z.strictObject({ id: batchId, found: z.literal(true), address: fullAddressBundle }),
+    missingEntry
+  ])).min(1).max(50)
+}).openapi("HydratedAddressBatch", { description: batchDescription });
+
+export const hydratedContainerBatchSchema = z.strictObject({
+  entries: z.array(z.discriminatedUnion("found", [
+    z.strictObject({ id: batchId, found: z.literal(true), container: fullContainerBundle }),
+    missingEntry
+  ])).min(1).max(50)
+}).openapi("HydratedContainerBatch", { description: batchDescription });
+
+export const hydratedCustomerResponseSchema = z.union([hydratedCustomerBundleSchema, hydratedCustomerBatchSchema]);
+export const hydratedAddressResponseSchema = z.union([hydratedAddressBundleSchema, hydratedAddressBatchSchema]);
+export const hydratedContainerResponseSchema = z.union([hydratedContainerBundleSchema, hydratedContainerBatchSchema]);
 
 export type SnapshotCustomerRow = z.infer<typeof snapshotCustomerRowSchema>;
 export type SnapshotAddressRow = z.infer<typeof snapshotAddressRowSchema>;

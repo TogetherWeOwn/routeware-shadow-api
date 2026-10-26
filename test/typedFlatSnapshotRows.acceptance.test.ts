@@ -805,9 +805,13 @@ describe("mounted contract: stable operations and conforming examples (controls)
   it("list examples are full rows: required identity present, flags are integers", async () => {
     const doc = await mountedDocument();
     for (const spec of SPECS) {
-      const example = operationOf(doc, spec.listPath).responses?.["200"]?.content?.[
+      const media = operationOf(doc, spec.listPath).responses?.["200"]?.content?.[
         "application/json"
-      ]?.example as unknown as ListBody | undefined;
+      ] as { example?: ListBody; examples?: Record<string, { value?: ListBody }> } | undefined;
+      // Named mode examples may add an empty count-only envelope, but must not
+      // replace or weaken the existing full-row example contract.
+      const example = media?.example ?? Object.values(media?.examples ?? {})
+        .map((entry) => entry.value).find((value) => value && value.rows.length > 0 && value.total !== null);
       expect(example, `GET ${spec.listPath}: worked example`).toBeDefined();
       if (example === undefined) continue;
       expect(Object.keys(example).sort()).toEqual(["nextCursor", "rows", "total"]);
@@ -941,8 +945,9 @@ describe.each(SPECS)("$resource by-ID: full and sparse values (controls)", (spec
       const res = await get(detailPath(id));
       expect(res.status).toBe(200);
       expectNoStoreCors(res);
-      expect(res.headers.get("etag")).toBeNull();
-      const row = (await res.json()) as Record<string, unknown>;
+      const bytes = await res.text();
+      expect(res.headers.get("etag")).toBe(await sha256Quoted(bytes));
+      const row = JSON.parse(bytes) as Record<string, unknown>;
       expect(Object.keys(row).sort()).toEqual([...EXPECTED_COLUMNS[spec.resource]].sort());
       expect(row).toEqual(orderedRow(spec.resource, seed));
     }
