@@ -39,6 +39,7 @@ type SnapshotListQuery = {
   city?: string;
   state?: string;
   driverNote?: string;
+  lastAuditDate?: string;
   q?: string;
   phone?: string;
   comments?: string;
@@ -46,6 +47,7 @@ type SnapshotListQuery = {
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
+  hasLastAuditDate?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
@@ -60,7 +62,7 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
@@ -98,6 +100,11 @@ export function snapshotNextLink(
   // filtering values so any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
+  }
+  // Stored audit-date presence (address only): carry only filtering values
+  // so any/omitted continuations stay byte-identical.
+  if (query.hasLastAuditDate !== undefined && query.hasLastAuditDate !== "any") {
+    params.set("hasLastAuditDate", query.hasLastAuditDate);
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
