@@ -54,6 +54,9 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("comments")
         ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasComments")
+        ? "Send one hasComments=true, false or any, or omit the selector and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }

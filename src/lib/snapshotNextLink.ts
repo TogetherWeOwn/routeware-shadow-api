@@ -43,6 +43,8 @@ type SnapshotListQuery = {
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
+  // Address list only; sibling lists omit the key and keep unfiltered links.
+  hasComments?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   fields?: string[];
   upperId?: number;
@@ -57,7 +59,7 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state", "driverNote"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state", "driverNote", "comments"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
@@ -95,6 +97,11 @@ export function snapshotNextLink(
   // filtering values so any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
+  }
+  // Address-only stored-text presence (other lists never set it): carry only
+  // filtering values so any/omitted continuations stay byte-identical.
+  if (query.hasComments !== undefined && query.hasComments !== "any") {
+    params.set("hasComments", query.hasComments);
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);

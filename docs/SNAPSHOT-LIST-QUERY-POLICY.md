@@ -14,13 +14,14 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `comments`, `hasComments`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
 children, including disabled rows; absence is not proof of no upstream site
-and never authorizes deletion or reconciliation.
+and never authorizes deletion or reconciliation. `hasComments` instead tests
+stored address comment text (null-or-empty versus anything else), not child rows.
 
 ## Opt-in typo detection (`strictQuery=`)
 
@@ -265,8 +266,11 @@ production latency or customer-demand claim is made.
 
 ## Stored customer comment fragment
 
-Only the ordinary customer list recognizes `comments`: a literal substring
-of stored `customer_snapshot.comments`. Use `q` for company/first/last-name search,
+The ordinary customer list recognizes `comments` as a literal substring
+of stored `customer_snapshot.comments` only; the ordinary address list owns a
+separate `comments` selector over stored `address_snapshot.comments` (see
+[stored address comments](#stored-address-comments-and-presence)). On the
+customer list, use `q` for company/first/last-name search,
 `phone` for stored phone text, and `comments` for mirrored notes; each filter searches only its documented columns. All selectors intersect by AND, including `hasAddresses` and IDs.
 
 Send one fragment of at most 100 Unicode code points **before trimming**
@@ -489,6 +493,53 @@ local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
 `npm run check:address-driver-note` for the immutable synthetic local-D1
 oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note).
+
+## Stored address comments and presence
+
+Only the existing address list accepts `comments`, a literal substring of
+stored `address_snapshot.comments` only, plus the `hasComments` stored-text
+presence selector. The fragment never matches customer comments, `driver_note`,
+street, city, state or ZIP; use `driverNote` for the access note, `q` for
+street/city/ZIP substrings, and the customer list's separate `comments` for
+mirrored account notes. Reuse the search contract: one optional string,
+maximum 100 Unicode code points **before trimming**; trim boundaries and omit
+blank/whitespace-only values. Null comments act as empty. SQLite `lower()`
+folds ASCII only; non-ASCII case variants remain distinct. `%`, `_`, quotes
+and Unicode are bound literal data, not LIKE wildcards or instructions to
+execute. Repeated or overlength input returns the existing value-free
+bad-request problem before D1, after auth; [fixed correction guidance](PROBLEMS.md#stored-address-comment-fragment-and-presence-bad-request)
+never echoes submitted fragments or unknown names. Do not log search values.
+
+`hasComments` is one exact `true`, `false` or `any` (the default when
+omitted). `true` keeps only rows whose stored comments is neither null nor
+empty; `false` keeps only null-or-empty rows. Stored whitespace-only text
+counts as present even though normal ingestion trims it to null; presence is
+never trimmed in SQL and storage is never rewritten. The fragment and
+presence AND-compose with each other and every other filter, so a nonblank
+fragment plus `hasComments=false` matches nothing. Stored presence is not
+comment quality, completeness, current upstream truth or permission to act.
+
+One bound `instr(lower(coalesce(comments, '')), lower(?)) > 0` predicate plus
+the null-or-empty presence predicates AND-compose with q, IDs,
+route/franchise, ZIP, city/state, enabled, extrasAllowed, mirrored child
+presence and traversal bounds. COUNT and page share predicates/binds;
+`includeTotal=false` still issues zero COUNTs and `countOnly` reads the full
+cohort through one COUNT with no payload fetch. Duplicate comments remain
+distinct sites by canonical `pickup_address_id`. Sparse fields and ETag/304
+describe the same final envelope. Relative next Links retain only the
+validated, trimmed fragment and effective presence (omit blank/`any`), with
+URLSearchParams encoding in either order and when moving offset-to-seek;
+unknown raw parameters and origins never travel.
+
+Comment-only reads may scan; the synthetic acceptance oracle's migrated
+local `EXPLAIN QUERY PLAN` reports `SCAN address_snapshot` with no
+comments-named index. That is fixture-scale query-shape evidence, not a
+tenant latency, index, completeness or comment-quality claim, and no
+index/migration is added. This GET is idempotent, local-read, with no
+upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-comments` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-comments-and-presence).
 
 ## Address street or locality search
 

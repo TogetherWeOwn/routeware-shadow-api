@@ -227,6 +227,53 @@ Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
 neighboring regressions; no live credentials or network probe is required.
 See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
+### Stored address comments and presence
+
+Use `listAddressSnapshot` with `comments` when you know a fragment of the
+stored site comment, and `hasComments` to select sites by stored comment
+presence without downloading comment text. `comments` searches **only
+address `comments`**: customer comments, `driver_note` and locality cannot
+satisfy it. Use `driverNote` for the access note, `q` for street/city/ZIP
+substrings, and the customer list's separate `comments` for account notes;
+all supplied filters intersect by AND. Stored presence is not comment
+quality, completeness, current upstream truth or permission to act. Never
+log fragments, search values or continuation targets.
+
+Send one URL-encoded fragment of at most 100 Unicode code points measured
+before trimming. Boundaries are trimmed, blank means omitted, null comments
+act as empty; SQLite folds ASCII case only, so non-ASCII case variants
+remain distinct. `%`, `_`, quotes and Unicode are literal, never wildcards.
+`hasComments` is one exact `true`, `false` or `any` (default); `true` keeps
+only neither-null-nor-empty stored text, `false` keeps only null-or-empty
+rows, and stored whitespace-only text counts as present. A nonblank fragment
+plus `hasComments=false` matches nothing. Repeated/overlength keys receive
+fixed value-free 400 correction before D1, after auth; see
+[recovery](PROBLEMS.md#stored-address-comment-fragment-and-presence-bad-request).
+
+Synthetic local example: sites with `comments` containing `handoff` read
+without returning comment text, and `hasComments=false` counts the
+null-or-empty cohort in one COUNT:
+
+```text
+GET /api/v1/address-snapshot?comments=handoff&fields=pickup_address_id&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?comments=handoff&fields=pickup_address_id&limit=1&includeTotal=false&cursor=11>; rel="next"
+GET /api/v1/address-snapshot?hasComments=false&countOnly=true
+{"rows":[],"total":6,"nextCursor":null}
+```
+
+Follow the relative Link unchanged on the same origin: the trimmed fragment,
+effective presence, explicit `order=desc`, `upperId` and other filters
+survive next Links; offset becomes seek, and blank/`any` selectors stay
+omitted. COUNT/page share scope; count-free is zero COUNTs; ETag/304 and
+no-store remain unchanged. Comment-only queries may scan: no new index or
+production performance claim. GET is idempotent and local-read, no
+upstream/R2/write effects; CLI `--dry-run` is N/A.
+
+Run `npm run check:address-comments` for synthetic local-D1 acceptance and
+neighboring regressions; no live credentials or network probe is required.
+See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-comments-and-presence).
+
 ### Opt-in query typo detection
 
 On the three ordinary flat lists, add `strictQuery=true` to reject unknown

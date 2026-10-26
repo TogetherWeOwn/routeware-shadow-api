@@ -361,6 +361,31 @@ address comments or locality. A valid fragment with no matches returns 200
 empty. See the [synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note)
 and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
+## Stored address comment fragment and presence (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `comments` string of
+at most 100 Unicode code points **before trimming**, plus one optional exact
+`hasComments=true`, `false` or `any` (the default when omitted). Repeated
+keys (including encoded aliases) and overlength fragments fail before D1 or
+conditional 304, as do unknown, blank or repeated presence values;
+authentication stays first. Fixed detail for the fragment alone:
+
+`Invalid request query (comments). Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. See docs/PROBLEMS.md#bad-request.`
+
+Fixed detail for the presence selector alone:
+
+`Invalid request query (hasComments). Send one hasComments=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when no
+comment filter is intended. Blank/whitespace-only fragments mean omitted,
+not an error. No submitted fragments or unknown names are echoed or logged.
+Matching is literal, ASCII-case-insensitive and limited to stored address
+`comments`, not customer comments, `driver_note` or locality; presence tests
+null-or-empty stored text, not comment quality or current upstream truth. A
+valid selection with no matches returns 200 empty. See the
+[synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-comments-and-presence)
+and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-comments-and-presence).
+
 ## Exact stored container installation (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode
