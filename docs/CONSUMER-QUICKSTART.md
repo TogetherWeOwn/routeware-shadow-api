@@ -698,6 +698,49 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container stored inspection-text presence
+
+Use `listContainerSnapshot` with `hasCompactorInspection=true|false|any` and/or
+`hasEnclosureInspection=true|false|any` (default `any`) to count equipment by
+stored inspection-text presence without reading each value. `true` keeps rows
+whose stored text is not null and not empty (nonempty whitespace-only counts as
+present); `false` keeps the exact null-or-empty complement. The two controls
+AND-compose with each other and every other filter.
+
+Stored inspection text is mirrored report metadata, not inspection compliance,
+overdue status, never-inspected proof or a controlled taxonomy; missing text
+includes report-only unavailability and is never repaired. Never parse stored
+text as dates or infer compliance from it.
+
+Send each key once with `new URLSearchParams({ hasCompactorInspection: "true",
+hasEnclosureInspection: "any" })`. Invalid, blank or repeated keys fail
+value-free before D1 after auth; correct the named key and retry, or omit it.
+Valid no-match is an empty 200.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:container-inspection-presence
+```
+
+The oracle's
+`hasCompactorInspection=true&hasEnclosureInspection=true&countOnly=true`
+request counts `total: 3` (containers 101, 110, 111) with one COUNT, no rows and
+no Link; the same filters as a page return those rows with `nextCursor: null`.
+Follow the returned [same-origin Link](#follow-the-servers-next-page-target)
+unchanged on multi-page traversals; effective presence selectors stay encoded,
+`any`/default is omitted, and neither raw origins nor unknown query keys are
+copied.
+
+Omission/`any` adds no predicate and preserves the old unjoined list and orphan
+visibility. Sparse fields, container-ID order, cursor/upper bounds, count-free
+reads and representation ETags/304 stay intact. The recipe denies outbound
+fetch/R2/writes and checks both traversal directions. Presence filters may
+scan; no new index, migration, deployment, production latency or compliance
+claim is made. GET is idempotent local-read, CLI dry-run N/A. See the
+[container query inventory](SNAPSHOT-LIST-QUERY-POLICY.md) and
+[400 recovery](PROBLEMS.md#container-stored-inspection-text-presence-bad-request).
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an

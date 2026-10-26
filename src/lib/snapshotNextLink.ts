@@ -30,6 +30,8 @@ type SnapshotListQuery = {
   parentRouteId?: number;
   parentFranchiseId?: string;
   parentEnabled?: "true" | "false" | "any";
+  hasCompactorInspection?: "true" | "false" | "any";
+  hasEnclosureInspection?: "true" | "false" | "any";
   zip?: string;
   locationAddress?: string;
   city?: string;
@@ -100,6 +102,14 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
+  }
+  // Container-only stored inspection-text presence (other lists never set
+  // these): carry only filtering values so any/omitted stays byte-identical.
+  if (resource === "container" && query.hasCompactorInspection !== undefined && query.hasCompactorInspection !== "any") {
+    params.set("hasCompactorInspection", query.hasCompactorInspection);
+  }
+  if (resource === "container" && query.hasEnclosureInspection !== undefined && query.hasEnclosureInspection !== "any") {
+    params.set("hasEnclosureInspection", query.hasEnclosureInspection);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

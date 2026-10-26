@@ -260,6 +260,28 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Container stored inspection-text presence (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional presence key once:
+
+- `hasCompactorInspection`: exactly `true`, `false` or `any` (default `any`).
+  `true` keeps rows whose stored `ud_last_compactor_inspection_ud` text is not
+  null and not empty (nonempty whitespace-only counts as present); `false`
+  keeps the exact null-or-empty complement.
+- `hasEnclosureInspection`: exactly `true`, `false` or `any` (default `any`).
+  Same presence rule over stored `ud_last_enclosure_inspection_ud` text.
+
+Blank, invalid and repeated keys return a value-free 400 before D1 or
+conditional 304, after authentication:
+`Invalid request query (hasCompactorInspection). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `hasEnclosureInspection`, or multiple supported
+keys. Correct the named format, send it once and retry; omit only if no such
+presence scope is intended. Values are never logged or included in errors.
+Stored inspection text is mirrored report metadata, not inspection compliance,
+overdue status, never-inspected proof or a controlled taxonomy; missing text
+includes report-only unavailability. Valid no-match returns 200 empty, not an
+error. See the [container query inventory](SNAPSHOT-LIST-QUERY-POLICY.md).
+
 ## Address stored extras-allowed selector (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,
