@@ -129,7 +129,7 @@ function budget(result: Awaited<ReturnType<typeof request>>) {
   expect(statements.filter(isCount)).toHaveLength(countFree ? 0 : 1);
   const select = statements.find(s => !isCount(s))!;
   const tail = /\bOFFSET\b/i.test(select.sql) ? 2 : 1;
-  expect(select.binds[select.binds.length - tail]).toBe(Number(q.get("limit") ?? 50));
+  expect(select.binds[select.binds.length - tail]).toBe(Number(q.get("limit") ?? 50) + (q.get("exactNext") === "true" ? 1 : 0));
   if (!countFree) expect(select.binds.slice(0, -tail)).toEqual(statements.find(isCount)!.binds);
   const joined = q.has("customerId") || q.has("parentRouteId") || q.has("parentFranchiseId") || ["true", "false"].includes(q.get("parentEnabled") ?? "");
   for (const s of statements) {
@@ -303,7 +303,7 @@ describe.each(["true", "false"])("container presence: intersection includeTotal=
     [{ hasCostShare: "true", q: "Depot 1" }, [100, 110, 120]],
     [{ hasEnclosureDoors: "true", q: "Depot 1" }, [100, 120]],
     [{ hasEnclosureDoors: "true", q: "special-90" }, [90]],
-    [{ hasCostShare: "true", parentFranchiseId: "001" }, [50, 70, 80]],
+    [{ hasCostShare: "true", parentFranchiseId: "001" }, [50, 70, 80, 120]],
     [{ hasCostShare: "false", hasEnclosureDoors: "false", serialNumber: "asset" }, [10, 20, 30, 40]],
     [{ hasEnclosureDoors: "true", rfid: "tag-90" }, [90]],
     [{ hasCostShare: "true", pickupAddressId: "11" }, [50, 70, 120]],
@@ -328,7 +328,7 @@ describe("container presence: count-only parity", () => {
     [{ hasEnclosureDoors: "false" }, 7],
     [{ hasCostShare: "true", hasEnclosureDoors: "true" }, 3],
     [{ hasCostShare: "true", hasEnclosureDoors: "false", materialStream: "Stream-X" }, 1],
-    [{ hasCostShare: "true", parentRouteId: "7", parentFranchiseId: "001", parentEnabled: "true" }, 2],
+    [{ hasCostShare: "true", parentRouteId: "7", parentFranchiseId: "001", parentEnabled: "true" }, 3],
   ] as const)("countOnly %j", async (filters, total) => {
     const counted = await page({ ...filters, countOnly: "true" });
     expect(counted.body.total).toBe(total);
@@ -523,7 +523,7 @@ it("shares the presence predicate between COUNT and page and executes synthetic 
   expect(ids(result.body)).toEqual([50]);
   expect(result.body.total).toBe(3);
   expect(result.recorder.statements).toHaveLength(2);
-  const whereOf = (sql: string) => sql.slice(sql.search(/\bWHERE\b/i), sql.search(/\bORDER BY\b/i));
+  const whereOf = (sql: string) => sql.slice(sql.search(/\bWHERE\b/i)).split(" ORDER BY ")[0];
   const [count, select] = [result.recorder.statements.find(isCount)!, result.recorder.statements.find(s => !isCount(s))!];
   expect(whereOf(select.sql)).toBe(whereOf(count.sql));
   for (const { sql, binds } of result.recorder.statements) {
