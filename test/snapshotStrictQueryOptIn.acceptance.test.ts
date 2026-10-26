@@ -82,13 +82,13 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "hasPhone1", "hasPhone2", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1"
+      "city=Riverton", "state=ST", "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1", "containerTypeId=7"
     ]
   },
   {
@@ -97,14 +97,14 @@ const SPECS: Spec[] = [
     id: "pickup_address_id",
     field: "address",
     allowed: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
-      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1"
+      "comments=note", "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1", "containerTypeId=7"
     ]
   },
   {
@@ -113,14 +113,16 @@ const SPECS: Spec[] = [
     id: "container_id",
     field: "location_address",
     allowed: [
+      "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "city", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "hasSerialNumber", "hasRfid",
+      "materialStream", "color", "zip", "locationAddress", "city", "state", "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "routeId=7", "franchiseId=F-1",
-      "hasContainers=true"
+      "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
+      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true"
     ]
   }
 ];
@@ -129,15 +131,16 @@ const SPECS: Spec[] = [
  *  on all three resources). A sample may filter to an empty page; the probe
  *  only proves the name is not rejected as unknown under strict mode. */
 const SAMPLES: Record<string, string> = {
-  customerId: "101", pickupAddressId: "101", containerId: "101", ids: "101,102",
+  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
-  routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
+  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
+  lastAuditDate: "2026-01-15", hasLastAuditDate: "any",
+  routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
-  serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
+  serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
+  lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
@@ -442,6 +445,34 @@ describe.each(SPECS)("$name list: strict mode rejects unknown names value-free",
   });
 });
 
+describe("container list: strict containerTypeId validation", () => {
+  const spec = SPECS.find((s) => s.name === "container")!;
+
+  it.each(["0", "7", "9007199254740991"])(
+    "accepts exact safe-integer %s under strict mode without matching null stored types", async (value) => {
+      const result = await page(spec, `strictQuery=true&containerTypeId=${value}`);
+      // All four fixture rows have a NULL container_type_id, never literal zero.
+      expect(result.body).toEqual({ rows: [], total: 0, nextCursor: null });
+      expect(result.response.headers.get("link")).toBeNull();
+    }
+  );
+
+  it.each([
+    "containerTypeId=", "containerTypeId=00", "containerTypeId=-1",
+    "containerTypeId=1.0", "containerTypeId=1e0", "containerTypeId=%2B7",
+    "containerTypeId=%207", "containerTypeId=7%20", "containerTypeId=%D9%A7",
+    "containerTypeId=9007199254740992", `containerTypeId=${MARKER}`,
+    "containerTypeId=7&containerTypeId=7", "containerTypeId=7&%63ontainerTypeId=7"
+  ])("rejects malformed or repeated %s value-free before D1 in strict mode", async (fragment) => {
+    const denied = forbiddenDb();
+    const logs = silence();
+    const { response } = await request(`${spec.path}?strictQuery=true&${fragment}`, { db: denied.db });
+    await expectBadQuery(response, ["%2B7", "%207", "7%20", "%D9%A7"]);
+    expect(denied.calls).toEqual([]);
+    for (const log of logs) expect(log).not.toHaveBeenCalled();
+  });
+});
+
 describe.each(SPECS)("$name list: strictQuery value validation", (spec) => {
   const invalid = [
     "strictQuery", "strictQuery=", "strictQuery=TRUE", "strictQuery=True",
@@ -478,7 +509,8 @@ describe.each(SPECS)("$name list: strictQuery value validation", (spec) => {
 
 describe.each(SPECS)("$name list: auth and conditional precedence", (spec) => {
   it.each([
-    "strictQuery=true&bogus_param=1", `strictQuery=${MARKER}`, "strictQuery=true"
+    "strictQuery=true&bogus_param=1", `strictQuery=${MARKER}`, "strictQuery=true",
+    "strictQuery=true&containerTypeId=0", `strictQuery=true&containerTypeId=${MARKER}`
   ])("auth precedes strict validation for %s", async (search) => {
     for (const token of [null, "synthetic-wrong-token"]) {
       const denied = forbiddenDb();

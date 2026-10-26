@@ -166,7 +166,7 @@ curl -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/container-snapshot?limit=2"
 ```
 
-List filters: `?q=<substring>` (company text on customers; stored street/city/zip on addresses;
+List filters: `?q=<substring>` (company/first/last name on customers; stored street/city/zip on addresses;
 location/serial/city/zip on containers), `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
@@ -174,8 +174,11 @@ scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
 exact stored `zip` / `city` / `state` selectors ([synthetic ZIP-page recipe](#exact-stored-address-zip)),
 literal stored `driverNote` substring ([synthetic note recipe](#stored-address-driver-note)),
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
-and mirrored-child `hasContainers=true|false|any` presence
-([synthetic present/absent recipe](#address-container-presence)). Every list response includes
+mirrored-child `hasContainers=true|false|any` presence
+([synthetic present/absent recipe](#address-container-presence)),
+and exact stored `lastAuditDate` / `hasLastAuditDate=true|false|any` audit selection
+([synthetic audit-cohort recipe](#stored-address-last-audit-date)). Customer `q` matches any one name column, not an exact identity or cross-column full name
+([synthetic name-search recipe](#personal-or-company-name-search)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -225,6 +228,60 @@ local-read, no upstream/R2/write effects; CLI `--dry-run` is N/A.
 Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
 neighboring regressions; no live credentials or network probe is required.
 See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
+
+### Stored address last audit date
+
+Use `listAddressSnapshot` with `lastAuditDate` when you know the exact stored
+audit text, or `hasLastAuditDate=false` to count sites with a null-or-empty
+stored `last_audit_date`, without downloading every row. Both select **only
+`last_audit_date`**: street,
+comments, city, ZIP, state, driver notes and coordinates cannot satisfy them.
+Combine with route/franchise, locality, `enabled`, `driverNote`, child
+presence and traversal bounds for an AND intersection. This finds stored
+mirror text, not audit compliance, a schedule, overdue status or permission
+to act. Never log audit values or continuation targets.
+
+Send one URL-encoded exact string of 1..100 Unicode code points, preserved
+verbatim: case, leading zeros and significant whitespace all matter, and the
+value is never parsed as a date, ranged or pattern-matched. Null stored text
+never matches; an unknown value returns 200 empty. `hasLastAuditDate=true`
+keeps stored text that is present (not null, not empty; whitespace-only
+counts), `false` keeps exactly the null-or-empty complement, `any` (default)
+adds no predicate; an exact value plus `false` matches nothing.
+Blank/whitespace-only, overlength, invalid-enum and repeated keys receive
+fixed value-free 400 correction before D1, after auth; see
+[recovery](PROBLEMS.md#stored-address-last-audit-date-bad-request).
+
+Synthetic local example: sites 11 and 23 carry
+`last_audit_date="2026-01-15"`; a street/comment-only decoy does not match.
+Count the audit cohort without returning rows:
+
+```text
+GET /api/v1/address-snapshot?lastAuditDate=2026-01-15&countOnly=true
+{"rows":[],"total":2,"nextCursor":null}
+```
+
+Page the cohort with sparse fields; the audit value need not be returned:
+
+```text
+GET /api/v1/address-snapshot?lastAuditDate=2026-01-15&fields=address&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11,"address":"11 Example St"}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?lastAuditDate=2026-01-15&fields=address&limit=1&includeTotal=false&cursor=11>; rel="next"
+```
+
+Follow the relative Link unchanged on the same origin: next comes site 23,
+then an empty terminal page. Explicit `order=desc`, `upperId`, a filtering
+presence and other filters survive next Links; offset becomes seek, and
+`any`/omitted presence stays out. COUNT/page share scope; count-free is zero
+COUNTs; ETag/304 and no-store remain unchanged. Audit-date-only reads may
+scan: no new index, date-range support or production performance/latency
+claim. GET is idempotent and local-read, no upstream/R2/write effects; CLI
+`--dry-run` is N/A.
+
+Run `npm run check:address-last-audit-date` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
 ### Opt-in query typo detection
 
@@ -413,7 +470,7 @@ D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-c
 ### Stored customer comment fragment
 
 Use `comments` on `listCustomerSnapshot` to find mirrored notes without
-searching company names (`q`) or stored phone text (`phone`). These selectors
+searching company/first/last names (`q`) or stored phone text (`phone`). These selectors
 intersect by AND; `comments=handoff&q=North` requires both matches. This GET
 uses the existing read-token role and local D1 only; it is idempotent and
 `--dry-run` is not applicable.
@@ -427,7 +484,8 @@ Repeated/overlength input returns value-free 400 before D1, after auth; send
 one fragment within the limit, or omit comments and retry. Do not log selectors.
 
 **Synthetic local oracle:** customers 11, 23, 37 and 42 contain `handoff` in
-their comments (11 uses uppercase). Company-only/phone-only decoys do not match.
+their comments (11 uses uppercase). Decoys with the fragment only in their
+company or phone fields do not match `comments`.
 The following count-free sparse request returns only canonical IDs:
 
 ```text
@@ -455,7 +513,7 @@ Resolve an external account reference to canonical `customer_id` values on the
 existing `listCustomerSnapshot` operation (read token allowed, local D1 only).
 Optional `customerNumber` and `subCustomerNumber` are exact, case-sensitive opaque
 strings, not unique keys. Both together mean AND; they also compose with
-`customerId`, company-only `q`, `enabled`, sparse `fields` and pagination.
+`customerId`, name-substring `q`, `enabled`, sparse `fields` and pagination.
 Leading zeros and supplied nonblank whitespace are significant. Each key must
 occur once with 1..100 Unicode code points and not be whitespace-only. Do not
 trim, normalize or convert to numbers. Use URLSearchParams (or equivalent URL
@@ -497,6 +555,37 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Personal or company name search
+
+Find customer rows by personal name without downloading unrelated pages, on
+the existing `listCustomerSnapshot` operation (read token allowed, local D1
+only). Optional `q` is a literal ASCII case-insensitive substring of at most
+100 Unicode code points; SQLite `lower()` folds A-Z only, so non-ASCII case
+variants match only on exact case. A row matches when it appears in any one
+of `company_name`, `first_name` or `last_name`. Quotes, `%` and `_` are literal
+data, never wildcards. There is no full-name, token or fuzzy parsing: a query
+spanning first and last name does not match a split row, and a null column
+never matches a nonempty `q`. The match AND-composes with every other filter,
+and follow-next Links retain `q` verbatim.
+
+Synthetic multi-page recipe, with no running service or real credentials:
+
+```bash
+npm run check:customer-name-search
+```
+
+The fixture seeds local test D1, then reads
+`/api/v1/customer-snapshot?q=needle&enabled=true&fields=first_name&order=asc&limit=2&includeTotal=false`.
+Its page IDs are `11,23`, then `42,58`, then the empty terminal page; each
+full page returns its last ID as `nextCursor` with a followable Link, and the
+empty page carries no Link. `total` is null on every page and each page
+executes one SELECT with no COUNT. Other fixtures prove trimmed matching,
+blank/omitted-`q` parity, ASCII-only case behavior, literal SQL-shaped text,
+100/101-code-point bounds, sparse fields that omit the matched column and
+conditional 304s on the final envelope. Synthetic `EXPLAIN QUERY PLAN` still
+seeks the customer enabled index for enabled-plus-`q` pages; no new index,
+migration or production latency claim is made.
+
 ### Stored phone fragment lookup
 
 Resolve which customer owns a phone number from a stored fragment (for
@@ -506,7 +595,7 @@ ASCII case-insensitive substring over the stored `phone1`/`phone2` text,
 matched as stored: SQLite `lower()` folds A-Z only, so non-ASCII case
 variants match only on exact case; no normalization, digit-stripping,
 trimming or equality fallback.
-It AND-composes with `customerId`, company-only `q`, `enabled`, sparse
+It AND-composes with `customerId`, customer-name `q`, `enabled`, sparse
 `fields` and pagination. Send the key once with 1..100 Unicode code points
 and at least one non-whitespace character. Use URLSearchParams (or
 equivalent URL encoding) so spaces, quotes, `%`, `_`, `+` and `&` remain
@@ -585,6 +674,53 @@ Scopes, fields and count-free mode round-trip in Link; do not log scope
 values or rows. Authentication, no-store, ETags and existing count semantics
 remain unchanged. These checks are not deployed performance evidence.
 
+### Stored container-type filter
+
+Use the existing `listContainerSnapshot` operation to fetch one equipment
+type without downloading the whole mirrored inventory. Optional
+`containerTypeId` is exact equality on the stored snapshot column
+`container_type_id` — mirrored CSV state, not a live Routeware lookup —
+with no type-name catalog or inference. Send it at most once as one
+unpadded ASCII decimal safe integer `0..9007199254740991`; `0` matches
+literal stored zero while null stored types never match. The selector
+AND-composes with every existing list selector, including parent service-site
+scopes, exact equipment labels and installation fields, `upperId`, sparse
+`fields` and `includeTotal=false`. It is recognized under `strictQuery=true`
+and reused by `countOnly=true` (count only, no page SELECT or next Link).
+For row pages, the validated value round-trips in `Link` next targets for
+both `asc` and `desc` traversals.
+
+**Synthetic multi-page recipe:** the hermetic fixture holds stored types 0,
+5 (twice) and 7 across distinct addresses. Read one row per page:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+200 {"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+Link: </api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302>; rel="next"
+```
+
+Follow that relative Link against the same origin: the second page returns
+ID 9303 with `total: 1` and `nextCursor: 9303`, whose Link leads to the
+terminal empty page (`{"rows":[],"total":0,"nextCursor":null}`, no Link).
+A full final page may link to this empty page; stop only when Link is
+absent. A valid type with no matches is an HTTP 200 empty collection, not
+a reason to sync. Anything but the canonical spelling — empty, padded,
+signed, fractional, unsafe, or a repeated key — is the existing value-free
+400 before D1 ([correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request));
+omit the key to keep today's unfiltered matches.
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:container-type-filter
+```
+
+The fixture seeds local test D1, traverses real next links in both
+directions through the empty tail, and checks zero COUNTs in count-free
+mode, sparse fields and conditional ETags without logging submitted
+values. No migration, index or upstream call is involved. See the
+[type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
+
 ### Address stored extras-allowed selector
 
 Use the existing `listAddressSnapshot` operation to read only sites that
@@ -657,6 +793,52 @@ For a custom synthetic local request, construct the query with
 The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
 or rows. Authentication, no-store, ETags and existing count semantics remain
 unchanged. These checks are not deployed performance evidence.
+
+### Exact stored street address
+
+Use `listAddressSnapshot` with `streetAddress` to resolve a known stored
+street to **all** matching canonical `pickup_address_id` values. Unlike `q`,
+this is case-sensitive exact equality on the stored `address` column, never
+a city/ZIP or partial-street match. Duplicate streets are not unique sites;
+follow every returned relative Link unchanged on the same origin.
+
+Send one opaque string of 1..200 Unicode code points containing a non-whitespace
+character. Preserve nonblank whitespace, leading zeros and punctuation. Use
+`new URLSearchParams({ streetAddress: "001 Cedar St", fields: "address", limit: "2", includeTotal: "false" })`,
+not string interpolation. A synthetic request and first response are:
+
+```text
+GET /api/v1/address-snapshot?streetAddress=001+Cedar+St&fields=address&limit=2&includeTotal=false
+{"rows":[{"pickup_address_id":10,"address":"001 Cedar St"},{"pickup_address_id":20,"address":"001 Cedar St"}],"total":null,"nextCursor":20}
+Link: </api/v1/address-snapshot?streetAddress=001+Cedar+St&fields=address&limit=2&includeTotal=false&cursor=20>; rel="next"
+```
+
+Run the credential-free synthetic local-D1 recipe:
+
+```bash
+npm run check:address-street-exact
+```
+
+The exact-street fixture follows IDs `10,20`, then `30,50`, then `120,130`,
+then a terminal empty page. Descending traversal reverses that order. Each
+count-free page performs one SELECT and zero COUNTs. Additional cases prove
+literal Unicode/quotes/%/_, significant whitespace, duplicate sites, null
+exclusion, 200-code-point boundaries, SQL binding, every selector intersection,
+offset-to-seek links, `upperId`, sparse fields and representation ETags/304.
+Network, R2 and request-boundary writes are denied by the oracle.
+
+Omission preserves existing behavior; a valid nonmatch returns 200 empty.
+Empty, whitespace-only, overlength or repeated values fail after auth and
+before D1 with a value-free problem: URL-encode one nonblank stored street
+value or omit streetAddress and retry. Do not log streets, response rows or
+continuation URLs. `q` remains the trimmed ASCII-case-insensitive substring
+across street/city/ZIP and intersects by AND when combined with streetAddress.
+There is no address normalization, postal verification, geocoding or uniqueness
+claim. Equality may scan without a dedicated index. This GET is an idempotent
+local read; `--dry-run` is N/A. No deployment, live lookup or adoption is
+established by this local check. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-street-address) and
+[correction guidance](PROBLEMS.md#exact-stored-street-address-bad-request).
 
 ### Exact stored container stream/color labels
 
@@ -735,6 +917,68 @@ Equality can scan; no new index, deployment, production latency or assignment
 accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
+### Container serial and RFID presence
+
+Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or
+`hasRfid=true|false|any` (default `any`) to count tagged versus untagged
+equipment without reading every identity value. `true` keeps only rows whose
+stored column reads present (`IS NOT NULL AND <> ''`); `false` keeps only
+null-or-empty stored text. Nonempty whitespace-only text counts as present.
+The two controls AND-compose with each other and with exact `serialNumber`/
+`rfid`; an exact value plus its presence=`false` yields an empty 200, while
+omission/`any` adds no predicate. Invalid, blank or repeated keys fail
+value-free before D1 after auth ([correction
+guidance](PROBLEMS.md#container-serial-and-rfid-presence-bad-request)).
+
+Stored identity text is mirrored report data, never a live tag scan,
+deployment proof or uniqueness guarantee; missing text includes report gaps,
+not only untagged equipment. Unscoped presence reads stay join-free, so
+null-parent rows keep their orphan visibility. Presence filters may scan; no
+index, migration or performance promise.
+
+Tagged-vs-untagged count-only recipes (synthetic local service, `$TOKEN` only):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — tagged-equipment count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — untagged-or-gap count, no rows
+```
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=true&countOnly=true"
+# {"rows":[],"total":8,"nextCursor":null} — RFID-present count, no rows
+
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasRfid=false&countOnly=true"
+# {"rows":[],"total":5,"nextCursor":null} — RFID-missing count, no rows
+```
+
+Present-first multi-page traversal over the same fixture:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2"
+# {"rows":[...],"total":6,"nextCursor":206} — follow the Link target unchanged:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasSerialNumber=true&hasRfid=true&limit=2&cursor=206"
+# {"rows":[...],"total":4,"nextCursor":208} — stop on null nextCursor / no Link
+```
+
+The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#container-serial-and-rfid-presence)
+pins the AND-composition with parent scopes, IDs, material/color, locality,
+`q` and equipment state, byte-identical `any`/omitted behavior, count-free
+zero-COUNT mode and sparse/conditional reads. Run
+`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+contract: real D1 fixtures pin NULL/empty/whitespace semantics, exact-plus-
+presence intersection and contradiction, both seek directions and Link
+round-trips through terminal and empty pages. These checks are not deployed
+performance evidence.
 
 ### Exact stored address city and state
 
@@ -834,6 +1078,60 @@ true/false. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
 [400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
+
+### Customer stored-phone presence
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select customers by stored primary/secondary phone text, without downloading
+every customer's phone values. Optional `hasPhone1=true|false|any` and
+`hasPhone2=true|false|any` (default `any`) test the stored slot as stored:
+`true` keeps rows where the slot is present (`IS NOT NULL AND <> ''`),
+`false` keeps the exact null-or-empty complement. Both flags AND-compose
+with each other and every existing customer selector, so
+`hasPhone1=false&hasPhone2=false` finds customers with no stored phone text
+in either slot. Whitespace-only stored text counts as present: no trimming,
+normalization, digit-stripping or number validation. Stored presence is **not**
+a valid number, a preferred channel, contact consent, deliverability or
+reachability, and never authorizes outreach or provider lookups. Send each
+supported key once as `true`, `false` or `any`, or omit it; invalid, blank,
+repeated or case-variant values return the existing value-free 400 before D1
+(authentication first).
+
+Synthetic local recipe: with customers 11–16, store `phone1` only for 12 and
+14, `phone2` only for 13, both for 15, and neither (null/empty) for 11 and
+16. Use only a local fixture service and its `$TOKEN`, not production data.
+The focused suite below creates a larger fixture automatically in test D1.
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=false&hasPhone2=false&countOnly=true"
+# {"rows":[],"total":2,"nextCursor":null} — customers 11 and 16, no row payloads
+```
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&limit=1&fields=enabled&includeTotal=false"
+# {"rows":[{"customer_id":12,"enabled":1}],"total":null,"nextCursor":12} — Link retains both flags
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasPhone1=true&hasPhone2=false&fields=enabled&limit=1&includeTotal=false&cursor=12"
+# Next: 14, then an empty terminal page; stop when Link is absent.
+```
+
+GET is an idempotent local D1 read, not an upstream call; CLI `--dry-run`
+is N/A. Counted totals are cursor-relative; `includeTotal=false` runs zero
+COUNTs and `countOnly=true` runs the existing COUNT-only path. The selectors
+compose with either paging direction, `upperId`, sparse fields and
+representation-correct ETag/304. No snapshot isolation is promised across
+concurrent writes. Presence-only selections may scan; no phone index exists
+and none is added.
+
+Run `npm run check:customer-phone-presence` for synthetic local-D1
+selection, validation/auth, full Link traversal and conditional-read
+regressions. This is local planner evidence only, not a production latency
+claim. No migration, new index, deployment or live probe. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-stored-phone-presence)
+and [400 correction guidance](PROBLEMS.md#bad-request).
 
 ### Address container presence
 
@@ -2122,6 +2420,26 @@ Catalog: [`upstream-error`](./PROBLEMS.md#upstream-error).
 Worker-generated problem responses are `application/problem+json` with a
 `type` URL pointing at the [`PROBLEMS.md`](./PROBLEMS.md) section that explains
 them. The ordinary `/data/*` save envelope is the exception described above.
+
+### Problem `type` base override
+
+Operators can point snapshot archive problem `type` URLs, including
+authentication and request-validation responses, at their own catalog by
+setting `PROBLEM_TYPE_BASE` (`wrangler.toml` `[vars]`,
+`.dev.vars`, or `wrangler secret put`) to the catalog URL with the trailing
+`#` included (e.g.
+`https://github.com/<owner>/routeware-shadow-api/blob/main/docs/PROBLEMS.md#`).
+The value is used verbatim after trimming; absent, empty or whitespace-only
+keeps the default byte-identical. Consumers must match the status and the
+documented slug, not a fixed hostname.
+
+This is not a universal route guarantee: `DELETE /api/v1/customer-snapshot/{customerId}`
+still uses the default catalog for its non-positive-id 400, absent-row 404 and
+referenced-by-addresses 400. Those responses do not indicate stale configuration;
+redeploying does not change them. For an **archive** response that unexpectedly
+uses the default catalog, confirm the binding in the deployed environment
+(`[vars]` vs secret); updating the binding requires redeployment. Archive routes
+read the effective base from their request environment.
 
 ## Correlate retries with `X-Request-Id`
 

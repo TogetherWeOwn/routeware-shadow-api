@@ -122,7 +122,7 @@ statement or conditional 304. For this field alone the fixed detail is:
 No fragment or unrelated unknown key is echoed or logged. A valid unmatched
 fragment returns a successful empty collection. SQLite folds only ASCII A-Z;
 non-ASCII case differences do not imply missing data. This is literal stored
-comment search, not company-name `q` search. See the
+comment search, not company/first/last-name `q` search. See the
 [synthetic recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
 
 ## Stored phone fragment (`bad-request`)
@@ -175,6 +175,25 @@ No supplied value is echoed or logged. A valid selection with zero matches is
 a successful empty collection, not a validation error, and `false` means no
 currently mirrored child — not proof the upstream site is empty. See the
 [synthetic present/absent recipe](CONSUMER-QUICKSTART.md#address-container-presence).
+
+## Container serial and RFID presence (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `hasSerialNumber` and `hasRfid` are
+optional exact, case-sensitive enums: `true`, `false` or `any` (the default
+when omitted). Any other spelling — including blank, upper-case, numeric or
+comma-joined values — and any repeated key return the existing value-free 400
+after authentication and before D1 access. Correct the field to one exact enum
+value, or omit it, then retry.
+
+The existing detail remains fixed:
+`Invalid request query (hasSerialNumber). See docs/PROBLEMS.md#bad-request.`
+`Invalid request query (hasRfid). See docs/PROBLEMS.md#bad-request.`
+No supplied value is echoed or logged. A valid selection with zero matches is
+a successful empty collection, not a validation error. Stored identity text is
+mirrored report data, not a live tag scan or deployment proof; `false` means
+null-or-empty stored text, which includes report gaps, not only untagged
+equipment. See the [synthetic tagged-vs-untagged
+recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence).
 
 ## Strict hydrated-read query keys (`bad-request`)
 
@@ -239,6 +258,23 @@ format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
 
+## Stored container-type filter (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send the optional `containerTypeId`
+key at most once: an exact unpadded ASCII decimal safe integer from `0`
+through `9007199254740991`. No signs, padding, whitespace, fractions,
+exponents, prefixes or unsafe integers. Zero matches literal stored type
+`0`, not nulls and not all rows; null stored types never match. This
+filters the mirrored snapshot column, not live Routeware state, and there
+is no type-name catalog to consult.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (containerTypeId). See docs/PROBLEMS.md#bad-request.`
+Correct the named key to one canonical spelling and retry; omit it only
+when no type filter is intended. Authentication still precedes validation.
+A valid type that matches no rows returns 200 with an empty list. See the
+[type policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-type-filter).
+
 ## Container parent service-site scopes (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, send each optional parent key once:
@@ -294,6 +330,24 @@ ZIP that matches no rows returns 200 with an empty list. See the
 [address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
 [container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
 
+## Exact stored street address (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `streetAddress` is one optional opaque
+case-sensitive exact stored street string of 1..200 Unicode code points
+containing a non-whitespace character. Preserve nonblank whitespace, leading
+zeros and punctuation. Empty, whitespace-only, overlength and repeated values
+return the existing value-free `application/problem+json` bad-request type
+after authentication and before D1 (including conditional requests):
+
+`Invalid request query (streetAddress). URL-encode one nonblank stored street value or omit streetAddress and retry. See docs/PROBLEMS.md#bad-request.`
+
+The field list may include other invalid selectors. No submitted value or
+validation exception is echoed or logged. A valid street with zero matches
+returns 200 empty. Exact equality returns all matching site IDs, not an
+arbitrary first address or a city/ZIP/substring match. There is no normalization,
+postal verification, geocoding or uniqueness guarantee. See the
+[synthetic exact-street recipe](CONSUMER-QUICKSTART.md#exact-stored-street-address).
+
 ## Exact stored container labels (`bad-request`)
 
 For `GET /api/v1/container-snapshot`, optional `materialStream` and `color`
@@ -343,6 +397,29 @@ literal, ASCII-case-insensitive and limited to stored `driver_note`, not
 address comments or locality. A valid fragment with no matches returns 200
 empty. See the [synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note)
 and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
+
+## Stored address last audit date (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `lastAuditDate` exact
+string of 1..100 Unicode code points with at least one non-whitespace
+character, and one optional `hasLastAuditDate` spelled exactly `true`,
+`false` or `any`. Blank/whitespace-only, overlength, invalid-enum and
+repeated keys (including encoded aliases) fail before D1 or conditional
+304; authentication stays first. Fixed detail for each field alone:
+
+`Invalid request query (lastAuditDate). Send one nonblank lastAuditDate of 1..100 Unicode code points, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (hasLastAuditDate). Send one hasLastAuditDate=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when no
+audit filter is intended. No submitted values or unknown names are echoed or
+logged. Matching is verbatim exact equality on stored `last_audit_date`
+only, never date parsing, ranges or schedules; presence true keeps stored
+text that is not null and not empty, false keeps the null-or-empty
+complement. A valid value with no matches returns 200 empty. Stored text is
+mirrored data, not audit compliance. See the [synthetic
+recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date) and [query
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
 ## Exact stored container installation (`bad-request`)
 
