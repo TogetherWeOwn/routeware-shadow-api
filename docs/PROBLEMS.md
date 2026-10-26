@@ -122,7 +122,7 @@ statement or conditional 304. For this field alone the fixed detail is:
 No fragment or unrelated unknown key is echoed or logged. A valid unmatched
 fragment returns a successful empty collection. SQLite folds only ASCII A-Z;
 non-ASCII case differences do not imply missing data. This is literal stored
-comment search, not company-name `q` search. See the
+comment search, not company/first/last-name `q` search. See the
 [synthetic recipe](CONSUMER-QUICKSTART.md#stored-customer-comment-fragment).
 
 ## Stored phone fragment (`bad-request`)
