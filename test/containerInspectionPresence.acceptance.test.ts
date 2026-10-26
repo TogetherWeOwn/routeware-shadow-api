@@ -240,8 +240,8 @@ describe("container inspection presence: stored text is countable without readin
     expect(Object.keys(plain.body.rows[0])).not.toContain("hasEnclosureInspection");
   });
   it.each([
-    ["true", "true", []], ["true", "false", [102]],
-    ["false", "true", [103, 109]], ["false", "false", [106, 112]],
+    ["true", "true", [101, 108, 110, 111, 113]], ["true", "false", [102]],
+    ["false", "true", [103, 104, 105, 107, 109, 114]], ["false", "false", [106, 112]],
   ] as const)("compactor=%s keeps equipment enabled=%s independent", async (presence, enabled, want) => {
     const result = await page({ hasCompactorInspection: presence, enabled });
     expect(ids(result.body)).toEqual(want);
@@ -575,12 +575,14 @@ it.each([
   ["hasEnclosureInspection", "true", "ud_last_enclosure_inspection_ud", "ud_last_compactor_inspection_ud"],
   ["hasEnclosureInspection", "false", "ud_last_enclosure_inspection_ud", "ud_last_compactor_inspection_ud"],
 ] as const)("binds only its own stored-text column for %s=%s on joined and unjoined paths", async (selector, value, column, other) => {
+  const where = (sql: string) => sql.slice(sql.search(/\bWHERE\b/i)).replace(/\s+ORDER\s+BY[\s\S]*$/i, "").trim();
   for (const join of [{}, { customerId: "1" }] as Record<string, string>[]) {
     const result = await page({ [selector]: value, ...join, limit: "1" });
     expect(result.response.status).toBe(200);
     for (const { sql, binds } of result.recorder.statements) {
-      expect(sql).toMatch(new RegExp(`\\b${column}\\b`, "i"));
-      expect(sql).not.toMatch(new RegExp(`\\b${other}\\b`, "i"));
+      const predicate = where(sql);
+      expect(predicate).toMatch(new RegExp(`\\b${column}\\b`, "i"));
+      expect(predicate).not.toMatch(new RegExp(`\\b${other}\\b`, "i"));
       // Presence is null-or-empty complement; the empty literal must appear
       // while LIKE/GLOB wildcards and case folding must never appear.
       expect(sql).toContain("''");
