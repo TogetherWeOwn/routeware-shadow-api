@@ -82,12 +82,12 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "hasPhone1", "hasPhone2", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "serialNumber=SN-1", "rfid=RF-1",
+      "city=Riverton", "state=ST", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "containerTypeId=7"
     ]
   },
