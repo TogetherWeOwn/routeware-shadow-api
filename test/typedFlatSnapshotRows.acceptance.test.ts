@@ -805,9 +805,13 @@ describe("mounted contract: stable operations and conforming examples (controls)
   it("list examples are full rows: required identity present, flags are integers", async () => {
     const doc = await mountedDocument();
     for (const spec of SPECS) {
-      const example = operationOf(doc, spec.listPath).responses?.["200"]?.content?.[
+      const media = operationOf(doc, spec.listPath).responses?.["200"]?.content?.[
         "application/json"
-      ]?.example as unknown as ListBody | undefined;
+      ] as { example?: ListBody; examples?: Record<string, { value?: ListBody }> } | undefined;
+      // Named mode examples may add an empty count-only envelope, but must not
+      // replace or weaken the existing full-row example contract.
+      const example = media?.example ?? Object.values(media?.examples ?? {})
+        .map((entry) => entry.value).find((value) => value && value.rows.length > 0 && value.total !== null);
       expect(example, `GET ${spec.listPath}: worked example`).toBeDefined();
       if (example === undefined) continue;
       expect(Object.keys(example).sort()).toEqual(["nextCursor", "rows", "total"]);

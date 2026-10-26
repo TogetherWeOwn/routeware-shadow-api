@@ -3,8 +3,7 @@ import type { RouteConfig } from "@hono/zod-openapi";
 import {
   BUNDLE_TYPED_FIELD_KEYS,
   findUnknownTypedBundleFieldKeys,
-  snapshotFieldsQuery,
-  typedBundleFieldsQuery,
+  hydratedBundleFieldsQuery,
   type SnapshotFieldsetResource
 } from "../lib/sparseFieldsets";
 import {
@@ -13,12 +12,16 @@ import {
   containerBundleExample,
   customerBundleProjectedExample,
   addressBundleProjectedExample,
-  containerBundleProjectedExample
+  containerBundleProjectedExample,
+  customerBatchMixedExample,
+  addressBatchMixedExample,
+  containerBatchMixedExample,
+  hydratedBatchAllMissingExample
 } from "./payloadExamples";
 import {
-  hydratedAddressBundleSchema,
-  hydratedContainerBundleSchema,
-  hydratedCustomerBundleSchema
+  hydratedAddressResponseSchema,
+  hydratedContainerResponseSchema,
+  hydratedCustomerResponseSchema
 } from "../lib/dataEntityBundleSchemas";
 import {
   handleGetDataAddress,
@@ -116,29 +119,16 @@ type HydratedReadFieldsQuery = {
 };
 
 /**
- * Reject unknown `fields[TYPE]` keys and ambiguous flat-plus-typed-root pairs
- * with the anchored value-free 400. Runs in-handler, after auth and before ID
- * parsing, cache or D1: the schema strips unknown keys before validation, and
- * the flat/typed-root pair is only ambiguous once both parse. Returns the 400
- * response, or null when the selectors may proceed.
+ * Reject ambiguous flat-plus-typed-root pairs after auth and before ID parsing,
+ * cache or D1. The earlier strict-query guard owns unknown-key rejection with
+ * fixed allowed-key guidance; this check handles only selectors that both parse.
  */
 function rejectInvalidBundleSelectors(
   env: Env,
   url: string,
-  queryKeys: string[],
   root: SnapshotFieldsetResource,
   query: HydratedReadFieldsQuery
 ): Response | null {
-  const unknown = findUnknownTypedBundleFieldKeys(queryKeys);
-  if (unknown.length > 0) {
-    return problemJsonResponse({
-      type: problemType("bad-request", env),
-      title: "Bad Request",
-      status: 400,
-      detail: `Invalid request query (${unknown.join(", ")}). See docs/PROBLEMS.md#bad-request.`,
-      instance: new URL(url).pathname
-    });
-  }
   const rootKey = BUNDLE_TYPED_FIELD_KEYS[root];
   if (query.fields !== undefined && query[rootKey] !== undefined) {
     return problemJsonResponse({
@@ -259,10 +249,7 @@ const dataCustomerGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 345734 }),
       customerId: hydratedReadIdQuery.openapi({ example: 345734 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("customer"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("customer")
     })
   },
   responses: {
@@ -270,13 +257,15 @@ const dataCustomerGetRoute = createRoute({
       description: "customer + nested addresses with containers (synthetic example)",
       content: {
         "application/json": {
-          schema: hydratedCustomerBundleSchema,
+          schema: hydratedCustomerResponseSchema,
           examples: {
             full: { summary: "Full customer bundle (synthetic)", value: customerBundleExample },
             projected: {
               summary: "Root-projected customer bundle (synthetic)",
               value: customerBundleProjectedExample
-            }
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: customerBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
           }
         }
       }
@@ -303,7 +292,7 @@ dataEntityRoutes.openapi(dataCustomerGetRoute, async (c) => {
   }
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
-    c.env, c.req.url, Object.keys(c.req.query()), "customer", fieldsQuery);
+    c.env, c.req.url, "customer", fieldsQuery);
   if (rejected) return rejected;
   const rawId = c.req.query("id");
   const rawAlias = c.req.query("customerId");
@@ -338,10 +327,7 @@ const dataAddressGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 10 }),
       pickupAddressId: hydratedReadIdQuery.openapi({ example: 10 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("address"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("address")
     })
   },
   responses: {
@@ -349,13 +335,15 @@ const dataAddressGetRoute = createRoute({
       description: "address, customer, containers (synthetic example)",
       content: {
         "application/json": {
-          schema: hydratedAddressBundleSchema,
+          schema: hydratedAddressResponseSchema,
           examples: {
             full: { summary: "Full address bundle (synthetic)", value: addressBundleExample },
             projected: {
               summary: "Root-projected address bundle (synthetic)",
               value: addressBundleProjectedExample
-            }
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: addressBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
           }
         }
       }
@@ -382,7 +370,7 @@ dataEntityRoutes.openapi(dataAddressGetRoute, async (c) => {
   }
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
-    c.env, c.req.url, Object.keys(c.req.query()), "address", fieldsQuery);
+    c.env, c.req.url, "address", fieldsQuery);
   if (rejected) return rejected;
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("pickupAddressId"));
   if (id === null) {
@@ -414,10 +402,7 @@ const dataContainerGetRoute = createRoute({
       id: hydratedReadIdQuery.openapi({ example: 100 }),
       containerId: hydratedReadIdQuery.openapi({ example: 100 }),
       ids: hydratedReadIdsQuery,
-      fields: snapshotFieldsQuery("container"),
-      "fields[customer]": typedBundleFieldsQuery("customer"),
-      "fields[address]": typedBundleFieldsQuery("address"),
-      "fields[container]": typedBundleFieldsQuery("container")
+      ...hydratedBundleFieldsQuery("container")
     })
   },
   responses: {
@@ -425,13 +410,15 @@ const dataContainerGetRoute = createRoute({
       description: "container, address, customer (synthetic example)",
       content: {
         "application/json": {
-          schema: hydratedContainerBundleSchema,
+          schema: hydratedContainerResponseSchema,
           examples: {
             full: { summary: "Full container bundle (synthetic)", value: containerBundleExample },
             projected: {
               summary: "Root-projected container bundle (synthetic)",
               value: containerBundleProjectedExample
-            }
+            },
+            batchMixed: { summary: "Batch with found, missing and duplicate IDs (synthetic)", value: containerBatchMixedExample },
+            batchAllMissing: { summary: "All-missing batch is still 200 (synthetic)", value: hydratedBatchAllMissingExample }
           }
         }
       }
@@ -458,7 +445,7 @@ dataEntityRoutes.openapi(dataContainerGetRoute, async (c) => {
   }
   const fieldsQuery = c.req.valid("query");
   const rejected = rejectInvalidBundleSelectors(
-    c.env, c.req.url, Object.keys(c.req.query()), "container", fieldsQuery);
+    c.env, c.req.url, "container", fieldsQuery);
   if (rejected) return rejected;
   const id = parseHydratedReadId(c.req.query("id"), c.req.query("containerId"));
   if (id === null) {

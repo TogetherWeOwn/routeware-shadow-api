@@ -1,10 +1,13 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snapshotStrictQuery";
 import { containerRowExample, containerExportExample } from "./payloadExamples";
 import { containerSnapshotListResponse, containerSnapshotRowSchema } from "./snapshotRowSchemas";
 import { containerNoteQuery, snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { containerIdentifierQuery } from "../lib/containerIdentifierQuery";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
-import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -64,13 +67,33 @@ const containerSnapshotListRoute = createRoute({
   tags: ["container-snapshot"],
   summary: "List container snapshot rows (D1)",
   description:
-    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, or `containerId`, exact stored `zip`, text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; neither selector is live geolocation. `zip` is case-sensitive opaque text (1..100 Unicode code points), preserving leading zeros and nonblank whitespace. Unscoped locality filters scan stored rows; no dedicated zip index or production performance claim. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. Optional `note` matches a literal substring of stored `c.container_note` only; it never widens `q` to instructions or parent notes. Boundaries are trimmed before the maximum 100 Unicode code points; blank means omitted. SQLite lower() folds ASCII only, without Unicode normalization or full-text relevance; null notes act as empty. Note substring reads scan with no dedicated index, though existing ID/enabled scopes can narrow candidates. All supplied filters, including `q`, `note`, `ids`, `upperId`, identifiers and parent scopes, compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. GET is idempotent/local-read with no upstream call; CLI --dry-run is not applicable. Stored notes imply no work orders, schedules or instruction execution. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
+    "Routeware containers link to an address via `pickup_address_id` (and thus to a customer). Filter by `customerId` (joins through address), `pickupAddressId`, `containerId`, or the stored snapshot `containerTypeId`, exact stored container `zip`, `locationAddress` (`c.location_address`) and `state` (`c.state`), text `q` on `location_address`, `serial_number`, `city` or `zip` (a match in any one column), and `enabled`. Locality comes only from the container, never the parent address; no selector is live geolocation. `locationAddress` is case-sensitive opaque text (1..200 Unicode code points); `state` and `zip` allow 1..100. Each exact selector requires a non-whitespace character, preserves leading zeros and nonblank whitespace, and never normalizes data. `q` stays a substring search and excludes state. Unscoped exact-location/locality filters scan stored rows; no dedicated location/state/zip index or production performance claim. This GET is idempotent and local-read. Optional `serialNumber` and `rfid` are case-sensitive opaque exact strings (1..100 Unicode code points); leading zeros and nonblank whitespace are preserved. Optional `materialStream` matches `c.ud_material_stream_ud` and `color` matches `c.color`: case-sensitive opaque stored labels with the same nonblank 1..100 Unicode code-point bounds, no trimming, normalization or inferred taxonomy. Optional `parentRouteId`, `parentFranchiseId` and `parentEnabled` scope only the parent address's scalar route_id, franchise_id and enabled state through one shared address join (also used by customerId). Parent state is independent of equipment `enabled` and customer state; never parse equipment route_ids/frequency_ids as parent assignments. Effective parent selectors exclude missing/null parents; omission or parentEnabled=any alone preserves unjoined orphan visibility. Optional `note` matches a literal substring of stored `c.container_note` only; it never widens `q` to instructions or parent notes. Boundaries are trimmed before the maximum 100 Unicode code points; blank means omitted. SQLite lower() folds ASCII only, without Unicode normalization or full-text relevance; null notes act as empty. Note substring reads scan with no dedicated index, though existing ID/enabled scopes can narrow candidates. Stored notes imply no work orders, schedules or instruction execution. All supplied filters, including `q`, `note`, `ids` and `upperId`, compose with AND; null identifiers/labels do not match and duplicate matches are paginated, not collapsed. Valid unknown labels return an empty 200. Equality filters may scan; no index or performance guarantee is implied. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
       customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
+      parentRouteId: z.string()
+        .regex(/^(0|[1-9][0-9]*)$/)
+        .refine((value) => Number.isSafeInteger(Number(value)) && String(Number(value)) === value)
+        .transform(Number)
+        .optional()
+        .describe("Exact parent address route_id equality: one unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0. No signs, whitespace, fractions, exponents or repeated keys; correct the format and retry. Never matches equipment route_ids/frequency_ids.")
+        .openapi({ type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, example: 7 }),
+      parentFranchiseId: containerIdentifierQuery.optional()
+        .describe("Opaque case-sensitive exact parent address franchise_id equality: 1..100 Unicode code points containing a non-whitespace character. Leading zeros and significant nonblank whitespace are preserved, not trimmed or normalized. URL-encode one supported-length nonblank value and retry; repeated keys are invalid.")
+        .openapi({ example: "001" }),
+      parentEnabled: z.enum(["true", "false", "any"]).optional().default("any")
+        .describe("Parent address enabled state, independent of equipment enabled and customer state. true/false requires a matching parent; any or omission adds no parent predicate or join. Send one exact true, false or any, or omit it and retry.")
+        .openapi({ example: "true" }),
       pickupAddressId: z.coerce.number().int().optional().openapi({ example: 10 }),
       containerId: z.coerce.number().int().optional().openapi({ example: 100 }),
+      containerTypeId: z.string()
+        .regex(/^(0|[1-9][0-9]*)$/)
+        .refine((value) => Number.isSafeInteger(Number(value)))
+        .transform(Number)
+        .optional()
+        .describe("Exact stored container-type equality on the snapshot column: one unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, never nulls or all rows. No signs, whitespace, fractions, exponents or repeated keys. Correct the format and retry.")
+        .openapi({ type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, example: 5 }),
       ids: snapshotIdSelectionQuery(),
       serialNumber: containerIdentifierQuery.optional().openapi({ example: "00123" }),
       rfid: containerIdentifierQuery.optional().openapi({ example: "RF-0007" }),
@@ -83,6 +106,14 @@ const containerSnapshotListRoute = createRoute({
       zip: containerIdentifierQuery.optional()
         .describe("Opaque case-sensitive exact stored container zip equality: 1..100 Unicode code points. Leading zeros and nonblank whitespace are preserved, not trimmed. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one value and retry; no parent-address fallback or live geolocation.")
         .openapi({ example: "02139" }),
+      locationAddress: z.string()
+        .refine((value) => value.length <= 400 && [...value].length <= 200 && value.trim() !== "")
+        .optional()
+        .describe("Opaque case-sensitive exact stored container location_address equality: 1..200 Unicode code points, including a non-whitespace character. Nonblank whitespace, punctuation and leading zeros are preserved, not trimmed or normalized. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one nonblank stored value within the limit or omit the key. No parent-address fallback or live geolocation.")
+        .openapi({ type: "string", minLength: 1, maxLength: 200, example: "00123 Depot" }),
+      state: containerIdentifierQuery.optional()
+        .describe("Opaque case-sensitive exact stored container state equality: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace, punctuation and leading zeros are preserved, not trimmed or normalized; no abbreviation conversion or state enum. Empty/whitespace-only, overlength and repeated keys are invalid before D1. URL-encode one nonblank stored value within the limit or omit the key. No parent-address fallback or live geolocation.")
+        .openapi({ example: "St-01" }),
       q: snapshotSearchQuery.optional().describe("Literal substring on stored container location_address, serial_number, city or zip — a match in any one column (ASCII case-insensitive; SQLite lower() preserves non-ASCII case distinctions; maximum 100 Unicode code points before trimming). Trimmed; blank means omitted. No LIKE wildcards or live geolocation.").openapi({ example: "Killeen" }),
       note: containerNoteQuery.optional().describe("Literal substring on stored c.container_note only, separate from q. Trim boundaries before the maximum 100 Unicode code points; blank means omitted. Single value only; repeated keys are invalid before D1. SQLite lower() folds ASCII only; no Unicode normalization, LIKE wildcards or full-text relevance. Null notes act as empty.").openapi({ example: "gate" }),
       enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
@@ -94,6 +125,7 @@ const containerSnapshotListRoute = createRoute({
         .optional()
         .describe("Last container_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 99 }),
+      lowerId: snapshotLowerIdQuery,
       upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
@@ -103,9 +135,10 @@ const containerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      exactNext: snapshotExactNextQuery,
       order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("container")
-    })
+      fields: snapshotFieldsQuery("container"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
+    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
   },
   responses: {
     200: {
@@ -114,24 +147,26 @@ const containerSnapshotListRoute = createRoute({
       content: {
         "application/json": {
           schema: containerSnapshotListResponse,
-          example: { rows: [containerRowExample], total: 1, nextCursor: null }
+          examples: snapshotListModeExamples(containerRowExample)
         }
       }
     },
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color` or `zip`, any exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Repeated `note` or a trimmed note over 100 Unicode code points also rejects before D1. Send one `note` fragment of at most 100 Unicode code points after trimming, or omit note, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Errors name fields, never submitted values; correct the named query key and see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects a non-canonical `containerTypeId` (anything but one unpadded ASCII nonnegative safe integer; `0` is literal stored zero), empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Repeated `note` or a trimmed note over 100 Unicode code points also rejects before D1. Send one `note` fragment of at most 100 Unicode code points after trimming, or omit note, then retry. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. For locationAddress or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
     }
   }
 });
 
 containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   const p = c.req.valid("query");
+  const unknownQuery = rejectUnknownSnapshotListQuery(c, p.strictQuery, containerSnapshotListRoute.request.query);
+  if (unknownQuery) return unknownQuery;
   const order = snapshotOrderSql(p.order);
   const db = c.env.CUSTOMER_DB;
   const fromJoin =
-    p.customerId !== undefined
+    p.customerId !== undefined || p.parentRouteId !== undefined || p.parentFranchiseId !== undefined || p.parentEnabled !== "any"
       ? "FROM container_snapshot c INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id"
       : "FROM container_snapshot c";
   const where: string[] = ["1 = 1"];
@@ -140,6 +175,22 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     where.push("a.customer_id = ?");
     binds.push(p.customerId);
   }
+  // Parent assignment/state is separate from equipment route-list text and
+  // c.enabled. Reuse the customer join; its unique parent key never fans out.
+  if (p.parentRouteId !== undefined) {
+    where.push("a.route_id = ?");
+    binds.push(p.parentRouteId);
+  }
+  if (p.parentFranchiseId !== undefined) {
+    where.push("a.franchise_id = ?");
+    binds.push(p.parentFranchiseId);
+  }
+  if (p.parentEnabled === "true") {
+    where.push("a.enabled = 1");
+  }
+  if (p.parentEnabled === "false") {
+    where.push("a.enabled = 0");
+  }
   if (p.pickupAddressId !== undefined) {
     where.push("c.pickup_address_id = ?");
     binds.push(p.pickupAddressId);
@@ -147,6 +198,12 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.containerId !== undefined) {
     where.push("c.container_id = ?");
     binds.push(p.containerId);
+  }
+  // Stored-type equality on the container alias (both fromJoin paths select
+  // from `c`): null stored types never match, omission adds no predicate.
+  if (p.containerTypeId !== undefined) {
+    where.push("c.container_type_id = ?");
+    binds.push(p.containerTypeId);
   }
   if (p.ids !== undefined) {
     where.push(snapshotIdSelectionPredicate("container", p.ids.length));
@@ -172,6 +229,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     where.push("c.zip = ?");
     binds.push(p.zip);
   }
+  if (p.locationAddress !== undefined) {
+    where.push("c.location_address = ?");
+    binds.push(p.locationAddress);
+  }
+  if (p.state !== undefined) {
+    where.push("c.state = ?");
+    binds.push(p.state);
+  }
   if (p.q !== undefined && p.q.trim() !== "") {
     // One grouped OR over container columns only; all other scopes stay ANDed.
     where.push(
@@ -193,6 +258,14 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push(`c.container_id ${order.seek} ?`);
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive floor on the container primary key (never the
+  // joined address key): a fixed bound shared with the COUNT below through
+  // the same where/binds. A descending cursor at or below the floor matches
+  // nothing; ascending seeks retain this same inclusive floor.
+  if (p.lowerId !== undefined) {
+    where.push("c.container_id >= ?");
+    binds.push(p.lowerId);
   }
   // Caller-held inclusive ceiling on the container primary key (never the
   // joined address key): a fixed bound shared with the COUNT below through
@@ -217,11 +290,15 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
   }
+  if (p.countOnly === "true") {
+    return snapshotListJsonResponse(c, { rows: [], total, nextCursor: null });
+  }
   const pageSql =
     p.cursor !== undefined
       ? `ORDER BY c.container_id${order.suffix} LIMIT ?`
       : `ORDER BY c.container_id${order.suffix} LIMIT ? OFFSET ?`;
-  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
+  const pageLimit = p.limit + (p.exactNext === "true" ? 1 : 0);
+  const pageBinds = p.cursor !== undefined ? [pageLimit] : [pageLimit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT c.container_id, c.pickup_address_id, c.container_type_id, c.serial_number, c.rfid, c.oncall, c.event_code,
@@ -232,9 +309,9 @@ containerSnapshotRoutes.openapi(containerSnapshotListRoute, async (c) => {
     )
     .bind(...binds, ...pageBinds)
     .all();
-  const rows = results ?? [];
+  const rows = p.exactNext === "true" ? (results ?? []).slice(0, p.limit) : results ?? [];
   const nextCursor =
-    rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).container_id) : null;
+    (p.exactNext === "true" ? (results?.length ?? 0) > p.limit : rows.length === p.limit) ? Number((rows[rows.length - 1] as Record<string, unknown>).container_id) : null;
   // Sparse fieldset: same page, same envelope — only each row's keys shrink.
   // The id stays on every row even when the selector omits it.
   const fields = p.fields;
