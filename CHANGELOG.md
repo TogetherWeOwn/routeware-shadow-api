@@ -5,6 +5,28 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Optional `customerEnabled=true|false|any` (default `any`) on the existing
+  container snapshot list (`GET /api/v1/container-snapshot`): selects
+  equipment by the owning stored customer's `enabled` — `true` keeps only
+  stored `1`, `false` only stored `0` — through the shared address join
+  plus one customer primary-key join with qualified columns and no row
+  multiplication, so enabled/disabled account equipment cohorts read
+  without enumerating customers and sites. Omission/`any` adds no customer
+  predicate or join and keeps orphan and noncanonical rows visible;
+  explicit values never match a missing address or customer. Equipment
+  `enabled` and parent-site `parentEnabled` stay independent, and all
+  three AND-compose with every existing selector (including `customerId`
+  contradictions as empty 200) in the shared COUNT/page
+  predicates and binds. Filtering values round-trip in relative next
+  Links in both orders and across offset-to-seek; invalid, blank or
+  repeated values fail with the existing fixed value-free 400 after
+  authentication and before D1. Mirrored stored customer enabled is not
+  current account eligibility, billing status, service permission or
+  authorization. No migration or index; the synthetic local EXPLAIN in
+  the acceptance oracle is shape evidence only. Synthetic recipes:
+  `docs/CONSUMER-QUICKSTART.md#equipment-by-owning-customer-enabled-state`;
+  focused check: `npm run check:container-customer-enabled`.
+
 - #412: Optional `addressRouteId`, `addressFranchiseId` and
   `addressEnabled=true|false|any` (default `any`) on the ordinary customer
   snapshot list only, selecting accounts in a mirrored

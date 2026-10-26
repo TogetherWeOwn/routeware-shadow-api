@@ -78,6 +78,9 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("customerEnabled")
+        ? "Send one customerEnabled=true, false or any, or omit the selector and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
