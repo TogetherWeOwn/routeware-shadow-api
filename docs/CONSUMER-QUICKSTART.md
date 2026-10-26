@@ -232,8 +232,9 @@ See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 ### Stored address last audit date
 
 Use `listAddressSnapshot` with `lastAuditDate` when you know the exact stored
-audit text, or `hasLastAuditDate=false` to count never-audited sites, without
-downloading every row. Both select **only `last_audit_date`**: street,
+audit text, or `hasLastAuditDate=false` to count sites with a null-or-empty
+stored `last_audit_date`, without downloading every row. Both select **only
+`last_audit_date`**: street,
 comments, city, ZIP, state, driver notes and coordinates cannot satisfy them.
 Combine with route/franchise, locality, `enabled`, `driverNote`, child
 presence and traversal bounds for an AND intersection. This finds stored
