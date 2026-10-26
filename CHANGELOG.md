@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #405: Address snapshot lists accept optional `lastAuditDate` exact and
+  `hasLastAuditDate=true|false|any` (default `any`) selectors on stored
+  `last_audit_date` only. The exact value binds verbatim (1..100 Unicode
+  code points, case-sensitive, never parsed as a date, range or schedule);
+  null never matches and unknown values return 200 empty. Presence true
+  keeps stored text that is not null and not empty (whitespace-only counts
+  as present); false keeps exactly the null-or-empty complement; exact plus
+  false matches nothing. Both AND-compose with every merged scope with
+  identical COUNT/page predicates, countOnly COUNT-only and count-free
+  zero-COUNT behavior, and relative next Links retaining the validated
+  exact value and filtering presence. Malformed/overlength/repeated input
+  fails value-free before D1, after auth. Stored text is mirrored data, not
+  audit compliance, a schedule, overdue status or permission to act. No
+  index, migration, date-range support or latency guarantee. Synthetic
+  recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
+  local check: `npm run check:address-last-audit-date`.
+
 - #404: `GET /api/v1/container-snapshot` accepts optional exact `serviceDate`
   (stored `service_date` text) and `hasServiceDate=true|false|any` (default
   `any`) selectors. Case-sensitive opaque strings of 1..100 Unicode code
@@ -20,6 +37,34 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   equality/presence selection may scan. Idempotent local-read GET, CLI
   dry-run N/A. Synthetic recipe: `npm run check:container-service-date`;
   see `docs/CONSUMER-QUICKSTART.md`.
+
+- #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
+  `streetAddress` binds case-sensitive equality on the stored `address`,
+  returning all matching site IDs rather than partial-street/city/ZIP matches.
+  One nonblank opaque value of 1..200 Unicode code points preserves whitespace,
+  punctuation and leading zeros. Invalid/repeated values fail value-free
+  before D1 with a fixed retry action. AND composition, counted/count-free
+  pagination, sparse fields and ETags/304 remain compatible; relative next
+  links retain the encoded street. No normalization, postal verification,
+  geocoding, uniqueness, index/migration or upstream lookup is added; equality
+  may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
+  `npm run check:address-street-exact`.
+
+- #380: Optional `containerTypeId` on the existing container snapshot list:
+  exact equality on the stored snapshot column `container_type_id` (mirrored
+  CSV state, not a live lookup), so one equipment type reads without
+  downloading the whole inventory. One unpadded ASCII decimal safe integer
+  `0..9007199254740991`; `0` is literal stored zero while null stored types
+  never match. AND-composes with every existing filter, `upperId`, sparse
+  `fields`, offset/cursor paging and `includeTotal=false` via one bound
+  `c.container_type_id = ?` predicate in both the page `SELECT` and the
+  `COUNT`, on the container alias on both the bare and customer-join paths;
+  the validated selector round-trips in `Link` next targets. No type-name
+  catalog, migration, index or join; omission preserves existing matches.
+  Non-canonical spellings and repeated keys are value-free 400s before D1,
+  after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-type-filter`.
 
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
@@ -47,6 +92,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   concurrent inserts/deletes can change later pages. No new endpoint/index,
   upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
   see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
+
+- #381: The existing customer snapshot list `q` filter now matches a literal,
+  trimmed substring in any one of `company_name`, `first_name` or `last_name`
+  (previously company name only), so residential records without a company
+  name can be found. Matching stays bound `instr`/`lower` substring search with
+  existing SQLite ASCII case behavior: no full-name or cross-column matching, no
+  `LIKE` wildcards, no Unicode folding. The whole OR group ANDs with every other
+  selector and cursor predicate, omitted or blank `q` is unchanged, and `Link`
+  next targets keep `q`. No new query, index or migration. Synthetic multi-page
+  recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-name-search`.
 
 - #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
   of stored `driver_note` only, not comments or locality. Raw input is limited

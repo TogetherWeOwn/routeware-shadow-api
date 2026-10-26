@@ -20,11 +20,7 @@ import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
 // mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
 // facade import throws at module scope there. The deep module is never mocked.
-import {
-  InvalidSnapshotCsvError,
-  SNAPSHOT_IMPORT_MAX_BYTES,
-  isSnapshotTooLarge
-} from "../lib/snapshot/streamSync";
+import { InvalidSnapshotCsvError, SNAPSHOT_IMPORT_MAX_BYTES, isSnapshotTooLarge } from "../lib/snapshot/streamSync";
 import {
   CUSTOMER_SNAPSHOT_EXPORT,
   readSnapshotExportPageSize,
@@ -60,7 +56,7 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, company substring `q`, stored-phone substring `phone`, `enabled`, or mirrored-child `hasAddresses`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. `phone` is an ASCII case-insensitive substring over the stored `phone1`/`phone2` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (`q` or `phone` without a selective predicate) scan the table: no phone index exists and none is added. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, customer-name substring `q` (a match in any one of `company_name`, `first_name` or `last_name`), stored-phone substring `phone`, `enabled`, or mirrored-child `hasAddresses`; all supplied filters are AND-composed. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. `phone` is an ASCII case-insensitive substring over the stored `phone1`/`phone2` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (`q` or `phone` without a selective predicate) scan the table: no phone index exists and none is added. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -72,7 +68,7 @@ const customerSnapshotListRoute = createRoute({
       subCustomerNumber: customerAccountNumberQuery.optional()
         .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
         .openapi({ example: "North" }),
-      q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
+      q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (ASCII case-insensitive; maximum 100 Unicode code points). SQLite lower() folds A-Z only; non-ASCII case variants match only on exact case. A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
       phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
       comments: customerCommentsQuery,
       hasAddresses: customerAddressPresenceQuery,
@@ -140,8 +136,9 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     binds.push(p.subCustomerNumber);
   }
   if (p.q !== undefined && p.q.trim() !== "") {
-    where.push("instr(lower(coalesce(company_name, '')), lower(?)) > 0");
-    binds.push(p.q.trim());
+    where.push("(instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0)");
+    const qv = p.q.trim();
+    binds.push(qv, qv, qv);
   }
   if (p.phone !== undefined) {
     where.push(customerPhoneFragmentPredicate());
