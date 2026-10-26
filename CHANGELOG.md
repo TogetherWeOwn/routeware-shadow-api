@@ -17,6 +17,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
   `npm run check:address-street-exact`.
 
+- #380: Optional `containerTypeId` on the existing container snapshot list:
+  exact equality on the stored snapshot column `container_type_id` (mirrored
+  CSV state, not a live lookup), so one equipment type reads without
+  downloading the whole inventory. One unpadded ASCII decimal safe integer
+  `0..9007199254740991`; `0` is literal stored zero while null stored types
+  never match. AND-composes with every existing filter, `upperId`, sparse
+  `fields`, offset/cursor paging and `includeTotal=false` via one bound
+  `c.container_type_id = ?` predicate in both the page `SELECT` and the
+  `COUNT`, on the container alias on both the bare and customer-join paths;
+  the validated selector round-trips in `Link` next targets. No type-name
+  catalog, migration, index or join; omission preserves existing matches.
+  Non-canonical spellings and repeated keys are value-free 400s before D1,
+  after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-type-filter`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
