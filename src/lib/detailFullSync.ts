@@ -296,6 +296,8 @@ function mapContainerItem(
     state: s(c.State),
     zip: s(c.Zip),
     containerNote: s(c.Note) ?? s(c.ContainerNotes),
+    // Report-only fields stay null in this mapping; detail-full updates preserve
+    // their stored columns, while new rows honestly record source unavailability.
     udCostShareUd: null,
     udEnclosureDoorsUd: null,
     udLastCompactorInspectionUd: null,
@@ -452,7 +454,9 @@ export async function syncCustomerDetailFullToD1(
     await upsertAddressSnapshotRows(env.CUSTOMER_DB, addresses, DETAIL_FULL_BATCH.address, syncedAt);
   }
   if (containers.length) {
-    await upsertContainerSnapshotRows(env.CUSTOMER_DB, containers, DETAIL_FULL_BATCH.container, syncedAt);
+    await upsertContainerSnapshotRows(
+      env.CUSTOMER_DB, containers, DETAIL_FULL_BATCH.container, syncedAt, "detail-full"
+    );
   }
   const deleted = await reconcileCustomerChildren(env.CUSTOMER_DB, customerId, syncedAt);
   // One utilization line per successful run so operators
