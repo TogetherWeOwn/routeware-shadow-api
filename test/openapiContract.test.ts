@@ -461,7 +461,8 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
 // containerExactLocation.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
 // containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative prose
+// containerOnCallGpsLocked.acceptance.test.ts and
+// containerCustomerEnabled.acceptance.test.ts, not frozen as speculative prose
 // or parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -477,7 +478,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled"].includes(parameter.name ?? "")
       );
     }
   }

@@ -460,7 +460,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
       "hasSerialNumber", "hasRfid",
-      "onCall", "gpsLocked", "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "onCall", "gpsLocked", "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled",
       "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
