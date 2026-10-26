@@ -502,6 +502,21 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// Only new equipment query parameters move to the independent semantic oracle
+// in addressEquipmentCohort.acceptance.test.ts. All legacy schemas stay frozen.
+function withoutAddressEquipmentCohort(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["equipmentMaterialStream", "equipmentTypeId", "equipmentEnabled"].includes(parameter.name ?? "")
+    );
+  }
+  return copy;
+}
+
 // Exact identifiers, stored labels, installation/city selectors, parent scopes and
 // service-code entry parts, serial/RFID presence and stored-flag selectors
 // supersede this route's old query/error narrative. Their schemas,
@@ -904,7 +919,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
+    const doc = withoutAddressEquipmentCohort(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
