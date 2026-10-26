@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
+  dated and latest downloads (404 not-found, 409 replacement conflict),
+  the unreadable latest-pointer 500, the date-listing 500, and the
+  unbound-store 503 all resolve their problem `type` from the request
+  environment like every other route. Status, title, detail, instance,
+  headers, auth, request-id behavior and success/conditional bytes are
+  unchanged; absent, empty or whitespace-only overrides keep the exact
+  existing default. See
+  `docs/CONSUMER-QUICKSTART.md#problem-type-base-override`.
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
