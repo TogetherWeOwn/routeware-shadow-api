@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "hasPhone1", "hasPhone2", "limit", "offset", "cursor", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -103,7 +103,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "serialNumber=SN-1", "rfid=RF-1",
+      "comments=note", "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "containerTypeId=7"
     ]
   },
@@ -120,7 +120,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "routeId=7", "franchiseId=F-1", "city=Riverton",
+      "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1", "city=Riverton",
       "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true"
     ]
   }
@@ -132,7 +132,7 @@ const SPECS: Spec[] = [
 const SAMPLES: Record<string, string> = {
   customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
+  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
