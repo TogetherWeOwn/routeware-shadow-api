@@ -13,6 +13,7 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -20,12 +21,25 @@ import { CHECK_NAME, DEFAULT_LIMIT } from "./lib/sourceFileSize.mjs";
 
 const wrapperPath = fileURLToPath(new URL("./check-source-file-size.mjs", import.meta.url));
 
-function runWrapper(args) {
-  return spawnSync(process.execPath, [wrapperPath, ...args], { encoding: "utf8" });
+function runWrapper(args, options = {}) {
+  return spawnSync(process.execPath, [wrapperPath, ...args], { encoding: "utf8", ...options });
 }
 
 test("passes on the real tree with the default limit", () => {
   const result = runWrapper([]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    new RegExp(`^${CHECK_NAME}: PASS \\S+ \\d+ file\\(s\\) under src/ at or under ${DEFAULT_LIMIT} lines\\n$`),
+  );
+});
+
+test("resolves the repo root from its own URL, not the caller cwd", () => {
+  // The suite otherwise always inherits the repo-root cwd, so a cwd-based
+  // root regression stays green here while scanning the wrong tree (or
+  // failing on a missing src/) when invoked from another directory. From
+  // tmpdir the URL-based root still scans the real tree and passes.
+  const result = runWrapper([], { cwd: tmpdir() });
   assert.equal(result.status, 0, result.stderr);
   assert.match(
     result.stdout,
