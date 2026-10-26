@@ -94,24 +94,37 @@ assert.match(
 );
 // Vitest thresholds fail the run on regression; the ratchet step fails it on
 // improvement without a floor raise. Pin it present so coverage can never
-// climb a full point without moving the floors with it. The match anchors on
-// the real `run:` line (a bare substring would also match a commented-out
-// step or an `echo` impersonator), rejects a `continue-on-error` soft-fail,
-// and requires the PR-only gate so a coverage gain can never turn the
-// main-branch build red and skip a deploy.
-assert.match(
-  buildGated,
-  /^        run: npm run check:coverage-ratchet$/m,
-  "build must run the coverage ratchet check",
+// climb a full point without moving the floors with it. Slice the whole step
+// block (its header through the next step, mirroring the per-file gate
+// below) and assert on that block only: the match anchors on the real `run:`
+// line (a bare substring would also match a commented-out step or an `echo`
+// impersonator), rejects any `continue-on-error` soft-fail, and requires the
+// PR-only `if:` so a coverage gain can never turn the main-branch build red
+// and skip a deploy. Job-wide pins let a `continue-on-error` above the run
+// line, or the `if:` migrated onto another step, pass while the ratchet is
+// disabled or back on push-to-main. Key shapes mirror the per-file gate:
+// any key order, dash-line first-key placement, or YAML key quoting (GitHub
+// honours `"if":` / `'continue-on-error':`), anchored to step-level
+// indentation (8 spaces, or the 6-space `- ` dash line) so a nested key —
+// an `env:` entry named `if` at 10 spaces — can never satisfy the PR-only
+// pin while the step itself runs on every event.
+const ratchetRun = /^        run: npm run check:coverage-ratchet$/m.exec(buildGated);
+assert.ok(ratchetRun, "build must run the coverage ratchet check");
+const ratchetStepStart = buildGated.lastIndexOf("\n      - ", ratchetRun.index);
+assert.ok(ratchetStepStart >= 0, "the coverage ratchet run line must sit inside a build step");
+const ratchetStepEnd = buildGated.indexOf("\n      - ", ratchetRun.index);
+const ratchetStep = buildGated.slice(
+  ratchetStepStart + 1,
+  ratchetStepEnd === -1 ? undefined : ratchetStepEnd,
 );
 assert.doesNotMatch(
-  buildGated,
-  /check:coverage-ratchet\n\s+continue-on-error/,
+  ratchetStep,
+  /^(?:      - |        )["']?continue-on-error["']?\s*:/m,
   "the coverage ratchet must not soft-fail",
 );
 assert.match(
-  buildGated,
-  /^        if: github\.event_name == 'pull_request'$/m,
+  ratchetStep,
+  /^(?:      - |        )["']?if["']?\s*: github\.event_name == 'pull_request'$/m,
   "the coverage ratchet must run only on pull requests so a coverage gain never blocks main deploys",
 );
 // A global floor can be masked by well-covered files, so a new module with
@@ -124,7 +137,8 @@ assert.match(
 // the next step) and reject ANY `continue-on-error` and ANY step-level
 // `if:` inside it, regardless of key order, dash-line first-key placement, or
 // YAML key quoting (GitHub honours `"if":` / `'continue-on-error':`, and the
-// first key of a step may sit on the `- ` line) — adjacency regexes let
+// first key of a step may sit on the `- ` line), anchored to the same
+// step-level indentation as the ratchet pins above — adjacency regexes let
 // `continue-on-error` above the run line, below it with a comment between,
 // or a PR-only `if:` with another key between slip through.
 const perFileRun = /^        run: npm run check:per-file-coverage$/m.exec(buildGated);
@@ -138,12 +152,12 @@ const perFileStep = buildGated.slice(
 );
 assert.doesNotMatch(
   perFileStep,
-  /^ +(?:- )?["']?continue-on-error["']?\s*:/m,
+  /^(?:      - |        )["']?continue-on-error["']?\s*:/m,
   "the per-file coverage gate must not soft-fail",
 );
 assert.doesNotMatch(
   perFileStep,
-  /^ +(?:- )?["']?if["']?\s*:/m,
+  /^(?:      - |        )["']?if["']?\s*:/m,
   "the per-file coverage gate must run on every build, not only on pull requests",
 );
 // The gate's own files must route to build: a PR touching only the gate

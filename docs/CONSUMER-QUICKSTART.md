@@ -283,6 +283,58 @@ acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
+### Sites by parent customer enabled state
+
+Use `listAddressSnapshot` with `parentCustomerEnabled=true` to list only
+sites whose related stored customer is enabled, or
+`parentCustomerEnabled=false` for sites of disabled stored customers,
+without enumerating accounts first. The site's own `enabled` stays
+independent — combine both for the exact parent/site cohort. Mirrored
+stored customer enabled is not current account eligibility, service
+permission, billing status or authorization. Omission or `any` adds no
+parent predicate; a missing parent or noncanonical stored value never
+matches `true` or `false`. Invalid, blank or repeated values receive the
+fixed value-free 400 before D1, after auth.
+
+Sites of enabled stored customers, counted first:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&countOnly=true"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&limit=2"
+```
+
+Sites of disabled stored customers:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=false&limit=2"
+```
+
+Independent parent/site state — disabled sites of enabled customers — then
+follow the relative next Link (or pass its `cursor`) on the same origin; the
+parent scope is retained and `any`/omitted stays out:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1"
+# Link: </api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1&cursor=12>; rel="next"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?parentCustomerEnabled=true&enabled=false&limit=1&cursor=12"
+```
+
+COUNT/page share scope; `countOnly` stays COUNT-only and count-free is zero
+COUNTs; ETag/304 and no-store are unchanged. The parent lookup uses the
+existing customer primary key: no new index or production latency claim.
+GET is idempotent and local-read, no upstream/R2/write effects; CLI
+`--dry-run` is N/A.
+
+Run `npm run check:address-parent-customer-enabled` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
+
 ### Opt-in query typo detection
 
 On the three ordinary flat lists, add `strictQuery=true` to reject unknown
