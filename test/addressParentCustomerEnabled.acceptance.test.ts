@@ -100,7 +100,6 @@ const CONTAINERS: Array<[number, number, number]> = [
   [21, 21, 1],
   [51, 51, 1],
 ];
-const HAS_CONTAINERS_TRUE = [11, 13, 21, 51];
 
 type Query = Record<string, string | number>;
 type Statement = { sql: string; binds: unknown[]; method: string };
@@ -690,10 +689,13 @@ describe.each(["true", "false"])("parent continuation links includeTotal=%s", (i
   it.each(["asc", "desc"])("traverses every %s page once, retaining the parent scope", async (order) => {
     const filters = { parentCustomerEnabled: "true", limit: "2", includeTotal, order };
     let current = await page(filters);
+    // A partial page is terminal (nextCursor null, no next Link), so the
+    // 5-row traversal at limit 2 ends on the partial page; there is no
+    // reachable trailing empty page.
     const pages = order === "asc"
-      ? [[11, 12], [13, 31], [32], []]
-      : [[32, 31], [13, 12], [11], []];
-    const totals = order === "asc" ? [5, 3, 1, 0] : [5, 3, 1, 0];
+      ? [[11, 12], [13, 31], [32]]
+      : [[32, 31], [13, 12], [11]];
+    const totals = [5, 3, 1];
     const seen: unknown[] = [];
     for (let i = 0; i < pages.length; i++) {
       expect(ids(current.body)).toEqual(pages[i]);
