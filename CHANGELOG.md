@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
+  (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
+  fields/ETag, and emits a cursor/relative next Link only if another matching row
+  exists. The cursor is the last returned primary ID, never the lookahead row.
+  Default/false preserves terminal false positives and existing SQL/binds;
+  count-free reads still run zero COUNTs. Strict single boolean validation fails
+  value-free before D1 after auth. No snapshot isolation or latency guarantee:
+  concurrent inserts/deletes can change later pages. No new endpoint/index,
+  upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
+  see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
+
 - #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
   of stored `driver_note` only, not comments or locality. Raw input is limited
   to 100 Unicode code points before trimming; blank means omitted. SQLite

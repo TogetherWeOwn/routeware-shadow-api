@@ -115,6 +115,40 @@ Too many bad tokens from one IP trips per-IP throttling (HTTP 429 for 60 s);
 a valid token always passes and resets the counter. See
 [`PROBLEMS.md`](./PROBLEMS.md#rate-limited).
 
+## Exact next-page signal
+
+Opt in with `exactNext=true` on the ordinary customer, address or container
+snapshot list to stop at the last nonempty page, even when its size equals
+`limit`. Default/`false` keeps the existing full-terminal false positives.
+Concurrent inserts/deletes can still change later pages: this is **not snapshot
+isolation**, even with `upperId`.
+
+```bash
+# Synthetic local fixture with three enabled customer IDs 11, 23, 37.
+# TOKEN is your existing local read credential; no production credential needed.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?enabled=true&fields=customer_id&limit=2&includeTotal=false&exactNext=true"
+# {"rows":[{"customer_id":11},{"customer_id":23}],"total":null,"nextCursor":23}
+# Follow the relative Link unchanged; total null means deliberately not computed.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?enabled=true&fields=customer_id&limit=2&includeTotal=false&exactNext=true&cursor=23"
+# rows [37], total null, nextCursor null, no Link: stop.
+```
+
+The single page SELECT fetches at most `limit+1` (501 max), returns at most
+`limit`, and leaves the lookahead row eligible for the next stateless query. The cursor is the
+last returned canonical ID even with sparse fields; offset-first, either order,
+all filters and `upperId` work unchanged. `includeTotal=false` still skips every
+COUNT. No-store and ETag/304 Link parity remain intact. Send exactly one
+`exactNext=true` or `false`; invalid/repeated values fail value-free 400 before
+D1 after auth. Relative links retain true, never false/default or unknown keys.
+`countOnly=true` wins over `exactNext=true`: one COUNT, no page SELECT or
+lookahead, empty rows, null cursor and no Link. `strictQuery=true` accepts
+`exactNext` and remains enabled in continuation links.
+Run `npm run check:snapshot-exact-next` for the credential-free local contract;
+see the [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
+No staging/production probes or performance claims are part of this recipe.
+
 ## 2. First 200: snapshot reads
 
 Snapshots are the daily Routeware CSV reports cached in D1 — the fast path
