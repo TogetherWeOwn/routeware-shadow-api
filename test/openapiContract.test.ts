@@ -512,8 +512,9 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerCityFilter.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
 // containerServiceCodeParts.acceptance.test.ts,
-// containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative
+// containerSerialRfidPresence.acceptance.test.ts,
+// containerOnCallGpsLocked.acceptance.test.ts and
+// containerRouteFrequencyExact.acceptance.test.ts, not frozen as speculative
 // prose or parameter position. All legacy parameters and unrelated operations
 // remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
@@ -530,7 +531,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "routeIdsExact", "frequencyIdsExact", "hasRouteIds", "hasFrequencyIds", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
