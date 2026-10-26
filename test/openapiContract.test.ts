@@ -2,6 +2,7 @@ import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import packageJson from "../package.json";
 import app from "../src/app";
+import snapshotProblemBaseline from "./fixtures/snapshotProblemContracts.baseline.json";
 
 /**
  * Characterization tests for the app's public surface.
@@ -565,6 +566,45 @@ function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocumen
   return copy;
 }
 
+// The independent snapshotProblemContracts oracle owns ONLY these nine existing
+// GET problem media declarations and appended correction guidance. Preserve the
+// historical golden, every other status/method and all shared component users.
+function withoutFlatSnapshotProblemDeclarations(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const ownedRefs = new Set<string>();
+  for (const [path, pinned] of Object.entries(snapshotProblemBaseline.operations)) {
+    const get = copy.paths[path]?.get as {
+      responses: Record<string, { description?: string; content?: Record<string, { schema?: { $ref?: string } }> }>;
+    } | undefined;
+    for (const [status, description] of Object.entries(pinned.errorDescriptions)) {
+      const response = get?.responses[status];
+      if (!response) continue; // Missing operations/statuses still fail the golden.
+      const content = response.content;
+      const ref = content?.["application/problem+json"]?.schema?.$ref;
+      if (ref?.startsWith("#/components/schemas/")) ownedRefs.add(ref);
+      if (content) {
+        delete content["application/problem+json"];
+        if (Object.keys(content).length === 0) delete response.content;
+      }
+      // The semantic oracle requires the entire original description prefix.
+      if (response.description?.startsWith(description)) response.description = description;
+    }
+  }
+  const references = (value: unknown, ref: string): boolean => {
+    if (Array.isArray(value)) return value.some((child) => references(child, ref));
+    if (value === null || typeof value !== "object") return false;
+    const node = value as Record<string, unknown>;
+    return node.$ref === ref || Object.values(node).some((child) => references(child, ref));
+  };
+  const schemas = copy.components?.schemas ?? {};
+  for (const ref of ownedRefs) {
+    const name = ref.slice("#/components/schemas/".length);
+    const otherSchemas = Object.fromEntries(Object.entries(schemas).filter(([key]) => key !== name));
+    if (!references(copy.paths, ref) && !references(otherSchemas, ref)) delete schemas[name];
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -583,6 +623,51 @@ function operationIds(doc: OpenApiDocument): string[] {
 function registeredRoutes(): RegisteredRoute[] {
   return app.routes;
 }
+
+describe("flat problem golden ownership boundary", () => {
+  it("projects only the nine GET media additions, preserving unrelated statuses, methods and shared schema users", async () => {
+    const doc = await fetchOpenApiDocument();
+    const before = structuredClone(doc);
+    const component = "SyntheticProblemBody";
+    const ref = `#/components/schemas/${component}`;
+    const media = { schema: { $ref: ref }, example: { type: "urn:synthetic", title: "Synthetic", status: 400 } };
+    doc.components!.schemas![component] = { type: "object" };
+    for (const [path, pinned] of Object.entries(snapshotProblemBaseline.operations)) {
+      const get = doc.paths[path].get as { responses: Record<string, { description: string; content?: unknown }> };
+      for (const status of Object.keys(pinned.errorDescriptions)) {
+        get.responses[status].content = { "application/problem+json": media };
+        get.responses[status].description += " Correct the named input and retry.";
+      }
+    }
+    expect(withoutFlatSnapshotProblemDeclarations(doc)).toEqual(before);
+
+    // Mutations outside the boundary must remain visible to the old golden.
+    const list = doc.paths["/api/v1/customer-snapshot"].get as { responses: Record<string, unknown> };
+    list.responses["401"] = { description: "Synthetic unowned refusal", content: { "application/problem+json": media } };
+    const projected = withoutFlatSnapshotProblemDeclarations(doc);
+    expect((projected.paths["/api/v1/customer-snapshot"].get as typeof list).responses["401"]).toEqual(list.responses["401"]);
+    expect(projected.components!.schemas![component]).toEqual({ type: "object" });
+    expect(projected.paths["/api/v1/customer-snapshot/{customerId}"].delete).toEqual(before.paths["/api/v1/customer-snapshot/{customerId}"].delete);
+  });
+
+  it("does not hide a second media type, deleted selector guidance or unrelated components", async () => {
+    const doc = await fetchOpenApiDocument();
+    const get = doc.paths["/api/v1/customer-snapshot/{customerId}"].get as {
+      responses: Record<string, { description: string; content?: Record<string, unknown> }>;
+    };
+    get.responses["400"] = { description: "Lost the selector constraints", content: {
+      "application/problem+json": { schema: { type: "object" } },
+      "application/json": { schema: { type: "string" } }
+    } };
+    doc.components!.schemas!["SyntheticUnrelated"] = { type: "boolean" };
+    const projected = withoutFlatSnapshotProblemDeclarations(doc);
+    const response = (projected.paths["/api/v1/customer-snapshot/{customerId}"].get as typeof get).responses["400"];
+    expect(response).toEqual({ description: "Lost the selector constraints", content: {
+      "application/json": { schema: { type: "string" } }
+    } });
+    expect(projected.components!.schemas!["SyntheticUnrelated"]).toEqual({ type: "boolean" });
+  });
+});
 
 describe("published OpenAPI document", () => {
   it("publishes exactly the expected set of operations", async () => {
@@ -613,7 +698,7 @@ describe("published OpenAPI document", () => {
     // `{since, since_id}` cursor instead of the integer primary-key cursor.
     // `CustomerSnapshotChangesRow` types its delta rows with storage-faithful
     // integer/text/null columns.
-    expect(Object.keys(withoutHydratedBundleDeclarations(doc).components?.schemas ?? {}).sort()).toEqual([
+    expect(Object.keys(withoutFlatSnapshotProblemDeclarations(withoutHydratedBundleDeclarations(doc)).components?.schemas ?? {}).sort()).toEqual([
       "AddressSaveDryRun",
       "AddressSaveOutcome",
       "AddressSnapshotList",
@@ -851,7 +936,9 @@ describe("published OpenAPI document", () => {
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))).toMatchSnapshot();
+    // Only nine flat GET 400/404 media declarations and their exclusively owned
+    // shared shape additionally move to snapshotProblemContracts ownership.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(withoutFlatSnapshotProblemDeclarations(doc))))))))))))).toMatchSnapshot();
   });
 });
 

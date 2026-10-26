@@ -1,0 +1,506 @@
+{
+  "baseline": "072d17db244c7a85928b99b0d0d82fbe1c02a9bc",
+  "operations": {
+    "/api/v1/customer-snapshot": {
+      "operationId": "listCustomerSnapshot",
+      "parameters": [
+        {
+          "in": "query",
+          "name": "customerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "ids",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "customerNumber",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "subCustomerNumber",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "q",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "phone",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "comments",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "hasAddresses",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "enabled",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "limit",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "offset",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "upperId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "includeTotal",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "order",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "countOnly",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "strictQuery",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400"
+      ],
+      "successResponses": {
+        "200": "455653a1e4050dd1a9db31b25fe5637459d353808aef3e49fb4d07c204fd3f78",
+        "304": "f7d6a7e8a835a70e6c87ad9a061178230dc2fa229795c70dbadee8e16b9a5aab"
+      },
+      "errorDescriptions": {
+        "400": "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+      }
+    },
+    "/api/v1/customer-snapshot/{customerId}": {
+      "operationId": "getCustomerSnapshot",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "customerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400",
+        "404"
+      ],
+      "successResponses": {
+        "200": "0e27738b5f366de83f2ffb2c6bd5a9db271b3961d2d1ef00f825fc61ee5ed79f",
+        "304": "d28f2b166a464c23067034444d8a41100fcd5dd67b1d93c57d6a20916c7a0ba0"
+      },
+      "errorDescriptions": {
+        "400": "Invalid customer id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs.",
+        "404": "Not found (application/problem+json)"
+      }
+    },
+    "/api/v1/address-snapshot": {
+      "operationId": "listAddressSnapshot",
+      "parameters": [
+        {
+          "in": "query",
+          "name": "customerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "pickupAddressId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "ids",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "routeId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "franchiseId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "zip",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "city",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "state",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "driverNote",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "q",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "enabled",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "extrasAllowed",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "hasContainers",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "limit",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "offset",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "upperId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "includeTotal",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "order",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "countOnly",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "strictQuery",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400"
+      ],
+      "successResponses": {
+        "200": "50d3c3f8a174791a038fe113f2c86163ade8ec2f1a99106eb6b6774c7d10e74f",
+        "304": "f7d6a7e8a835a70e6c87ad9a061178230dc2fa229795c70dbadee8e16b9a5aab"
+      },
+      "errorDescriptions": {
+        "400": "Invalid query (application/problem+json), rejected before any D1 query. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+      }
+    },
+    "/api/v1/address-snapshot/{pickupAddressId}": {
+      "operationId": "getAddressSnapshot",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "pickupAddressId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400",
+        "404"
+      ],
+      "successResponses": {
+        "200": "f02d40e9084a15b026ba0cedf02ebdfd997e4c863b3caefea8b92a575c531b5d",
+        "304": "d28f2b166a464c23067034444d8a41100fcd5dd67b1d93c57d6a20916c7a0ba0"
+      },
+      "errorDescriptions": {
+        "400": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs.",
+        "404": "Not found (application/problem+json)"
+      }
+    },
+    "/api/v1/container-snapshot": {
+      "operationId": "listContainerSnapshot",
+      "parameters": [
+        {
+          "in": "query",
+          "name": "customerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "parentRouteId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "parentFranchiseId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "parentEnabled",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "pickupAddressId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "containerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "ids",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "serialNumber",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "rfid",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "materialStream",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "color",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "zip",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "locationAddress",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "state",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "q",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "enabled",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "limit",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "offset",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "cursor",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "upperId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "includeTotal",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "order",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "countOnly",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "strictQuery",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400"
+      ],
+      "successResponses": {
+        "200": "09011c14c72eb877746bcc36998ec6b0baede30901a78bbafb1748ae86379c15",
+        "304": "f7d6a7e8a835a70e6c87ad9a061178230dc2fa229795c70dbadee8e16b9a5aab"
+      },
+      "errorDescriptions": {
+        "400": "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send parentRouteId as one canonical unpadded ASCII decimal safe integer 0..9007199254740991; parentFranchiseId as one URL-encoded nonblank opaque string of 1..100 Unicode code points without trimming significant whitespace; parentEnabled as one exact true, false or any. Blank, invalid, overlength and repeated parent keys fail before D1, after authentication; correct the named format and retry, or omit only if no parent scope is intended. The zod validator rejects empty/whitespace-only/repeated `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress` or `state`, `locationAddress` longer than 200 Unicode code points, any other exact string selector or `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` value, an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values. For locationAddress or state, URL-encode one nonblank stored value within the named limit or omit the key, then retry. For materialStream/color, URL-encode one supported-length nonblank stored label or omit it and retry. Correct other named query keys and see docs/PROBLEMS.md#bad-request."
+      }
+    },
+    "/api/v1/container-snapshot/{containerId}": {
+      "operationId": "getContainerSnapshot",
+      "parameters": [
+        {
+          "in": "path",
+          "name": "containerId",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "fields",
+          "required": false
+        },
+        {
+          "in": "header",
+          "name": "If-None-Match",
+          "required": false
+        }
+      ],
+      "responseStatuses": [
+        "200",
+        "304",
+        "400",
+        "404"
+      ],
+      "successResponses": {
+        "200": "9dbadefa7910fcf2845992897280ba582ed55d6fad5587c486ba177877e598ba",
+        "304": "d28f2b166a464c23067034444d8a41100fcd5dd67b1d93c57d6a20916c7a0ba0"
+      },
+      "errorDescriptions": {
+        "400": "Invalid id or fields selector (application/problem+json). An unknown/empty/duplicate `fields` name is rejected before any D1 query runs.",
+        "404": "Not found (application/problem+json)"
+      }
+    }
+  },
+  "successSchemas": {
+    "AddressSnapshotList": "6472b482da1774b0874e3fbfd527f02f4816ba468b101aa397c6c2fd7f0fa01d",
+    "AddressSnapshotRow": "34d319db4083d0946928e6c28e3635333c78dc624ac66b78fbbffd749935b305",
+    "ContainerSnapshotList": "fc6f7bd67715ceac92b2b6505ae72863322908b1e7f07044a217582b4cdc67fa",
+    "ContainerSnapshotRow": "56eac735d78a502f29dbcde63e938ba330dc78d3ae8eaaa503cdc96cf4210af8",
+    "CustomerSnapshotList": "5fbeeea8e759ccc10651c322e2337b41211e491a4d52942768ab65b785c673ef",
+    "CustomerSnapshotRow": "1f4e573359446b11b7cb0a80f9a110467f3bd94bcb2a4be8c3477da499fc3c67"
+  }
+}
