@@ -5,6 +5,78 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #415: Optional `hasContainers=true|false|any` (default `any`) on the
+  existing customer snapshot list: `true` keeps accounts with at least one
+  stored container reachable through any stored address they own, `false`
+  the exact NOT EXISTS complement — disabled addresses and containers count
+  as stored, orphan containers never qualify, and a customer row is never
+  duplicated. Presence is global to the customer: it AND-composes with
+  `hasAddresses` and every existing selector in the shared COUNT/page WHERE
+  without claiming the equipment sits on any site a separate cohort
+  selector matched; `hasAddresses=false&hasContainers=true` is a 200 empty
+  page. `countOnly=true` keeps the existing COUNT-only path and
+  `includeTotal=false` stays count-free; effective values round-trip in
+  relative next Links while `any`/default stays out. Absence means no
+  currently mirrored reachable equipment — not upstream emptiness, active
+  service, authorization, reconciliation or deletion authority. Invalid,
+  blank, repeated or encoded-duplicate values fail with the fixed
+  value-free 400 after auth and before D1. Uses the existing foreign-key
+  lookup indexes; no new index, migration or latency promise. Synthetic
+  present/absent and contradiction recipes: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:customer-container-presence`.
+
+- #412: Optional `addressRouteId`, `addressFranchiseId` and
+  `addressEnabled=true|false|any` (default `any`) on the ordinary customer
+  snapshot list only, selecting accounts in a mirrored
+  route/franchise/site-state cohort without downloading sites. Effective
+  scopes AND inside one customer-correlated `EXISTS`, so all three must
+  match the same stored address: split-child scopes never match, duplicate
+  matching sites never duplicate the customer, and null stored scalars
+  never match equality. Route is one canonical unpadded ASCII safe integer
+  `0..9007199254740991` (zero is literal); franchise is one case-sensitive
+  opaque string of 1..100 Unicode code points preserving leading zeros and
+  significant whitespace. All stored children, including disabled, remain
+  eligible unless `addressEnabled` explicitly filters them; customer
+  `enabled` stays independent. The scope AND-composes with `hasAddresses`
+  and every merged selector in both COUNT and page SQL with identical
+  predicates/binds; `hasAddresses=false` plus an effective scope returns
+  an empty 200 contradiction. Effective scopes round-trip in relative next
+  Links; invalid/blank/overlength/repeated keys fail with the existing
+  fixed value-free 400 after read-role authentication and before D1.
+  Mirrored membership is not current upstream assignment, not a permission,
+  and not snapshot isolation. No migration or index; synthetic local
+  EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
+  `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
+  check: `npm run check:customer-address-cohorts`.
+- Optional `parentCustomerEnabled=true|false|any` (default `any`) on the
+  existing address snapshot list (`GET /api/v1/address-snapshot`): selects
+  sites by the related stored customer's `enabled` — `true` keeps only
+  stored `1`, `false` only stored `0` — via one correlated `EXISTS` with
+  qualified columns and no row multiplication, so enabled/disabled account
+  cohorts read without enumerating customers. Omission/`any` adds no parent
+  predicate and keeps orphan and noncanonical rows visible; explicit values
+  never match a missing parent. The site's own `enabled` stays independent
+  and both AND-compose with every existing selector in the shared COUNT/page
+  WHERE; `countOnly` stays COUNT-only, `includeTotal=false` count-free, and
+  relative next Links retain a filtering value. Mirrored stored customer
+  enabled is not current account eligibility, service permission, billing
+  status or authorization. Invalid, blank or repeated values fail with the
+  fixed value-free 400 after auth and before D1. No new index, migration or
+  latency claim; focused check:
+  `npm run check:address-parent-customer-enabled`.
+- #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
+  stored-state selectors (`true`|`false`|`any`, default `any`). Exact
+  case-sensitive enums match stored `1`/`0` via integer-literal predicates;
+  malformed, blank and repeated selectors return value-free 400s before D1.
+  Both predicates AND with every existing filter on the bare and
+  customer-join shapes, add no binds, and travel in `Link` continuations
+  (`any` omits canonically). Existing counted/count-free, sparse, seek and
+  conditional reads are preserved. Flags are stored snapshot values, not
+  equipment-mutation permission or proof of fresh GPS. Local read-only D1
+  only; no schema/index, upstream or auth changes. Synthetic follow-next
+  recipe: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
+  `npm run check:container-oncall-gps-locked`.
+
 - #409: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
   caller-held inclusive floor: only rows whose resource primary key is at or
@@ -68,6 +140,24 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   index, migration, date-range support or latency guarantee. Synthetic
   recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
   local check: `npm run check:address-last-audit-date`.
+- #411: Optional `serviceCodeType` and `serviceCodeInput` on the existing container
+  snapshot list: exact case-sensitive equalities on the stored snapshot columns
+  `service_code_type` and `service_code_input` (mirrored CSV entry text, not service
+  history, dispatch state, proof of service or a controlled taxonomy), so equipment
+  carrying one known entry reads without downloading the whole inventory or guessing
+  from the composed `service_code`. Each is a single opaque string of 1..100 Unicode
+  code points with a non-whitespace character; leading zeros and significant
+  whitespace are preserved, null stored parts never match, and valid unknown values
+  return an empty 200. The two selectors AND-compose with each other and every
+  existing filter, `q`, `upperId`, sparse `fields`, offset/cursor paging and
+  `includeTotal=false` via one bound predicate per key in both the page `SELECT`
+  and the `COUNT`, on the container alias on both the bare and customer-join paths;
+  validated selectors round-trip in `Link` next targets. No composition, parsing,
+  migration, index or join; equality may scan with no latency claim; omission
+  preserves existing matches. Blank, overlength and repeated values are value-free
+  400s before D1, after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-service-code-parts`.
 - #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
   `streetAddress` binds case-sensitive equality on the stored `address`,
   returning all matching site IDs rather than partial-street/city/ZIP matches.
@@ -94,6 +184,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   after read-role authentication. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-type-filter`.
+
+- #407: The ordinary container snapshot list accepts optional `hasSerialNumber`
+  and `hasRfid`: exact `true|false|any` (default `any`) over stored identity
+  text, where present means `IS NOT NULL AND <> ''` and nonempty
+  whitespace-only text counts as present. The two controls AND-compose with
+  each other and with exact `serialNumber`/`rfid`; an exact value plus its
+  presence=`false` yields an empty 200, while omission/`any` adds no predicate.
+  Predicates share the COUNT/page WHERE and binds on joined and unjoined
+  paths; unscoped reads stay join-free so null-parent rows keep orphan
+  visibility. Filtering values round-trip in relative next links; invalid,
+  blank or repeated keys fail value-free before D1 after auth. Stored identity
+  text is mirrored report data, never a live tag scan, deployment proof or
+  uniqueness guarantee; missing text includes report gaps, not only untagged
+  equipment. Presence may scan; no index, migration or performance promise.
+  Synthetic tagged-vs-untagged count-only recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence`; focused
+  check: `npm run check:container-serial-rfid-presence`.
 
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both

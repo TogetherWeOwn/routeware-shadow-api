@@ -357,6 +357,37 @@ function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDo
   return copy;
 }
 
+/** Only the new customer-list query parameter moves to the independent
+ * customerContainerPresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || p.name !== "hasContainers");
+  }
+  return copy;
+}
+
+/**
+ * Customer child-cohort schemas, examples, single-list scope and outcomes are
+ * independently owned by customerAddressCohorts.acceptance.test.ts. Remove only
+ * these three new query parameters; preserve every existing golden contract.
+ */
+function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
+      !["addressRouteId", "addressFranchiseId", "addressEnabled"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
 /**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
@@ -453,14 +484,37 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
-// Exact identifiers, stored labels, installation selectors and parent scopes
-// supersede this route's old query/error narrative. Their schemas, composition
-// and error discovery are asserted independently in
+// Parent-customer enabled selection has semantic checks in the Test
+// Author-owned addressParentCustomerEnabled.acceptance.test.ts, not frozen
+// as a speculative parameter position. The address description and 400 prose
+// are already projected out above; only the new selector moves to behavioral
+// ownership here. All legacy parameters stay frozen.
+function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "parentCustomerEnabled"
+    );
+  }
+  return copy;
+}
+
+// Exact identifiers, stored labels, installation selectors, parent scopes and
+// service-code entry parts, serial/RFID presence and stored-flag selectors
+// supersede this route's old query/error narrative. Their schemas,
+// composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
-// containerExactLocation.acceptance.test.ts and
-// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
-// parameter position. All legacy parameters and unrelated operations remain frozen.
+// containerExactLocation.acceptance.test.ts,
+// containerParentScopes.acceptance.test.ts and
+// containerServiceCodeParts.acceptance.test.ts,
+// containerSerialRfidPresence.acceptance.test.ts and
+// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative
+// prose or parameter position. All legacy parameters and unrelated operations
+// remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -475,7 +529,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -875,7 +929,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))));
+    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -895,7 +949,9 @@ describe("published OpenAPI document", () => {
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
     // additions move to containerIdentifierFilters.acceptance.test.ts; the three
-    // parent selectors move to containerParentScopes.acceptance.test.ts.
+    // parent selectors move to containerParentScopes.acceptance.test.ts; the two
+    // serial/RFID presence selectors move to
+    // containerSerialRfidPresence.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
@@ -913,7 +969,20 @@ describe("published OpenAPI document", () => {
     // stored-extras selector additionally moves to addressExtrasAllowed
     // ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
+    // Only the container list's containerTypeId query parameter is also
+    // projected out: its facet, strict validation and composition are
+    // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
+    // Only the customer list's hasContainers query parameter is also
+    // projected out: its schema, presence semantics and composition are
+    // independently pinned in
+    // `test/customerContainerPresence.acceptance.test.ts`; the address list's
+    // own single-level hasContainers stays separately projected via
+    // withoutAddressContainerPresence above.
+    // Only the address stored-extras selector additionally moves to
+    // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
+    // addressLastAuditDate ownership; parent-customer enabled moves to
+    // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutCustomerTypeContract(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
   });
 });
 

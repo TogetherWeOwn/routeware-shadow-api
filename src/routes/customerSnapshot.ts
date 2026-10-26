@@ -10,7 +10,7 @@ import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate } from "../lib/snapshotIdSelection";
 import { customerSnapshotListQuery } from "../lib/customerSnapshotListQuery";
-import { customerAddressPresencePredicate, customerPhoneFragmentPredicate, customerPhonePresencePredicate } from "../lib/snapshotCustomerSelectors";
+import { customerAddressCohortPredicate, customerAddressPresencePredicate, customerContainerPresencePredicate, customerPhoneFragmentPredicate, customerPhonePresencePredicate } from "../lib/snapshotCustomerSelectors";
 import { snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import {
   snapshotListConditionalHeaders,
@@ -85,7 +85,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, a non-canonical `customerTypeId` (anything but one unpadded ASCII nonnegative safe integer), blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send customerTypeId once as unpadded ASCII digits from 0 to 9007199254740991, or omit it. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, a non-canonical `customerTypeId` (anything but one unpadded ASCII nonnegative safe integer), blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasContainers` (send one hasContainers=true, false or any, or omit the selector and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send customerTypeId once as unpadded ASCII digits from 0 to 9007199254740991, or omit it. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -141,6 +141,9 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     where.push("enabled = 0");
   }
   if (p.hasAddresses !== "any") where.push(customerAddressPresencePredicate(p.hasAddresses));
+  if (p.hasContainers !== "any") where.push(customerContainerPresencePredicate(p.hasContainers));
+  const cohort = customerAddressCohortPredicate(p); // One correlated EXISTS, or no predicate.
+  if (cohort !== null) { where.push(cohort.sql); binds.push(...cohort.binds); }
   if (p.hasPhone1 !== "any") where.push(customerPhonePresencePredicate("phone1", p.hasPhone1));
   if (p.hasPhone2 !== "any") where.push(customerPhonePresencePredicate("phone2", p.hasPhone2));
   if (p.cursor !== undefined) {
@@ -149,10 +152,7 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   }
   // Inclusive caller-held window shared by COUNT and page in either direction.
   if (p.lowerId !== undefined) { where.push("customer_id >= ?"); binds.push(p.lowerId); }
-  if (p.upperId !== undefined) {
-    where.push("customer_id <= ?");
-    binds.push(p.upperId);
-  }
+  if (p.upperId !== undefined) { where.push("customer_id <= ?"); binds.push(p.upperId); }
   const whereSql = where.join(" AND ");
   // Count-free: total null means deliberately not computed, not an empty page.
   let total: number | null;

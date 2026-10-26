@@ -11,16 +11,16 @@ count and pagination cursor as the request without that parameter; the extra
 name does not become a SQL filter or bind. This preserves the existing
 `z.object(...)` query-schema behavior, rather than changing API compatibility.
 
-| GET route | Recognized query keys | Unknown-name policy |
-| --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
-
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
 children, including disabled rows; absence is not proof of no upstream site
 and never authorizes deletion or reconciliation.
+
+| GET route | Recognized query keys | Unknown-name policy |
+| --- | --- | --- |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
 
@@ -90,6 +90,87 @@ GET is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipe](CONSUMER-QUICKSTART.md#customer-address-presence) and
 [correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
 
+## Customer container presence
+
+Only the ordinary customer list recognizes `hasContainers=true|false|any`
+with grandchild reachability semantics (the address list keeps its own
+direct-child selector of the same spelling). `true` keeps customers with at
+least one stored container reachable through any stored address they own;
+`false` keeps those with none. Omission/`any` adds no predicate. Every
+stored address and container counts, including disabled rows; customer
+`enabled` remains independent. Presence is **global** to the customer
+across all owned addresses — never read it as same-site membership for any
+separate site cohort. No mirrored container is **not proof of no upstream
+equipment** or active service and never authorizes deletion,
+reconciliation or a sync.
+
+Send one exact case-sensitive supported value, or omit the selector and
+retry. Empty, unknown or repeated values return value-free
+`application/problem+json` 400 after authentication and before D1,
+including conditional requests. The nested correlated `EXISTS`/`NOT EXISTS`
+over the existing child `customer_id` and `pickup_address_id` indexes never
+joins/expands parents or returns child payloads. It shares the COUNT/page
+WHERE and binds, AND-composing with `hasAddresses`
+(`hasAddresses=false&hasContainers=true` is an empty 200;
+`hasAddresses=true&hasContainers=false` keeps accounts with sites but no
+equipment) and every other customer selector. Count-free mode still runs
+one SELECT and zero COUNTs. Canonical `customer_id`, sparse fields,
+cursor-relative totals and exact-representation ETag/304 semantics are
+unchanged. Validated true/false travel in relative next Links; any/default
+and unknown keys do not. A full terminal page may link to an empty page;
+concurrent writes are not snapshot-isolated.
+
+Run `npm run check:customer-container-presence`; the independent
+`test/customerContainerPresence.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2 and verifies complete bidirectional traversal, no
+duplicate parents and child-index SEARCH plans for both COUNT and rows.
+This is local planner evidence, not a production latency claim. No
+migration/index change. GET is an idempotent local-read operation; CLI
+`--dry-run` is N/A. See the
+[local recipe](CONSUMER-QUICKSTART.md#customer-container-presence) and
+[correction guidance](PROBLEMS.md#customer-container-presence-bad-request).
+
+## Customer service-site cohorts
+
+Only the ordinary customer list recognizes `addressRouteId`,
+`addressFranchiseId` and `addressEnabled=true|false|any` (default `any`).
+Effective scopes AND inside one customer-correlated `EXISTS`, so route,
+franchise and site state must match the same stored address: split scopes
+across different children never match, duplicate matching sites never
+duplicate the customer, and null stored scalars never match equality. All
+stored children, including disabled, remain eligible unless `addressEnabled`
+explicitly filters them; customer `enabled` stays independent. Omitted
+scopes, or `addressEnabled=any` alone, add no child-cohort predicate.
+
+`addressRouteId` is one canonical unpadded ASCII decimal safe integer
+`0..9007199254740991`; zero matches literal stored zero, not all routes.
+`addressFranchiseId` is one case-sensitive opaque exact string of 1..100
+Unicode code points containing a non-whitespace character: leading zeros
+and significant whitespace are preserved, never trimmed or normalized.
+Invalid, blank, overlength or repeated scope keys fail with the existing
+fixed value-free 400 after authentication and before D1/304; send one
+supported value per named key, or omit it, and retry.
+
+The cohort scope AND-composes with `hasAddresses` and every other merged
+customer selector in both COUNT and page SQL, with identical
+predicates/binds. `hasAddresses=false` plus an effective positive child
+scope returns an empty 200 — a contradiction, not an override. Effective
+scopes travel in relative next Links; `any`/omission and unknown keys do
+not. Mirrored membership is not current upstream assignment, not a
+permission, and not snapshot isolation: concurrent writes are not
+snapshot-isolated, and cohort membership never authorizes deletion,
+reconciliation or sync.
+
+Run `npm run check:customer-address-cohorts`; the independent
+`test/customerAddressCohorts.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2/writes and verifies same-child membership,
+contradictions, count-mode parity, complete bidirectional traversal and
+child-index SEARCH plans for both COUNT and rows. This is local planner
+evidence, not a production latency claim. No migration/index change. GET
+is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
+[local recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts) and
+[correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
 ## Customer stored-phone presence
 
 Only the ordinary customer list recognizes `hasPhone1=true|false|any` and
@@ -128,7 +209,7 @@ and [correction guidance](PROBLEMS.md#bad-request).
 
 ## Address container presence
 
-Only the address list recognizes `hasContainers`, an optional mirrored-child
+On the address list, `hasContainers` is an optional mirrored-child
 presence selector: `true` keeps only addresses with at least one stored
 container row sharing their `pickup_address_id`, `false` keeps only addresses
 with none, and `any` (the default when omitted) adds no predicate. Presence is
@@ -152,6 +233,39 @@ Pinned by `test/addressContainerPresence.acceptance.test.ts`; run
 `npm run check:address-container-presence` for the hermetic local-D1 contract
 and relevant list/link/conditional regressions, with no live credentials or
 upstream calls.
+
+## Container serial and RFID presence
+
+Only the ordinary container list recognizes `hasSerialNumber` and `hasRfid`,
+optional stored-text presence selectors: exact `true|false|any` (default
+`any`). `true` keeps only rows whose stored column reads present
+(`IS NOT NULL AND <> ''`); `false` keeps only null-or-empty stored text.
+Nonempty whitespace-only text counts as present. The two controls AND-compose
+with each other and with exact `serialNumber`/`rfid`; an exact value plus its
+presence=`false` yields an empty 200. Omission/`any` adds no predicate, and
+unscoped presence reads stay join-free so null-parent rows keep their orphan
+visibility.
+
+Stored identity text is mirrored report data, not a live tag scan, deployment
+proof or uniqueness guarantee: missing text includes upstream report gaps, not
+only untagged equipment. Absence is not proof of no tag and never authorizes
+deletion, reconciliation, outreach or data repair.
+
+The enum is exact and case-sensitive; invalid, blank or repeated keys fail
+with the existing value-free 400 after authentication and before D1. The
+predicates share the COUNT/page WHERE and binds on both joined and unjoined
+paths, AND-composing with parent scopes, IDs, material/color, location
+selectors, `q`, `enabled`, cursors and `upperId`. Count-only and count-free
+modes, sparse fieldsets, cursor-relative totals, both seek directions and
+conditional reads are unchanged. Filtering values round-trip in continuation
+Links; `any`/omitted leaves continuations unchanged. Presence filters may
+scan; no index, migration or performance promise. See the [synthetic
+tagged-vs-untagged recipe](CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence)
+and [fixed correction guidance](PROBLEMS.md#container-serial-and-rfid-presence-bad-request).
+Pinned by `test/containerSerialRfidPresence.acceptance.test.ts`; run
+`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+contract and relevant list/link/conditional regressions, with no live
+credentials or upstream calls.
 
 The changes feed is available only on revisions that register it. Its policy
 is tested whenever present; the other three list routes are mandatory.
@@ -632,6 +746,46 @@ oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 and [local query-plan
 evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
 
+## Sites by parent customer enabled state
+
+Only the existing address list accepts `parentCustomerEnabled`, selecting
+sites by the stored `enabled` of their related mirrored customer
+(`customer_snapshot.customer_id = address_snapshot.customer_id`, qualified
+columns). It is one optional exact `true|false|any` (default `any`): true
+keeps only sites whose stored customer row has `enabled = 1`, false keeps
+only `enabled = 0`. Omission or `any` adds no parent predicate, so
+unconstrained reads still include pre-existing orphan rows and customers
+with noncanonical stored values; explicit true/false never matches a
+missing parent or a noncanonical stored value. The site's own `enabled`
+stays independent: parent and site state intersect by AND with each other
+and with `customerId`, IDs, route/franchise, locality/street, `q`,
+`driverNote`, `extrasAllowed`, `hasContainers`, audit-date selection and
+traversal bounds; contradictions return empty 200. Mirrored stored customer
+enabled is not current account eligibility, service permission, billing
+status or authorization, and never replaces the site predicate. Invalid,
+blank or repeated (including encoded duplicate) values return the existing
+value-free bad-request problem before D1, after auth; submitted values are
+never echoed or logged.
+
+One correlated `EXISTS (SELECT 1 FROM customer_snapshot ...)` literal
+predicate (no JOIN, no binds, no parent payload expansion) shares the
+WHERE between COUNT and page; `includeTotal=false` still issues zero
+COUNTs and `countOnly` stays COUNT-only. Sparse fields and ETag/304
+describe the same final envelope. Relative next Links retain a filtering
+parent value (omit `any`) in either order and when moving offset-to-seek;
+unknown raw parameters and origins never travel.
+
+The lookup uses the customer primary key; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/addressParentCustomerEnabled.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-parent-customer-enabled` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
+
 ## Address street or locality search
 
 Only the address list searches `q` across three columns. The existing `q` is a
@@ -776,6 +930,62 @@ qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
 predicates. This demonstrates executable synthetic query shape only, not a
 runtime latency improvement. No new indexes, migrations, bindings or upstream
 requests are introduced.
+
+## Stored on-call and GPS-lock selection
+
+Only the existing container list accepts `onCall` and `gpsLocked`. Each is an
+optional exact case-sensitive enum of `true`, `false` or `any` (default).
+`true` matches the stored `1`, `false` matches the stored `0`, and
+`any`/omission adds no predicate. Malformed, blank and repeated selectors
+receive the stable value-free 400 before D1:
+`Invalid request query (onCall). See docs/PROBLEMS.md#bad-request.` (or the
+fixed `gpsLocked` key, or both keys when both are invalid). Correct the named
+selector and retry; submitted values never appear in diagnostics.
+
+The two predicates AND independently with one another and every existing
+filter — customer/address/container IDs, `ids`, `serialNumber`, `rfid`, `q`,
+`enabled`, `upperId` and cursor/offset scope — on both the bare and the
+customer-join `FROM` shapes. The predicates are integer literals
+(`c.oncall = 1`, `c.gps_locked = 0`) shared by the COUNT and the page SELECT,
+so filtered pages carry no extra binds, D1 calls, indexes, migration or
+upstream request. Counts and rows use the same scope; `includeTotal=false`
+issues zero COUNT statements. Filtering never multiplies rows, never changes
+canonical `container_id`, join behavior, seek direction, sparse fields or
+conditional JSON-read semantics. Non-`any` selectors round-trip in `Link`
+continuations; `any` is omitted canonically like `enabled=any`. Unknown keys
+remain ignored. Other lists, the changes feed and single-row reads do not gain
+these selectors.
+
+The flags are stored snapshot values: selecting on-call rows is not permission
+to mutate equipment, and selecting GPS-locked rows is not proof of fresh GPS.
+Neither flag is a live operational-health assertion.
+
+Synthetic fixture recipe (not a production request): seed the eight-container
+matrix from `test/containerOnCallGpsLocked.acceptance.test.ts` locally, then
+request:
+
+```text
+GET /api/v1/container-snapshot?onCall=true&limit=2&fields=oncall&includeTotal=false
+
+{"rows":[{"container_id":1,"oncall":1},{"container_id":2,"oncall":1}],"total":null,"nextCursor":2}
+Link: </api/v1/container-snapshot?onCall=true&fields=oncall&limit=2&includeTotal=false&cursor=2>; rel="next"
+```
+
+Follow the returned same-origin Link exactly rather than reconstructing it.
+The next page carries IDs 3 and 4 with `cursor=4`, and following once more
+reaches the empty terminal page; a full last page can still emit a
+continuation. With counts enabled, totals remain cursor-relative.
+
+Run `npm run check:container-oncall-gps-locked` for synthetic local-D1
+selection, validation/auth precedence, composition, count, seek, field,
+conditional-read and followed-link checks. Network/R2/browser doubles deny
+unexpected access; a read-only recorder proves zero writes. The suite executes
+`EXPLAIN QUERY PLAN` on the COUNT/row SELECT shapes with the qualified
+customer/address join and literal `c.oncall = 1` / `c.gps_locked = 0`
+predicates. This demonstrates executable synthetic query shape only, not a
+runtime latency improvement. No new indexes, migrations, bindings or upstream
+requests are introduced. Pinned by
+`test/containerOnCallGpsLocked.acceptance.test.ts`.
 
 ## Exact stored container labels
 
@@ -1185,6 +1395,59 @@ absent.
 Run `npm run check:container-type-filter` for the focused synthetic-local-D1
 equality, composition, rejection, traversal, SQL-shape and contract
 regressions. No live replay.
+
+## Stored service-code entry-part filters
+
+Only the ordinary container list recognizes `serviceCodeType` and
+`serviceCodeInput`. Each is an optional exact equality on its stored
+snapshot column (`c.service_code_type`, `c.service_code_input`): the
+mirrored CSV entry text, not service history, dispatch state, proof of
+service or a controlled taxonomy, and never composed into or parsed out
+of the combined `service_code`. Each value is a case-sensitive opaque
+string of 1..100 Unicode code points containing a non-whitespace
+character, sent at most once; leading zeros and significant whitespace
+are preserved, not trimmed or normalized. Rows with a null stored part
+never match any supplied value, and a nonblank needle cannot equal
+empty stored text. Anything else — including a blank value, an
+overlength value or a repeated key, even percent-encoded — is the
+existing value-free 400 naming the offending key before any D1 work,
+after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-service-code-entry-part-filters-bad-request).
+
+The two selectors AND-compose with each other and with every existing
+list selector, including the composed `serviceCode` exact when it is
+independently merged, parent service-site scopes, exact equipment
+labels and installation fields, `q`, `upperId`, sparse `fields=`,
+offset or cursor pagination and `includeTotal=false`: one bound
+`c.service_code_type = ?` / `c.service_code_input = ?` predicate per
+supplied key is in both the page `SELECT` and the `COUNT`, on the
+container alias on both the bare and the parent-address-join paths,
+with no new migration, index or join. Equality may scan; no latency
+claim is implied. Both selectors are recognized under
+`strictQuery=true` and reused by `countOnly=true` (the latter returns
+only the count, with no page SELECT or next Link). A request that
+previously carried an ignored `serviceCodeType` or `serviceCodeInput`
+now filters on this list only; by-id reads, CSV exports and the
+changes feed still ignore them as unknown names. Omission preserves
+existing matches and wire behavior. When the page is non-terminal, the
+`Link` next target preserves each validated selector verbatim; an
+unfiltered page's next target carries neither. Synthetic example:
+
+```text
+GET /api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1
+
+{"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+```
+
+The second page replays both selectors with the cursor:
+`GET /api/v1/container-snapshot?serviceCodeType=T-1&serviceCodeInput=IN-1&limit=1&cursor=9302`
+returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
+`Link` target leads to the terminal empty page. Stop only when `Link` is
+absent.
+
+Run `npm run check:container-service-code-parts` for the focused
+synthetic-local-D1 equality, composition, rejection, traversal,
+SQL-shape and contract regressions. No live replay.
 
 ## Hydrated entity reads are strict
 
