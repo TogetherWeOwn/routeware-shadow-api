@@ -425,9 +425,9 @@ describe.each(["true", "false"])("street-presence continuation includeTotal=%s",
   });
 
   it.each([
-    { order: "asc", first: [97, 109], cursor: 109, last: [113, 149] },
-    { order: "desc", first: [113, 109], cursor: 109, last: [97, 89] }
-  ])("offset-to-seek $order retains presence and omits offset", async ({ order, first, cursor, last }) => {
+    { order: "asc", first: [97, 109], cursor: 109, last: [113, 149], terminalCursor: 149 },
+    { order: "desc", first: [113, 109], cursor: 109, last: [97, 89], terminalCursor: 89 }
+  ])("offset-to-seek $order retains presence and omits offset", async ({ order, first, cursor, last, terminalCursor }) => {
     const filters = { hasStreetAddress: "false", fields: "city,zip", order, limit: 2, includeTotal };
     const result = await page({ ...filters, offset: 1 });
     expect(ids(result.body)).toEqual(first);
@@ -436,14 +436,16 @@ describe.each(["true", "false"])("street-presence continuation includeTotal=%s",
     const terminal = await page(next(result, { ...filters, cursor }));
     expect(ids(terminal.body)).toEqual(last);
     expect(terminal.body.total).toBe(includeTotal === "false" ? null : 2);
-    expect(terminal.body.nextCursor).toBeNull();
-    expect(terminal.response.headers.get("link")).toBeNull();
+    expect(terminal.body.nextCursor).toBe(terminalCursor);
+    const empty = await page(next(terminal, { ...filters, cursor: terminalCursor }));
+    expect(empty.body).toEqual({ rows: [], total: includeTotal === "false" ? null : 0, nextCursor: null });
+    expect(empty.response.headers.get("link")).toBeNull();
   });
 
   it("cursor takes precedence over offset; partial, gap and empty pages remain correct", async () => {
     for (const [query, want, total, cursor] of [
-      [{ cursor: 97, offset: 999 }, [109, 113], 2, 113],
-      [{ cursor: 100 }, [109, 113], 2, 113],
+      [{ cursor: 97, offset: 999 }, [109, 113], 3, 113],
+      [{ cursor: 100 }, [109, 113], 3, 113],
       [{ cursor: 113 }, [149], 1, null],
       [{ cursor: 149 }, [], 0, null],
       [{ offset: 5 }, [], 5, null]
