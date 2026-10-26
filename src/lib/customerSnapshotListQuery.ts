@@ -4,23 +4,21 @@ import { snapshotUpperIdQuery } from "./snapshotUpperId";
 import { snapshotOrderQuery } from "./snapshotListOrder";
 import { snapshotSearchQuery } from "./snapshotSearchQuery";
 import { snapshotFieldsQuery } from "./sparseFieldsets";
+import { customerAccountNumberQuery, customerAddressPresenceQuery, customerCommentsQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
+import { snapshotExactNextQuery } from "./snapshotNextLink";
+import { snapshotCountOnlyQuery, snapshotCountModeCompatible } from "./snapshotCountOnly";
+import { snapshotStrictQuery } from "./snapshotStrictQuery";
 
 /**
  * Query contract for `GET /api/v1/customer-snapshot` (operation
  * `listCustomerSnapshot`).
  *
  * Lives here instead of `src/routes/customerSnapshot.ts` so that route file
- * stays under the 800-line source guard: the list query object plus its two
- * customer-only fragments moved verbatim, with no validation, OpenAPI or
- * handler behavior change. The route references this object by name; the
- * fragments stay module-private.
+ * stays under the 800-line source guard. The route references this object
+ * by name, reusing the canonical account-number, phone, comments and
+ * address-presence fragments from `snapshotCustomerSelectors`; the
+ * classification fragment stays private.
  */
-
-// Keep account references opaque: trim only to detect blank input, never to
-// transform it. The UTF-16 guard bounds allocation before counting code points.
-const customerAccountNumberQuery = z.string()
-  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
-  .openapi({ minLength: 1, maxLength: 100 });
 
 // Stored-classification selector: exact `customer_type_id` equality, never a
 // type-name lookup. Strict string validation like `snapshotUpperIdQuery`
@@ -68,6 +66,9 @@ export const customerSnapshotListQuery = z.object({
     .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
     .openapi({ example: "North" }),
   q: snapshotSearchQuery.optional().describe("Company name substring (case-insensitive; maximum 100 Unicode code points)").openapi({ example: "ExampleCo" }),
+  phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
+  comments: customerCommentsQuery,
+  hasAddresses: customerAddressPresenceQuery,
   enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
   limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
   offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
@@ -86,6 +87,7 @@ export const customerSnapshotListQuery = z.object({
       "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
     )
     .openapi({ example: "false" }),
+  exactNext: snapshotExactNextQuery,
   order: snapshotOrderQuery,
-  fields: snapshotFieldsQuery("customer")
-});
+  fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
+}).refine(snapshotCountModeCompatible, { path: ["countOnly"] });

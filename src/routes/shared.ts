@@ -42,7 +42,19 @@ export function validationFailureHook(
     type: problemType("bad-request", c?.env),
     title: "Bad Request",
     status: 400,
-    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
+      (result.target === "query" && unique.includes("hasAddresses")
+        ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("driverNote")
+        ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("countOnly")
+        ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("comments")
+        ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
 

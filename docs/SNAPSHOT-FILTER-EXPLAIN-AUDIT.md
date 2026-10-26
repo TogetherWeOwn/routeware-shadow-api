@@ -69,6 +69,40 @@ three identical bound needles; the pinned oracle in
 composed shapes and the same `q`-alone SCAN. The historical rows are left
 intact.
 
+## Stored phone predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 3 synthetic customers (no tenant data). Used the
+customer route's COUNT template and page-SELECT template with the bound
+two-term OR predicate
+`(instr(lower(coalesce(phone1, '')), lower(?)) > 0 OR
+instr(lower(coalesce(phone2, '')), lower(?)) > 0)`, one value bound twice,
+`ORDER BY customer_id LIMIT ? OFFSET ?`. Observed plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| phone fragment only | `SCAN customer_snapshot` |
+| `customer_id = ?` plus fragment | `SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid=?)` |
+| fragment plus `enabled = 1` | `SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)` |
+
+The fragment-only shape honestly scans: a mid-string `instr(lower(...))`
+substring match cannot seek a B-tree, exactly the `q`-alone boundary pinned
+by `migrations/d1/0003_text_filter_indexes.sql`. The same `lower()` folds
+ASCII A-Z only, so non-ASCII case variants match only on exact case —
+the same folding the `q` precedent already uses. Composing with a selective
+predicate keeps that predicate's existing index. The predicate uses bound
+placeholders, never interpolation, LIKE, a new join or a deduplication step.
+The executable `test/customerPhoneSearch.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on both statements with a quote/Unicode/percent fixture, and asserts
+exact matches, read-only execution and denied network. Run
+`npm run check:customer-phone-search` to repeat that bounded check.
+
+Fragment-only reads may still scan; this feature bounds returned data, not
+query cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Exact stored address ZIP predicate audit
 
 **Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
@@ -126,6 +160,41 @@ Presence-only reads may still scan the parent; this feature bounds returned
 data, not query cost. No migration/index, remote D1 probe, latency measurement
 or production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
+
+## Address extras-allowed predicate audit
+
+**Run date:** 2026-10-24. In-memory Node 24.22.1 `node:sqlite` SQLite 3.53.4
+with committed D1 migrations `0001`–`0003` and 6 synthetic addresses
+(extras 0/1 x enabled 0/1, no tenant data). Used the address route's SELECT
+column template and COUNT template with the literal extras predicates,
+`ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek without OFFSET).
+Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `extras_allowed = 1` | `SCAN address_snapshot` |
+| `extras_allowed = 0` | `SCAN address_snapshot` |
+| `customer_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1 AND extras_allowed = 0` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `extras_allowed = 1 AND pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+
+The extras predicate is a literal (`= 1` / `= 0`), never interpolation or a
+bind: COUNT binds stay `[]` for a bare selector and filter binds precede
+pagination binds on SELECT. No LIKE, join or deduplication step is added. The
+executable `test/addressExtrasAllowed.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on the emitted shapes, and asserts exact matches, read-only execution
+and denied network. Run `npm run check:address-extras-allowed` to repeat that
+bounded check.
+
+Selector-only reads scan; this feature bounds returned data, not query cost.
+No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+The street-only `q` expression above records the run-date template. The
+merged street-or-locality search now groups address/city/zip OR predicates
+with three identical bound needles; `extras_allowed` remains a literal AND
+predicate shared by COUNT and page reads.
 
 ## Decision
 

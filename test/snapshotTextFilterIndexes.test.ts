@@ -24,8 +24,10 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  *   match. The "documents the substring boundary" test pins this so a later
  *   reader does not "fix" it with an index that changes nothing.
  *
- * Address q now models the intended grouped address/city/zip OR; the enabled
- * prefix still narrows candidates, but locality values are residual filters.
+ * Address q models grouped address/city/zip OR; container q models grouped
+ * location_address/serial_number/city/zip OR. The enabled prefix still narrows
+ * candidates, but locality values are residual filters. Container exact zip has
+ * no dedicated index at baseline; zip alone scans, while ID scopes can seek.
  * These are local query-plan observations, not latency/production claims.
  *
  * Two pool-D1 limitations shape the helper, not the migration:
@@ -91,7 +93,7 @@ const ADDR_Q =
   "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)";
 const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
 const CONT_Q =
-  "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
+  "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0 OR instr(lower(coalesce(c.city, '')), lower(?)) > 0 OR instr(lower(coalesce(c.zip, '')), lower(?)) > 0)";
 // Same join shape as src/routes/containerSnapshot.ts `customerId` filter.
 const CONT_JOIN = "INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id";
 
@@ -109,8 +111,8 @@ beforeAll(async () => {
       "(1, 1, '123 Main St', NULL, '76541', 1, 't'), (2, 1, '456 Oak Ave', 'Main Borough', '76542', 1, 't'), (3, 2, '789 Main Blvd', '', '00741-1234', 0, 't')"
   );
   await db().exec(
-    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, enabled, synced_at) VALUES " +
-      "(1, 1, 'SN-001', '123 Main St', 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', 0, 't')"
+    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, city, zip, enabled, synced_at) VALUES " +
+      "(1, 1, 'SN-001', '123 Main St', NULL, NULL, 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 'Container Borough', '00888', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', NULL, NULL, 0, 't')"
   );
 
   plans.addrEnabledQBefore = await explain(
@@ -131,15 +133,13 @@ beforeAll(async () => {
   );
   plans.contEnabledQBefore = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q}`,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   // Customer shapes use 0001's idx_customer_snapshot_enabled, so
   // capture them BEFORE 0003 to prove 0003 is a no-op for that table.
@@ -179,20 +179,17 @@ beforeAll(async () => {
   );
   plans.contEnabledQAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q}`,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   plans.contQAloneAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
@@ -219,8 +216,7 @@ beforeAll(async () => {
     `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
       `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
@@ -252,30 +248,26 @@ beforeAll(async () => {
   plans.contPickupQEnabledAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountPickupQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1`,
     1,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   plans.contIdQEnabledAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountIdQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1`,
     1,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   // R2-32: customer customerId + q + enabled uses the primary key.
   plans.custIdQEnabledAfter = await explain(
@@ -363,15 +355,15 @@ it("address SQL oracle matches the zip-only leg without requiring street/city", 
   expect(rows.results.map((row) => row.pickup_address_id)).toEqual([3]);
 });
 
-describe("container text filter (q over location_address OR serial_number)", () => {
+describe("container text filter (q over location_address OR serial_number OR city OR zip)", () => {
   it("scans before 0003 for enabled + q", () => {
     expect(plans.contEnabledQBefore.join(" ")).toContain("SCAN");
     expect(plans.contCountEnabledQBefore.join(" ")).toContain("SCAN");
   });
 
   it("seeks a new composite index after 0003 for enabled + q", () => {
-    // The OR spans two indexed columns; the planner picks one prefix seek.
-    // Pin SEARCH on enabled plus a 0003 index, not which of the two wins.
+    // Four OR legs include unindexed locality columns. Only the enabled prefix
+    // is a seek; city/zip/substring matching remains residual work, not a new index.
     const selectPlan = plans.contEnabledQAfter.join(" ");
     expect(selectPlan).toContain("SEARCH c USING INDEX");
     expect(selectPlan).toContain("(enabled=?)");
@@ -384,14 +376,14 @@ describe("container text filter (q over location_address OR serial_number)", () 
       .prepare(
         `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind("bin-002", "bin-002", 50, 0)
+      .bind("bin-002", "bin-002", "bin-002", "bin-002", 50, 0)
       .all<{ container_id: number }>();
     expect((bySerial.results ?? []).map((x) => x.container_id)).toEqual([2]);
     const byLocation = await db()
       .prepare(
         `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind("oak", "oak", 50, 0)
+      .bind("oak", "oak", "oak", "oak", 50, 0)
       .all<{ container_id: number }>();
     expect((byLocation.results ?? []).map((x) => x.container_id)).toEqual([2]);
   });
@@ -402,9 +394,34 @@ describe("container text filter (q over location_address OR serial_number)", () 
         `SELECT c.container_id FROM container_snapshot c INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id ` +
           `WHERE a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind(1, "main", "main", 50, 0)
+      .bind(1, "main", "main", "main", "main", 50, 0)
       .all<{ container_id: number }>();
     expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
+  });
+});
+
+describe("container locality SQL oracle: honest residual locality work", () => {
+  it.each(["Container Borough", "00888"])("matches the isolated city/zip leg %s", async q => {
+    const result = await db().prepare(
+      `SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    ).bind(q, q, q, q, 50, 0).all<{ container_id: number }>();
+    expect(result.results.map(row => row.container_id)).toEqual([2]);
+  });
+
+  it("exact zip alone scans, while enabled and primary-key scopes can still seek", async () => {
+    for (const select of ["c.container_id", "COUNT(*) as n"]) {
+      const base = `SELECT ${select} FROM container_snapshot c WHERE c.zip = ?`;
+      const scan = (await explain(base, "00888")).join(" ");
+      expect(scan).toMatch(/SCAN c\b/);
+      expect(scan).not.toMatch(/SEARCH c\b/);
+      const enabled = (await explain(`${base} AND c.enabled = ? AND ${CONT_Q}`, "00888", 1, "Borough", "Borough", "Borough", "Borough")).join(" ");
+      expect(enabled).toMatch(/SEARCH c USING INDEX idx_container_snapshot_enabled_(serial|location)_lower/);
+      expect(enabled).toContain("(enabled=?)");
+      const id = (await explain(`${base} AND c.container_id = ? AND ${CONT_Q}`, "00888", 2, "Borough", "Borough", "Borough", "Borough")).join(" ");
+      expect(id).toContain("SEARCH c USING INTEGER PRIMARY KEY (rowid=?)");
+    }
+    const rows = await db().prepare("SELECT container_id FROM container_snapshot WHERE zip = ?").bind("00888").all<{ container_id: number }>();
+    expect(rows.results.map(row => row.container_id)).toEqual([2]);
   });
 });
 
@@ -452,7 +469,7 @@ describe("container customerId join + enabled + q", () => {
         `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
           `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind(1, "main", "main", 50, 0)
+      .bind(1, "main", "main", "main", "main", 50, 0)
       .all<{ container_id: number }>();
     expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
   });
