@@ -166,14 +166,23 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
  * so only those two strings are excluded here. Its fields schema and all
  * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
- * parameter, response, header, schema and operation.
+ * parameter, response, header, schema and operation. countOnly's three query
+ * declarations and new mode examples are owned by snapshotCountOnly.acceptance;
+ * named examples normalize back to the SAME old nonempty counted example.
  */
 function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
   const copy = structuredClone(doc) as {
     paths?: Record<string, Record<string, {
       description?: string;
       parameters?: Array<Record<string, unknown>>;
-      responses?: Record<string, { description?: string; headers?: Record<string, unknown> }>;
+      responses?: Record<string, {
+        description?: string;
+        headers?: Record<string, unknown>;
+        content?: Record<string, {
+          example?: unknown;
+          examples?: Record<string, { value?: { rows?: unknown[]; total?: number | null } }>;
+        }>;
+      }>;
     }>>;
     components?: { schemas?: Record<string, { properties?: Record<string, Record<string, unknown>> }> };
   };
@@ -211,10 +220,18 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
         !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && param.name === "upperId")
+        !(param.in === "query" && ["upperId", "countOnly"].includes(String(param.name)))
       );
     }
     if (operation.responses) delete operation.responses["304"];
+    const media = operation.responses?.["200"]?.content?.["application/json"];
+    if (media?.examples) {
+      const countedPages = Object.values(media.examples).map((entry) => entry.value)
+        .filter((value) => value && (value.rows?.length ?? 0) > 0 && typeof value.total === "number");
+      expect(countedPages, `${path}: preserve one legacy counted full-page example`).toHaveLength(1);
+      media.example = countedPages[0];
+      delete media.examples;
+    }
     const headers = operation.responses?.["200"]?.headers;
     if (headers) {
       for (const name of Object.keys(headers)) {
@@ -326,12 +343,32 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
 }
 
 /**
+ * The opt-in exact next-page signal (`exactNext`) is owned by
+ * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
+ * description guidance and absence from every other operation are pinned
+ * there. Exclude only that new query parameter from the three ordinary
+ * lists; put new guidance on the new parameter, not on frozen prose.
+ */
+function withoutExactNextParameter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["customer", "address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((p) => p.in !== "query" || p.name !== "exactNext");
+    }
+  }
+  return copy;
+}
+
+/**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
- * selector covered by addressZipFilter.acceptance.test.ts and city/state
- * declarations independently pinned by addressCityStateFilters.acceptance.test.ts.
- * Keep all existing parameter schemas, responses, tags and other operations
- * in the legacy golden.
+ * selector covered by addressZipFilter.acceptance.test.ts, city/state by
+ * addressCityStateFilters.acceptance.test.ts and driverNote by
+ * addressDriverNoteSearch.acceptance.test.ts. Keep all existing parameter
+ * schemas, responses, tags and other operations in the legacy golden.
  */
 function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -343,7 +380,24 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state", "driverNote"].includes(parameter.name));
+  return copy;
+}
+
+/**
+ * The stored extras-allowed selector has semantic checks in
+ * addressExtrasAllowed.acceptance.test.ts. Project out only its new parameter;
+ * address filter/recovery prose is already owned by
+ * withoutAddressScopeContract. Keep all existing parameter schemas in the
+ * legacy golden.
+ */
+function withoutAddressExtrasAllowedContract(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"].get as {
+    parameters: Array<{ name: string; in: string }>;
+  };
+  operation.parameters = operation.parameters.filter(parameter =>
+    parameter.in !== "query" || parameter.name !== "extrasAllowed");
   return copy;
 }
 
@@ -365,11 +419,14 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
-// Exact identifiers and stored labels supersede this route's old query/error narrative.
-// Their schema, composition and error discovery are asserted independently in
-// containerIdentifierFilters.acceptance.test.ts and containerMaterialColorFilters.acceptance.test.ts,
-// not frozen as speculative prose or parameter position. All legacy parameters and
-// unrelated operations remain frozen.
+// Exact identifiers, stored labels, installation selectors and parent scopes
+// supersede this route's old query/error narrative. Their schemas, composition
+// and error discovery are asserted independently in
+// containerIdentifierFilters.acceptance.test.ts,
+// containerMaterialColorFilters.acceptance.test.ts,
+// containerExactLocation.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
+// parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -384,7 +441,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -682,7 +739,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()));
+    const doc = withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -701,14 +758,17 @@ describe("published OpenAPI document", () => {
     // Only ids schema/400 prose moves to the independent acceptance contract.
     // Only the two new scope selectors and address filter/recovery prose move
     // to behavioral/semantic ownership; the container exact-identifier
-    // additions move to containerIdentifierFilters.acceptance.test.ts;
+    // additions move to containerIdentifierFilters.acceptance.test.ts; the three
+    // parent selectors move to containerParentScopes.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))).toMatchSnapshot();
+    // Only the address stored-extras selector additionally moves to
+    // addressExtrasAllowed ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc))))))))).toMatchSnapshot();
   });
 });
 

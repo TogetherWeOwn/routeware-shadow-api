@@ -10,7 +10,7 @@ type Operation = {
   description: string;
   parameters?: { name: string; schema: { example?: unknown } }[];
   security?: unknown[];
-  responses: Record<string, { content: Record<string, { example?: unknown }> }>;
+  responses: Record<string, { content: Record<string, { example?: unknown; examples?: Record<string, { value?: unknown }> }> }>;
 };
 type Doc = { paths: Record<string, Record<string, Operation>> };
 type Configuration = typeof scalarDocsConfiguration;
@@ -119,9 +119,30 @@ describe("Scalar /docs presentation", () => {
     // The documented try-it pair is prefilled for one-click Send.
     expect(examples.get("enabled")).toBe("true");
     expect(examples.get("limit")).toBe(10);
-    // A 200 example is published for the operation (payload shape pinned by
-    // the snapshot docs work); the live try-it below proves the GET path.
-    expect(operation.responses["200"].content["application/json"].example).toBeDefined();
+    // Named modes must retain the full-row counted page, not substitute the
+    // empty count-only envelope; the live try-it below still proves the GET path.
+    const media = operation.responses["200"].content["application/json"];
+    expect(media.example).toBeUndefined();
+    expect(media.examples?.counted.value).toEqual({
+      rows: [{
+        customer_id: 345734,
+        customer_type_id: 1,
+        company_name: "ExampleCo",
+        first_name: "Jane",
+        middle_initial: null,
+        last_name: "Doe",
+        name_suffix: null,
+        customer_number: "C-1001",
+        sub_customer_number: null,
+        phone1: "555-0100",
+        phone2: null,
+        comments: null,
+        enabled: 1,
+        synced_at: "2026-01-01T00:00:00.000Z"
+      }],
+      total: 1,
+      nextCursor: null
+    });
     const query = new URLSearchParams({ enabled: "true", limit: "10" });
     const response = await exports.default.fetch(`http://test.local/api/v1/customer-snapshot?${query}`, {
       headers: { authorization: "Bearer test-read-token" }
