@@ -357,6 +357,20 @@ function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDo
   return copy;
 }
 
+/** Only the new customer-list query parameter moves to the independent
+ * customerContainerPresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || p.name !== "hasContainers");
+  }
+  return copy;
+}
+
 /**
  * Customer child-cohort schemas, examples, single-list scope and outcomes are
  * independently owned by customerAddressCohorts.acceptance.test.ts. Remove only
@@ -506,16 +520,20 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
-// Exact identifiers, stored labels, installation selectors, parent scopes and
-// serial/RFID presence and stored-flag selectors supersede this route's old
-// query/error narrative. Their schemas, composition and error discovery are asserted independently in
+// Exact identifiers, stored labels, installation/city selectors, parent scopes and
+// service-code entry parts, serial/RFID presence and stored-flag selectors
+// supersede this route's old query/error narrative. Their schemas,
+// composition and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
+// containerCityFilter.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
+// containerServiceCodeParts.acceptance.test.ts,
 // containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative prose
-// or parameter position. All legacy parameters and unrelated operations remain frozen.
+// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative
+// prose or parameter position. All legacy parameters and unrelated operations
+// remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -530,7 +548,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -904,7 +922,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))));
+    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -939,6 +957,12 @@ describe("published OpenAPI document", () => {
     // Only the container list's containerTypeId query parameter is also
     // projected out: its facet, strict validation and composition are
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
+    // Only the customer list's hasContainers query parameter is also
+    // projected out: its schema, presence semantics and composition are
+    // independently pinned in
+    // `test/customerContainerPresence.acceptance.test.ts`; the address list's
+    // own single-level hasContainers stays separately projected via
+    // withoutAddressContainerPresence above.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to
