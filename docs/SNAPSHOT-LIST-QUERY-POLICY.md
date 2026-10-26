@@ -782,7 +782,7 @@ zero COUNTs. IDs, sparse projection, `upperId`, asc/desc seeks and
 representation ETags retain their existing contracts. Response/`fields` uses
 the stored name `service_date`, not query name `serviceDate`.
 
-Synthetic local fixture example (IDs 101, 102 carry the date):
+Synthetic local fixture example (IDs 101, 102, 104, 105, 125 carry the date):
 
 ```text
 GET /api/v1/container-snapshot?serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false
@@ -791,8 +791,9 @@ GET /api/v1/container-snapshot?serviceDate=2026-01-15&fields=service_date&limit=
 Link: </api/v1/container-snapshot?serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false&cursor=101>; rel="next"
 ```
 
-Follow the returned same-origin Link unchanged through 102 and the empty
-terminal page. Validated selectors round-trip encoded, including reserved
+Follow the returned same-origin Link unchanged through 102, 104, 105, 125
+and the empty terminal page. Validated selectors round-trip encoded,
+including reserved
 characters and significant whitespace; raw origins, credentials and unknown
 keys are never copied. Omission preserves the unfiltered behavior.
 

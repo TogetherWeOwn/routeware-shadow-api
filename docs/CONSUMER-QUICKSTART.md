@@ -865,8 +865,9 @@ npm run check:container-service-date
 ```
 
 The fixture's `serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false`
-request returns ID 101, then 102 by following the server's same-origin Link
-unchanged, then an empty terminal page. Date and presence selectors
+request returns ID 101, then 102, 104, 105 and 125 by following the
+server's same-origin Link unchanged, then an empty terminal page. Date and
+presence selectors
 AND-intersect with each other and every existing filter, on both
 customer-join paths. Significant whitespace, quotes, `%`, `_` and Unicode
 survive encoded next links. For a custom local fixture, use
