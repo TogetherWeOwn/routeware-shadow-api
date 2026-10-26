@@ -153,8 +153,9 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. The changes operation/400
+ * projected out. The optional lowerId/upperId queries on these same three lists
+ * are pinned independently by snapshotLowerId.acceptance.test.ts and
+ * snapshotUpperId.acceptance.test.ts. The changes operation/400
  * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
  * so only those two strings are excluded here. Its fields schema and all
  * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
@@ -212,7 +213,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
         !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && ["upperId", "countOnly"].includes(String(param.name)))
+        !(param.in === "query" && ["lowerId", "upperId", "countOnly"].includes(String(param.name)))
       );
     }
     if (operation.responses) delete operation.responses["304"];
