@@ -26,10 +26,13 @@ export function validationFailureHook(
   },
   // The framework calls hooks as `hook(result, context)` (zod-validator): the
   // second arg carries `env`, so schema rejections honor the
-  // `PROBLEM_TYPE_BASE` override. Optional so direct unit-test calls
+  // `PROBLEM_TYPE_BASE` override, and `req.path`, so the customer-list
+  // `hasContainers` remedy below can tell the two lists sharing that key
+  // apart (the address list keeps its previously fixed detail). Optional so
+  // direct unit-test calls
   // (`validationFailureHook({success, target, error})`) keep working and fall
   // back to the committed default.
-  c?: { env?: Env }
+  c?: { env?: Env; req?: object }
 ): Response | undefined {
   if (result.success || !result.error) {
     return undefined;
@@ -45,6 +48,9 @@ export function validationFailureHook(
     detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasContainers") && (c?.req as { path?: string } | undefined)?.path === "/api/v1/customer-snapshot"
+        ? "Send one hasContainers=true, false or any, or omit the selector and retry. "
         : "") +
       (result.target === "query" && unique.includes("hasPhone1")
         ? "Send one hasPhone1=true, false or any, or omit the selector and retry. "

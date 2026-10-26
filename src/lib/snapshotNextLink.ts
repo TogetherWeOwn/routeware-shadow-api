@@ -115,8 +115,9 @@ export function snapshotNextLink(
   if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
     params.set("extrasAllowed", query.extrasAllowed);
   }
-  // Address-only presence selector (other lists never set it): carry only
-  // filtering values so any/omitted continuations stay byte-identical.
+  // Mirrored-container presence (address direct-child, customer grandchild;
+  // the container list never sets it): carry only filtering values so
+  // any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
   }
