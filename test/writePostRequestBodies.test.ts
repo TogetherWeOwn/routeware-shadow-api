@@ -190,14 +190,20 @@ describe("write POST requestBody schemas", () => {
 describe("write POST schemas install no runtime validators", () => {
   const originalFetch = globalThis.fetch;
   const forwarded: string[] = [];
+  const forwardedBodies: string[] = [];
 
   beforeEach(() => {
     forwarded.length = 0;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
+    forwardedBodies.length = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/WebRW/")) {
         forwarded.push(url);
+        if (/\/Save(?:CustomerLongForm|AddressForm|ContainerForm)$/.test(new URL(url).pathname)) {
+          const request = input instanceof Request ? input : new Request(url, init);
+          forwardedBodies.push(await request.text());
+        }
         return new Response('{"success":true}', {
           status: 200,
           headers: { "content-type": "application/json" }
@@ -261,6 +267,9 @@ describe("write POST schemas install no runtime validators", () => {
     expect(forwarded.some((u) => u.includes("/WebRW/Customer/SaveCustomerLongForm"))).toBe(true);
     expect(forwarded.some((u) => u.includes("/WebRW/PickupAddress/SaveAddressForm"))).toBe(true);
     expect(forwarded.some((u) => u.includes("/WebRW/Container/SaveContainerForm"))).toBe(true);
+    // Declaration-only typing must not install a body parser that discards
+    // unknown properties or normalizes bytes before forwarding the form.
+    expect(forwardedBodies).toEqual([foreign, foreign, foreign]);
   });
 
   it("forwards app-settings-get with a foreign JSON body (no validation gate)", async () => {
