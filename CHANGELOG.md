@@ -5,7 +5,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-<- #403: Container snapshot lists accept optional `eventCode` and
+- #409: Three ordinary snapshot lists (`GET
+  /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
+  caller-held inclusive floor: only rows whose resource primary key is at or
+  above the floor are listed and counted, alone or windowed with the `upperId`
+  ceiling. The caller retains its window unchanged across pages in either
+  direction, so out-of-window arrivals cannot extend the traversal; a
+  descending cursor at or below the floor yields an empty page with
+  cursor-relative totals, and crossed `lowerId` above `upperId` reads as an
+  empty cohort rather than a validation error. The floor composes with all
+  filters, `ids`, `q`, sparse `fields`, offset/cursor paging,
+  `includeTotal=false`, `countOnly` and `exactNext`, is preserved verbatim in
+  `Link` next targets, needs no migration or index, and omission preserves
+  existing behavior with no `MIN` query. Values are one canonical unpadded
+  ASCII decimal integer from `1` to `9007199254740991`; anything else is a
+  value-free 400 before D1, after read-role authentication. Numeric IDs are
+  not timestamps: in-window arrivals, updates and deletions remain visible,
+  with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
+  Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
+  check: `npm run check:snapshot-lower-id`.
+
+- #403: Container snapshot lists accept optional `eventCode` and
   `hasEventCode=true|false|any` (default `any`) for exact stored
   `c.event_code` text and missing-code cohorts. The code is an opaque
   case-sensitive 1..100 Unicode code-point string, never parsed as a
@@ -18,6 +38,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   pagination stay intact. No migration/index or performance promise is
   added. Synthetic local check: `npm run check:container-event-code`; see
   the event-code recipe in `docs/CONSUMER-QUICKSTART.md`.
+
 - #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
   list: each selects rows by stored `phone1`/`phone2` text as stored —
   `true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
@@ -35,6 +56,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   index or migration, no upstream hydration, no latency promise. Synthetic
   neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:customer-phone-presence`.
+
 - #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
   dated and latest downloads (404 not-found, 409 replacement conflict),
   the unreadable latest-pointer 500, the date-listing 500, and the
