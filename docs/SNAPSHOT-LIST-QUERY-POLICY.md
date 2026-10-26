@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCostShare`, `hasEnclosureDoors`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -980,6 +980,51 @@ GET /api/v1/customer-snapshot?upperId=6&cursor=4&limit=2
 Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
 validation, resume, composition, discovery and header regressions. No live
 replay.
+
+## Stored container-type filter
+
+Only the ordinary container list recognizes `containerTypeId`. It is an
+optional exact equality on the stored snapshot column `container_type_id`
+(the mirrored CSV value, not a live Routeware lookup and not a type-name
+catalog): one unpadded ASCII decimal safe integer from `0` to
+`9007199254740991`, with no signs, whitespace, fractions, exponents,
+prefixes or padding, and a single `containerTypeId` key. `0` is a literal
+stored value, never a null/all sentinel; rows with a null stored type never
+match any supplied value. Anything else — including an empty value or a
+repeated key, even percent-encoded — is the existing value-free 400 naming
+`containerTypeId` before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#stored-container-type-filter-bad-request).
+
+The selector AND-composes with every existing list selector, including
+parent service-site scopes, exact equipment labels and installation fields,
+`upperId`, sparse `fields=`, offset or cursor pagination and
+`includeTotal=false`: one bound `c.container_type_id = ?` predicate is in
+both the page `SELECT` and the `COUNT`, on the container alias on both the
+bare and the parent-address-join paths, with no new migration, index or join.
+It is also recognized under `strictQuery=true` and reused by `countOnly=true`
+(the latter returns only the count, with no page SELECT or next Link). A
+request that previously carried an ignored `containerTypeId` now filters on
+this list only; by-id reads, CSV exports and the changes feed still ignore
+it as an unknown name. Omission preserves existing matches and wire
+behavior. When the page is non-terminal, the `Link` next target preserves
+the validated selector verbatim; an unfiltered page's next target carries
+no `containerTypeId`. Synthetic example:
+
+```text
+GET /api/v1/container-snapshot?containerTypeId=5&limit=1
+
+{"rows":[{"container_id":9302,...}],"total":2,"nextCursor":9302}
+```
+
+The second page replays the selector with the cursor:
+`GET /api/v1/container-snapshot?containerTypeId=5&limit=1&cursor=9302`
+returns the remaining row with `total: 1` and `nextCursor: 9303`, whose
+`Link` target leads to the terminal empty page. Stop only when `Link` is
+absent.
+
+Run `npm run check:container-type-filter` for the focused synthetic-local-D1
+equality, composition, rejection, traversal, SQL-shape and contract
+regressions. No live replay.
 
 ## Hydrated entity reads are strict
 
