@@ -4,7 +4,7 @@ import { snapshotUpperIdQuery } from "./snapshotUpperId";
 import { snapshotOrderQuery } from "./snapshotListOrder";
 import { snapshotSearchQuery } from "./snapshotSearchQuery";
 import { snapshotFieldsQuery } from "./sparseFieldsets";
-import { customerAccountNumberQuery, customerAddressPresenceQuery, customerCommentsQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
+import { customerAccountNumberQuery, customerAddressPresenceQuery, customerCommentsQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
 import { snapshotExactNextQuery } from "./snapshotNextLink";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible } from "./snapshotCountOnly";
 import { snapshotStrictQuery } from "./snapshotStrictQuery";
@@ -69,6 +69,7 @@ export const customerSnapshotListQuery = z.object({
   phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
   comments: customerCommentsQuery,
   hasAddresses: customerAddressPresenceQuery,
+  hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery,
   enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
   limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
   offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
