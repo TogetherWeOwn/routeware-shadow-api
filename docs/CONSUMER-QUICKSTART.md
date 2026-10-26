@@ -1148,6 +1148,59 @@ claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-address-presence) and
 [400 correction guidance](PROBLEMS.md#customer-address-presence-bad-request).
 
+### Customer service-site cohorts
+
+Use the existing read-token-compatible `listCustomerSnapshot` operation to
+select accounts in a mirrored route/franchise/site-state cohort without
+downloading sites. `addressRouteId`, `addressFranchiseId` and
+`addressEnabled=true|false|any` (default `any`) AND inside one
+customer-correlated child lookup, so every supplied scope must match the
+same stored address: route on one site plus franchise on another never matches, and
+duplicate matching sites never duplicate the customer. Null stored scalars
+never match equality. Every stored child, including disabled, stays
+eligible unless `addressEnabled` explicitly filters it; customer `enabled`
+is independent. Omission, or `addressEnabled=any` alone, keeps the
+unfiltered list. `hasAddresses=false` plus an effective cohort scope is a
+contradiction: an empty 200, not an override.
+
+Route IDs are canonical unpadded ASCII decimals `0..9007199254740991`
+(zero is literal). Franchises are case-sensitive opaque nonblank strings
+of 1..100 Unicode code points; preserve leading zeros and significant
+whitespace. Send each key once. Invalid, blank, overlength or repeated
+keys fail value-free before D1 after auth; correct the named field and
+retry. Valid no-match is an empty 200.
+
+Synthetic local cohort recipe (fixture service and its `$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&addressFranchiseId=001&limit=2&includeTotal=false"
+# {"rows":[{"customer_id":11,...},{"customer_id":13,...}],"total":null,"nextCursor":13}
+# Follow the returned relative Link unchanged on this same localhost origin:
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&addressFranchiseId=001&limit=2&includeTotal=false&cursor=13"
+# Next: 14, 15, then 29 alone; stop when Link is absent.
+```
+
+Contradiction recipe: presence-false plus a cohort scope stays empty:
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressRouteId=7&hasAddresses=false&limit=2"
+# {"rows":[],"total":0,"nextCursor":null} — no Link; nothing further to follow.
+```
+
+Mirrored membership is not current upstream assignment, not a permission,
+and promises no snapshot isolation. GET is an idempotent local D1 read;
+CLI `--dry-run` is N/A. The scope composes with every merged selector,
+either paging direction, `upperId`, sparse fields, count modes and
+representation-correct ETag/304. Run
+`npm run check:customer-address-cohorts` for synthetic local-D1 selection,
+contradiction, full Link traversal and conditional-read regressions plus
+child-index EXPLAIN evidence. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-cohorts)
+and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
 ### Customer stored-phone presence
 
 Use the existing read-token-compatible `listCustomerSnapshot` operation to
