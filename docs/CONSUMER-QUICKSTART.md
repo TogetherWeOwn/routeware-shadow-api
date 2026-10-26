@@ -1286,6 +1286,41 @@ child-index EXPLAIN evidence. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-cohorts)
 and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
+Service-policy scopes extend that **same-site** cohort:
+`addressExtrasAllowed=true|false|any` (default `any`) selects stored
+`extras_allowed` 1/0/no predicate; false does not mean no site. Optional
+`addressLastAuditDate` is one nonblank, case-sensitive opaque string of
+1..100 Unicode code points, preserved verbatim, never parsed as a date,
+range or schedule (`2026-1-5` differs from `2026-01-05`). Stored NULL never
+matches; valid unknown text returns an empty 200. Extras on site A and audit
+text on site B do not qualify together; all route/franchise/enabled scopes
+must match that same child too. Multiple matching sites return the account
+once, with no site expansion. Extras is a mirrored service-policy marker,
+not billing authorization; audit text is mirrored report data, not audit
+compliance, certification or proof an audit occurred.
+
+Synthetic local combined recipe (fixture service and its `$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressExtrasAllowed=true&addressLastAuditDate=2026-01-05&limit=2&includeTotal=false"
+# Service-policy fixture: customer_ids 11,13; total null; nextCursor 13.
+# Follow the server's relative Link rel=next unchanged on the same origin.
+# Stop when Link is absent; without exactNext=true a full tail may link to [].
+```
+
+URL-encode audit text; send each key once. Invalid/blank/overlength or
+repeated decoded names fail value-free after auth before D1/304; correct the
+named field or omit it and retry. Either scope works alone; `any` alone is
+unfiltered. Effective scopes survive either paging direction, offset-to-seek,
+inclusive ID bounds and sparse projection. `includeTotal=false` skips COUNT;
+`countOnly=true` performs only COUNT and cannot combine with
+`includeTotal=false`. ETag/304/no-store remain representation-correct.
+Global `hasContainers` stays independent of the matched site's equipment.
+Run `npm run check:customer-address-service-policy` for local synthetic-D1
+selection, decoys, full traversal, auth/validation and conditional regressions.
+No live access, writes, new index or production latency claim.
+
 ### Customer stored-phone presence
 
 Use the existing read-token-compatible `listCustomerSnapshot` operation to
