@@ -36,6 +36,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  * in every snapshot table, row 102 disabled, the rest enabled; every label
  * carries the "synthetic" needle so `enabled=true&q=synthetic` selects
  * [101, 103, 104] on each list. Address/container parent ids line up 1:1.
+ * Container service codes: 101/103 = SVC-1, 102 = SVC-10, 104 = NULL.
  *
  * Mutations caught: strict mode ignored or made default; allowlist copied
  * from a sibling resource or missing a merged selector; raw (undecoded)
@@ -88,7 +89,7 @@ const SPECS: Spec[] = [
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
       "city=Riverton", "state=ST", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1", "containerTypeId=7"
+      "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
   {
@@ -104,7 +105,7 @@ const SPECS: Spec[] = [
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
       "comments=note", "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1", "containerTypeId=7"
+      "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
   {
@@ -116,7 +117,7 @@ const SPECS: Spec[] = [
       "containerTypeId", "owningCustomerNumber", "owningSubCustomerNumber",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
-      "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
@@ -140,7 +141,7 @@ const SAMPLES: Record<string, string> = {
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
-  locationAddress: "Synthetic location",
+  locationAddress: "Synthetic location", serviceCode: "SVC-1",
   limit: "2", offset: "0", cursor: "101",
   lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
@@ -270,8 +271,8 @@ beforeEach(async () => {
         "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, city, state, zip, route_id, franchise_id, enabled, synced_at) VALUES (?, ?, ?, 'Riverton', 'ST', '02139', 7, 'F-1', ?, ?)"
       ).bind(id, id, `Synthetic site ${id}`, enabled, STAMP),
       db.prepare(
-        "INSERT INTO container_snapshot (container_id, pickup_address_id, location_address, serial_number, rfid, city, zip, enabled, synced_at) VALUES (?, ?, ?, 'SN-1', 'RF-1', 'Riverton', '02139', ?, ?)"
-      ).bind(id, id, `Synthetic site ${id}`, enabled, STAMP)
+        "INSERT INTO container_snapshot (container_id, pickup_address_id, location_address, serial_number, rfid, city, zip, service_code, enabled, synced_at) VALUES (?, ?, ?, 'SN-1', 'RF-1', 'Riverton', '02139', ?, ?, ?)"
+      ).bind(id, id, `Synthetic site ${id}`, id === 104 ? null : id === 102 ? "SVC-10" : "SVC-1", enabled, STAMP)
     ]);
   }
 });
@@ -358,6 +359,23 @@ describe.each(SPECS)("$name list: strict mode accepts its own declared names", (
     expect(result.body.nextCursor).toBe(103);
     for (const row of result.body.rows) {
       expect(Object.keys(row).sort()).toEqual([spec.id, spec.field].sort());
+    }
+  });
+});
+
+describe("container list: serviceCode under strict mode", () => {
+  it("filters exact stored codes identically with strict mode omitted, false or true", async () => {
+    const spec = SPECS.find((s) => s.name === "container")!;
+    const search = "serviceCode=SVC-1&fields=location_address";
+    const omitted = await page(spec, search);
+    // SVC-10 (102) and NULL (104) do not match the exact stored SVC-1.
+    expect(idsOf(spec, omitted.body)).toEqual([101, 103]);
+    expect(omitted.body.total).toBe(2);
+    expect(omitted.body.nextCursor).toBeNull();
+    for (const strictQuery of ["false", "true"]) {
+      const result = await page(spec, `${search}&strictQuery=${strictQuery}`);
+      expect(result.bytes).toBe(omitted.bytes);
+      expect(result.recorder.statements).toEqual(omitted.recorder.statements);
     }
   });
 });
