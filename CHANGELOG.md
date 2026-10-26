@@ -5,6 +5,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #403: Container snapshot lists accept optional `eventCode` and
+  `hasEventCode=true|false|any` (default `any`) for exact stored
+  `c.event_code` text and missing-code cohorts. The code is an opaque
+  case-sensitive 1..100 Unicode code-point string, never parsed as a
+  number, enum or status; `false` keeps exactly null-or-empty codes while
+  whitespace-only counts as present. Stored code text is mirrored import
+  text, not dispatch state, history, proof of service or a taxonomy. Both
+  selectors AND-compose with existing filters in COUNT and page reads on
+  both join paths, add no join, and round-trip in relative next links with
+  `any` omitted. Single-value bounds, sparse ETags/304 and count-free
+  pagination stay intact. No migration/index or performance promise is
+  added. Synthetic local check: `npm run check:container-event-code`; see
+  the event-code recipe in `docs/CONSUMER-QUICKSTART.md`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
