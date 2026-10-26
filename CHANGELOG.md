@@ -22,6 +22,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   index or migration, no upstream hydration, no latency promise. Synthetic
   neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:customer-phone-presence`.
+- #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
+  dated and latest downloads (404 not-found, 409 replacement conflict),
+  the unreadable latest-pointer 500, the date-listing 500, and the
+  unbound-store 503 all resolve their problem `type` from the request
+  environment. Status, title, detail, instance,
+  headers, auth, request-id behavior and success/conditional bytes are
+  unchanged; absent, empty or whitespace-only overrides keep the exact
+  existing default. See
+  `docs/CONSUMER-QUICKSTART.md#problem-type-base-override`.
 - #405: Address snapshot lists accept optional `lastAuditDate` exact and
   `hasLastAuditDate=true|false|any` (default `any`) selectors on stored
   `last_audit_date` only. The exact value binds verbatim (1..100 Unicode
