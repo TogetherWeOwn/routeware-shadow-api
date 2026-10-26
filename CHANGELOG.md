@@ -21,6 +21,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   fixed value-free 400 after auth and before D1. No new index, migration or
   latency claim; focused check:
   `npm run check:address-parent-customer-enabled`.
+- #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
+  stored-state selectors (`true`|`false`|`any`, default `any`). Exact
+  case-sensitive enums match stored `1`/`0` via integer-literal predicates;
+  malformed, blank and repeated selectors return value-free 400s before D1.
+  Both predicates AND with every existing filter on the bare and
+  customer-join shapes, add no binds, and travel in `Link` continuations
+  (`any` omits canonically). Existing counted/count-free, sparse, seek and
+  conditional reads are preserved. Flags are stored snapshot values, not
+  equipment-mutation permission or proof of fresh GPS. Local read-only D1
+  only; no schema/index, upstream or auth changes. Synthetic follow-next
+  recipe: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
+  `npm run check:container-oncall-gps-locked`.
 
 - #409: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
@@ -145,6 +157,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   completeness promise. No index or migration. See the synthetic bounded
   two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
   (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
   fields/ETag, and emits a cursor/relative next Link only if another matching row

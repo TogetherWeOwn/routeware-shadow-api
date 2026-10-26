@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -153,3 +153,38 @@ for (const wrapperName of WRAPPERS) {
     });
   });
 }
+
+test("a >128 KiB usage string arrives whole through a pipe", async () => {
+  // The synchronous write in scripts/lib/usage.mjs exists so the exit can
+  // never truncate piped output; every real usage is ~1 KiB, far below the
+  // point where an async write + exit drops bytes, so only a synthetic
+  // large string pins the guard. A subprocess is required: the helper exits
+  // the process. Stdout stays a pipe (spawnSync would cap it), and the exit
+  // propagates for real.
+  const helper = new URL("./lib/usage.mjs", import.meta.url).href;
+  const header = "Usage: probe\n";
+  const fillerBytes = 200_000;
+  const script = [
+    `import { handleHelpFlag } from ${JSON.stringify(helper)};`,
+    `handleHelpFlag(["--help"], ${JSON.stringify(header)} + "x".repeat(${fillerBytes}));`,
+  ].join("\n");
+  const child = spawn(
+    process.execPath,
+    ["--input-type=module", "-e", script],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+  const chunks = [];
+  child.stdout.on("data", (chunk) => chunks.push(chunk));
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  const code = await new Promise((resolve, reject) => {
+    child.on("close", resolve);
+    child.on("error", reject);
+  });
+  const received = Buffer.concat(chunks);
+  assert.equal(code, 0, stderr);
+  assert.equal(received.length, header.length + fillerBytes + 1);
+  assert.ok(received.toString("utf8").endsWith("x\n"));
+});
