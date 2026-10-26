@@ -5,6 +5,28 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #435: Container snapshot lists accept optional `owningCustomerNumber`
+  and `owningSubCustomerNumber`: exact case-sensitive opaque owning-account
+  references (1..100 Unicode code points, never whitespace-only) on the
+  owning customer's stored `customer_number` / `sub_customer_number`,
+  resolved through the container→address→customer chain with fully
+  qualified columns. Leading zeros, case and significant whitespace are
+  preserved with no trimming, normalization or hierarchy inference; both
+  numbers AND on the same owning-customer row, stored NULLs and missing
+  parents never match, and valid unknown numbers return an empty 200.
+  Stored numbers are mirrored report text, may repeat across stored
+  customers, and are not a billing identity, account hierarchy or proof of
+  ownership/control. The selectors AND-compose with every existing
+  container filter with shared COUNT/page scope, COUNT-only `countOnly`,
+  zero-COUNT `includeTotal=false`, sparse fields, ETags/304 and
+  selector-retaining relative next Links in asc/desc, including
+  offset-to-seek. Empty/whitespace-only, repeated (including encoded
+  duplicates) and overlength values fail with the existing value-free 400
+  after auth and before D1. Omission preserves existing SQL and orphan
+  visibility. Joined equality may scan with no index/migration or latency
+  claim. Synthetic owning-account recipe:
+  `docs/CONSUMER-QUICKSTART.md#owning-account-stored-business-numbers`;
+  local check: `npm run check:container-owning-account-numbers`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
