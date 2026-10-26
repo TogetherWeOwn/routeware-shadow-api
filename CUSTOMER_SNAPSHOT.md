@@ -353,6 +353,11 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | POST | `/api/v1/data-snapshot/sync` | Run customer → address → container in one call (per path vars and guards) |
 | DELETE | `/api/v1/customer-snapshot/{customerId}` | Erase one customer row (see scope below) |
 
+The exact selectors in the list rows above match stored values
+byte-for-byte, and every example value shown for them is synthetic, not a
+stored-value vocabulary: see
+[exact-selector examples are synthetic](docs/CONSUMER-QUICKSTART.md#exact-selector-examples-are-synthetic).
+
 ### Count without row payloads
 
 The three ordinary lists accept exact `countOnly=true|false` (default false).
