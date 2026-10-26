@@ -56,6 +56,11 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
+  // Address-only same-container equipment cohort; sibling lists omit these
+  // keys and keep unfiltered links.
+  equipmentMaterialStream?: string;
+  equipmentTypeId?: number;
+  equipmentEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -76,7 +81,7 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "equipmentMaterialStream", "equipmentTypeId"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
 } as const;
 
@@ -129,6 +134,11 @@ export function snapshotNextLink(
   // so any/omitted continuations stay byte-identical.
   if (resource === "address" && query.parentCustomerEnabled !== undefined && query.parentCustomerEnabled !== "any") {
     params.set("parentCustomerEnabled", query.parentCustomerEnabled);
+  }
+  // Same-container equipment cohort state (address only): carry only
+  // filtering values so any/omitted continuations stay byte-identical.
+  if (resource === "address" && query.equipmentEnabled !== undefined && query.equipmentEnabled !== "any") {
+    params.set("equipmentEnabled", query.equipmentEnabled);
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);

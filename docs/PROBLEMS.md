@@ -522,6 +522,37 @@ is a trimmed substring over location/serial/city/zip. See the
 [exact city policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city)
 and [city recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
 
+## Address same-container equipment cohorts (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, send each optional equipment key once:
+
+- `equipmentMaterialStream`: case-sensitive opaque exact string of 1..100
+  Unicode code points containing a non-whitespace character; leading zeros
+  and significant whitespace are preserved without trimming, case folding
+  or Unicode normalization.
+- `equipmentTypeId`: canonical unpadded ASCII decimal safe integer
+  `0..9007199254740991`; zero is literal stored zero.
+- `equipmentEnabled`: exactly `true`, `false` or `any` (default `any`).
+
+Blank, invalid, overlength and repeated (including encoded duplicate) keys
+fail with the existing value-free 400 after authentication and before D1.
+Detail for one rejected field (the named field can instead be either
+sibling scope):
+
+`Invalid request query (equipmentMaterialStream). Send one equipmentMaterialStream of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (equipmentTypeId). Send one equipmentTypeId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (equipmentEnabled). Send one equipmentEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. A valid selection with zero matches
+is a successful empty collection: split-container scopes never match, and a
+site with no stored containers never matches a supplied equipment scope.
+Mirrored equipment attributes are not live inventory, material acceptance,
+service eligibility or recycling-outcome truth. See the
+[equipment cohort policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-same-container-equipment-cohorts)
+and [cohort recipe](CONSUMER-QUICKSTART.md#address-same-container-equipment-cohorts).
+
 ## Snapshot list direction (`bad-request`)
 
 For the three ordinary snapshot lists, send exactly one lowercase

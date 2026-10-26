@@ -84,6 +84,15 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("equipmentMaterialStream")
+        ? "Send one equipmentMaterialStream of 1..100 Unicode code points that is not blank, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("equipmentTypeId")
+        ? "Send one equipmentTypeId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("equipmentEnabled")
+        ? "Send one equipmentEnabled=true, false or any, or omit the selector and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }

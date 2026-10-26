@@ -335,6 +335,63 @@ acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
 
+### Address same-container equipment cohorts
+
+Use `listAddressSnapshot` with `equipmentMaterialStream`, `equipmentTypeId`
+and `equipmentEnabled` to list only sites holding stored equipment with
+those attributes on one stored child container, without downloading every
+container and grouping client-side. Every supplied scope must hold on the
+SAME stored child: a stream-X container plus a type-Y (or
+differently-enabled) container at the same site never matches the combined
+request. Any single supplied scope alone creates the EXISTS; omission or
+`equipmentEnabled=any` adds no predicate. Stream is one opaque
+case-sensitive exact string of 1..100 Unicode code points (no trimming,
+case folding or Unicode normalization); type is one unpadded ASCII decimal
+safe integer `0..9007199254740991` (zero is literal stored 0); enabled is
+one exact `true|false|any` over stored container `enabled` 1/0. Null
+stored attributes never match, a valid unknown combination returns an
+empty 200, and childless sites never match a supplied equipment scope.
+These scopes are independent of `hasContainers` and the prospective
+`hasEnabledContainers`: each any-child scope may be satisfied by a
+different stored child than the equipment cohort. Mirrored equipment
+attributes are not live inventory, material acceptance, service
+eligibility or recycling-outcome truth. Invalid, blank, overlength or
+repeated values receive the fixed value-free 400 before D1, after auth.
+
+Sites whose one stored unit carries stream `X`, type `5` and enabled
+state, counted first:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?equipmentMaterialStream=X&equipmentTypeId=5&equipmentEnabled=true&countOnly=true"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?equipmentMaterialStream=X&equipmentTypeId=5&equipmentEnabled=true&limit=2"
+# Paged responses carry a relative next Link; follow its cursor on the same origin.
+```
+
+Stream-only cohort, then follow the relative next Link (or pass its
+`cursor`) on the same origin; the effective equipment selectors are
+retained and `any`/omitted stays out:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?equipmentMaterialStream=X&limit=1"
+# Link: </api/v1/address-snapshot?equipmentMaterialStream=X&limit=1&cursor=11>; rel="next"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?equipmentMaterialStream=X&limit=1&cursor=11"
+```
+
+COUNT/page share scope; `countOnly` stays COUNT-only and count-free is zero
+COUNTs; ETag/304 and no-store are unchanged. The cohort lookup uses the
+existing container `pickup_address_id` index: no new index or production
+latency claim. GET is idempotent and local-read, no upstream/R2/write
+effects; CLI `--dry-run` is N/A.
+
+Run `npm run check:address-equipment-cohort` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-same-container-equipment-cohorts).
+
 ### Opt-in query typo detection
 
 On the three ordinary flat lists, add `strictQuery=true` to reject unknown

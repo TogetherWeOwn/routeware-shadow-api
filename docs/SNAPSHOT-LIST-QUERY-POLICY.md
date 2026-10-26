@@ -18,7 +18,7 @@ and never authorizes deletion or reconciliation.
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `equipmentMaterialStream`, `equipmentTypeId`, `equipmentEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -749,6 +749,55 @@ effects; CLI `--dry-run` is N/A. Run
 local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
 contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
+
+## Address same-container equipment cohorts
+
+Only the ordinary address list accepts `equipmentMaterialStream`,
+`equipmentTypeId` and `equipmentEnabled`, selecting service sites by
+stored equipment attributes held on one stored child container
+(`container_snapshot.pickup_address_id = address_snapshot.pickup_address_id`,
+qualified columns). Every supplied scope must hold on the SAME stored
+child: a material-stream-X container plus a type-Y (or
+differently-enabled) container at the same site never matches the
+combined request, while any single supplied scope alone creates the
+correlated same-container EXISTS. Omission — or `equipmentEnabled=any`
+alone — adds no predicate, so unconstrained reads keep pre-existing
+childless rows. Stream is one opaque case-sensitive exact string of
+1..100 Unicode code points bound verbatim as `ud_material_stream_ud = ?`
+(no trimming, case folding or Unicode normalization); type is one
+unpadded ASCII decimal safe integer `0..9007199254740991` bound as
+`container_type_id = ?` (zero is literal stored 0); enabled is one exact
+`true|false|any` (default `any`) over stored container `enabled` 1/0. Null
+stored attributes never match a supplied scope, a noncanonical stored
+enabled value never matches true or false, a valid unknown combination
+returns an empty 200, and a site with no stored containers never matches
+any supplied equipment scope. Multiple matching containers never duplicate
+the site; no container payload is expanded. These scopes are independent
+of the any-child scopes `hasContainers` and the prospective
+`hasEnabledContainers`: each any-child scope may be satisfied by a
+different stored child than the equipment cohort. Mirrored equipment attributes are not live inventory, material acceptance, service eligibility or recycling-outcome truth. The cohort AND-composes with every
+other address selector and traversal bound; contradictions return empty
+200. Invalid, blank, overlength or repeated (including encoded duplicate)
+values return the existing value-free bad-request problem before D1,
+after auth; submitted values are never echoed or logged.
+
+One correlated `EXISTS (SELECT 1 FROM container_snapshot ...)` predicate
+(no JOIN, no child fanout) shares the WHERE between COUNT and page;
+`includeTotal=false` still issues zero COUNTs and `countOnly` stays
+COUNT-only. Sparse fields and ETag/304 describe the same final envelope.
+Relative next Links retain the effective equipment selectors (omit
+`any`) in either order and when moving offset-to-seek; unknown raw
+parameters and origins never travel.
+
+The lookup uses the existing `idx_container_snapshot_pickup_address_id`
+index; the synthetic local `EXPLAIN QUERY PLAN` recorded in
+`test/addressEquipmentCohort.acceptance.test.ts` is shape evidence only —
+no index/migration is added and no production latency claim is made. This
+GET is idempotent, local-read, with no upstream/R2/write effects; CLI
+`--dry-run` is N/A. Run `npm run check:address-equipment-cohort` for the
+immutable synthetic local-D1 oracle and neighboring
+list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#address-same-container-equipment-cohorts).
 
 ## Address street or locality search
 
