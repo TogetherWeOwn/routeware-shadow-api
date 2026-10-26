@@ -539,7 +539,7 @@ it.each(["true", "false"])("hashes the final sparse envelope and preserves condi
     budget(same);
     expect(same.recorder.statements).toEqual(first.recorder.statements);
   }
-  for (const filters of [{ city: "Other" }, { state: "TX" }, { fields: "state" }] as Record<string, string>[]) {
+  for (const filters of [{ city: "Other" }, { state: "OnlyState" }, { fields: "state" }] as Record<string, string>[]) {
     const different = await page({ ...query, ...filters }, { "if-none-match": tag });
     expect(different.response.headers.get("etag")).not.toBe(tag);
   }
