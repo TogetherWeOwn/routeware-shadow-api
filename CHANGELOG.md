@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- #TBD: The six ordinary flat snapshot GETs publish their existing 400 and
+- #416: The six ordinary flat snapshot GETs publish their existing 400 and
   missing-row 404 `application/problem+json` bodies as typed contracts in the
   mounted `/openapi.json`. All nine error responses share one `ProblemBody`
   component (`type`/`title`/`status` required; `detail`/`instance`/`requestId`
