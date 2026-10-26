@@ -1047,8 +1047,8 @@ Use the existing read-token-compatible `listCustomerSnapshot` operation to
 select accounts in a mirrored route/franchise/site-state cohort without
 downloading sites. `addressRouteId`, `addressFranchiseId` and
 `addressEnabled=true|false|any` (default `any`) AND inside one
-customer-correlated child lookup, so all three must match the same stored
-address: route on one site plus franchise on another never matches, and
+customer-correlated child lookup, so every supplied scope must match the
+same stored address: route on one site plus franchise on another never matches, and
 duplicate matching sites never duplicate the customer. Null stored scalars
 never match equality. Every stored child, including disabled, stays
 eligible unless `addressEnabled` explicitly filters it; customer `enabled`
