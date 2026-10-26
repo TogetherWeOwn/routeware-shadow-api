@@ -356,6 +356,20 @@ function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDo
   return copy;
 }
 
+/** Only the new customer-list query parameter moves to the independent
+ * customerContainerPresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || p.name !== "hasContainers");
+  }
+  return copy;
+}
+
 /**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
@@ -848,7 +862,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))));
+    const doc = withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -881,6 +895,12 @@ describe("published OpenAPI document", () => {
     // Only the container list's containerTypeId query parameter is also
     // projected out: its facet, strict validation and composition are
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
+    // Only the customer list's hasContainers query parameter is also
+    // projected out: its schema, presence semantics and composition are
+    // independently pinned in
+    // `test/customerContainerPresence.acceptance.test.ts`; the address list's
+    // own single-level hasContainers stays separately projected via
+    // withoutAddressContainerPresence above.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; all other golden contracts stay pinned.

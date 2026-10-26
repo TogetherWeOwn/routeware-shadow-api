@@ -372,7 +372,7 @@ describe("customer container presence pagination and SQL", () => {
     const counted = await page({ hasContainers: value, limit: 2 });
     const free = await page({ hasContainers: value, limit: 2, includeTotal: "false" });
     const want = value === "true" ? [12, 13] : value === "false" ? [11, 14] : [11, 12];
-    expectPage(free, want, null, value === "true" ? null : want[1]);
+    expectPage(free, want, null, want[1]);
     expect(free.body.rows).toEqual(counted.body.rows);
     expect(free.body.nextCursor).toBe(counted.body.nextCursor);
     expect(free.recorder.statements[0]).toEqual(counted.recorder.statements.find((s) => !/\bCOUNT\s*\(/i.test(s.sql)));
