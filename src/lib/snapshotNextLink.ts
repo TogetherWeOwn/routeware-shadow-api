@@ -24,6 +24,9 @@ type SnapshotListQuery = {
   ids?: number[];
   serialNumber?: string;
   rfid?: string;
+  // Container list only; sibling lists omit these keys and keep unfiltered links.
+  hasSerialNumber?: "true" | "false" | "any";
+  hasRfid?: "true" | "false" | "any";
   materialStream?: string;
   color?: string;
   routeId?: number;
@@ -130,6 +133,12 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.hasEnclosureDoors !== undefined && query.hasEnclosureDoors !== "any") {
     params.set("hasEnclosureDoors", query.hasEnclosureDoors);
+  }
+  if (resource === "container" && query.hasSerialNumber !== undefined && query.hasSerialNumber !== "any") {
+    params.set("hasSerialNumber", query.hasSerialNumber);
+  }
+  if (resource === "container" && query.hasRfid !== undefined && query.hasRfid !== "any") {
+    params.set("hasRfid", query.hasRfid);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive window: the next target keeps the same floor and cap

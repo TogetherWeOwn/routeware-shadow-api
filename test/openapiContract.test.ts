@@ -460,9 +460,10 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
 // containerParentScopes.acceptance.test.ts and
-// containerCostShareEnclosurePresence.acceptance.test.ts, not frozen as
-// speculative prose or parameter position. All legacy parameters and unrelated
-// operations remain frozen.
+// containerCostShareEnclosurePresence.acceptance.test.ts and
+// containerSerialRfidPresence.acceptance.test.ts, not frozen as speculative
+// prose or parameter position. All legacy parameters and unrelated operations
+// remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -477,7 +478,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "hasCostShare", "hasEnclosureDoors"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "hasSerialNumber", "hasRfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "hasCostShare", "hasEnclosureDoors"].includes(parameter.name ?? "")
       );
     }
   }
@@ -873,7 +874,9 @@ describe("published OpenAPI document", () => {
     // additions move to containerIdentifierFilters.acceptance.test.ts; the three
     // parent selectors move to containerParentScopes.acceptance.test.ts; the two
     // stored-text presence selectors move to
-    // containerCostShareEnclosurePresence.acceptance.test.ts.
+    // containerCostShareEnclosurePresence.acceptance.test.ts and
+    // serial/RFID presence selectors move to
+    // containerSerialRfidPresence.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
     // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
