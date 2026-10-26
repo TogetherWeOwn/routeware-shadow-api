@@ -13,7 +13,7 @@ import {
   resolveBase,
 } from "../scripts/lib/postDeployProbe.mjs";
 
-describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
+describe("post-deploy-probe skip-safe planner", () => {
   it("keeps the check name and skip flag stable for the scheduled workflow", () => {
     expect(CHECK_NAME).toBe("post-deploy-probe");
     expect(SKIP_FLAG).toBe("--skip-if-no-token");
@@ -61,7 +61,7 @@ describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
     expect(ALL_PROBE_PATHS).toHaveLength(3);
   });
 
-  it("flags cron.stale=true as stale so the probe fails (TOG-9225)", () => {
+  it("flags cron.stale=true as stale so the probe fails", () => {
     // Reviewer fixture path: point the probe at a readiness body whose cron
     // timestamp is older than CRON_STALE_AFTER_MS (48h) and assert it fires.
     const staleCron = {
@@ -89,10 +89,22 @@ describe("post-deploy-probe skip-safe planner (TOG-8365)", () => {
     expect(evalCronFreshness({ cron: freshCron }).lastRunAt).toBe(freshCron.lastRunAt);
   });
 
-  it("stays advisory on readiness bodies without a cron object (older deploy)", () => {
+  it("stays advisory only when legacy cron metadata is genuinely absent", () => {
     expect(evalCronFreshness({})).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
-    expect(evalCronFreshness({ cron: null })).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
     expect(evalCronFreshness({ cron: undefined })).toEqual({ verdict: "unknown", lastRunAt: null, detail: null });
+  });
+
+  it.each([
+    null, {}, [], "false", "true", false, true, 0, 1,
+    { stale: "false" }, { stale: "true" }, { stale: 0 }, { stale: 1 },
+    { stale: null }, { stale: undefined }, { detail: "synthetic malformed cron" },
+  ].map((cron) => ({ label: JSON.stringify(cron), cron })))("fails closed on present malformed cron metadata: $label", ({ cron }) => {
+    expect(evalCronFreshness({ cron }).verdict).toBe("malformed");
+  });
+
+  it("trusts the server boolean rather than recreating its timestamp threshold", () => {
+    expect(evalCronFreshness({ cron: { stale: false, lastRunAt: "1900-01-01T00:00:00Z" } }).verdict).toBe("fresh");
+    expect(evalCronFreshness({ cron: { stale: true, lastRunAt: "2999-01-01T00:00:00Z" } }).verdict).toBe("stale");
   });
 
   it("formats a skip line naming the path and the token remediation", () => {

@@ -15,7 +15,7 @@ import {
 import { applyBrowserHeaders } from "../src/lib/upstreamHeaders";
 
 /**
- * Direct unit coverage for the small lib helpers (TOG-7373).
+ * Direct unit coverage for the small lib helpers.
  *
  * `sessionExpiryMs` transitions and the AuthSession get/set/lock/unlock cycle
  * already live in `test/authSession.do.test.ts`; the login-redirect and

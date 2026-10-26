@@ -10,13 +10,13 @@ import {
 } from "../scripts/lib/changelogCheck.mjs";
 
 /**
- * Regression tests for TOG-8385 (gap G9): `[Unreleased]` sat empty with no
+ * Regression tests (gap G9): `[Unreleased]` sat empty with no
  * enforcement, so consumer-visible contract changes landed without a
  * changelog entry. All fixtures are synthetic path/card-id strings — no
  * values, real or otherwise.
  */
 
-describe("isContractVisiblePath (TOG-8385)", () => {
+describe("isContractVisiblePath", () => {
   it("flags route, app, worker, lib-shape, wrangler and migration paths", () => {
     for (const path of [
       "src/routes/customers.ts",
@@ -48,7 +48,7 @@ describe("isContractVisiblePath (TOG-8385)", () => {
   });
 });
 
-describe("unreleasedSection (TOG-8385)", () => {
+describe("unreleasedSection", () => {
   const changelog = [
     "# Changelog",
     "",
@@ -77,7 +77,7 @@ describe("unreleasedSection (TOG-8385)", () => {
   });
 });
 
-describe("unreleasedCardIds (TOG-8385)", () => {
+describe("unreleasedCardIds", () => {
   it("collects sorted unique TOG ids from bullets", () => {
     expect(unreleasedCardIds("- TOG-9: b.\n- TOG-7: a.\n- TOG-9: dup.\n")).toEqual([
       "TOG-7",
@@ -88,9 +88,28 @@ describe("unreleasedCardIds (TOG-8385)", () => {
   it("returns empty when no card id is named", () => {
     expect(unreleasedCardIds("- some entry with no card.\n")).toEqual([]);
   });
+
+  it("collects GitHub #N refs at a bullet start or parenthesised in a bullet", () => {
+    expect(unreleasedCardIds("- #456: x.\n- thing (#789).\n")).toEqual(["#456", "#789"]);
+    expect(unreleasedCardIds("- wrapped entry\n  continued here (#42).\n")).toEqual(["#42"]);
+  });
+
+  it("ignores #N refs in prose and headings", () => {
+    expect(unreleasedCardIds("see #3 for context\nFixes #456\n")).toEqual([]);
+    expect(unreleasedCardIds("### Fixed (#123)\n")).toEqual([]);
+    expect(unreleasedCardIds("prose paragraph (#7) outside any bullet\n")).toEqual([]);
+  });
+
+  it("ignores a bare #N mid-bullet that is neither leading nor parenthesised", () => {
+    // Only a bullet-leading `#N` or a parenthesised `(#N)` counts: a bare
+    // ref in the bullet body (or its wrapped continuation) never satisfies
+    // the gate.
+    expect(unreleasedCardIds("- fixes #123 without parens\n")).toEqual([]);
+    expect(unreleasedCardIds("- wrapped entry\n  bare #42 on continuation\n")).toEqual([]);
+  });
 });
 
-describe("evaluateChangelogGate (TOG-8385)", () => {
+describe("evaluateChangelogGate", () => {
   const entry = (card: string) =>
     `# Changelog\n\n## [Unreleased]\n\n- ${card}: a contract change.\n\n## [1.0.0]\n`;
 
@@ -112,6 +131,12 @@ describe("evaluateChangelogGate (TOG-8385)", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.contractPaths).toEqual(["src/routes/customers.ts"]);
     expect(outcome.cards).toEqual(["TOG-8385"]);
+  });
+
+  it("passes a contract change covered by a claimed #N bullet", () => {
+    const outcome = evaluateChangelogGate(["src/routes/customers.ts"], entry("#456"), ["#456"]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.cards).toEqual(["#456"]);
   });
 
   it("passes without a claimed card when any Unreleased bullet exists", () => {

@@ -1,160 +1,46 @@
 #!/usr/bin/env node
-/**
- * Merge harvest.ndjson into discovered-operations.json: method, path, counts,
- * resource types, and up to 3 diverse samples (query, headers, bodies, responses).
- */
-import { createReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline";
+/** Stream, validate completely, then publish discovered-operations.json. */
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { jsonTopLevelKeys, truncate } from "./lib/harvestLib.mjs";
-import { normalizePath } from "./lib/normalizePath.mjs";
+import {
+  createHarvestAggregator, EMPTY_HARVEST_NOTE, emptyHarvestDoc, MISSING_HARVEST_NOTE, SOURCE_FILE
+} from "./lib/aggregateMerge.mjs";
+import {
+  harvestFailure, harvestOptions, harvestResult, printHarvestResult, readHarvestFile
+} from "./lib/harvestCli.mjs";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const PREVIEW_IN_AGGREGATE = 12_000;
-
-function sampleSignature(row) {
-  return JSON.stringify({
-    q: row.query ?? {},
-    st: row.responseStatus,
-    rct: row.requestContentType,
-    rb0: (row.requestBodyPreview ?? "").slice(0, 240)
-  });
-}
-
-function buildSample(row) {
-  return {
-    ts: row.ts,
-    resourceType: row.resourceType ?? null,
-    pathWithQuery: row.pathWithQuery ?? `${row.pathname ?? ""}${row.queryString ? `?${row.queryString}` : ""}`,
-    frameUrl: row.frameUrl ?? null,
-    query: row.query ?? {},
-    queryString: row.queryString ?? "",
-    requestContentType: row.requestContentType ?? null,
-    requestHeaderNames: row.requestHeaders ? Object.keys(row.requestHeaders).sort() : [],
-    requestBodyPreview: truncate(row.requestBodyPreview, PREVIEW_IN_AGGREGATE),
-    requestBodyTruncated: !!row.requestBodyTruncated,
-    requestBodyTopLevelKeys: jsonTopLevelKeys(row.requestBodyPreview),
-    responseStatus: row.responseStatus ?? null,
-    responseContentType: row.responseContentType ?? null,
-    responseHeaderNames: row.responseHeaders ? Object.keys(row.responseHeaders).sort() : [],
-    responseBodyPreview: truncate(row.responseBodyPreview, PREVIEW_IN_AGGREGATE),
-    responseBodyTruncated: !!row.responseBodyTruncated,
-    responseBodyTopLevelKeys: jsonTopLevelKeys(row.responseBodyPreview)
-  };
-}
-
-const inFile = join(__dirname, "out", "harvest.ndjson");
-const outFile = join(__dirname, "out", "discovered-operations.json");
-
-// Fresh checkout has no out/ dir yet — create it before any writeFile below.
-await mkdir(join(__dirname, "out"), { recursive: true });
-
-let st;
-try {
-  st = await stat(inFile);
-} catch {
-  await writeFile(
-    outFile,
-    JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        sourceFile: "out/harvest.ndjson",
-        lineCount: 0,
-        operations: [],
-        note: "No harvest file yet. Run npm run record, then npm run process."
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
-  console.log("No harvest; wrote empty", outFile);
-  process.exit(0);
-}
-
-if (!st.size) {
-  await writeFile(
-    outFile,
-    JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        sourceFile: "out/harvest.ndjson",
-        lineCount: 0,
-        operations: [],
-        note: "harvest.ndjson is empty."
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
-  console.log("Empty harvest; wrote empty", outFile);
-  process.exit(0);
-}
-
-const byKey = new Map();
-let lineCount = 0;
-
-const rl = createInterface({ input: createReadStream(inFile, { flags: "r" }) });
-
-for await (const line of rl) {
-  if (!line.trim()) {
-    continue;
-  }
-  lineCount += 1;
-  let row;
+const options = harvestOptions(process.argv.slice(2), true);
+if (options.invalid) {
+  printHarvestResult(harvestResult("HARVEST_UNKNOWN_FLAG"), options.json);
+} else if (options.help) {
+  console.log("Usage: node aggregate.mjs [--json] [--dry-run] [--help]\nValidate and aggregate a local harvest. --dry-run describes output without mutations.");
+} else {
+  let failureCode = "HARVEST_READ_FAILED";
   try {
-    row = JSON.parse(line);
-  } catch {
-    continue;
+    const outDir = join(dirname(fileURLToPath(import.meta.url)), "out");
+    const outFile = join(outDir, "discovered-operations.json");
+    const aggregator = createHarvestAggregator();
+    const code = await readHarvestFile(join(outDir, "harvest.ndjson"), line => aggregator.addLine(line));
+    const { lineCount, operations } = aggregator.finish();
+    const now = new Date();
+    const doc = code === "HARVEST_MISSING" ? emptyHarvestDoc(now, MISSING_HARVEST_NOTE) :
+      code === "HARVEST_EMPTY" ? emptyHarvestDoc(now, EMPTY_HARVEST_NOTE) :
+        { generatedAt: now.toISOString(), sourceFile: SOURCE_FILE, lineCount, operations };
+    // No output I/O until every input line and the stream itself have passed.
+    if (!options.dryRun) {
+      failureCode = "HARVEST_WRITE_FAILED";
+      await mkdir(outDir, { recursive: true });
+      await writeFile(outFile, JSON.stringify(doc, null, 2), "utf8");
+    }
+    const message = options.dryRun ? "Dry run: would write out/discovered-operations.json." :
+      code === "HARVEST_MISSING" ? `No harvest; wrote empty ${outFile}` :
+        code === "HARVEST_EMPTY" ? `Empty harvest; wrote empty ${outFile}` :
+          `Wrote ${outFile} with ${operations.length} operations from ${lineCount} lines.`;
+    printHarvestResult(harvestResult(code, {
+      dryRun: options.dryRun, output: "out/discovered-operations.json", lineCount, operationCount: operations.length
+    }), options.json, message);
+  } catch (error) {
+    printHarvestResult(harvestFailure(error, failureCode), options.json);
   }
-  const method = row.method ?? "?";
-  const path = normalizePath(row.pathname ?? "");
-  const key = `${method} ${path}`;
-  const cur =
-    byKey.get(key) ??
-    ({
-      count: 0,
-      resourceTypes: new Set(),
-      samples: [],
-      sampleSigs: new Set()
-    });
-
-  cur.count += 1;
-  if (row.resourceType) {
-    cur.resourceTypes.add(row.resourceType);
-  }
-
-  const sig = sampleSignature(row);
-  if (!cur.sampleSigs.has(sig) && cur.samples.length < 3) {
-    cur.sampleSigs.add(sig);
-    cur.samples.push(buildSample(row));
-  }
-
-  byKey.set(key, cur);
 }
-
-const operations = [...byKey.entries()]
-  .map(([key, v]) => ({
-    key,
-    method: key.split(" ")[0],
-    pathname: key.slice(key.indexOf(" ") + 1),
-    normalizedPath: key.slice(key.indexOf(" ") + 1),
-    count: v.count,
-    resourceTypes: [...v.resourceTypes].sort(),
-    samples: v.samples
-  }))
-  .sort((a, b) => b.count - a.count);
-
-const doc = {
-  generatedAt: new Date().toISOString(),
-  sourceFile: "out/harvest.ndjson",
-  lineCount,
-  operations
-};
-
-await writeFile(outFile, JSON.stringify(doc, null, 2), "utf8");
-console.log("Wrote", outFile, "with", operations.length, "operations from", lineCount, "lines.");

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-7375: cross-graph ETag invalidation after POST.
+ * Cross-graph ETag invalidation after POST.
  *
  * `test/dataEntityEtagRoundTrip.test.ts` walks the GET→304→POST→fresh loop
  * for one entity at a time, and `test/dataEntityStaleEtag.test.ts` walks the
@@ -86,7 +86,7 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _r: unknown,
     buf: ArrayBuffer | null
   ) => prepared(buf),
-  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // The handlers evict the rejected token on the silent-failure
   // path; this double carries no cache, so the evict is a no-op.
   evictAntiForgeryTokenCacheForBody: () => false
 }));
@@ -111,7 +111,8 @@ vi.mock("../src/lib/forwardWithSessionRetry", () => ({
 }));
 
 vi.mock("../src/lib/detailFullSync", () => ({
-  syncCustomerDetailFullToD1: async () => ({ addressIds: [10], containerIds: [100] })
+  syncCustomerDetailFullToD1: async () => ({ addressIds: [10], containerIds: [100] }),
+  detailFullInvalidateAttempts: () => 2
 }));
 
 const {
@@ -234,7 +235,7 @@ beforeEach(() => {
   dbReads = 0;
 });
 
-describe("data-entity cross-graph ETag invalidation (TOG-7375)", () => {
+describe("data-entity cross-graph ETag invalidation", () => {
   it("customer POST evicts sibling address+container entries: stale ETags 200 with fresh data", async () => {
     const db = fakeDb();
 

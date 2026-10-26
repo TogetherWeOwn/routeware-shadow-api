@@ -3,6 +3,7 @@ import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
 import {
   AUTH_THROTTLE_ALLOWED_FAILURES,
+  AUTH_THROTTLE_WINDOW_MS,
   clearAuthFailures,
   recordAuthFailure
 } from "./lib/authThrottle";
@@ -11,13 +12,23 @@ import { scalarDocsConfiguration, withDocsBranding } from "./lib/docsPresentatio
 import { isInvalidAuthModeError } from "./lib/establishSession";
 import { isLoginPageUnavailableError } from "./lib/loginPageError";
 import { errorKind, logEvent } from "./lib/logger";
+import {
+  REQUEST_ID_HEADER,
+  resolveRequestId,
+  stampRequestId
+} from "./lib/requestId";
 import { isMissingSetCookieCapabilityError } from "./lib/setCookieCapabilityError";
 import { notFoundProblem, problemJsonResponse, problemType } from "./lib/problem";
+import { InvalidReportQueryDatesError } from "./lib/reportQueryDates";
 import {
   concurrentRefreshTimeoutProblem,
   isConcurrentRefreshTimeout
 } from "./lib/sessionRefreshLock";
-import { isUpstreamTimeout, upstreamTimeoutProblem } from "./lib/upstreamTimeout";
+import {
+  UPSTREAM_TIMEOUT_RETRY_AFTER_SEC,
+  isUpstreamTimeout,
+  upstreamTimeoutProblem
+} from "./lib/upstreamTimeout";
 import { APP_VERSION } from "./lib/version";
 import { addressSnapshotRoutes } from "./routes/addressSnapshot";
 import { addressRoutes } from "./routes/address";
@@ -37,7 +48,7 @@ const openApiDocumentConfig = {
   openapi: "3.1.0" as const,
   info: {
     title: "Routeware Shadow API",
-    // Single-sourced from package.json via src/lib/version.ts (TOG-5840):
+    // Single-sourced from package.json via src/lib/version.ts:
     // the live spec updates on bump; also regenerate docs/openapi.json.
     version: APP_VERSION,
     description:
@@ -65,7 +76,24 @@ const openApiDocumentConfig = {
         "D1 aggregate reads (customer + address + container) and writes through Routeware with local snapshot sync"
     }
   ],
-  security: [{ bearerAuth: [] }]
+  security: [{ bearerAuth: [] }],
+  // Compact discovery legend; operation metadata lives with each route definition.
+  "x-agent-metadata": {
+    access: {
+      public: "No bearer required (health probe only).",
+      read: "GET: SHADOW_API_READ_TOKEN, SHADOW_API_TOKEN or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate.",
+      full: "SHADOW_API_TOKEN or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate; the read token cannot authorize non-GET requests.",
+      "sync-secret": "CUSTOMER_SNAPSHOT_SYNC_SECRET only: the same bearer must pass both the outer and inner privileged gates, including on GET."
+    },
+    effect: {
+      none: "No application data access (liveness or unsupported-operation response).",
+      "local-read": "Reads local D1, R2 or configuration; no upstream data request.",
+      "upstream-read": "Reads Routeware, including POST reads; may establish or renew the upstream session.",
+      "local-write": "Writes local D1 state without writing Routeware; imports may also archive to R2.",
+      "upstream-read-local-sync": "Reads Routeware reports and synchronizes local D1 state; may archive to R2.",
+      "upstream-write-local-refresh": "Writes Routeware and attempts a best-effort local D1/cache refresh; not an atomic or guaranteed refresh."
+    }
+  }
 };
 
 const app = new OpenAPIHono<AppEnv>();
@@ -74,7 +102,7 @@ app.openAPIRegistry.registerComponent("securitySchemes", "bearerAuth", {
   type: "http",
   scheme: "bearer",
   description:
-    "SHADOW_API_TOKEN (falls back to CUSTOMER_SNAPSHOT_SYNC_SECRET) as a bearer token. Required on all /api/v1/* routes except GET /api/v1/health."
+    "Use one Authorization: Bearer <token> header. SHADOW_API_TOKEN (falling back to CUSTOMER_SNAPSHOT_SYNC_SECRET) or CUSTOMER_SNAPSHOT_SYNC_SECRET passes the outer gate. SHADOW_API_READ_TOKEN passes that gate on GET only. Privileged operations, including privileged GETs, also require the same bearer to match CUSTOMER_SNAPSHOT_SYNC_SECRET at the inner gate; a distinct API or read token cannot pass it. See each operation's x-access class; only GET /api/v1/health is public."
 });
 
 function openapiDocsEnabled(env: Env): boolean {
@@ -89,6 +117,11 @@ function openapiDocsEnabled(env: Env): boolean {
 // mounted: Hono runs matching handlers in registration order, so a route
 // mounted first would be reachable without passing the gate.
 app.use("/api/v1/*", async (c, next) => {
+  // Adopt-or-mint before any early return: the gate, preflight and every
+  // downstream response echo this id, and onError/notFound read it from
+  // context (falling back to a fresh resolve when the chain was bypassed).
+  const requestId = resolveRequestId(c.req.header(REQUEST_ID_HEADER));
+  c.set("requestId", requestId);
   const { method } = c.req.raw;
   const path = new URL(c.req.raw.url).pathname;
   // CORS preflight carries no `Authorization` header by design, so it must be
@@ -96,23 +129,23 @@ app.use("/api/v1/*", async (c, next) => {
   // request. A preflight reveals only the CORS policy, never data, and the
   // early return also skips the body-buffer/session middleware below.
   if (method === "OPTIONS") {
-    return corsPreflightResponse(c.req.raw);
+    return stampRequestId(corsPreflightResponse(c.req.raw), requestId);
   }
   const isPublic = method === "GET" && path === "/api/v1/health";
   if (isPublic) {
     await next();
     // Public responses still need ACAO so browser clients can read them.
-    c.res = withCors(c.res, c.req.raw);
+    c.res = stampRequestId(withCors(c.res, c.req.raw), requestId);
     return;
   }
-  // Read-only role (TOG-8878): SHADOW_API_READ_TOKEN passes the outer gate
+  // Read-only role: SHADOW_API_READ_TOKEN passes the outer gate
   // on GET requests only, then flows through the same authorized path as a
   // full token below. Non-GET requests with the read token fall through to
   // the 401; privileged routes reject the read token at their inner
   // sync-secret check (`requireSnapshotAuth`).
   const readOnly = isReadAuthorized(c.env, c.req, method);
   if (!readOnly && !isApiAuthorized(c.env, c.req)) {
-    // Brute-force throttle (TOG-5820): count failed outer-gate checks per IP
+    // Brute-force throttle: count failed outer-gate checks per IP
     // in the AuthSession DO. A blocked IP gets 429 instead of another 401, so
     // a token-guessing loop slows to a crawl. (Preflight returns above, so
     // OPTIONS never consumes throttle budget; CORS wraps the 429/401 so
@@ -127,7 +160,8 @@ app.use("/api/v1/*", async (c, next) => {
         status: 429,
         detail:
           "Too many failed authentication attempts. Wait and retry. See docs/PROBLEMS.md#rate-limited.",
-        instance: new URL(c.req.raw.url).pathname
+        instance: new URL(c.req.raw.url).pathname,
+        requestId
       });
       throttled.headers.set("Retry-After", String(verdict.retryAfterSec));
       throttled.headers.set("X-RateLimit-Limit", String(AUTH_THROTTLE_ALLOWED_FAILURES));
@@ -139,18 +173,35 @@ app.use("/api/v1/*", async (c, next) => {
             Math.ceil((Date.now() + verdict.retryAfterSec * 1000) / 1000)
         )
       );
-      return withCors(throttled, c.req.raw);
+      // Standard fields (`draft-ietf-httpapi-ratelimit-headers` shape over
+      // RFC 9651 structured fields): derived from the same verdict +
+      // AUTH_THROTTLE_* source of truth as the compat headers above, so all
+      // five agree on remaining quota and backoff. The compat headers stay
+      // byte-identical.
+      throttled.headers.set(
+        "RateLimit",
+        `"auth-burst";r=0;t=${verdict.retryAfterSec}`
+      );
+      throttled.headers.set(
+        "RateLimit-Policy",
+        `"auth-burst";q=${AUTH_THROTTLE_ALLOWED_FAILURES};w=${AUTH_THROTTLE_WINDOW_MS / 1000}`
+      );
+      return stampRequestId(withCors(throttled, c.req.raw), requestId);
     }
-    return withCors(
-      problemJsonResponse({
-        type: problemType("unauthorized", c.env),
-        title: "Unauthorized",
-        status: 401,
-        detail:
-          "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized.",
-        instance: new URL(c.req.raw.url).pathname
-      }),
-      c.req.raw
+    return stampRequestId(
+      withCors(
+        problemJsonResponse({
+          type: problemType("unauthorized", c.env),
+          title: "Unauthorized",
+          status: 401,
+          detail:
+            "Send Authorization: Bearer <SHADOW_API_TOKEN>. See docs/PROBLEMS.md#unauthorized.",
+          instance: new URL(c.req.raw.url).pathname,
+          requestId
+        }),
+        c.req.raw
+      ),
+      requestId
     );
   }
   // A valid token clears the IP's failure count, so one bad burst (or a
@@ -161,7 +212,7 @@ app.use("/api/v1/*", async (c, next) => {
   await next();
   // Stamp CORS + hardening headers on every downstream response (including
   // 404s) so browsers surface the real status instead of a CORS error.
-  c.res = withCors(c.res, c.req.raw);
+  c.res = stampRequestId(withCors(c.res, c.req.raw), requestId);
   return;
 });
 
@@ -233,26 +284,64 @@ app.use("/docs", async (c, next) => {
   }
   await next();
   // Scalar renders the docs HTML downstream: stamp hardening headers on it
-  // (TOG-8368 audit — /docs previously carried none).
+  // (/docs previously carried none).
   c.res = withSecurityHeaders(await withDocsBranding(c.res));
   return;
 });
 
-// Project-themed Scalar config (TOG-8907): title, logo slot, deep-linkable
+// Project-themed Scalar config: title, logo slot, deep-linkable
 // operation anchors and try-it defaults live in `src/lib/docsPresentation`.
 // No token value is embedded: users authorize in Scalar for each token role.
 app.use("/docs", Scalar(scalarDocsConfiguration));
 
 // `notFound` and `onError` run outside the `/api/v1/*` middleware chain, so
 // they stamp CORS headers directly — otherwise a browser sees a CORS error
-// instead of the real 404/500 status.
-app.notFound((c) =>
-  withCors(notFoundProblem(new URL(c.req.url).pathname, c.env), c.req.raw)
-);
+// instead of the real 404/500 status. Same for the request id: read it from
+// context when the middleware ran, else re-resolve from the inbound header.
+app.notFound((c) => {
+  const requestId =
+    (c.get("requestId") as string | undefined) ??
+    resolveRequestId(c.req.header(REQUEST_ID_HEADER));
+  return stampRequestId(
+    withCors(
+      notFoundProblem(new URL(c.req.url).pathname, c.env, requestId),
+      c.req.raw
+    ),
+    requestId
+  );
+});
 
 app.onError((err, c) => {
+  // Thrown errors skip the stamping middleware above (`await next()` rejects),
+  // so every error response is stamped here: same X-Request-Id header and
+  // problem-body requestId the success path gets via stampRequestId.
+  const requestId =
+    (c.get("requestId") as string | undefined) ??
+    resolveRequestId(c.req.header(REQUEST_ID_HEADER));
+  const stamp = (problem: Response) =>
+    stampRequestId(withCors(problem, c.req.raw), requestId);
+  // Invalid REPORT_QUERY dates: fixed 503, never echoes env values.
+  if (err instanceof InvalidReportQueryDatesError) {
+    logEvent({
+      level: "error",
+      msg: "Invalid REPORT_QUERY date configuration",
+      route: "app.onError",
+      ms: null,
+      requestId
+    });
+    return stamp(
+      problemJsonResponse({
+        type: problemType("misconfigured", c.env),
+        title: "Service Unavailable",
+        status: 503,
+        detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
+        instance: new URL(c.req.url).pathname,
+        requestId
+      })
+    );
+  }
   // A hung Routeware host throws `UpstreamTimeoutError` from any direct
-  // `forwardToUpstream` caller (TOG-5835): surface it as 502 problem+json, not
+  // `forwardToUpstream` caller: surface it as 502 problem+json, not
   // a 500. The message is a fixed string (no URL/body/PII). Session-retry
   // routes map this themselves before it reaches here; this is the backstop
   // for direct forwarders (login-page, modals, detail-full sync internals).
@@ -263,14 +352,24 @@ app.onError((err, c) => {
       msg: "Upstream request timed out",
       route: "app.onError",
       ms: null,
+      requestId,
       timeoutMs: err.timeoutMs
     });
-    return withCors(
-      upstreamTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
-      c.req.raw
+    const timeoutRes = upstreamTimeoutProblem(
+      err.timeoutMs,
+      new URL(c.req.url).pathname,
+      c.env,
+      requestId
     );
+    // Fixed backoff so clients pause instead of hammering a hung upstream.
+    // Only this backstop 502 carries `Retry-After`: no other status gains one.
+    timeoutRes.headers.set(
+      "Retry-After",
+      String(UPSTREAM_TIMEOUT_RETRY_AFTER_SEC)
+    );
+    return stamp(timeoutRes);
   }
-  // A waiter that gave up on a hung concurrent refresh (TOG-6526): surface
+  // A waiter that gave up on a hung concurrent refresh: surface
   // it as 502 problem+json, not a 500. The message is a fixed string (no
   // cookie/URL/body/PII). Session-retry routes map this themselves before it
   // reaches here; this is the backstop for direct `establishSession` callers
@@ -281,14 +380,19 @@ app.onError((err, c) => {
       msg: "Concurrent session refresh timed out",
       route: "app.onError",
       ms: null,
+      requestId,
       timeoutMs: err.timeoutMs
     });
-    return withCors(
-      concurrentRefreshTimeoutProblem(err.timeoutMs, new URL(c.req.url).pathname, c.env),
-      c.req.raw
+    return stamp(
+      concurrentRefreshTimeoutProblem(
+        err.timeoutMs,
+        new URL(c.req.url).pathname,
+        c.env,
+        requestId
+      )
     );
   }
-  // A typo'd AUTH_MODE fails fast in `establishSession` (TOG-6531): surface
+  // A typo'd AUTH_MODE fails fast in `establishSession`: surface
   // it as 503 problem+json, not a 500. The detail names the received value
   // (operator config, never a credential or customer data) plus the closed
   // set, so the fix is obvious from the response alone.
@@ -297,20 +401,21 @@ app.onError((err, c) => {
       level: "error",
       msg: "Invalid AUTH_MODE configuration",
       route: "app.onError",
-      ms: null
+      ms: null,
+      requestId
     });
-    return withCors(
+    return stamp(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),
         title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
-        instance: new URL(c.req.url).pathname
-      }),
-      c.req.raw
+        instance: new URL(c.req.url).pathname,
+        requestId
+      })
     );
   }
-  // A runtime without `Headers.getSetCookie` (TOG-6537): fail fast as 503
+  // A runtime without `Headers.getSetCookie`: fail fast as 503
   // misconfigured, not a 500 and never a browser launch. There are no cookies
   // to fall back from, so a browser retry would burn Browser Rendering budget
   // on a platform gap, not a markup change. The message is a fixed string
@@ -322,20 +427,21 @@ app.onError((err, c) => {
       level: "error",
       msg: "Runtime is missing the set-cookie capability",
       route: "app.onError",
-      ms: null
+      ms: null,
+      requestId
     });
-    return withCors(
+    return stamp(
       problemJsonResponse({
         type: problemType("misconfigured", c.env),
         title: "Service Unavailable",
         status: 503,
         detail: `${err.message} See docs/PROBLEMS.md#misconfigured.`,
-        instance: new URL(c.req.url).pathname
-      }),
-      c.req.raw
+        instance: new URL(c.req.url).pathname,
+        requestId
+      })
     );
   }
-  // A WAF/maintenance block on the login page (TOG-6536): fast 502 naming
+  // A WAF/maintenance block on the login page: fast 502 naming
   // the upstream status, not a 500 and never a browser launch. The message
   // carries only the status number (a fixed PII-free string). Session-retry
   // routes rethrow this past their single retry (the retry budget heals
@@ -347,9 +453,10 @@ app.onError((err, c) => {
       msg: "Routeware login page unavailable",
       route: "app.onError",
       ms: null,
+      requestId,
       status: err.status
     });
-    return withCors(
+    return stamp(
       problemJsonResponse({
         type: problemType("bad-gateway", c.env),
         title: "Upstream login unavailable",
@@ -358,9 +465,9 @@ app.onError((err, c) => {
           `Routeware answered the login page with HTTP ${err.status} (WAF block or ` +
           `maintenance page). Retry once; if it persists the upstream host is ` +
           `blocking logins. See docs/PROBLEMS.md#bad-gateway.`,
-        instance: new URL(c.req.url).pathname
-      }),
-      c.req.raw
+        instance: new URL(c.req.url).pathname,
+        requestId
+      })
     );
   }
   // Keep log fields stable and PII-safe; do not serialize the error message or stack.
@@ -369,18 +476,19 @@ app.onError((err, c) => {
     msg: "Unhandled request error",
     route: "app.onError",
     ms: null,
+    requestId,
     method: c.req.method,
     kind: errorKind(err)
   });
-  return withCors(
+  return stamp(
     problemJsonResponse({
       type: problemType("internal", c.env),
       title: "Internal Server Error",
       status: 500,
       detail:
-        "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal."
-    }),
-    c.req.raw
+        "An unexpected error occurred. See Worker logs for details. See docs/PROBLEMS.md#internal.",
+      requestId
+    })
   );
 });
 

@@ -1,15 +1,20 @@
 import { createRoute, z } from "@hono/zod-openapi";
+import type { RouteConfig } from "@hono/zod-openapi";
 import {
   ORPHAN_SAMPLE_LIMIT_DEFAULT,
   ORPHAN_SAMPLE_LIMIT_MAX,
+  PartialDataSnapshotSyncError,
   getSnapshotOrphans,
   runDataSnapshotSyncChainedHttp
 } from "../lib/d1SnapshotSync";
+import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 import {
+  DATA_SNAPSHOT_SYNC_QUERY_KEYS,
   createRouteModule,
   dataSnapshotSyncResultExample,
   dryRunQuery,
   isDryRunRequested,
+  rejectUnknownSnapshotPostQuery,
   requireSnapshotAuth,
   requireSnapshotSecret
 } from "./shared";
@@ -17,32 +22,279 @@ import {
 /** Combined customer -> address -> container snapshot sync. */
 export const dataSnapshotRoutes = createRouteModule();
 
+/**
+ * Combined-sync table identities in run order. Single source of truth for the
+ * OpenAPI table enums below; the runtime failure envelope carries the same
+ * fixed names via `PartialDataSnapshotSyncError.failedTable`.
+ */
+const PARTIAL_PROGRESS_TABLES = ["customer", "address", "container"] as const;
+
+/**
+ * Fixed chained failure classifications (runbook §4.1): the only `code`
+ * values the partial-progress envelope may carry. Single source of truth:
+ * the runtime allowlist derives from this array and the OpenAPI failure
+ * variants below are keyed by it, so schema and code cannot drift. An
+ * unknown cause name falls back to the generic 500 rather than leaking a
+ * new kind (mirrors `CHAINED_REFUSAL_KINDS` in `src/scheduled.ts`).
+ */
+const PARTIAL_PROGRESS_CODES = [
+  "ChainedTimeoutError",
+  "ChainedResponseTooLargeError",
+  "ChainedInvalidJsonError",
+  "ChainedResponseReadError",
+  "ChainedHttpError",
+  "ChainedNetworkError"
+] as const;
+
+/** Runtime allowlist view of `PARTIAL_PROGRESS_CODES` (order kept). */
+const PARTIAL_PROGRESS_CODE_SET: ReadonlySet<string> = new Set(
+  PARTIAL_PROGRESS_CODES
+);
+
+/**
+ * Completed-table counts shared by the 200 result and the 500
+ * partial-progress body: one `{upserted, rowCount}` definition rendered
+ * inline in both, so success and failure counts cannot disagree on shape.
+ * Unnamed on purpose — both responses render it inline, keeping the frozen
+ * 200 contract byte-identical while the failure body reuses the definition.
+ */
+const completedCountSchema = z.object({
+  upserted: z.number().int(),
+  rowCount: z.number().int()
+});
+
 const dataSnapshotResultSchema = z
   .object({
-    customer: z
-      .object({ upserted: z.number().int(), rowCount: z.number().int() })
-      .nullable(),
-    address: z
-      .object({ upserted: z.number().int(), rowCount: z.number().int() })
-      .nullable(),
-    container: z
-      .object({ upserted: z.number().int(), rowCount: z.number().int() })
-      .nullable()
+    customer: completedCountSchema.nullable(),
+    address: completedCountSchema.nullable(),
+    container: completedCountSchema.nullable()
   })
   .openapi("DataSnapshotSyncResult");
+
+const partialProgressTableSchema = z.enum(PARTIAL_PROGRESS_TABLES);
+
+/**
+ * One fixed `code` variant of the partial-progress failure classification.
+ * `status` exists only on the `ChainedHttpError` variant — optional there,
+ * matching the runtime (a chained HTTP failure without a numeric status
+ * omits it). Every other variant is strict, so a `status` on a non-HTTP
+ * failure fails validation instead of documenting a shape the route never
+ * sends.
+ */
+const chainedFailureVariants = {
+  ChainedHttpError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedHttpError"),
+    status: z.number().int().optional()
+  }),
+  ChainedNetworkError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedNetworkError")
+  }),
+  ChainedResponseReadError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedResponseReadError")
+  }),
+  ChainedResponseTooLargeError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedResponseTooLargeError")
+  }),
+  ChainedInvalidJsonError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedInvalidJsonError")
+  }),
+  ChainedTimeoutError: z.strictObject({
+    table: partialProgressTableSchema,
+    code: z.literal("ChainedTimeoutError")
+  })
+} satisfies Record<(typeof PARTIAL_PROGRESS_CODES)[number], object>;
+
+/**
+ * Named failure classification for the 500 partial-progress body. Union
+ * membership is indexed by `PARTIAL_PROGRESS_CODES`, so a classification the
+ * runtime allowlists but the variants map forgot fails closed at compile
+ * time instead of publishing a narrower contract than the route sends.
+ */
+type ChainedFailureVariant =
+  (typeof chainedFailureVariants)[(typeof PARTIAL_PROGRESS_CODES)[number]];
+
+const chainedFailureClassificationSchema = z
+  .union(
+    PARTIAL_PROGRESS_CODES.map((code) => chainedFailureVariants[code]) as [
+      ChainedFailureVariant,
+      ...ChainedFailureVariant[]
+    ]
+  )
+  .openapi("ChainedSyncFailureClassification");
+
+/**
+ * Named 500 partial-progress body for `?partialProgress=true`: per-table
+ * completed counts (or `null`) plus the fixed failure classification. The
+ * four members are all required — a completed table is an object, never a
+ * missing key — and no `deleted`, R2, exception, or row-data property is
+ * advertised.
+ */
+const dataSnapshotPartialProgressSchema = z
+  .object({
+    customer: completedCountSchema.nullable(),
+    address: completedCountSchema.nullable(),
+    container: completedCountSchema.nullable(),
+    failure: chainedFailureClassificationSchema
+  })
+  .openapi("DataSnapshotSyncPartialProgress");
+
+/**
+ * Inline problem+json shape for the combined-sync error responses. A raw
+ * OpenAPI object (never a zod schema), following the `dataEntity`
+ * `forwardedOrProblemResponse` precedent: it renders into `/openapi.json`
+ * verbatim while the handler keeps returning the existing `Response`
+ * values. Each status pins its own `const`; `detail` is always present in
+ * these bodies, while `instance`/`requestId` travel only where the runtime
+ * sets them.
+ */
+type SyncProblemProperty =
+  | { type: "string" }
+  | { type: "integer"; const?: number };
+
+type SyncProblemSchemaObject = {
+  type: "object";
+  required: string[];
+  properties: Record<string, SyncProblemProperty>;
+};
+
+function syncProblemSchema(status: number): SyncProblemSchemaObject {
+  return {
+    type: "object",
+    required: ["type", "title", "status", "detail"],
+    properties: {
+      type: { type: "string" },
+      title: { type: "string" },
+      status: { type: "integer", const: status },
+      detail: { type: "string" },
+      instance: { type: "string" },
+      requestId: { type: "string" }
+    }
+  };
+}
+
+/**
+ * Synthetic 500 partial-progress examples: one per fixed classification,
+ * including a completed customer→address prefix with the container failed
+ * and a skipped-address null with the container failed. Values are invented
+ * counts (never captured from a live sync) and each one validates against
+ * the schema above.
+ */
+const partialProgressExamples = {
+  customerHttp429: {
+    summary: "First table failed; nothing completed (synthetic)",
+    value: {
+      customer: null,
+      address: null,
+      container: null,
+      failure: { table: "customer", code: "ChainedHttpError", status: 429 }
+    }
+  },
+  addressNetwork: {
+    summary: "Customer completed; address subrequest unreachable (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+      failure: { table: "address", code: "ChainedNetworkError" }
+    }
+  },
+  addressRead: {
+    summary: "Customer completed; address body unreadable (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+      failure: { table: "address", code: "ChainedResponseReadError" }
+    }
+  },
+  addressTooLarge: {
+    summary: "Customer completed; address body over limit (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+      failure: { table: "address", code: "ChainedResponseTooLargeError" }
+    }
+  },
+  addressInvalidJson: {
+    summary: "Customer completed; address body not JSON (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+      failure: { table: "address", code: "ChainedInvalidJsonError" }
+    }
+  },
+  containerTimeoutAfterPrefix: {
+    summary: "Customer and address completed; container timed out (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: { upserted: 7, rowCount: 9 },
+      container: null,
+      failure: { table: "container", code: "ChainedTimeoutError" }
+    }
+  },
+  containerHttpSkippedAddress: {
+    summary: "Address skipped; container failed HTTP (synthetic)",
+    value: {
+      customer: { upserted: 3, rowCount: 4 },
+      address: null,
+      container: null,
+      failure: { table: "container", code: "ChainedHttpError", status: 503 }
+    }
+  }
+};
+
+/**
+ * Combined-route query: the shared `dryRun` enum plus the combined-only
+ * `partialProgress` opt-in. The enum follows the `dryRun` precedent
+ * (`shared.ts`): only the exact string `"true"` opts in; anything else is
+ * rejected with the anchored 400 before the handler — and therefore before
+ * any table — runs.
+ */
+const dataSnapshotSyncQuery = dryRunQuery.extend({
+  partialProgress: z
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      "Partial progress: on a table failure answer 500 with per-table {upserted,rowCount}|null counts plus a fixed {table,code[,status]} failure instead of the generic problem+json. " +
+        "Any other query key is rejected with a value-free 400 before any table runs."
+    )
+    .openapi({ example: "true" })
+});
 
 const dataSnapshotSyncRoute = createRoute({
   method: "post",
   path: "/api/v1/data-snapshot/sync",
+  operationId: "syncDataSnapshot",
+  "x-access": "sync-secret",
+  "x-effect": "upstream-read-local-sync",
   tags: ["data-snapshot"],
   summary: "Fetch all configured Routeware CSV reports and upsert D1 (ordered)",
   description:
-    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when `SHADOW_API_PUBLIC_BASE` is set (otherwise it falls back to one single-invocation run — see `src/scheduled.ts`). Each table is streamed; see `CUSTOMER_SNAPSHOT.md`. Pass `?dryRun=true` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes.\n\n" +
+    "Runs **customer** → **address** → **container** when the corresponding `*_REPORT_EXPORT_PATH` or `*_REPORT_QUERY_ID` vars are set. Requires `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`. This route **chains three internal HTTP calls** to the per-table `...-snapshot/sync` routes (via the request origin) so each table runs in a **separate** Worker invocation (D1’s per-invocation operation limit applies per table, not to the whole job). The daily cron uses the same chained path only when `SHADOW_API_PUBLIC_BASE` is set (otherwise it falls back to one single-invocation run — see `src/scheduled.ts`). Each table is streamed; see `CUSTOMER_SNAPSHOT.md`. Pass `?dryRun=true` to dry-run every table (the flag is forwarded to each chained subrequest): full parse/validate, would-be counts, no D1 or R2 writes. Pass `?partialProgress=true` to opt into sanitized partial progress on a table failure: HTTP 500 `application/json` `{customer, address, container, failure}` with per-table `{upserted, rowCount}` (completed) or `null` and fixed `{table, code}` plus numeric `status` only for `ChainedHttpError` (`code` is one of the six runbook §4.1 kinds, never raw upstream text). Default and `?partialProgress=false` keep the generic problem+json shapes byte-for-byte; success is identical with or without the flag.\n\n" +
     "**Try it in `/docs`:** Authorize with the sync secret once, then Send with an empty body — this is the highest-friction flow made one click. Per-table 200s carry `{upserted, rowCount}` only (no `deleted` leak); a table with no export source comes back `null`, not zeros.",
   request: {
-    query: dryRunQuery
+    query: dataSnapshotSyncQuery
   },
-  responses: {
+  responses: dataSnapshotSyncResponses()
+});
+
+/**
+ * Combined-sync responses. The widened `RouteConfig["responses"]` return is
+ * load-bearing: an inferred literal type with content on every status would
+ * flip the handler to strict typed responses and reject the existing raw
+ * `Response` guard returns. The dataEntity POST routes use the same widened
+ * shape (`dataEntityPostResponse`) for the same reason. Spec output is
+ * unaffected — generation reads values, not this annotation.
+ */
+function dataSnapshotSyncResponses(): RouteConfig["responses"] {
+  return {
     200: {
       description: "Per-table Result (null if that export path is empty or was skipped for FKs)",
       content: {
@@ -52,14 +304,53 @@ const dataSnapshotSyncRoute = createRoute({
         }
       }
     },
-    401: { description: "Unauthorized" }
-  }
-});
+    400: {
+      description:
+        "Invalid query (application/problem+json, bad-request). The validator rejects any `dryRun`/`partialProgress` value outside the exact `true`/`false` enums before the handler — and therefore before any table — runs; unknown query keys are rejected after auth by the strict-query guard. Both name fields or allowed keys only, never submitted values. Fix the named key and retry. See docs/PROBLEMS.md#bad-request.",
+      content: {
+        "application/problem+json": {
+          schema: syncProblemSchema(400)
+        }
+      }
+    },
+    401: {
+      description:
+        "Unauthorized (application/problem+json). The outer /api/v1 bearer gate or this route's sync-secret check rejected the caller: send `Authorization: Bearer <CUSTOMER_SNAPSHOT_SYNC_SECRET>`, which passes both gates. See docs/PROBLEMS.md#unauthorized.",
+      content: {
+        "application/problem+json": {
+          schema: syncProblemSchema(401)
+        }
+      }
+    },
+    500: {
+      description:
+        "Table failure: the failing table and every later table report `null`, while tables that finished keep their counts. Default and `?partialProgress=false` answer generic application/problem+json with no per-table detail; unknown causes stay generic even with the opt-in. With `?partialProgress=true`, classified failures answer application/json `{customer, address, container, failure}`: per-table `{upserted, rowCount}` (completed) or `null` (failed, unattempted, or skipped), plus fixed `{table, code}` and a numeric `status` only for `ChainedHttpError` — see the DataSnapshotSyncPartialProgress examples. A `null` table beside no `failure` member (generic shape) means the outcome is unknown, not empty. Partial counts do not authorize blind POST retries and do not prove a full consistent sync: inspect the failed table (runbook docs/CRON-SYNC-ALARM-RUNBOOK.md §4) before resubmitting.",
+      content: {
+        "application/json": {
+          schema: dataSnapshotPartialProgressSchema,
+          examples: partialProgressExamples
+        },
+        "application/problem+json": {
+          schema: syncProblemSchema(500)
+        }
+      }
+    },
+    503: {
+      description:
+        "Service Unavailable: CUSTOMER_SNAPSHOT_SYNC_SECRET is not configured (application/problem+json, misconfigured). This pre-work secret guard runs before any table work but after the sync-secret auth check, so unauthenticated callers still see 401. Set the secret in vars or secrets and retry. See docs/PROBLEMS.md#misconfigured.",
+      content: {
+        "application/problem+json": {
+          schema: syncProblemSchema(503)
+        }
+      }
+    }
+  };
+}
 
 /**
  * The combined shape is `{upserted, rowCount} | null` per table — the
  * per-table `deleted` reconcile counts stay on the per-table sync responses
- * and the cron line, and are stripped here (TOG-7391). Pinned by
+ * and the cron line, and are stripped here. Pinned by
  * `test/syncSummaryContract.test.ts` and `test/dataSnapshotRoutes.test.ts`.
  */
 function withoutDeleted(
@@ -68,24 +359,82 @@ function withoutDeleted(
   return t ? { upserted: t.upserted, rowCount: t.rowCount } : null;
 }
 
+type PartialProgressTable = { upserted: number; rowCount: number } | null;
+
+/**
+ * Renders a chained step failure as the opt-in partial-progress envelope,
+ * or `null` when the error is not a classified chained failure (the caller
+ * rethrows those, so pre-work failures and the default path keep their
+ * existing shapes byte-for-byte).
+ *
+ * Only allowlisted fields travel: per-table `{upserted, rowCount}` via
+ * `withoutDeleted` (no `deleted`, no `r2`, never row data), the fixed
+ * `failedTable`, the fixed classification `code` (the cause name, never its
+ * message), and the numeric `status` only for `ChainedHttpError`.
+ */
+function partialProgressBody(err: unknown): {
+  customer: PartialProgressTable;
+  address: PartialProgressTable;
+  container: PartialProgressTable;
+  failure: { table: string; code: string; status?: number };
+} | null {
+  if (!(err instanceof PartialDataSnapshotSyncError)) {
+    return null;
+  }
+  const cause = err.cause;
+  if (!(cause instanceof Error) || !PARTIAL_PROGRESS_CODE_SET.has(cause.name)) {
+    return null;
+  }
+  return {
+    customer: withoutDeleted(err.partial.customer),
+    address: withoutDeleted(err.partial.address),
+    container: withoutDeleted(err.partial.container),
+    failure:
+      cause.name === "ChainedHttpError" && err.status !== undefined
+        ? { table: err.failedTable, code: cause.name, status: err.status }
+        : { table: err.failedTable, code: cause.name }
+  };
+}
+
 dataSnapshotRoutes.openapi(dataSnapshotSyncRoute, async (c) => {
   const denied = requireSnapshotAuth(c);
   if (denied) return denied;
   const misconfigured = requireSnapshotSecret(c);
   if (misconfigured) return misconfigured;
+  const unknownQuery = rejectUnknownSnapshotPostQuery(c, DATA_SNAPSHOT_SYNC_QUERY_KEYS);
+  if (unknownQuery) return unknownQuery;
   const origin = new URL(c.req.url).origin;
-  // TOG-9203: forward `?dryRun=true` to every chained per-table subrequest.
-  const r = await runDataSnapshotSyncChainedHttp(origin, c.env, {
-    dryRun: isDryRunRequested(c.req.valid("query"))
-  });
-  return c.json(
-    {
-      customer: withoutDeleted(r.customer),
-      address: withoutDeleted(r.address),
-      container: withoutDeleted(r.container)
-    },
-    200
-  );
+  const query = c.req.valid("query");
+  // Forward `?dryRun=true` to every chained per-table subrequest.
+  // Forward a valid inbound `x-run-id` the same way, so a direct
+  // combined call still correlates its sub-invocations. Invalid values are
+  // dropped — correlation must never fail a sync.
+  const runId = parseRunIdHeader(c.req.header("x-run-id"));
+  // `?partialProgress=true` answers a classified step failure with the
+  // sanitized per-table envelope; every other error rethrows to the generic
+  // `onError` shape unchanged. The flag is consumed here only, never
+  // forwarded to the subrequests.
+  try {
+    const r = await runDataSnapshotSyncChainedHttp(origin, c.env, {
+      dryRun: isDryRunRequested(query),
+      ...(runId ? { runId } : {})
+    });
+    return c.json(
+      {
+        customer: withoutDeleted(r.customer),
+        address: withoutDeleted(r.address),
+        container: withoutDeleted(r.container)
+      },
+      200
+    );
+  } catch (e) {
+    const partial =
+      query.partialProgress === "true" ? partialProgressBody(e) : null;
+    if (!partial) {
+      throw e;
+    }
+    return c.json(partial, 500);
+  }
 });
 
 const snapshotOrphanSampleSchema = z
@@ -105,6 +454,9 @@ const snapshotOrphanReportSchema = z
 const dataSnapshotOrphansRoute = createRoute({
   method: "get",
   path: "/api/v1/data-snapshot/orphans",
+  operationId: "getDataSnapshotOrphans",
+  "x-access": "sync-secret",
+  "x-effect": "local-read",
   tags: ["data-snapshot"],
   summary: "Report orphan rows on the snapshot FK chain (D1)",
   description:

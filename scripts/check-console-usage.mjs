@@ -2,16 +2,53 @@
 /**
  * Reject direct console method access in src/. Logging must go through the
  * structured helper; its one computed severity dispatch is the sole exception.
+ *
+ * Pure logic lives in `./lib/consoleUsageCheck.mjs` and is unit-tested
+ * there; this wrapper is intentionally thin.
+ *
+ * `CONSOLE_USAGE_ROOT` overrides the repo root under test so the suite can
+ * run the wrapper against a fixture tree (fail-closed paths) instead of the
+ * real `src/`.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { argv } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import ts from "typescript";
+import {
+  LOGGER_PATH,
+  findConsoleViolations,
+  formatPassLog,
+  formatViolationLine,
+} from "./lib/consoleUsageCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+function usage() {
+  return [
+    "Usage: node scripts/check-console-usage.mjs",
+    "",
+    "Console lint: rejects direct console method access in src/; logging must go through the structured helper.",
+    "",
+    "  -h, --help  Print this usage and exit 0.",
+    "",
+    "Env:",
+    "  CONSOLE_USAGE_ROOT  Override the repo root under test (fixture trees).",
+    "",
+    "Exit codes:",
+    "  0  No violations.",
+    "  1  Violations found, or cannot read src/.",
+    "",
+    "Example:",
+    "  node scripts/check-console-usage.mjs",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
+
+const root = process.env.CONSOLE_USAGE_ROOT
+  ? path.resolve(process.env.CONSOLE_USAGE_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const srcRoot = path.join(root, "src");
-const loggerPath = path.join(srcRoot, "lib", "logger.ts");
 
 function sourceFiles(directory) {
   const files = [];
@@ -26,50 +63,6 @@ function sourceFiles(directory) {
   return files.sort();
 }
 
-function isConsoleObject(node) {
-  if (ts.isIdentifier(node) && node.text === "console") return true;
-  if (
-    ts.isPropertyAccessExpression(node) &&
-    node.name.text === "console" &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "globalThis"
-  ) {
-    return true;
-  }
-  return (
-    ts.isElementAccessExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === "globalThis" &&
-    ts.isStringLiteralLike(node.argumentExpression) &&
-    node.argumentExpression.text === "console"
-  );
-}
-
-function isLoggerDispatch(node, filePath) {
-  return (
-    filePath === loggerPath &&
-    ts.isElementAccessExpression(node) &&
-    isConsoleObject(node.expression) &&
-    ts.isIdentifier(node.argumentExpression) &&
-    node.argumentExpression.text === "level" &&
-    ts.isCallExpression(node.parent) &&
-    node.parent.expression === node
-  );
-}
-
-function isConsoleReference(node, filePath) {
-  if (ts.isIdentifier(node) && node.text === "console") {
-    if (ts.isPropertyAssignment(node.parent) && node.parent.name === node) return false;
-    return !(
-      ts.isElementAccessExpression(node.parent) &&
-      node.parent.expression === node &&
-      isLoggerDispatch(node.parent, filePath)
-    );
-  }
-  return isConsoleObject(node) && !isLoggerDispatch(node, filePath);
-}
-
-const violations = [];
 let files;
 try {
   files = sourceFiles(srcRoot);
@@ -78,37 +71,17 @@ try {
   process.exitCode = 1;
 }
 
-for (const filePath of files ?? []) {
-  const source = ts.createSourceFile(
-    filePath,
-    readFileSync(filePath, "utf8"),
-    ts.ScriptTarget.Latest,
-    true,
-    filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
-
-  function visit(node) {
-    if (isConsoleReference(node, filePath)) {
-      const { line, character } = source.getLineAndCharacterOfPosition(node.getStart(source));
-      violations.push({
-        file: path.relative(root, filePath).replaceAll("\\", "/"),
-        line: line + 1,
-        column: character + 1,
-      });
-    }
-    ts.forEachChild(node, visit);
-  }
-
-  visit(source);
-}
+const entries = (files ?? []).map((filePath) => ({
+  path: path.relative(root, filePath).replaceAll("\\", "/"),
+  text: readFileSync(filePath, "utf8"),
+}));
+const violations = findConsoleViolations(entries, { loggerPath: LOGGER_PATH });
 
 if (violations.length > 0) {
   for (const violation of violations) {
-    console.error(
-      `${violation.file}:${violation.line}:${violation.column}: direct console access is forbidden; use src/lib/logger.ts`,
-    );
+    console.error(formatViolationLine(violation));
   }
   process.exitCode = 1;
 } else if (files) {
-  console.log(`console lint passed (${files.length} TypeScript files)`);
+  console.log(formatPassLog(files.length));
 }

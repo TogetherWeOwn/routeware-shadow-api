@@ -10,7 +10,8 @@ import {
   containerBindings,
   containerMultiInsertSql,
   customerBindings,
-  customerMultiInsertSql
+  customerMultiInsertSql,
+  type ContainerUpsertSource
 } from "./tableSql";
 
 /**
@@ -174,7 +175,7 @@ export async function reconcileDeleteStale(
 }
 
 /**
- * Read-only stale-row count for dry runs (TOG-9203): the rows
+ * Read-only stale-row count for dry runs: the rows
  * `reconcileDeleteStale` would delete (synced_at predates this run), counted
  * without deleting them. Same literal-union constraint as
  * `reconcileDeleteStale`: `table` interpolates directly into the SQL, so only
@@ -193,7 +194,7 @@ export async function countStaleRows(
 }
 
 /**
- * Exact would-be delete count for a dry run (TOG-9203): stale rows whose
+ * Exact would-be delete count for a dry run: stale rows whose
  * primary key was NOT seen in the parsed CSV — i.e. what `reconcileDeleteStale`
  * would remove after the real upserts refreshed every seen row. Rows present
  * in the CSV are excluded even though their stored `synced_at` is still old
@@ -255,6 +256,12 @@ export async function reconcileCustomerChildren(
       WHERE customer_id = ? AND synced_at < ?
       RETURNING pickup_address_id AS id`).bind(customerId, syncedAt)
   ]);
+  // noUncheckedIndexedAccess: destructured batch entries are `T | undefined`.
+  // Two statements were sent, so two results are expected; fail loudly if the
+  // driver ever returns fewer rather than mapping `undefined`.
+  if (containers === undefined || addresses === undefined) {
+    throw new Error("reconcileCustomerChildren: D1 batch returned fewer than 2 results");
+  }
   return {
     addressIds: addresses.results.map((r) => r.id),
     containerIds: containers.results.map((r) => r.id)
@@ -271,7 +278,7 @@ export type StreamSyncOptions = {
   /** Delete rows not seen in this run (report sync). Off for partial imports. */
   reconcile?: boolean;
   /**
-   * Dry run (TOG-9203): run the full parse/validate path but write nothing
+   * Dry run: run the full parse/validate path but write nothing
    * (no upserts, no reconcile deletes). The caller reports would-be counts.
    * FK validation is also skipped — would-be parent rows are not visible to
    * later tables, so checking dangling references against current D1 would
@@ -291,6 +298,8 @@ export type StreamSyncOptions = {
   requireDataRows?: boolean;
   /** Reject controls before trimming/binding on imports, not upstream reports. */
   rejectControlCharacters?: boolean;
+  /** Strict required identity headers/cells on operator imports, including dry runs. */
+  strictImportIdentities?: boolean;
   /**
    * Cap on request body bytes, enforced by a streaming counter so a huge
    * actual body is rejected with `SnapshotTooLargeError` without buffering.
@@ -298,6 +307,15 @@ export type StreamSyncOptions = {
    * means no cap — upstream report size is the operator's own config.
    */
   maxBytes?: number;
+  /**
+   * Idle stall bound in ms for streamed consumption: a `reader.read()`
+   * pending with no bytes for this long rejects with a top-level
+   * `UpstreamTimeoutError` (502 via `app.onError`) before any reconcile or
+   * delete. Each completed read resets the window, so slow-but-progressing
+   * reports complete. Set by the report `sync` path from
+   * `REPORT_STREAM_STALL_TIMEOUT_MS`; unset leaves the stream unbounded.
+   */
+  stallTimeoutMs?: number;
 };
 
 export async function upsertCustomerSnapshotRows(
@@ -380,11 +398,13 @@ export async function upsertAddressSnapshotRows(
   return { upserted };
 }
 
+/** Only detail-full preserves report-only columns on conflict; inserts are unchanged. */
 export async function upsertContainerSnapshotRows(
   db: D1Database,
   rows: ContainerSnapshotRow[],
   batchSize = 50,
-  syncedAt = new Date().toISOString()
+  syncedAt = new Date().toISOString(),
+  source: ContainerUpsertSource = "report"
 ): Promise<{ upserted: number }> {
   let upserted = 0;
   for (let i = 0; i < rows.length; i += batchSize) {
@@ -394,7 +414,7 @@ export async function upsertContainerSnapshotRows(
       const n = Math.min(CONT_R_PER_STMT, chunk.length - j);
       const slice = chunk.slice(j, j + n);
       const flat = slice.flatMap((r) => containerBindings(r, syncedAt));
-      stmts.push(db.prepare(containerMultiInsertSql(n)).bind(...flat));
+      stmts.push(db.prepare(containerMultiInsertSql(n, source)).bind(...flat));
     }
     try {
       await db.batch(stmts);

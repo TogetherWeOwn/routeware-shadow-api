@@ -375,7 +375,7 @@ describe("findForeignKeyError", () => {
   });
 });
 
-describe("upsert FK mapping (TOG-7744)", () => {
+describe("upsert FK mapping", () => {
   const FK_MESSAGE = "D1_ERROR: FOREIGN KEY constraint failed";
 
   it("throws a typed FK error naming table, column, missing keys and offset", async () => {

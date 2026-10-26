@@ -39,7 +39,7 @@ function scanCsvLine(
   // Whether the current position starts a field: a `"` only opens a quoted
   // field here (cf. `scanForLineBreak` in csvStream.ts). A mid-field `"` is a
   // literal stray (inch mark) — otherwise one bad cell silently swallows every
-  // following row (TOG-8536).
+  // following row.
   let fieldStart = true;
   for (let i = 0; i < s.length; i++) {
     const ch = s[i];
@@ -108,7 +108,11 @@ export function mapCsvHeaders(headerLine: string): Record<string, number> {
   const cells = parseCsvLine(headerLine).map((c) => c.trim());
   const map: Record<string, number> = {};
   for (let i = 0; i < cells.length; i++) {
-    map[normHeader(cells[i])] = i;
+    const name = cells[i];
+    if (name === undefined) {
+      continue;
+    }
+    map[normHeader(name)] = i;
   }
   return map;
 }
@@ -147,7 +151,7 @@ export function parseBool(s: string): boolean {
 }
 
 /**
- * TOG-6542: missing/empty boolean with an enabled-true default.
+ * Missing/empty boolean with an enabled-true default.
  *
  * The cron CSV path collapses "column absent" and "empty cell" to `""`
  * (via `cell()`), while the write-through path (`detailFullSync.ts`) and

@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
- * Sync-summary response contract, hermetic end-to-end (TOG-5839).
+ * Sync-summary response contract, hermetic end-to-end.
  *
  * `test/snapshotSyncE2E.test.ts` pins the per-table **sync** bodies
  * (`{upserted, rowCount, deleted}`) through the real routes, but nothing pins
@@ -33,10 +34,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=summary-contract-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=summary-contract-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -152,7 +153,7 @@ describe("sync summary contract", () => {
           headers: init?.headers as HeadersInit | undefined
         });
       }
-      // TOG-6543: every query-id fetch polls QueryRequestIsComplete before
+      // Every query-id fetch polls QueryRequestIsComplete before
       // its download. The poll answers complete immediately so the sync keeps
       // exercising the download re-auth retry leg (first download 302s, then
       // CSV).
@@ -182,7 +183,7 @@ describe("sync summary contract", () => {
         });
       }
       // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

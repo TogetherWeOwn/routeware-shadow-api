@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
- * TOG-8370 (R2 gap G14) — shadow sync → export round-trip, hermetic end to end.
+ * R2 gap G14 — shadow sync → export round-trip, hermetic end to end.
  *
  * The two halves already exist apart and this file does not re-pin them:
  *
@@ -11,7 +12,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  * - `test/snapshotCsvExport.test.ts` pins the export download contract
  *   (filenames, headers, keyset streaming) against fakes plus a seeded-D1
  *   spot check;
- * - `test/snapshotExportRoundTrip.test.ts` (TOG-8887, on main) pins
+ * - `test/snapshotExportRoundTrip.test.ts` (on main) pins
  *   export → reimport idempotence from hand-written import seeds.
  *
  * What nothing pins is the full loop the operator actually runs: seed D1,
@@ -45,10 +46,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=shadow-roundtrip-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=shadow-roundtrip-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -216,7 +217,7 @@ describe("shadow sync → export round-trip", () => {
           headers: init?.headers as HeadersInit | undefined
         });
       }
-      // TOG-6543: every query-id fetch polls QueryRequestIsComplete before
+      // Every query-id fetch polls QueryRequestIsComplete before
       // its download. The poll answers complete immediately so the sync keeps
       // exercising the download re-auth retry leg (first download 302s, then
       // CSV).
@@ -246,7 +247,7 @@ describe("shadow sync → export round-trip", () => {
         });
       }
       // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

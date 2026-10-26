@@ -11,7 +11,7 @@ import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
 
 /**
  * D1 allows at most 100 bound parameters per query (see D1 platform limits).
- * Exported (TOG-6552) so read-path chunking can prove its margin by
+ * Exported so read-path chunking can prove its margin by
  * construction instead of hardcoding a second copy of the cap.
  */
 export const D1_MAX_BINDS = 100;
@@ -65,7 +65,21 @@ const CONT_HEADER = `container_id, pickup_address_id, container_type_id, serial_
   ud_cost_share_ud, ud_enclosure_doors_ud, ud_last_compactor_inspection_ud, ud_last_enclosure_inspection_ud,
   ud_material_stream_ud, color, service_code_type, service_code_input, service_code, service_date,
   route_ids, frequency_ids, synced_at`;
-const CONT_ON = `ON CONFLICT(container_id) DO UPDATE SET
+export type ContainerUpsertSource = "report" | "detail-full";
+
+// Only report/import writes can replace these source-unavailable fields.
+// Omitting their UPDATE assignments preserves the current row atomically.
+const CONT_REPORT_UPDATES = `ud_cost_share_ud = excluded.ud_cost_share_ud,
+  ud_enclosure_doors_ud = excluded.ud_enclosure_doors_ud,
+  ud_last_compactor_inspection_ud = excluded.ud_last_compactor_inspection_ud,
+  ud_last_enclosure_inspection_ud = excluded.ud_last_enclosure_inspection_ud,
+  ud_material_stream_ud = excluded.ud_material_stream_ud,
+  service_code_type = excluded.service_code_type,
+  service_code_input = excluded.service_code_input,
+  service_date = excluded.service_date,`;
+
+function containerOnConflict(source: ContainerUpsertSource): string {
+  return `ON CONFLICT(container_id) DO UPDATE SET
   pickup_address_id = excluded.pickup_address_id,
   container_type_id = excluded.container_type_id,
   serial_number = excluded.serial_number,
@@ -81,20 +95,14 @@ const CONT_ON = `ON CONFLICT(container_id) DO UPDATE SET
   state = excluded.state,
   zip = excluded.zip,
   container_note = excluded.container_note,
-  ud_cost_share_ud = excluded.ud_cost_share_ud,
-  ud_enclosure_doors_ud = excluded.ud_enclosure_doors_ud,
-  ud_last_compactor_inspection_ud = excluded.ud_last_compactor_inspection_ud,
-  ud_last_enclosure_inspection_ud = excluded.ud_last_enclosure_inspection_ud,
-  ud_material_stream_ud = excluded.ud_material_stream_ud,
+  ${source === "detail-full" ? "" : CONT_REPORT_UPDATES}
   color = excluded.color,
-  service_code_type = excluded.service_code_type,
-  service_code_input = excluded.service_code_input,
   service_code = excluded.service_code,
-  service_date = excluded.service_date,
   route_ids = excluded.route_ids,
   frequency_ids = excluded.frequency_ids,
   synced_at = excluded.synced_at
   WHERE container_snapshot.synced_at <= excluded.synced_at`;
+}
 
 function multiValueTuples(rowCount: number, nCols: number): string {
   const row = `(${Array(nCols).fill("?").join(", ")})`;
@@ -189,9 +197,12 @@ export function addressMultiInsertSql(nRows: number): string {
   )} ${ADDR_ON}`;
 }
 
-export function containerMultiInsertSql(nRows: number): string {
+export function containerMultiInsertSql(
+  nRows: number,
+  source: ContainerUpsertSource = "report"
+): string {
   return `INSERT INTO container_snapshot (${CONT_HEADER}) VALUES ${multiValueTuples(
     nRows,
     CONT_NCOLS
-  )} ${CONT_ON}`;
+  )} ${containerOnConflict(source)}`;
 }

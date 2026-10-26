@@ -7,7 +7,7 @@ import { InvalidSnapshotCsvError } from "../src/lib/snapshot/streamSync";
  * of uncovered branches (5.9% / 6.3% / 18.4%). They are near-identical by
  * design — same four routes, same guards, same response shapes — so the bulk of
  * this file is a `describe.each` over one spec per module, with only the
- * genuinely divergent behaviour (the container join and its double-bound `q`)
+ * genuinely divergent behaviour (the container join and its four-column `q`)
  * kept separate.
  *
  * `test/snapshotAuth.test.ts` already pins each route's 401 body, so nothing
@@ -156,7 +156,7 @@ type Spec = {
   idColumn: string;
   /** Exact WHERE fragment the free-text `q` filter appends. */
   qClause: string;
-  /** How many binds `q` contributes — two for container (location + serial). */
+  /** One bind per searched column: customer 3, address 3, container 4. */
   qBinds: number;
   exportPathVar: string;
   queryIdVar: string;
@@ -174,8 +174,8 @@ const SPECS: Spec[] = [
     prefix: "",
     idParam: "customerId",
     idColumn: "customer_id",
-    qClause: "instr(lower(coalesce(company_name, '')), lower(?)) > 0",
-    qBinds: 1,
+    qClause: "(instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0)",
+    qBinds: 3,
     exportPathVar: "CUSTOMER_REPORT_EXPORT_PATH",
     queryIdVar: "CUSTOMER_REPORT_QUERY_ID",
     notConfiguredDetail:
@@ -191,8 +191,8 @@ const SPECS: Spec[] = [
     prefix: "",
     idParam: "pickupAddressId",
     idColumn: "pickup_address_id",
-    qClause: "instr(lower(coalesce(address, '')), lower(?)) > 0",
-    qBinds: 1,
+    qClause: "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)",
+    qBinds: 3,
     exportPathVar: "ADDRESS_REPORT_EXPORT_PATH",
     queryIdVar: "ADDRESS_REPORT_QUERY_ID",
     notConfiguredDetail:
@@ -209,8 +209,8 @@ const SPECS: Spec[] = [
     idParam: "containerId",
     idColumn: "container_id",
     qClause:
-      "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)",
-    qBinds: 2,
+      "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0 OR instr(lower(coalesce(c.city, '')), lower(?)) > 0 OR instr(lower(coalesce(c.zip, '')), lower(?)) > 0)",
+    qBinds: 4,
     exportPathVar: "CONTAINER_REPORT_EXPORT_PATH",
     queryIdVar: "CONTAINER_REPORT_QUERY_ID",
     notConfiguredDetail:
@@ -354,6 +354,9 @@ describe.each(SPECS)("$name snapshot routes", (spec) => {
       const whereOf = (sql: string) => sql.slice(sql.indexOf("WHERE")).split(" ORDER BY ")[0];
       expect(whereOf(calls[1].sql)).toContain(whereOf(calls[0].sql));
       expect(calls[1].binds.slice(0, calls[0].binds.length)).toEqual(calls[0].binds);
+      expect(whereOf(calls[0].sql)).toContain(`AND ${spec.qClause}`);
+      expect(calls[0].binds).toEqual([7, ...Array(spec.qBinds).fill("x")]);
+      expect(calls[1].binds).toEqual([7, ...Array(spec.qBinds).fill("x"), 50, 0]);
     });
 
     it("orders by the primary key so pagination is stable across pages", async () => {
@@ -731,15 +734,15 @@ describe("container snapshot list join", () => {
     expect(calls[1].sql).toContain("INNER JOIN address_snapshot a");
   });
 
-  it("binds the q value twice, once per column in the OR", async () => {
-    // Arrange — one bind for two placeholders shifts every later bind by one.
+  it("binds the q value four times, once per column in the OR", async () => {
+    // Arrange — missing a column bind shifts every later pagination bind.
     const { db, calls } = readDb({ total: 0, rows: [] });
 
     // Act
     await call(containerSnapshotRoutes, `${base}?q=BIN&limit=5&offset=2`, makeEnv(db));
 
     // Assert
-    expect(calls[1].binds).toEqual(["BIN", "BIN", 5, 2]);
+    expect(calls[1].binds).toEqual(["BIN", "BIN", "BIN", "BIN", 5, 2]);
   });
 
   it("filters by containerId independently of the address filters", async () => {

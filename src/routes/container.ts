@@ -3,7 +3,7 @@ import { prepareSaveContainerFormBody, validateSaveFormBody } from "../lib/addre
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
-import { logEvent } from "../lib/logger";
+import { logEvent, requestIdField } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -20,6 +20,9 @@ export const containerRoutes = createRouteModule();
 const containerSaveContainerFormRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/container/save-container-form",
+  operationId: "saveRoutewareContainer",
+  "x-access": "full",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["container"],
   summary: "SaveContainerForm (create or update)",
   description:
@@ -40,6 +43,9 @@ const containerSaveContainerFormRoute = createRoute({
 
 containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
   const rawBody = c.var.bodyBuffer;
+  // Once-per-request correlation for the token-preparation line and the
+  // post-save refresh below; read once, never re-parsed or re-minted.
+  const requestId = c.var.requestId;
   if (!rawBody || rawBody.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -93,7 +99,8 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
     logEvent({
       level: "error",
       msg: "Container save token preparation failed",
-      route: "POST /api/v1/routeware/container/save-container-form"
+      route: "POST /api/v1/routeware/container/save-container-form",
+      ...requestIdField(requestId)
     });
     const msg = cause instanceof Error ? cause.message : String(cause);
     if (msg === "New container requires PickupAddressID in POST body") {
@@ -118,9 +125,9 @@ containerRoutes.openapi(containerSaveContainerFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the save-long-form route.
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up, readUpstreamTimeoutMs(c.env)))) {
-    // TOG-6463: refresh D1 + evict the data-entity cache after a successful
+    // Refresh D1 + evict the data-entity cache after a successful
     // save so shadow reads stop serving the pre-save record. Never throws.
-    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "container", bodyBuffer, upText);
+    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "container", bodyBuffer, upText, requestId);
     return up;
   }
   if (up.status >= 200 && up.status < 300) {

@@ -18,7 +18,7 @@ export type CronSyncTableCounts = {
   upserted: number;
   rowCount: number;
   deleted?: number;
-  /** R2 archive outcome for this table's CSV leg (TOG-6549). Absent only when the producer predates the instrumentation. */
+  /** R2 archive outcome for this table's CSV leg. Absent only when the producer predates the instrumentation. */
   r2?: R2ArchiveDetail;
 } | null;
 
@@ -36,6 +36,18 @@ export type CronSyncLog = {
   event: "data-snapshot-sync";
   outcome: CronSyncOutcome;
   mode: CronSyncMode;
+  /**
+   * Per-invocation correlation id: one `crypto.randomUUID()` minted
+   * at `scheduled()` entry, spread via `base` onto the scheduled-owned lines
+   * (success, failed, skipped-overlap, fallback warning, persistence-failure)
+   * and threaded through `SnapshotSyncRunOptions` into the orchestration skip
+   * lines and the R2-archive lines. On the chained path it rides to each
+   * per-table sub-invocation on the `x-run-id` header (UUID-validated at the
+   * per-table routes), so one run's records correlate across invocations.
+   * Stable within a run, distinct across runs; a bare UUID, PII-free by
+   * construction.
+   */
+  runId: string;
   /** Which configuration decided the mode. */
   configSource: "SHADOW_API_PUBLIC_BASE" | "fallback-single-invocation";
   /**
@@ -57,12 +69,19 @@ export type CronSyncLog = {
   scheduledTime: string;
   /** Present only when outcome is "failed" and the table is known. Allowlisted table name only — never exception text. */
   table?: "customer" | "address" | "container";
+  /** Failed chained observations are not safe to replay without inspecting remote effects. */
+  next_action?: "inspect_table_sync_before_resubmitting";
 };
 
 type TableResult = DataSnapshotResult["customer"];
 
+const CHAINED_REFUSAL_KINDS = new Set([
+  "ChainedTimeoutError", "ChainedResponseTooLargeError", "ChainedInvalidJsonError",
+  "ChainedResponseReadError", "ChainedHttpError", "ChainedNetworkError"
+]);
+
 /**
- * Validates `SHADOW_API_PUBLIC_BASE` for chained-HTTP use (TOG-6285).
+ * Validates `SHADOW_API_PUBLIC_BASE` for chained-HTTP use.
  *
  * Only a bare http(s) origin — no path, query, fragment, or userinfo — is
  * usable: the chained runner appends fixed `/api/v1/...` paths, so a
@@ -103,12 +122,12 @@ export function resolveChainedBase(raw: unknown): string | null {
   return trimmed;
 }
 
-/** Copies the per-table counts through, including `deleted` when present (TOG-7391). */
+/** Copies the per-table counts through, including `deleted` when present. */
 function tableCounts(t: TableResult): CronSyncTableCounts {
-  // Explicit pick, never spread (TOG-7378): the result objects flow straight
+  // Explicit pick, never spread: the result objects flow straight
   // into the `data-snapshot-sync` log line, so an extra property carrying row
   // data (company name, phone, …) would leave the Worker in the cron log.
-  // The TOG-6549 exception is `r2`: it travels only through the
+  // The exception is `r2`: it travels only through the
   // `isR2ArchiveDetail` guard, which checks `status`. Its `reason` is the R2
   // driver's message text, the one exception-derived string in these records.
   if (!t) {
@@ -125,7 +144,7 @@ function tableCounts(t: TableResult): CronSyncTableCounts {
 }
 
 /**
- * Extracts per-table results from a `PartialDataSnapshotSyncError` (TOG-6546).
+ * Extracts per-table results from a `PartialDataSnapshotSyncError`.
  * Structural, not `instanceof`: the sync module may be stubbed (tests) or the
  * error may cross a module boundary, and the handler must still report the
  * partial instead of all-null. Returns null for any other rejection, which
@@ -160,8 +179,8 @@ function failedSubrequestStatus(e: unknown): number | undefined {
 
 /**
  * Names the failed table for the structured failure event, or undefined when
- * unknown. Prefers the `failedTable` carried by `PartialDataSnapshotSyncError`
- * (TOG-6546); falls back to the `[<table> snapshot]` / `[chained <table>]`
+ * unknown. Prefers the `failedTable` carried by `PartialDataSnapshotSyncError`;
+ * falls back to the `[<table> snapshot]` / `[chained <table>]`
  * step tag in the message. Only the allowlisted customer/address/container
  * names ever reach the log — never exception text, which could carry row data.
  */
@@ -190,7 +209,7 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
   }
   const deleted =
     t.deleted === undefined ? "" : `, ${t.deleted} deleted`;
-  // TOG-6549: the R2 archive state rides in the summary so a missing archive
+  // The R2 archive state rides in the summary so a missing archive
   // is visible in the human-readable line, not just the JSON. `unknown` covers
   // counts produced before the instrumentation (e.g. older route callers, or a
   // test double that omitted the field).
@@ -200,7 +219,7 @@ function summarizeTable(name: string, t: CronSyncTableCounts): string {
 }
 
 /**
- * Overlap guard (TOG-9216, gap B4): at most one sync body runs at a time per
+ * Overlap guard: at most one sync body runs at a time per
  * isolate. A second firing while the first is still in-flight skips with a
  * fixed-shape `skipped-overlap` log line instead of doubling upstream load
  * and racing the first run's D1 writes.
@@ -230,6 +249,9 @@ export async function scheduled(
       const publicBase = resolveChainedBase(env.SHADOW_API_PUBLIC_BASE);
       const base = {
         event: "data-snapshot-sync" as const,
+        // Per-run correlation id: minted once per invocation so all
+        // lines from this run share it. A bare random UUID — PII-free.
+        runId: crypto.randomUUID(),
         mode: (publicBase ? "chained-http" : "single-invocation") as CronSyncMode,
         configSource: (publicBase
           ? "SHADOW_API_PUBLIC_BASE"
@@ -267,7 +289,9 @@ export async function scheduled(
       try {
         let r: DataSnapshotResult;
         if (publicBase) {
-          r = await runDataSnapshotSyncChainedHttp(publicBase, env);
+          r = await runDataSnapshotSyncChainedHttp(publicBase, env, {
+            runId: base.runId
+          });
         } else {
           // Loud on purpose: the whole job then shares one invocation's D1
           // operation budget, so a large export can die partway through.
@@ -278,7 +302,7 @@ export async function scheduled(
             ms: null,
             ...base
           });
-          r = await runDataSnapshotSync(env);
+          r = await runDataSnapshotSync(env, { runId: base.runId });
         }
         const tables = {
           customer: tableCounts(r.customer),
@@ -327,7 +351,7 @@ export async function scheduled(
         });
       } catch (e) {
         const endedAt = Date.now();
-        // TOG-6546: a table failure carries the tables that already
+        // A table failure carries the tables that already
         // succeeded — report and persist them instead of all-null so the log
         // line and the readiness probe show what actually ran. Tables never
         // attempted stay null.
@@ -380,6 +404,9 @@ export async function scheduled(
           durationMs: endedAt - start,
           kind: errorKind(e),
           status: failedSubrequestStatus(e),
+          ...(base.mode === "chained-http" && CHAINED_REFUSAL_KINDS.has(errorKind(e))
+            ? { next_action: "inspect_table_sync_before_resubmitting" as const }
+            : {}),
           ...(failed ? { table: failed } : {})
         });
       } finally {

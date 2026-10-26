@@ -4,7 +4,7 @@ import { PROBLEM_TYPE_BASE, problemType } from "../src/lib/problem";
 import { validationFailureHook } from "../src/routes/shared";
 
 /**
- * problem+json anchor audit (TOG-5836). Every error `type` the API emits must
+ * Problem+json anchor audit. Every error `type` the API emits must
  * anchor into `docs/PROBLEMS.md` — i.e. equal `${PROBLEM_TYPE_BASE}<slug>`
  * verbatim, with the slug row present in the PROBLEMS.md table.
  *
@@ -22,7 +22,7 @@ import { validationFailureHook } from "../src/routes/shared";
  * | `GET /api/v1/shadow/health` | — | outer gate | | | shared | | | shared |
  * | Routeware passthroughs (customers-read, detail-full, customer-types-read, add-new-long, load-long-modal, app-settings-get, home/index, login-page, query-request-is-complete) | — (no schemas) | outer gate | | | shared | | | shared; retry passthrough errors use upstream-error; sessionless login-page remains R2 |
  * | `POST …/save-long-form` | — | outer gate | | | shared | token-prep + HTML-200 silent failure | | shared |
- * | `POST …/save-address-form`, `…/save-container-form` | create w/o parent id (TOG-8148) | outer gate | | | shared | token-prep | | shared |
+ * | `POST …/save-address-form`, `…/save-container-form` | create w/o parent id | outer gate | | | shared | token-prep | | shared |
  * | `DELETE /api/v1/routeware/customer` | — | outer gate | | anchored | shared | | | shared |
  * | Snapshot lists (customer/address/container) | hook 400 (query) | outer gate | | | shared | | | shared |
  * | Snapshot by-id (×3) | hook 400 (params) | outer gate | anchored (missing row) | | shared | | | shared |
@@ -49,7 +49,7 @@ import { validationFailureHook } from "../src/routes/shared";
  *   Object's internal stub protocol, unreachable from the public API surface.
  * - R4: `POST /api/v1/data/*` returns ids + `upstreamBytes` + fixed
  *   `localSync.code` only — never submitted fields or the upstream body
- *   (TOG-6535; pinned by `test/dataEntityPostHandlers.test.ts`).
+ *   (pinned by `test/dataEntityPostHandlers.test.ts`).
  *
  * The `type` assertions below compare against string literals, never against
  * `problemType(...)` output: recomputing the expected value with the function
@@ -250,9 +250,9 @@ describe("schema rejections arrive anchored (were raw {success:false} before)", 
   });
 
   it("pins an out-of-range address-list limit as bad-request", async () => {
-    // Backport note (TOG-6461): the shared-branch original pinned
+    // Backport note: the shared-branch original pinned
     // `/api/v1/data-snapshot/orphans?sampleLimit=501`, but the orphans route
-    // (TOG-5814) has not merged to main yet — the same hook path is pinned
+    // has not merged to main yet — the same hook path is pinned
     // here against the address list's bounded `limit` instead.
     const res = await callModule(
       addressSnapshotRoutes,

@@ -48,6 +48,7 @@ export type LogEventInput = {
   key?: string;
   manifestKey?: string;
   event?: string;
+  runId?: string;
   outcome?: string;
   mode?: string;
   configSource?: string;
@@ -66,6 +67,14 @@ export type LogEventInput = {
   dependency?: string;
   fallback?: string;
   kind?: string;
+  next_action?: "inspect_table_sync_before_resubmitting";
+  customerId?: number;
+  addressCount?: number;
+  containerCount?: number;
+  d1Ops?: number;
+  d1OpsBudget?: number;
+  cacheInvalidations?: number;
+  cacheInvalidationBudget?: number;
 };
 
 const allowedContextFields = new Set([
@@ -77,6 +86,7 @@ const allowedContextFields = new Set([
   "key",
   "manifestKey",
   "event",
+  "runId",
   "outcome",
   "mode",
   "configSource",
@@ -94,7 +104,15 @@ const allowedContextFields = new Set([
   "attempts",
   "dependency",
   "fallback",
-  "kind"
+  "kind",
+  "next_action",
+  "customerId",
+  "addressCount",
+  "containerCount",
+  "d1Ops",
+  "d1OpsBudget",
+  "cacheInvalidations",
+  "cacheInvalidationBudget"
 ]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -104,6 +122,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isSafeCount(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
+
+// Utilization fields are numeric internal counts only. They ride
+// the global allowlist (so `sync.detailFull` can emit `customerId`), but a
+// string or negative value must never reach the log — e.g. a `customerId:
+// "alice@example.com"` from another caller would otherwise pass through as
+// PII. `Number.isInteger` pins the model: every value is produced by a count
+// or budget constant, never a float.
+const UTILIZATION_COUNT_FIELDS = new Set([
+  "customerId",
+  "addressCount",
+  "containerCount",
+  "d1Ops",
+  "d1OpsBudget",
+  "cacheInvalidations",
+  "cacheInvalidationBudget"
+]);
 
 const R2_STATUSES = new Set(["stored", "disabled", "failed"]);
 
@@ -163,11 +197,33 @@ export function logEvent(event: LogEventInput): void {
     if (key === "tables") {
       const tables = safeTableCounts(value);
       if (tables !== undefined) record.tables = tables;
+    } else if (key === "next_action") {
+      if (value === "inspect_table_sync_before_resubmitting") record[key] = value;
+    } else if (UTILIZATION_COUNT_FIELDS.has(key)) {
+      if (!isSafeCount(value) || !Number.isInteger(value)) continue;
+      record[key] = value;
     } else if (isSafeScalar(value)) {
       record[key] = value;
     }
   }
   console[level](record);
+}
+
+/**
+ * Save-path correlation field for `logEvent`.
+ *
+ * One source of truth for attaching the once-per-request id to save-path
+ * error lines: returns `{ requestId }` when the handler read one from the
+ * request var, else `{}` so a defensively-missing var omits the field without
+ * crashing or logging an `undefined` sentinel. The id is the token/UUID the
+ * earliest middleware adopted-or-minted, safe to log as-is.
+ */
+export function requestIdField(requestId: string | undefined): {
+  requestId?: string;
+} {
+  return typeof requestId === "string" && requestId.length > 0
+    ? { requestId }
+    : {};
 }
 
 export function errorKind(err: unknown): string {

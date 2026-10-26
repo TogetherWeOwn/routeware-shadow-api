@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The three POST write paths in `src/lib/dataEntityHandlers.ts` had zero coverage.
+ * The three POST write paths in `src/lib/dataEntitySave.ts` (split from `src/lib/dataEntityHandlers.ts`) had zero coverage.
  *
  * The highest-risk branch is the one exercised first below: the upstream write to
  * Routeware succeeds, but the follow-up `syncCustomerDetailFullToD1` throws. The
@@ -23,7 +23,9 @@ const calls: {
   entity: Array<{ kind: string; id: number }>;
   forwarded: string[];
   synced: number[];
-} = { graph: [], entity: [], forwarded: [], synced: [] };
+  retryBudgetInputs: Array<{ addressCount: number; containerCount: number }>;
+  maxAttempts: Array<number | undefined>;
+} = { graph: [], entity: [], forwarded: [], synced: [], retryBudgetInputs: [], maxAttempts: [] };
 
 const behavior: {
   prepareError: string | null;
@@ -32,13 +34,17 @@ const behavior: {
   upstreamBody: string;
   syncError: string | null;
   syncResult: { addressIds: number[]; containerIds: number[] };
+  invalidateAttempts: 1 | 2;
+  entityError: string | null;
 } = {
   prepareError: null,
   prepareReturnsNull: false,
   upstreamStatus: 200,
   upstreamBody: "",
   syncError: null,
-  syncResult: { addressIds: [10], containerIds: [100] }
+  syncResult: { addressIds: [10], containerIds: [100] },
+  invalidateAttempts: 2,
+  entityError: null
 };
 
 /**
@@ -69,7 +75,7 @@ vi.mock("../src/lib/customerSaveAutoToken", () => ({
     _r: unknown,
     buf: ArrayBuffer | null
   ) => prepared(buf),
-  // TOG-8149: the handlers evict the rejected token on the silent-failure
+  // The handlers evict the rejected token on the silent-failure
   // path; this double carries no cache, so the evict is a no-op.
   evictAntiForgeryTokenCacheForBody: () => false
 }));
@@ -103,6 +109,12 @@ vi.mock("../src/lib/detailFullSync", () => ({
       throw new Error(behavior.syncError);
     }
     return behavior.syncResult;
+  },
+  // Arithmetic is covered separately. Vary this result so the handler tests
+  // catch an omitted budget argument or a hardcoded attempt count.
+  detailFullInvalidateAttempts: (addressCount: number, containerCount: number) => {
+    calls.retryBudgetInputs.push({ addressCount, containerCount });
+    return behavior.invalidateAttempts;
   }
 }));
 
@@ -113,13 +125,17 @@ vi.mock("../src/lib/entityDataCache", async (importOriginal) => {
     invalidateCustomerGraph: async (p: Graph) => {
       calls.graph.push(p);
     },
-    // TOG-6534: handlers now call the retry wrapper; track it on the same
+    // Handlers now call the retry wrapper; track it on the same
     // `calls.graph` ledger so success-path assertions are unchanged.
-    invalidateCustomerGraphWithRetry: async (p: Graph) => {
+    invalidateCustomerGraphWithRetry: async (p: Graph, maxAttempts?: number) => {
       calls.graph.push(p);
+      calls.maxAttempts.push(maxAttempts);
     },
     invalidateDataEntity: async (kind: string, id: number) => {
       calls.entity.push({ kind, id });
+      if (behavior.entityError) {
+        throw new Error(behavior.entityError);
+      }
     }
   };
 });
@@ -141,8 +157,11 @@ function formBody(fields: Record<string, string>): ArrayBuffer {
 }
 
 /**
- * Fake D1 for the container handler's customer-id fallback lookup only.
- * `bind()` is honoured so a query for the wrong pickup_address_id misses.
+ * Fake D1 for the container handler's customer-id fallback lookup plus the
+ * R21-05 pre/post-save id snapshots. `bind()` is honoured so a query for the
+ * wrong pickup_address_id misses; `.all()` mirrors the mocked sync result so
+ * create diffs are empty (null preserved) unless a test overrides
+ * `behavior.syncResult`.
  */
 function fallbackDb(row: { pickup_address_id: number; customer_id: number } | null): D1Database {
   return {
@@ -157,6 +176,12 @@ function fallbackDb(row: { pickup_address_id: number; customer_id: number } | nu
               return args.includes(row.pickup_address_id)
                 ? ({ customer_id: row.customer_id } as T)
                 : null;
+            },
+            async all<T>() {
+              const ids = sql.includes("FROM container_snapshot")
+                ? behavior.syncResult.containerIds
+                : behavior.syncResult.addressIds;
+              return { results: ids.map((id) => ({ id })) as T[] };
             }
           };
         }
@@ -212,12 +237,16 @@ beforeEach(() => {
   calls.entity = [];
   calls.forwarded = [];
   calls.synced = [];
+  calls.retryBudgetInputs = [];
+  calls.maxAttempts = [];
+  behavior.invalidateAttempts = 2;
   behavior.prepareError = null;
   behavior.prepareReturnsNull = false;
   behavior.upstreamStatus = 200;
   behavior.upstreamBody = "";
   behavior.syncError = null;
   behavior.syncResult = { addressIds: [10], containerIds: [100] };
+  behavior.entityError = null;
   loggedErrors.length = 0;
   console.error = (...args: unknown[]) => {
     loggedErrors.push(args[0] as Record<string, unknown>);
@@ -231,7 +260,7 @@ afterEach(() => {
 describe("POST handlers when the local D1 sync throws after a successful upstream write", () => {
   it("keeps the upstream 200 and reports localSync.done=false with a fixed code", async () => {
     // Arrange — the save reached Routeware; only the shadow-copy sync failed.
-    // The D1 error text must not reach the client (TOG-6535): the handler
+    // The D1 error text must not reach the client: the handler
     // maps it to a fixed `code` and logs the original server-side.
     behavior.syncError = "D1_ERROR: no such table";
 
@@ -257,6 +286,141 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
     // Assert
     expect(calls.graph).toEqual([]);
     expect(calls.entity).toEqual([{ kind: "customer", id: 5 }]);
+  });
+
+  it("keeps the upstream 200 when the fallback eviction also fails", async () => {
+    // Arrange — the upstream save already succeeded, so a post-save
+    // cleanup failure (e.g. Cache API quota exhausted mid-graph) must not turn
+    // the handler into a rejection the client might retry as a duplicate
+    // create. The sync throws, then the single-customer fallback throws too.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataCustomer(postCtx(formBody({ CustomerID: "5" })));
+
+    // Assert — still 200 with the fixed code; both failures are logged.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(loggedErrors).toHaveLength(2);
+    expect(loggedErrors[1]).toMatchObject({
+      level: "error",
+      msg: "Post-save fallback cache eviction failed",
+      route: "POST /api/v1/data/customer"
+    });
+  });
+
+  it("keeps the upstream 200 when the address fallback evictions also fail", async () => {
+    // Arrange — both wrapped address-handler fallbacks (customer,
+    // then posted address) throw, e.g. Cache API quota exhausted mid-graph.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataAddress(
+      postCtx(formBody({ CustomerID: "5", PickupAddressID: "10" }))
+    );
+
+    // Assert — still 200 with the fixed code; both evictions were attempted
+    // and both failures logged, with no error text reaching the client.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(calls.entity).toEqual([
+      { kind: "customer", id: 5 },
+      { kind: "address", id: 10 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(
+      loggedErrors.filter((e) => e.msg === "Post-save fallback cache eviction failed")
+    ).toHaveLength(2);
+  });
+
+  it("keeps the upstream 200 when the container fallback evictions also fail", async () => {
+    // Arrange — mirrors the address handler: the customer eviction and the
+    // posted-container eviction both throw after a successful upstream save.
+    behavior.syncError = "boom";
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ CustomerID: "5", ContainerID: "100" }))
+    );
+
+    // Assert — still 200 with the fixed code; both evictions were attempted.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "sync_failed" });
+    expect(calls.entity).toEqual([
+      { kind: "customer", id: 5 },
+      { kind: "container", id: 100 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+    expect(
+      loggedErrors.filter((e) => e.msg === "Post-save fallback cache eviction failed")
+    ).toHaveLength(2);
+  });
+
+  it("keeps the upstream 200 when the address unresolvable-id eviction fails", async () => {
+    // Arrange — no usable CustomerID was posted, so no sync is possible; the
+    // posted-address fallback eviction itself throws.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([{ kind: "address", id: 10 }]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+  });
+
+  it("attempts every unresolvable id when the container fallbacks fail", async () => {
+    // Arrange — neither a posted CustomerID nor the address-snapshot fallback
+    // resolves an owner, so both posted ids go through `invalidatePostedIds`.
+    // A throwing address eviction must not skip the container entry.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataContainer(
+      postCtx(formBody({ PickupAddressID: "10", ContainerID: "100" }))
+    );
+
+    // Assert — 200, and both entries were attempted despite the first throwing.
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([
+      { kind: "address", id: 10 },
+      { kind: "container", id: 100 }
+    ]);
+    expect(JSON.stringify(body)).not.toContain("Too many subrequests");
+  });
+
+  it("keeps the upstream 200 on the customer unresolvable-id branch when eviction fails", async () => {
+    // Arrange — the posted form carries no usable id, so the
+    // `invalidatePostedIds` entry is null (a no-op): the throwing cache
+    // cannot fire here, but the branch must still keep the upstream 200.
+    behavior.entityError = "Too many subrequests";
+
+    // Act
+    const res = await handlePostDataCustomer(postCtx(formBody({ CompanyName: "Acme" })));
+
+    // Assert
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PostBody;
+    expect(body.ok).toBe(true);
+    expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
+    expect(calls.entity).toEqual([]);
   });
 
   it("logs the sync failure rather than swallowing it", async () => {
@@ -341,7 +505,7 @@ describe("POST handlers when the local D1 sync throws after a successful upstrea
 
 describe("handlePostDataCustomer", () => {
   it("returns ids + sync outcome only and invalidates the customer graph on success", async () => {
-    // Arrange — TOG-6535: the envelope must carry no `posted` PII map and no
+    // Arrange — the envelope must carry no `posted` PII map and no
     // raw upstream body, only resolved ids and a byte count of the upstream.
     behavior.upstreamBody = '{"success":true}';
     behavior.syncResult = { addressIds: [10, 11], containerIds: [100] };
@@ -435,7 +599,7 @@ describe("handlePostDataCustomer", () => {
     expect("posted" in body).toBe(false);
     expect("upstream" in body).toBe(false);
     expect(JSON.stringify(body)).not.toContain("Saved.");
-    // TOG-6533: the form carries no usable posted id, so there is nothing to
+    // The form carries no usable posted id, so there is nothing to
     // invalidate — but the branch must run without throwing.
     expect(calls.entity).toEqual([]);
   });
@@ -502,7 +666,7 @@ describe("handlePostDataAddress", () => {
   });
 
   it("invalidates the posted address id when the write succeeds with no usable customer id", async () => {
-    // Arrange — TOG-6533: the upstream save succeeded but no graph sync is
+    // Arrange — the upstream save succeeded but no graph sync is
     // possible, so the pre-edit cached address bundle must still be dropped.
     // Act
     const res = await handlePostDataAddress(postCtx(formBody({ PickupAddressID: "10" })));
@@ -516,12 +680,13 @@ describe("handlePostDataAddress", () => {
 
   it("invalidates nothing when the unresolvable address write posts no usable ids", async () => {
     // Arrange — an address save with neither CustomerID nor PickupAddressID
-    // still succeeds upstream; there is simply no cache key to drop.
+    // still succeeds upstream; there is simply no cache key to drop. No
+    // posted id marks a create, so a successful save answers 201 (R21-05).
     // Act
     const res = await handlePostDataAddress(postCtx(formBody({ Notes: "x" })));
 
     // Assert
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     expect(calls.synced).toEqual([]);
     expect(calls.entity).toEqual([]);
   });
@@ -530,13 +695,14 @@ describe("handlePostDataAddress", () => {
 describe("handlePostDataContainer", () => {
   it("looks the customer id up from the pickup address when the form omits it", async () => {
     // Arrange — the container form frequently posts only PickupAddressID.
+    // No ContainerID marks a create, so a successful save answers 201 (R21-05).
     const db = fallbackDb({ pickup_address_id: 10, customer_id: 5 });
 
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ PickupAddressID: "10" }), db));
 
     // Assert
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = (await res.json()) as PostBody;
     expect(body).toMatchObject({
       ok: true,
@@ -557,8 +723,8 @@ describe("handlePostDataContainer", () => {
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ PickupAddressID: "10" }), db));
 
-    // Assert
-    expect(res.status).toBe(200);
+    // Assert — a create answers 201 even when no owner resolves (R21-05).
+    expect(res.status).toBe(201);
     const body = (await res.json()) as PostBody;
     expect(body.customerId).toBeNull();
     expect(body.localSync).toEqual({ done: false, code: "unknown_customer_id" });
@@ -567,7 +733,7 @@ describe("handlePostDataContainer", () => {
   });
 
   it("invalidates the posted address and container ids when the write succeeds with no resolvable customer", async () => {
-    // Arrange — TOG-6533: the upstream save succeeded but neither the form
+    // Arrange — the upstream save succeeded but neither the form
     // nor the address-snapshot fallback yields a customer, so the pre-edit
     // cached bundles must still be dropped.
     const db = fallbackDb({ pickup_address_id: 99, customer_id: 5 });
@@ -594,8 +760,8 @@ describe("handlePostDataContainer", () => {
     // Act
     const res = await handlePostDataContainer(postCtx(formBody({ Notes: "x" }), db));
 
-    // Assert
-    expect(res.status).toBe(200);
+    // Assert — a create with no usable ids still answers 201 (R21-05).
+    expect(res.status).toBe(201);
     expect(calls.synced).toEqual([]);
     expect(calls.entity).toEqual([]);
   });
@@ -615,6 +781,48 @@ describe("handlePostDataContainer", () => {
       "https://killeen.example.test/WebRW/Container/SaveContainerForm"
     ]);
   });
+});
+
+describe("POST handler graph retry-budget wiring", () => {
+  const handlers = [
+    ["customer", handlePostDataCustomer],
+    ["address", handlePostDataAddress],
+    ["container", handlePostDataContainer]
+  ] as const;
+
+  for (const [name, handler] of handlers) {
+    it.each([
+      { size: "small", addressCount: 2, containerCount: 3, attempts: 2 as const },
+      { size: "large", addressCount: 120, containerCount: 480, attempts: 1 as const }
+    ])(
+      `${name} passes the $size synced graph's $attempts-attempt budget to invalidation`,
+      async ({ addressCount, containerCount, attempts }) => {
+        // Use unequal counts and ids unrelated to the posted ids: the budget
+        // must describe the complete sync result, not the edited entity alone.
+        behavior.syncResult = {
+          addressIds: Array.from({ length: addressCount }, (_, i) => 1000 + i),
+          containerIds: Array.from({ length: containerCount }, (_, i) => 2000 + i)
+        };
+        behavior.invalidateAttempts = attempts;
+
+        const res = await handler(
+          postCtx(formBody({ CustomerID: "5", PickupAddressID: "10", ContainerID: "100" }))
+        );
+
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as PostBody;
+        expect(body.localSync).toEqual({
+          done: true,
+          customerId: 5,
+          ...behavior.syncResult
+        });
+        expect(calls.maxAttempts).toEqual([attempts]);
+        expect(calls.retryBudgetInputs).toEqual([{ addressCount, containerCount }]);
+        expect(calls.graph).toEqual([{ customerId: 5, ...behavior.syncResult }]);
+        expect(calls.entity).toEqual([]);
+      }
+    );
+  }
 });
 
 describe("POST handler request-validation branches", () => {

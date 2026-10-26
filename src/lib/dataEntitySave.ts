@@ -1,0 +1,747 @@
+import { prepareSaveAddressFormBody, prepareSaveContainerFormBody } from "./addressContainerSaveForm";
+import {
+  evictAntiForgeryTokenCacheForBody,
+  prepareSaveCustomerLongFormBody
+} from "./customerSaveAutoToken";
+import type { DataEntityCtx } from "./dataEntityHandlers";
+import type { LocalSyncSummary } from "./dataEntitySaveSchemas";
+import { detailFullInvalidateAttempts, syncCustomerDetailFullToD1 } from "./detailFullSync";
+import { errorKind, logEvent, requestIdField } from "./logger";
+import {
+  invalidateCustomerGraphWithRetry,
+  invalidateDataEntity
+} from "./entityDataCache";
+import { forwardWithSessionRetry } from "./forwardWithSessionRetry";
+import { establishSession } from "./establishSession";
+import { problemJsonResponse, problemType } from "./problem";
+import { readSessionState } from "./sessionState";
+import { readUpstreamText } from "./upstreamBody";
+import { readUpstreamTimeoutMs } from "./upstreamTimeout";
+import {
+  parseAddressIdFromSaveResponse,
+  parseContainerIdFromSaveResponse,
+  parseCustomerIdFromSaveResponse,
+  routewarePostLooksSuccessful,
+  urlEncodedToObject
+} from "./routewarePostResult";
+import { routewareWebRwUrl } from "./upstreamUrl";
+import {
+  diffSingleton,
+  queryAddressContainerIds,
+  queryCustomerAddressIds,
+  snapshotIdsQuietly
+} from "./saveCreatedIdDiff";
+
+/**
+ * Invalidate the posted entity id(s) after a successful upstream
+ * write whose graph id is unresolvable (no sync possible, so the graph ids are
+ * unknown). Without this the write succeeds upstream while the edge cache keeps
+ * serving the pre-edit bundle — stale customer PII.
+ *
+ * Ids only (never request/response bodies); `invalidateDataEntity` propagates
+ * failures, so callers below wrap it in `evictAfterSaveQuietly` — the upstream
+ * write already succeeded, and a loud eviction must not reject the handler.
+ */
+async function invalidatePostedIds(
+  entries: Array<{ entity: "customer" | "address" | "container"; id: number | null }>
+): Promise<void> {
+  // Attempt every entry even when one throws: the container branch carries
+  // both the address and the container id, and a throwing address eviction
+  // must not skip the container entry. Callers wrap this in
+  // `evictAfterSaveQuietly`, so the first error still only logs — but a
+  // direct caller sees the loud contract of `invalidateDataEntity`.
+  let failed = false;
+  let firstError: unknown;
+  for (const { entity, id } of entries) {
+    if (id !== null) {
+      try {
+        await invalidateDataEntity(entity, id);
+      } catch (e) {
+        if (!failed) {
+          failed = true;
+          firstError = e;
+        }
+      }
+    }
+  }
+  if (failed) {
+    throw firstError;
+  }
+}
+
+/**
+ * The upstream save already succeeded, so a post-save eviction
+ * failure must not reject the handler — the client would see an error for a
+ * write that landed and might retry a non-idempotent create, while the
+ * entries past the failure stay stale either way. Log loudly server-side and
+ * keep the `sync_failed` / `unknown_customer_id` outcome; surviving entries
+ * expire via the shared entity-data TTL.
+ */
+async function evictAfterSaveQuietly(
+  route: string,
+  work: () => Promise<void>,
+  requestId?: string
+): Promise<void> {
+  try {
+    await work();
+  } catch (evictErr) {
+    logEvent({
+      level: "error",
+      msg: "Post-save fallback cache eviction failed",
+      route,
+      kind: errorKind(evictErr),
+      ...requestIdField(requestId)
+    });
+  }
+}
+
+export type { LocalSyncCode, LocalSyncSummary } from "./dataEntitySaveSchemas";
+
+function syncFailed(): LocalSyncSummary {
+  return { done: false, code: "sync_failed" };
+}
+
+function notAttempted(): LocalSyncSummary {
+  return { done: false, code: "not_attempted" };
+}
+
+function unknownCustomerId(): LocalSyncSummary {
+  return { done: false, code: "unknown_customer_id" };
+}
+
+/** Byte length of an upstream body — a count, never its content. */
+function upstreamBytes(t: string): number {
+  return new TextEncoder().encode(t).length;
+}
+
+/** Positive-int id from a posted form field, or null when absent/unusable. */
+function postedId(v: string | undefined): number | null {
+  if (v === undefined) {
+    return null;
+  }
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** `?dryRun=true` options for the POST save handlers. */
+export type DataEntitySaveOptions = {
+  /**
+   * Validate only: run body checks, the session-state read and anti-forgery
+   * prep, then answer without the upstream POST, the D1 refresh, any cache
+   * invalidation or session establishment. Absent/false runs the live write.
+   */
+  dryRun?: boolean;
+};
+
+/**
+ * Dry-run envelope: the same save shape with `dryRun: true`,
+ * `routewareStatus: null`, `upstreamBytes: 0` and
+ * `localSync.not_attempted` — `routewareStatus` is unknowable without
+ * posting and is never predicted.
+ */
+function dryRunJson(body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" }
+  });
+}
+
+/**
+ * Fail-closed dry-run without a usable session. Dry runs never establish a
+ * session (no login POST, no `establishSession` call): without a stored
+ * cookie there is nothing safe to validate against, so this fixed 503 names
+ * session setup instead of attempting one.
+ */
+function dryRunWithoutSession(c: DataEntityCtx): Response {
+  return problemJsonResponse({
+    type: problemType("failed-precondition", c.env),
+    title: "Service Unavailable",
+    status: 503,
+    detail:
+      "Dry-run validation needs a usable Routeware session, and session setup is skipped on dry runs — no login is attempted. Run a live request first to establish a session, then retry the dry-run. See docs/PROBLEMS.md#failed-precondition.",
+    instance: new URL(c.req.raw.url).pathname
+  });
+}
+
+export async function handlePostDataCustomer(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
+  const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
+  if (!buf || buf.byteLength === 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveCustomerLongForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
+  let bodyBuffer: ArrayBuffer | null = buf;
+  try {
+    bodyBuffer = await prepareSaveCustomerLongFormBody(
+      c.env,
+      session,
+      c.req.raw,
+      buf,
+      c.req.raw.headers.get("content-type"),
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return problemJsonResponse({
+      type: problemType("bad-gateway", c.env),
+      title: "Bad Gateway",
+      status: 502,
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (!bodyBuffer) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // `posted` is parsed for ids only and never echoed — the full
+    // form map is customer PII and must not leave the handler.
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
+    });
+  }
+  const url = routewareWebRwUrl(
+    c.env.TARGET_ORIGIN,
+    c.env.TARGET_BASE_PATH,
+    "/Customer/SaveCustomerLongForm"
+  );
+  const up = await forwardWithSessionRetry(
+    c.env,
+    c.var.sessionStub,
+    c.req.raw,
+    url,
+    bodyBuffer,
+    establishSession
+  );
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
+  // `posted` is parsed for ids only and never echoed — the full
+  // form map is customer PII and must not leave the handler.
+  const posted = urlEncodedToObject(buf);
+  const ok = routewarePostLooksSuccessful(up.status, upText);
+  const customerId = parseCustomerIdFromSaveResponse(posted, upText);
+  if (!ok && up.status >= 200 && up.status < 300) {
+    // Same silent-failure eviction as the save-long-form route —
+    // a rejected token must not be replayed on the next token-less save.
+    evictAntiForgeryTokenCacheForBody(bodyBuffer);
+  }
+  let localSync: LocalSyncSummary = notAttempted();
+  if (ok) {
+    if (customerId !== null) {
+      try {
+        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
+        localSync = { done: true, customerId, addressIds: g.addressIds, containerIds: g.containerIds };
+        // Retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        // Attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local customer snapshot sync failed",
+          route: "POST /api/v1/data/customer",
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
+        });
+        localSync = syncFailed();
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/customer",
+          () => invalidateDataEntity("customer", customerId),
+          requestId
+        );
+      }
+    } else {
+      localSync = unknownCustomerId();
+      // No sync is possible without the graph id, but the upstream
+      // write succeeded — invalidate the posted customer id (if any) instead
+      // of serving the pre-edit cached bundle. `parseCustomerIdFromSaveResponse`
+      // only returns null when the posted form carried no usable id, so this is
+      // usually a no-op; it guards future parse drift, not today's shape.
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/customer",
+        () =>
+          invalidatePostedIds([
+            { entity: "customer", id: postedId(posted.CustomerID ?? posted.customerID) }
+          ]),
+        requestId
+      );
+    }
+  }
+  return new Response(
+    JSON.stringify({
+      ok,
+      routewareStatus: up.status,
+      customerId,
+      upstreamBytes: upstreamBytes(upText),
+      localSync
+    }),
+    {
+      status: ok ? 200 : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
+  );
+}
+
+export async function handlePostDataAddress(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
+  const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
+  if (!buf || buf.byteLength === 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveAddressForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
+  let bodyBuffer: ArrayBuffer | null = buf;
+  try {
+    bodyBuffer = await prepareSaveAddressFormBody(
+      c.env,
+      session,
+      c.req.raw,
+      buf,
+      c.req.raw.headers.get("content-type"),
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "New address requires CustomerID in POST body") {
+      return problemJsonResponse({
+        type: problemType("bad-request", c.env),
+        title: "Bad Request",
+        status: 400,
+        detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
+        instance: new URL(c.req.raw.url).pathname
+      });
+    }
+    return problemJsonResponse({
+      type: problemType("bad-gateway", c.env),
+      title: "Bad Gateway",
+      status: 502,
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (!bodyBuffer) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // `posted` is parsed for ids only and never echoed.
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      pickupAddressId: postedId(posted.PickupAddressID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
+    });
+  }
+  // Capture the baseline before this request can create a row upstream. A
+  // concurrent refresh after the POST must not hide our row in the baseline.
+  const posted = urlEncodedToObject(buf);
+  const custRaw = Number.parseInt(posted.CustomerID ?? posted.customerID ?? "0", 10);
+  const customerId = Number.isFinite(custRaw) && custRaw > 0 ? custRaw : null;
+  const paidRaw = Number.parseInt(posted.PickupAddressID ?? "0", 10);
+  const pickupAddressId = Number.isFinite(paidRaw) && paidRaw > 0 ? paidRaw : null;
+  const isCreate = pickupAddressId === null;
+  const preAddressIds = isCreate && customerId !== null
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/address",
+        "Pre-save id snapshot unavailable",
+        () => queryCustomerAddressIds(c.env.CUSTOMER_DB, customerId)
+      )
+    : null;
+  const url = routewareWebRwUrl(
+    c.env.TARGET_ORIGIN,
+    c.env.TARGET_BASE_PATH,
+    "/PickupAddress/SaveAddressForm"
+  );
+  const up = await forwardWithSessionRetry(
+    c.env,
+    c.var.sessionStub,
+    c.req.raw,
+    url,
+    bodyBuffer,
+    establishSession
+  );
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
+  const ok = routewarePostLooksSuccessful(up.status, upText);
+  // R21-05: creates (posted id 0/absent) resolve their id — upstream JSON
+  // first, else the singleton post-refresh D1 id. Updates keep echoing the
+  // posted id, and failed saves keep today's null/echo semantics.
+  let resolvedAddressId = ok ? parseAddressIdFromSaveResponse(posted, upText) : pickupAddressId;
+  let localSync: LocalSyncSummary = notAttempted();
+  if (ok) {
+    if (customerId !== null) {
+      try {
+        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, customerId);
+        localSync = {
+          done: true,
+          customerId,
+          addressIds: g.addressIds,
+          containerIds: g.containerIds
+        };
+        if (resolvedAddressId === null && preAddressIds !== null) {
+          const created = diffSingleton(preAddressIds, g.addressIds);
+          if (created !== null) {
+            resolvedAddressId = created;
+          }
+        }
+        // Retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        // Attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local address snapshot sync failed",
+          route: "POST /api/v1/data/address",
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
+        });
+        localSync = syncFailed();
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/address",
+          () => invalidateDataEntity("customer", customerId),
+          requestId
+        );
+        if (pickupAddressId !== null) {
+          await evictAfterSaveQuietly(
+            "POST /api/v1/data/address",
+            () => invalidateDataEntity("address", pickupAddressId),
+            requestId
+          );
+        }
+      }
+    } else {
+      localSync = unknownCustomerId();
+      // The upstream write succeeded but there is no usable
+      // CustomerID to sync on — still invalidate the posted address id so the
+      // pre-edit cached bundle is not served as current.
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/address",
+        () =>
+          invalidatePostedIds([
+            { entity: "address", id: postedId(posted.PickupAddressID) }
+          ]),
+        requestId
+      );
+    }
+  }
+  return new Response(
+    JSON.stringify({
+      ok,
+      routewareStatus: up.status,
+      customerId,
+      pickupAddressId: resolvedAddressId,
+      upstreamBytes: upstreamBytes(upText),
+      localSync
+    }),
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
+  );
+}
+
+export async function handlePostDataContainer(
+  c: DataEntityCtx,
+  options?: DataEntitySaveOptions
+): Promise<Response> {
+  const dryRun = options?.dryRun === true;
+  const buf = c.var.bodyBuffer;
+  // Once-per-request correlation for every save-path error line below; a
+  // defensively-missing var omits the field via `requestIdField`.
+  const requestId = c.var.requestId;
+  if (!buf || buf.byteLength === 0) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "POST application/x-www-form-urlencoded (SaveContainerForm fields). See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  const session = await readSessionState(c.var.sessionStub);
+  if (dryRun && !session.cookieHeader) {
+    return dryRunWithoutSession(c);
+  }
+  let bodyBuffer: ArrayBuffer | null = buf;
+  try {
+    bodyBuffer = await prepareSaveContainerFormBody(
+      c.env,
+      session,
+      c.req.raw,
+      buf,
+      c.req.raw.headers.get("content-type"),
+      // Dry runs validate against the stored session only: without
+      // `establishSession` the modal fetch keeps the direct forward and can
+      // never trigger a login, even when the cookie expires mid-prep.
+      dryRun
+        ? { sessionStub: c.var.sessionStub }
+        : { sessionStub: c.var.sessionStub, establishSession }
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg === "New container requires PickupAddressID in POST body") {
+      return problemJsonResponse({
+        type: problemType("bad-request", c.env),
+        title: "Bad Request",
+        status: 400,
+        detail: `${msg}. See docs/PROBLEMS.md#bad-request.`,
+        instance: new URL(c.req.raw.url).pathname
+      });
+    }
+    return problemJsonResponse({
+      type: problemType("bad-gateway", c.env),
+      title: "Bad Gateway",
+      status: 502,
+      detail: `${msg} See docs/PROBLEMS.md#bad-gateway.`,
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (!bodyBuffer) {
+    return problemJsonResponse({
+      type: problemType("bad-request", c.env),
+      title: "Bad Request",
+      status: 400,
+      detail:
+        "Request body was empty after anti-forgery preparation. See docs/PROBLEMS.md#bad-request.",
+      instance: new URL(c.req.raw.url).pathname
+    });
+  }
+  if (dryRun) {
+    // Posted ids only — no upstream response to resolve from and no D1
+    // owner fallback (that read is part of the live write path).
+    const posted = urlEncodedToObject(buf);
+    return dryRunJson({
+      ok: true,
+      dryRun: true,
+      routewareStatus: null,
+      customerId: postedId(posted.CustomerID ?? posted.customerID),
+      pickupAddressId: postedId(posted.PickupAddressID),
+      containerId: postedId(posted.ContainerID),
+      upstreamBytes: 0,
+      localSync: notAttempted()
+    });
+  }
+  // As with addresses, snapshot before the upstream mutation; scope the diff
+  // to the owning address, not every container under the customer.
+  const posted = urlEncodedToObject(buf);
+  const postedCustomerId = postedId(posted.CustomerID ?? posted.customerID);
+  const postedPickupAddressId = postedId(posted.PickupAddressID);
+  const postedContainerId = postedId(posted.ContainerID);
+  const isCreate = postedContainerId === null;
+  const preContainerIds = isCreate && postedPickupAddressId !== null
+    ? await snapshotIdsQuietly(
+        "POST /api/v1/data/container",
+        "Pre-save id snapshot unavailable",
+        () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+      )
+    : null;
+  const url = routewareWebRwUrl(
+    c.env.TARGET_ORIGIN,
+    c.env.TARGET_BASE_PATH,
+    "/Container/SaveContainerForm"
+  );
+  const up = await forwardWithSessionRetry(
+    c.env,
+    c.var.sessionStub,
+    c.req.raw,
+    url,
+    bodyBuffer,
+    establishSession
+  );
+  const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env));
+  const ok = routewarePostLooksSuccessful(up.status, upText);
+  // R21-05: same resolution shape as addresses, scoped to the owning address.
+  let resolvedContainerId = ok
+    ? parseContainerIdFromSaveResponse(posted, upText)
+    : postedContainerId;
+  let customerId: number | null = postedCustomerId;
+  let localSync: LocalSyncSummary = notAttempted();
+  if (ok) {
+    if (customerId === null && postedPickupAddressId !== null) {
+      const row = await c.env.CUSTOMER_DB.prepare(
+        `SELECT customer_id FROM address_snapshot WHERE pickup_address_id = ?`
+      )
+        .bind(postedPickupAddressId)
+        .first<{ customer_id: number }>();
+      if (row) {
+        customerId = row.customer_id;
+      }
+    }
+    if (customerId !== null) {
+      // Const alias: `customerId` is a `let` (reassigned by the fallback
+      // lookup above), so closures would lose the non-null narrowing.
+      const ownerId = customerId;
+      try {
+        const g = await syncCustomerDetailFullToD1(c.env, c.var.sessionStub, ownerId);
+        localSync = {
+          done: true,
+          customerId: ownerId,
+          addressIds: g.addressIds,
+          containerIds: g.containerIds
+        };
+        if (resolvedContainerId === null && preContainerIds !== null && postedPickupAddressId !== null) {
+          // The post-refresh id read is best-effort: a failure leaves the id
+          // null without rewriting the completed sync or skipping the graph
+          // invalidation below.
+          const postIds = await snapshotIdsQuietly(
+            "POST /api/v1/data/container",
+            "Post-refresh id snapshot unavailable",
+            () => queryAddressContainerIds(c.env.CUSTOMER_DB, postedPickupAddressId)
+          );
+          if (postIds !== null) {
+            const created = diffSingleton(preContainerIds, postIds);
+            if (created !== null) {
+              resolvedContainerId = created;
+            }
+          }
+        }
+        // Retry the whole graph on a mid-graph throw (cache deletes
+        // are idempotent) so a transient delete failure cannot leave sibling
+        // address/container PII stale while the customer row was rewritten.
+        // Attempts come from the Cache API headroom left after one
+        // full-graph pass — best effort, never a reserved second pass.
+        await invalidateCustomerGraphWithRetry(
+          {
+            customerId: ownerId,
+            addressIds: g.addressIds,
+            containerIds: g.containerIds
+          },
+          detailFullInvalidateAttempts(g.addressIds.length, g.containerIds.length)
+        );
+      } catch (syncErr) {
+        logEvent({
+          level: "error",
+          msg: "Local container snapshot sync failed",
+          route: "POST /api/v1/data/container",
+          kind: errorKind(syncErr),
+          ...requestIdField(requestId)
+        });
+        localSync = syncFailed();
+        await evictAfterSaveQuietly(
+          "POST /api/v1/data/container",
+          () => invalidateDataEntity("customer", ownerId),
+          requestId
+        );
+        if (postedContainerId !== null) {
+          await evictAfterSaveQuietly(
+            "POST /api/v1/data/container",
+            () => invalidateDataEntity("container", postedContainerId),
+            requestId
+          );
+        }
+      }
+    } else {
+      localSync = unknownCustomerId();
+      // The upstream write succeeded but no owning customer could be
+      // resolved (neither posted nor via the address-snapshot fallback) — still
+      // invalidate the posted address/container ids so pre-edit cached bundles
+      // are not served as current.
+      await evictAfterSaveQuietly(
+        "POST /api/v1/data/container",
+        () =>
+          invalidatePostedIds([
+            { entity: "address", id: postedId(posted.PickupAddressID) },
+            { entity: "container", id: postedId(posted.ContainerID) }
+          ]),
+        requestId
+      );
+    }
+  }
+  return new Response(
+    JSON.stringify({
+      ok,
+      routewareStatus: up.status,
+      customerId,
+      pickupAddressId: postedPickupAddressId,
+      containerId: resolvedContainerId,
+      upstreamBytes: upstreamBytes(upText),
+      localSync
+    }),
+    {
+      status: ok ? (isCreate ? 201 : 200) : up.status,
+      headers: { "content-type": "application/json; charset=utf-8" }
+    }
+  );
+}

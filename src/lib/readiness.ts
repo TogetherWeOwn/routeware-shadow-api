@@ -1,12 +1,12 @@
 /**
- * Deep readiness probe (TOG-5816).
+ * Deep readiness probe.
  *
  * `GET /api/v1/health` is an unauthenticated liveness check — it proves the
  * Worker is running and nothing more. This module answers the next question an
  * operator asks after a deploy: is D1 reachable, is the R2 binding present,
  * are the report sources the snapshot sync needs actually configured, and
  * when did the daily cron last run (the advisory `cron` staleness probe,
- * TOG-8883 — never flips the overall status)?
+ * never flips the overall status)?
  *
  * Only booleans and short status strings leave this module — never secret
  * values, never row data (customer PII flows through the snapshot path, so
@@ -14,10 +14,16 @@
  */
 
 import { readCronState } from "./cronSyncState";
+import { DEFAULT_UPSTREAM_TIMEOUT_MS } from "./upstreamTimeout";
 
 export type ReadinessStatus = "ok" | "degraded";
 
-export type D1Check = { ok: boolean; detail?: string };
+export type D1Check = {
+  ok: boolean;
+  detail?: string;
+  code?: "d1_ping_timeout" | "d1_ping_failed";
+  next_action?: "retry_after_cache_ttl";
+};
 export type R2Check = {
   ok: boolean;
   bound: boolean;
@@ -41,7 +47,7 @@ export type CronTableState = {
 };
 
 /**
- * Cron staleness probe (TOG-8883). Reports the last persisted cron run per
+ * Cron staleness probe. Reports the last persisted cron run per
  * table (`cron_sync_state`, written by `src/scheduled.ts` after every run):
  * `lastRunAt` is the newest row timestamp, `tables` carries each table's own
  * outcome + timestamp, `stale` is true when no row exists or the newest row
@@ -58,6 +64,8 @@ export type CronCheck = {
   lastRunAt: string | null;
   tables: Record<"customer" | "address" | "container", CronTableState | null>;
   detail?: string;
+  code?: "cron_state_timeout" | "cron_state_failed";
+  next_action?: "retry_after_cache_ttl";
 };
 
 export type ReadinessReport = {
@@ -80,6 +88,32 @@ export const CRON_STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 
 /** Dependency observations can lag by 20s; hits never extend this window. */
 export const READINESS_CACHE_TTL_MS = 20_000;
+
+/** Parallel dependency response waits, not cancellation of underlying D1 work. */
+export const READINESS_REFRESH_BUDGET_MS = Math.min(
+  DEFAULT_UPSTREAM_TIMEOUT_MS, READINESS_CACHE_TTL_MS
+);
+
+type Observation<T> = { status: "ok"; value: T } | { status: "timeout" | "failed" };
+
+async function observeDependency<T>(observe: () => Promise<T>): Promise<Observation<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<Observation<T>>((resolve) => {
+      timer = setTimeout(() => resolve({ status: "timeout" }), READINESS_REFRESH_BUDGET_MS);
+    });
+    // The race observes late rejection too. Neither late result can mutate cache
+    // state, and a timeout does not cancel the still-running dependency query.
+    return await Promise.race([
+      observe().then((value): Observation<T> => ({ status: "ok", value })), timeout
+    ]);
+  } catch {
+    // Do not read, stringify or log dependency exceptions at this boundary.
+    return { status: "failed" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 type DependencyChecks = Pick<ReadinessReport["checks"], "d1" | "r2" | "cron">;
 type CachedDependencies = {
@@ -119,15 +153,15 @@ async function checkD1(env: Env): Promise<D1Check> {
   if (!db) {
     return { ok: false, detail: "CUSTOMER_DB binding missing" };
   }
-  try {
-    // No table access — `SELECT 1` proves the binding resolves and D1 answers,
-    // without depending on migrations having run.
-    await db.prepare("SELECT 1 AS ok").first<{ ok: number }>();
-    return { ok: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { ok: false, detail: `D1 ping failed: ${message.slice(0, 200)}` };
-  }
+  // No table access — the ping does not depend on migrations having run.
+  const result = await observeDependency(() => db.prepare("SELECT 1 AS ok").first<{ ok: number }>());
+  if (result.status === "ok") return { ok: true };
+  return {
+    ok: false,
+    detail: result.status === "timeout" ? "D1 ping timed out." : "D1 ping failed.",
+    code: result.status === "timeout" ? "d1_ping_timeout" : "d1_ping_failed",
+    next_action: "retry_after_cache_ttl"
+  };
 }
 
 function checkR2(env: Env): R2Check {
@@ -191,8 +225,18 @@ function checkConfig(env: Env): ConfigCheck {
 async function checkCron(env: Env, nowMs: number = Date.now()): Promise<CronCheck> {
   const empty: CronCheck["tables"] = { customer: null, address: null, container: null };
   const db = (env as Partial<Env>).CUSTOMER_DB;
-  const rows = await readCronState(db);
-  if (!rows || rows.length === 0) {
+  const result = await observeDependency(() => readCronState(db));
+  if (result.status !== "ok" || result.value === null) {
+    const timedOut = result.status === "timeout";
+    return {
+      ok: false, stale: true, lastRunAt: null, tables: empty,
+      detail: timedOut ? "Cron state observation timed out." : "Cron state observation failed.",
+      code: timedOut ? "cron_state_timeout" : "cron_state_failed",
+      next_action: "retry_after_cache_ttl"
+    };
+  }
+  const rows = result.value;
+  if (rows.length === 0) {
     return {
       ok: false,
       stale: true,
@@ -253,7 +297,8 @@ async function cachedDependencyChecks(env: Env): Promise<DependencyChecks> {
 
   const r2 = checkR2(env);
   // Cache the pending promise before yielding, so a cold burst shares both D1
-  // queries (ping + advisory cron read). Successes and failures have the same TTL.
+  // queries (ping + advisory cron read). Bounded observations settle pending;
+  // successes, failures and timeouts all retain the original non-sliding TTL.
   const entry: CachedDependencies = {
     db, bucket, r2Enabled: enabled, startedAt: nowMs, pending: true,
     checks: Promise.all([checkD1(env), checkCron(env, nowMs)])

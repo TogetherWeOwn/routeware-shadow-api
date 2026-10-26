@@ -9,7 +9,7 @@ import {
 import { validationFailureHook } from "../src/routes/shared";
 
 /**
- * TOG-8357 (HANDOVER.md open-task #1): the problem+json `type` URI base is
+ * HANDOVER.md open-task #1: the problem+json `type` URI base is
  * no longer hardcoded — it resolves from the `PROBLEM_TYPE_BASE` wrangler
  * var, with the committed docs URL as fallback.
  *
@@ -24,7 +24,7 @@ import { validationFailureHook } from "../src/routes/shared";
 
 const CUSTOM = "https://docs.example.com/problems#";
 
-describe("resolveProblemTypeBase (TOG-8357)", () => {
+describe("resolveProblemTypeBase", () => {
   it("keeps the committed docs URL as the historical default export", () => {
     expect(PROBLEM_TYPE_BASE).toBe(
       "https://github.com/TogetherWeOwn/routeware-shadow-api/blob/main/docs/PROBLEMS.md#"
@@ -57,7 +57,7 @@ describe("resolveProblemTypeBase (TOG-8357)", () => {
   });
 });
 
-describe("override flows through the helpers (TOG-8357)", () => {
+describe("override flows through the helpers", () => {
   it("notFoundProblem honors the override", async () => {
     const env = { PROBLEM_TYPE_BASE: CUSTOM } as unknown as Env;
     const body = (await notFoundProblem("/api/v1/nope", env).json()) as {
@@ -83,7 +83,7 @@ describe("override flows through the helpers (TOG-8357)", () => {
     expect(custom.type).toBe(`${CUSTOM}bad-request`);
     // Framework-shaped context: zod-validator calls the hook as
     // `hook(result, context)` where env rides on the context object
-    // (TOG-9245 review note) — proves the wiring claim, not just the path.
+    // (review note) — proves the wiring claim, not just the path.
     const frameworkCtx = {
       env,
       validated: {},

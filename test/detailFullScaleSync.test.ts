@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * TOG-5819: mocked-upstream proof that the `GetCustomerDetailFull` sync path
+ * Mocked-upstream proof that the `GetCustomerDetailFull` sync path
  * (`src/lib/detailFullSync.ts`) handles large customer graphs without loss.
  *
  * The shadow `detail-full` route itself is a byte passthrough (pinned in
@@ -165,19 +165,22 @@ describe("detail-full sync at scale", () => {
 
   it("upserts the whole graph to D1 and returns every id for cache invalidation", async () => {
     // Arrange — `syncCustomerDetailFullToD1` feeds `invalidateCustomerGraph`;
-    // a truncated id list would leave stale rows cached after a write.
-    behavior.responses = [() => json(largeGraph(500, 8))];
+    // a truncated id list would leave stale rows cached after a write. The
+    // shape stays inside both budgets (601 ids = 601 one-pass invalidations,
+    // 14 D1 ops); larger graphs refuse before the first write (see
+    // detailFullSizeGuard).
+    behavior.responses = [() => json(largeGraph(100, 5))];
 
     // Act
     const result = await syncCustomerDetailFullToD1(env, sessionStub, 5);
 
     // Assert
     expect(calls.customers).toHaveLength(1);
-    expect(calls.addresses.flat()).toHaveLength(500);
-    expect(calls.containers.flat()).toHaveLength(4000);
-    expect(result.addressIds).toHaveLength(500);
-    expect(result.containerIds).toHaveLength(4000);
+    expect(calls.addresses.flat()).toHaveLength(100);
+    expect(calls.containers.flat()).toHaveLength(500);
+    expect(result.addressIds).toHaveLength(100);
+    expect(result.containerIds).toHaveLength(500);
     expect(result.addressIds[0]).toBe(1001);
-    expect(result.containerIds[3999]).toBe(4000);
+    expect(result.containerIds[499]).toBe(500);
   });
 });

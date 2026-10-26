@@ -1,7 +1,7 @@
 import packageJson from "../../package.json";
 
 /**
- * Single source of truth for the release version (TOG-5840).
+ * Single source of truth for the release version.
  *
  * `package.json#version` is authoritative: the OpenAPI document
  * (`src/app.ts`) and anything else that reports a release version read it

@@ -1,8 +1,9 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
- * TOG-5819: mocked-upstream proof of how `customers-read` and `detail-full`
+ * Mocked-upstream proof of how `customers-read` and `detail-full`
  * behave at scale, and of how pagination keys (`page`/`start`/`limit`,
  * `skip`/`take`) are treated by the shadow worker.
  *
@@ -14,8 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *    payloads" has a fixed answer: it cannot — there is no code path that
  *    inspects, let alone caps, the row count. `detail-full` still forwards
  *    its body byte-identical; `customers-read` forwards byte-identical too
- *    except for the TOG-5936 skip/take translation below.
- * 2. TOG-5936: `skip`/`take` are translated server-side onto the Ext.NET
+ *    except for the skip/take translation below.
+ * 2. `skip`/`take` are translated server-side onto the Ext.NET
  *    `start`/`limit` spelling the harvested SPA traffic
  *    (`tools/api-discovery/examples/customers-read.post.example.json`) uses.
  *    Whether upstream honors `skip`/`take` was never established, so a client
@@ -114,7 +115,7 @@ beforeEach(() => {
     async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      if (!url.includes("killeen.routeware.com") || !url.includes("/WebRW/")) {
+      if (!isUpstreamUrl(url) || !url.includes("/WebRW/")) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       const req: UpstreamRequest = {
@@ -155,7 +156,7 @@ describe("customers-read pagination passthrough", () => {
     expect(seen[0].body).toBe(body);
   });
 
-  it("translates skip/take onto start/limit before forwarding (TOG-5936)", async () => {
+  it("translates skip/take onto start/limit before forwarding", async () => {
     // Arrange — whether upstream honors skip/take was never established, so
     // the worker maps them onto the proven Ext.NET start/limit spelling.
     responder = () => jsonResponse({ total: 0, data: [] });
@@ -247,7 +248,7 @@ describe("customers-read pagination passthrough", () => {
 
   it("streams a multi-megabyte upstream page (~8,000 rows) without truncation", async () => {
     // Arrange — ~1.3 MB of JSON; the worker streams `res.body` through
-    // `stripUpstreamSetCookie` without buffering, so size must not matter.
+    // `secureUpstreamResponse` without buffering, so size must not matter.
     const rows = Array.from({ length: 8000 }, (_, i) => customerRow(i + 1));
     const payload = { total: 600000, data: rows };
     const upstreamText = JSON.stringify(payload);

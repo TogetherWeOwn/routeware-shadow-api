@@ -41,10 +41,15 @@ function browserAuthError(name: string, message: string): Error {
   return error;
 }
 
+/**
+ * Browser Rendering login. `lockToken` proves this caller holds the refresh
+ * lock so the DO releases it as part of the write.
+ */
 export async function establishSessionWithBrowser(
   env: Env,
   stub: DurableObjectStub,
-  bootstrapUrl: string
+  bootstrapUrl: string,
+  lockToken?: string | null
 ): Promise<void> {
   const username = credential(env.LOGIN_USERNAME);
   const password = credential(env.LOGIN_PASSWORD);
@@ -106,7 +111,7 @@ export async function establishSessionWithBrowser(
     const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
     const expiresAtMs = sessionExpiryMs(env);
 
-    await storeSession(stub, cookieHeader, expiresAtMs);
+    await storeSession(stub, cookieHeader, expiresAtMs, lockToken);
   } catch (err) {
     // The refresh lock is released by `establishSession`, which owns it.
     logEvent({

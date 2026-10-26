@@ -31,6 +31,204 @@ Without statistics, the synthetic 609k-row run chose the container `enabled` com
 
 SQLite recommends `PRAGMA optimize` for maintaining planner statistics ([SQLite PRAGMA optimize](https://www.sqlite.org/pragma.html#pragma_optimize)). The rerun used it only against the in-memory database. No production or remote D1 was queried, and no production migration or `PRAGMA` was run. Whether deployed D1 has comparable statistics was not verified here.
 
+## Address scope predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 15 synthetic addresses (no tenant data). Used the
+address route's SELECT column template and COUNT template with bound scope
+predicates, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek without
+OFFSET). Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `route_id = ?` | `SCAN address_snapshot` |
+| `franchise_id = ?` | `SCAN address_snapshot` |
+| `route_id = ? AND franchise_id = ?` | `SCAN address_snapshot` |
+| Both scopes plus `pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+| `customer_id = ? AND route_id = ? AND franchise_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+
+Each scope uses an equality placeholder, never interpolation, LIKE, a new
+join or a deduplication step. Bind order follows WHERE order, followed by
+limit/offset only for SELECT. The executable
+`test/addressScopeFilters.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements with an opaque quote/Unicode/percent fixture, and asserts exact
+matches, read-only execution and denied network. Run
+`npm run check:address-scope` to repeat that bounded check.
+
+Scope-only reads may still scan; this feature bounds returned data, not
+query cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+Addendum 2026-10-24: the table above records the street-only `q` leg the route
+emitted on the run date. The street-or-locality change replaces that leg with
+a parenthesized three-column `(address OR city OR zip)` predicate carrying
+three identical bound needles; the pinned oracle in
+`test/snapshotTextFilterIndexes.test.ts` shows the same SEARCH plans for the
+composed shapes and the same `q`-alone SCAN. The historical rows are left
+intact.
+
+## Stored phone predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 3 synthetic customers (no tenant data). Used the
+customer route's COUNT template and page-SELECT template with the bound
+two-term OR predicate
+`(instr(lower(coalesce(phone1, '')), lower(?)) > 0 OR
+instr(lower(coalesce(phone2, '')), lower(?)) > 0)`, one value bound twice,
+`ORDER BY customer_id LIMIT ? OFFSET ?`. Observed plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| phone fragment only | `SCAN customer_snapshot` |
+| `customer_id = ?` plus fragment | `SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid=?)` |
+| fragment plus `enabled = 1` | `SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)` |
+
+The fragment-only shape honestly scans: a mid-string `instr(lower(...))`
+substring match cannot seek a B-tree, exactly the `q`-alone boundary pinned
+by `migrations/d1/0003_text_filter_indexes.sql`. The same `lower()` folds
+ASCII A-Z only, so non-ASCII case variants match only on exact case —
+the same folding the `q` precedent already uses. Composing with a selective
+predicate keeps that predicate's existing index. The predicate uses bound
+placeholders, never interpolation, LIKE, a new join or a deduplication step.
+The executable `test/customerPhoneSearch.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on both statements with a quote/Unicode/percent fixture, and asserts
+exact matches, read-only execution and denied network. Run
+`npm run check:customer-phone-search` to repeat that bounded check.
+
+Fragment-only reads may still scan; this feature bounds returned data, not
+query cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+## Exact stored address ZIP predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 4 synthetic addresses (two sharing `02139`, one
+`07001`, one NULL; no tenant data). Used the address route's COUNT template
+and full-column SELECT template with the bound `zip = ?` predicate:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `SELECT COUNT(*) ... WHERE 1 = 1 AND zip = ?` | `SEARCH address_snapshot USING COVERING INDEX idx_address_snapshot_zip (zip=?)` |
+| Page SELECT with `zip = ?`, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_zip (zip=?)` |
+| Page SELECT with `zip = ? AND pickup_address_id > ?` seek | `SEARCH address_snapshot USING INDEX idx_address_snapshot_zip (zip=? AND rowid>?)` |
+
+The predicate is one bound equality placeholder, never interpolation, LIKE,
+a new join or a deduplication step. The executable
+`test/addressZipFilter.acceptance.test.ts` independently records every actual
+handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements with an opaque Unicode/reserved-character fixture, and asserts the
+same `SEARCH ... idx_address_snapshot_zip (zip=?)` shape with exact matches,
+read-only execution and denied network. Run `npm run check:address-zip` to
+repeat that bounded check.
+
+No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+## Address container-presence predicate audit
+
+**Run date:** 2026-10-24. In-memory Node `node:sqlite` SQLite 3.53.4 with all
+committed D1 migrations and 6 synthetic addresses / 5 synthetic containers (no
+tenant data). Used the address route's COUNT template and SELECT template with
+the new correlated predicates, `ORDER BY pickup_address_id` with
+`LIMIT ? OFFSET ?` (or seek without OFFSET). Each row below is the full local
+plan for that statement shape:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `COUNT` with `EXISTS (...)` | `SCAN address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `COUNT` with `NOT EXISTS (...)` | `SCAN address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id`, `CORRELATED SCALAR SUBQUERY 1`, then `SEARCH container_snapshot USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS`/`NOT EXISTS`, offset page | `SCAN address_snapshot`, `CORRELATED SCALAR SUBQUERY 1`, then `SEARCH container_snapshot [EXISTS] USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS`, keyset seek | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+| `SELECT` with `EXISTS` plus `customer_id = ?`, desc | `SEARCH address_snapshot USING COVERING INDEX idx_address_snapshot_customer_id (customer_id=?)` then `SEARCH container_snapshot EXISTS USING COVERING INDEX idx_container_snapshot_pickup_address_id (pickup_address_id=?)` |
+
+Every shape resolves the correlated child lookup through the existing
+`idx_container_snapshot_pickup_address_id`; no plan scans the child table. The
+enum becomes a predicate, not a bind: COUNT carries only the filter binds and
+SELECT adds just the page window. The executable
+`test/addressContainerPresence.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
+statements for both enum values, and asserts exact matches, read-only
+execution and denied network. Run `npm run check:address-container-presence`
+to repeat that bounded check.
+
+Presence-only reads may still scan the parent; this feature bounds returned
+data, not query cost. No migration/index, remote D1 probe, latency measurement
+or production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+## Address extras-allowed predicate audit
+
+**Run date:** 2026-10-24. In-memory Node 24.22.1 `node:sqlite` SQLite 3.53.4
+with committed D1 migrations `0001`–`0003` and 6 synthetic addresses
+(extras 0/1 x enabled 0/1, no tenant data). Used the address route's SELECT
+column template and COUNT template with the literal extras predicates,
+`ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek without OFFSET).
+Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `extras_allowed = 1` | `SCAN address_snapshot` |
+| `extras_allowed = 0` | `SCAN address_snapshot` |
+| `customer_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1 AND extras_allowed = 0` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `extras_allowed = 1 AND pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+
+The extras predicate is a literal (`= 1` / `= 0`), never interpolation or a
+bind: COUNT binds stay `[]` for a bare selector and filter binds precede
+pagination binds on SELECT. No LIKE, join or deduplication step is added. The
+executable `test/addressExtrasAllowed.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on the emitted shapes, and asserts exact matches, read-only execution
+and denied network. Run `npm run check:address-extras-allowed` to repeat that
+bounded check.
+
+Selector-only reads scan; this feature bounds returned data, not query cost.
+No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+The street-only `q` expression above records the run-date template. The
+merged street-or-locality search now groups address/city/zip OR predicates
+with three identical bound needles; `extras_allowed` remains a literal AND
+predicate shared by COUNT and page reads.
+
+## Stored address last-audit-date predicate audit
+
+**Run date:** 2026-10-26. In-memory Node 24.22.1 `node:sqlite` SQLite 3.53.4
+with committed D1 migrations `0001`–`0003` and 8 synthetic addresses (3
+sharing one audit value, 1 other value, 1 uppercase value, 1 NULL, 1 empty,
+1 whitespace-only; no tenant data). Used the address route's SELECT column
+template and COUNT template with the bound exact predicate and the literal
+presence predicates, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek
+without OFFSET). Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `last_audit_date = ?` | `SCAN address_snapshot` |
+| `last_audit_date IS NOT NULL AND last_audit_date <> ''` | `SCAN address_snapshot` |
+| `(last_audit_date IS NULL OR last_audit_date = '')` | `SCAN address_snapshot` |
+| `last_audit_date = ? AND (last_audit_date IS NULL OR last_audit_date = '')` | `SCAN address_snapshot` |
+| `customer_id = ? AND last_audit_date = ?` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `(last_audit_date IS NULL OR last_audit_date = '') AND pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+
+The exact value is one bound placeholder, never interpolation, LIKE or date
+parsing; presence predicates are literals with no binds. Filter binds precede
+pagination binds on SELECT, and COUNT carries the same predicate binds. No
+join or deduplication step is added. The executable
+`test/addressLastAuditDate.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1 and asserts exact
+matches, read-only execution and denied network. Run
+`npm run check:address-last-audit-date` to repeat that bounded check.
+
+Selector-only reads scan; this feature bounds returned data, not query cost.
+No migration/index, date-range support, remote D1 probe, latency measurement
+or production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.

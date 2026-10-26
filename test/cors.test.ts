@@ -50,7 +50,7 @@ function expectHardened(res: Response): void {
   expect(res.headers.get("referrer-policy")).toBe("no-referrer");
 }
 
-describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
+describe("CORS preflight + security headers on /api/v1/*", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -128,7 +128,7 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expectHardened(response);
   });
 
-  it("strips non-allowlisted request headers from the preflight grant (TOG-8368)", async () => {
+  it("strips non-allowlisted request headers from the preflight grant", async () => {
     const response = await call(
       "/api/v1/routeware/customer/customers-read",
       {
@@ -151,7 +151,7 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     expect(allowHeaders.toLowerCase()).not.toContain("x-another-nope");
   });
 
-  it("permits If-None-Match for conditional reads of the ETag cache (TOG-8368)", async () => {
+  it("permits If-None-Match for conditional reads of the ETag cache", async () => {
     const response = await call(
       "/api/v1/data/customer",
       {
@@ -170,7 +170,7 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     ).toMatch(/if-none-match/i);
   });
 
-  it("falls back to the default pair when nothing allowlisted is requested (TOG-8368)", async () => {
+  it("falls back to the default pair when nothing allowlisted is requested", async () => {
     const response = await call(
       "/api/v1/routeware/customer/customers-read",
       {
@@ -185,7 +185,7 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
     );
     expect(response.status).toBe(204);
     expect(response.headers.get("access-control-allow-headers")).toBe(
-      "Authorization, Content-Type"
+      "Authorization, Content-Type, X-Request-Id"
     );
   });
 
@@ -219,7 +219,9 @@ describe("CORS preflight + security headers on /api/v1/* (TOG-5809)", () => {
 
   it("pins the preflight sweep to every registered /api/v1 route with concrete paths", () => {
     const routes = apiRoutes();
-    expect(routes).toHaveLength(42);
+    // 42 prior + GET /api/v1/snapshots/:table (R2 archived-date listing) +
+    // GET /api/v1/snapshots/:table/latest (R2 latest-pointer readback).
+    expect(routes).toHaveLength(44);
     for (const { path } of routes) {
       expect(path).not.toMatch(/[:{}]/);
     }

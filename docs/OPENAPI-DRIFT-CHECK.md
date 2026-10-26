@@ -1,7 +1,9 @@
-# OpenAPI contract-drift check (TOG-6282)
+# OpenAPI contract-drift check
 
-**Status:** script, unit tests, CI hygiene gate, and nightly schedule are wired.
-The check is credential-free and uses no network or new services.
+**Status:** script, unit tests and CI wiring merged. The check runs in the
+`hygiene` job on every pull request, push to `main` and the nightly schedule
+(no new services, no paid tiers, no new secrets — same constraint as the cron
+alarm runbook).
 
 **Why:** a route module built on plain `Hono` instead of `createRouteModule()`
 still serves traffic while silently dropping every one of its routes from
@@ -12,26 +14,36 @@ statically and credential-free so it can run in CI hygiene and on a nightly
 schedule with no Worker runtime, no secrets, and no network access
 (CONVENTIONS.md §3).
 
-## 0. The commands
+## Published contract: `docs/openapi.json`
 
-Regenerate the checked-in, pretty-printed contract after an intentional OpenAPI
-change or package version bump:
+[`openapi.json`](./openapi.json) is the contract of record: the complete document
+served by the app when documentation is enabled, formatted as sorted,
+two-space-indented JSON with a trailing newline. The deployed Worker keeps
+`OPENAPI_DOCS_ENABLED=false`, so `/openapi.json` and `/docs` return 404 there;
+the checked-in file can be read without enabling those endpoints.
+
+The Workers-pool test in `test/openapiContract.test.ts` compares the live document
+with this file using `toMatchFileSnapshot`. No fields are projected out of the
+published record; dedicated semantic acceptance tests still run independently.
+There is no second full-document `.snap` record. Contract-only JSON edits trigger
+the CI build/test job, not just documentation hygiene.
+
+After an intentional contract change or version bump, regenerate with:
 
 ```bash
 npx vitest run test/openapiContract.test.ts -u
 ```
 
-This runs the Worker-backed contract test and writes `docs/openapi.json`. The
-test fails on drift and names this command; review the resulting JSON before
-committing. For a version-only bump, confirm the diff is limited to version
-values before accepting the regenerated contract. Do not update the contract to
-bless an unintended API change.
+Review and commit the JSON diff with the change. Without `-u`, drift fails the
+test and names this command. Do not regenerate to hide an unintended change.
+The hand-written `EXPECTED_OPERATIONS` list, router-surface assertions and static
+check below still fail when a plain-`Hono` module drops published operations.
 
-Check that every route module still publishes its declared operations:
+## 0. The command
 
 ```bash
-npm run check:openapi-drift
-# openapi-drift: OK — <n>/<n> declared op(s) published across <m> mounted module(s)
+node scripts/check-openapi-drift.mjs
+# openapi-drift: OK — 35/35 declared op(s) published across 11 mounted module(s)
 ```
 
 Reads `src/app.ts` (mounts) and `src/routes/*.ts` (declared
@@ -91,12 +103,24 @@ repo root, so the fixture resolves only when `--routes-dir` points at a real
 temporarily rebuild any one module on plain `Hono` in a scratch worktree and
 watch the check name every dropped op.)
 
-## 3. CI schedule
+## 3. Schedule (wired)
 
-The drift check runs as part of the credential-free hygiene job on pull
-requests and the nightly workflow schedule. Changes to route modules are
-checked in PRs; no separate service, token, or network access is required.
-A non-zero exit names the missing or dropped operation and fails the gate.
+Credential-free, alongside the other static gates in the `hygiene` job of
+`.github/workflows/ci.yml`:
+
+- **Cadence:** every pull request, every push to `main`, and the nightly
+  `schedule` trigger (`cron: "23 4 * * *"`, `ci.yml:8-11`). The `hygiene` job has
+  no `if:`, so it is never skipped, including on docs-only PRs. Detection
+  latency for a regression that slips past PR gating is ≤ 24h, same bound as
+  the cron alarm loop.
+- **Where:** the OpenAPI drift check step in `ci.yml` runs
+  `npm run check:openapi-drift` (`package.json:18`). The check reads source
+  text only, so it needs no token. `scripts/check-ci-workflow.mjs:117` pins the
+  step so it cannot be dropped silently.
+- **Alerting:** the step's non-zero exit fails the run — the finding IS the
+  alert (name, op, cause in the log). No paging tier, same posture as the
+  coverage ratchet and per-file gate. Record the disposition where the team
+  looks.
 
 ## 4. What this check does not cover
 

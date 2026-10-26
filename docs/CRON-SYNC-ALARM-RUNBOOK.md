@@ -21,8 +21,18 @@ one object per record, with no text prefix. `msg` is `data-snapshot-sync` at lev
 names ever leave the Worker):
 
 ```json
-{"level":"info","msg":"data-snapshot-sync","route":"scheduled.data-snapshot-sync","ms":41203,"event":"data-snapshot-sync","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12,"r2":{"status":"stored"}},"address":{"upserted":198002,"rowCount":198002,"r2":{"status":"stored"}},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
+{"level":"info","msg":"data-snapshot-sync","route":"scheduled.data-snapshot-sync","ms":41203,"event":"data-snapshot-sync","runId":"123e4567-e89b-12d3-a456-426614174000","outcome":"success","mode":"chained-http","configSource":"SHADOW_API_PUBLIC_BASE","d1LimitRisk":false,"tables":{"customer":{"upserted":203411,"rowCount":203411,"deleted":12,"r2":{"status":"stored"}},"address":{"upserted":198002,"rowCount":198002,"r2":{"status":"stored"}},"container":null},"summary":"customer: 203411 upserted, 203411 rows, 12 deleted; address: 198002 upserted, 198002 rows; container: skipped (no report path configured)","durationMs":41203,"cron":"0 7 * * *","scheduledTime":"2026-09-27T07:00:00.000Z"}
 ```
+
+Every record from one firing — primary, fallback `warn`, persistence-failure
+`error`, and `skipped-overlap` — carries the same `runId` (one
+`crypto.randomUUID()` minted at `scheduled()` entry; a bare UUID,
+PII-free). The id is threaded beyond the scheduled-owned lines: the
+`snapshot.orchestration` skip lines and the `snapshot.r2.*` archive lines
+carry it too, and on the chained path each per-table sub-invocation receives
+it on the `x-run-id` header (UUID-validated at the per-table routes), so a
+run's records correlate across invocations. Filter on `runId` to pull a
+single run's records together.
 
 Two secondary records can accompany the primary one. Neither changes `outcome`. A `warn`
 with msg `SHADOW_API_PUBLIC_BASE is not set; data-snapshot-sync is using one invocation` marks a
@@ -34,11 +44,11 @@ not reflect the run even if its rows moved, so check ground truth (§2).
 |---|---|---|
 | `success` | At least one table ran. Per-table detail in `tables`; skipped tables are explicit `null` with a `skipped (no report path configured)` note in `summary`, never silent omission. | None, unless a table you expect is `null` (config drift — see §3). |
 | `unconfigured` | No report paths set at all — a config state, not a pass. | Configure sources (§3), do not celebrate. |
-| `failed` (`data-snapshot-sync failed`, level `error`) | The sync threw. The allowlisted `table` names the failed step (e.g. `customer`, `address` — absent when unknown); `status` is the HTTP status of a failed chained subrequest (only with `kind` `ChainedHttpError`); `kind` is the class of the root cause (`ChainedHttpError`, `ChainedTimeoutError`, `ChainedInvalidJsonError`, or the local error's class). Exception text never reaches the log, except the R2 archive `reason` under `tables`. Tables that finished before the failure keep their counts (TOG-6546); the failing table and tables never attempted are `null`. `summary` is `sync threw before any table result was recorded` when nothing ran (for example, the missing-secret check before any table runs); otherwise it lists all three tables, with `; failed: <table>` appended only when the failing table is known. | Triage per §4. |
-| `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (guard TOG-9216). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
+| `failed` (`data-snapshot-sync failed`, level `error`) | The sync threw. The allowlisted `table` names the failed step (e.g. `customer`, `address` — absent when unknown); `status` is the HTTP status of a failed chained subrequest (only with `kind` `ChainedHttpError`); `kind` is the class of the root cause (chained classes in §4.1, or the local error's class). Chained boundary refusals carry `next_action: inspect_table_sync_before_resubmitting`. Chained wire R2 reasons are fixed classifications, never exception text; the single-invocation fallback retains its local R2 driver reason. Tables that finished before the failure keep their counts; the failing table and tables never attempted are `null`. `summary` is `sync threw before any table result was recorded` when nothing ran (for example, the missing-secret check before any table runs); otherwise it lists all three tables, with `; failed: <table>` appended only when the failing table is known. | Triage per §4. |
+| `skipped-overlap` | A previous firing was still in-flight on the same isolate, so this firing did no work (the overlap guard). All tables `null`, fixed literal summary, no `recordCronRun` write — `cron_sync_state` still shows the last run that moved rows. | None if isolated (a slow run overlapped the next firing). If every firing skips, the first run is stuck — triage per §4. |
 | *(no primary record)* | The platform never invoked `scheduled()`, the invocation died before logging, or the log was dropped. Possible causes: cron trigger disabled/misconfigured, deploy in progress at 07:00 UTC, Worker-level crash. The record is written after the readiness write, so rows can move with no record. | Treat as **failed**. Verify with ground truth (§2): fresh `synced_at` means the rows moved and only the record is missing. Then check trigger state. |
 
-Two notes on `summary` and `tables`. On a `failed` record with partial progress, a `null` table's `summary` entry still reads `skipped (no report path configured)`, even when that table is configured and failed or never ran; trust `tables` and `failed:`, not that text. A table entry can carry `r2: {status, reason?, key?}` (the R2 archive state, TOG-6549); `summary` appends `, r2: <status>` for any status other than `stored`, and `, r2: unknown` when the entry has no archive status.
+Two notes on `summary` and `tables`. On a `failed` record with partial progress, a `null` table's `summary` entry still reads `skipped (no report path configured)`, even when that table is configured and failed or never ran; trust `tables` and `failed:`, not that text. A table entry can carry `r2: {status, reason?, key?}` (the R2 archive state); `summary` appends `, r2: <status>` for any status other than `stored`, and `, r2: unknown` when the entry has no archive status.
 
 Also watch `d1LimitRisk: true`: the whole job ran in one invocation because
 `SHADOW_API_PUBLIC_BASE` is unset — or set to something unusable
@@ -71,7 +81,7 @@ on `msg` and `route`.
 Read the primary record's `outcome`, `tables`, `durationMs`, and `table`
 (present only on `data-snapshot-sync failed` when the failed step is known).
 One primary record per run: if you see two for one `scheduledTime`, the second
-is a platform retry — read the latest. Note the guard (TOG-9216) serializes
+is a platform retry — read the latest. Note the guard serializes
 firings per isolate only: two `success` records for adjacent `scheduledTime`s mean
 a platform double-fire landed on two isolates and both ran — expected residual,
 not a guard failure.
@@ -105,22 +115,27 @@ configured" from "configured but broken" without reading logs.
 ## 4. The daily alarm loop (automated: the 07:30 UTC scheduled probe)
 
 The 07:30 UTC `Post-deploy probe` workflow (`.github/workflows/post-deploy-probe.yml`,
-TOG-9225 gap O4) asserts cron freshness automatically: probe 3b reads
+gap O4) asserts cron freshness automatically: probe 3b reads
 `GET /api/v1/readiness` → `checks.cron.stale` and **fails the job (exit 1)** when the
 verdict is stale, i.e. no cron run recorded within the server-side 48h threshold
 (`CRON_STALE_AFTER_MS` in `src/lib/readiness.ts` — the probe never re-implements the
 threshold, so probe and server cannot drift). The cron fires at 07:00 UTC, so the probe
-runs after it settles; a red job means two consecutive cron misses. Triage a red job
-with §1–§3 and the step-tag table below — start at this runbook's §1, not at the
-probe script. Probe output names the stale timestamp (`FAIL cron freshness -> STALE
-lastRunAt=…`) and points back here.
+runs after it settles. A red job alone is **not evidence of missed cron runs**:
+first distinguish target configuration, connectivity, authorization, readiness
+shape and dependency failures from the explicit server `stale: true` verdict.
+Triage a stale verdict with §1–§3 and the step-tag table below. Probe output uses
+fixed `FAIL cron freshness -> STALE` guidance, not raw timestamps or cron detail.
+Only boolean `stale: false` is fresh; `true` is stale. Present malformed cron
+metadata (including null, arrays, missing/non-boolean stale) fails as
+`malformed_readiness`, never fresh. Genuinely absent legacy cron is advisory.
+The CLI does not infer staleness from timestamps, even old or future ones.
 
 Schedule note: the probe needs a bearer (`SHADOW_API_TOKEN` secret) to reach
 readiness; in skip-safe mode without one the authed probes SKIP and cron freshness
-is unchecked — a SKIP-only scheduled run is a monitoring gap, not a pass. Ping the
-authored fixture check before trusting green: point the probe at a readiness body
-with a >48h-old cron timestamp and confirm it exits 1 (`test/postDeployProbe.test.ts`
-pins the verdict mapping; the `evalCronFreshness` unit tests are the runnable spec).
+is unchecked — a SKIP-only scheduled run is a monitoring gap, not a pass. Verify
+using the hermetic checks in [SCHEDULED-PROBE.md](SCHEDULED-PROBE.md): fixtures
+supply explicit stale/fresh booleans and malformed metadata without any live call.
+`test/postDeployProbe.test.ts` pins the shared verdict mapping.
 
 Until a log-based alerting tier exists, the manual fallback is this loop, run once daily after
 07:30 UTC by whoever holds the deploy token (or any existing scheduled runner):
@@ -129,11 +144,56 @@ Until a log-based alerting tier exists, the manual fallback is this loop, run on
 2. `outcome: success` with all expected tables non-null → done.
 3. `outcome: unconfigured`, or `outcome: success` with an expected table `null` → config drift: fix vars (§3), re-run `POST /api/v1/data-snapshot/sync` manually to verify, confirm tomorrow's record.
 4. `outcome: failed` (`data-snapshot-sync failed`) or **no primary record** → confirm ground truth (§2). Then triage by the allowlisted `table` plus `summary` (exception text is intentionally not logged):
-   - `table: customer|address|container` with `failed: <table>` in `summary` and prior tables keeping counts — that table's step threw (D1 limit/lock on `… snapshot` steps; 4xx/5xx or timeout on `chained …` steps). If `d1LimitRisk: true`, set `SHADOW_API_PUBLIC_BASE` and re-run; otherwise split per-table syncs (`CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests"). For a chained rejection (`status` 4xx), re-run the named table route manually with the current secret (a rotated `CUSTOMER_SNAPSHOT_SYNC_SECRET` is the usual cause); for a chained timeout (`kind` `ChainedTimeoutError`; per-table budget default 180s, `CHAINED_SYNC_TIMEOUT_MS`, TOG-6547), check whether that table's report export is stalled upstream first. A `status` 5xx means the table route itself failed; check its upstream first.
+   - `table: customer|address|container` with `failed: <table>` in `summary` and prior tables keeping counts — that table's step threw (D1 limit/lock on `… snapshot` steps; 4xx/5xx or timeout on `chained …` steps). If `d1LimitRisk: true`, set `SHADOW_API_PUBLIC_BASE` and re-run; otherwise split per-table syncs (`CUSTOMER_SNAPSHOT.md` § "D1: Too many API requests"). For a chained rejection (`status` 4xx), re-run the named table route manually with the current secret (a rotated `CUSTOMER_SNAPSHOT_SYNC_SECRET` is the usual cause); for a chained timeout (`kind` `ChainedTimeoutError`; per-table budget default 180s, `CHAINED_SYNC_TIMEOUT_MS`), check whether that table's report export is stalled upstream first. A `status` 5xx means the table route itself failed; check its upstream first.
    - No `table` field — the failure happened before any table ran (e.g. missing `CUSTOMER_SNAPSHOT_SYNC_SECRET`) or the step tag was unrecognized. Check Worker config, recent deploys, and platform health; the record deliberately does not identify more.
    - Upstream HTML-200 failures (session lost, login page) surface as the failed table per `docs/CONVENTIONS.md` fact 1 — verify Routeware credentials, not Worker config.
    - No primary record with fresh `synced_at` — the rows moved, but the Worker died before logging or the log was dropped (the record is written after the readiness write). Note it and watch the next run; an overlapping firing is not this case, since it logs `skipped-overlap`. No primary record with stale `synced_at` — the cron did not fire: check the trigger (`wrangler.toml` `[triggers]`), recent deploys around 07:00 UTC, and the Worker's cron history in the dashboard.
 5. Record the disposition where the team looks (issue comment or ops log): date, outcome, tables, action taken. Silence is how the next miss goes unnoticed.
+
+### 4.1 Chained response boundary
+
+Each per-table sync POST has a **single 180,000ms deadline** by default, overridable
+with `CHAINED_SYNC_TIMEOUT_MS` (absent/invalid → default), covering both headers and
+body. Headers consume that budget; body consumption gets only the remainder.
+Responses are limited to **65,536 actual UTF-8 bytes, inclusive**, irrespective of
+Content-Length. A non-2xx response is cancelled immediately without draining.
+Timeout and oversize abort the fetch and request stream cancellation; cancellation
+promises are never awaited. No automatic retry or redirect replay occurs.
+
+| Fixed `kind` | Meaning / inspection |
+|---|---|
+| `ChainedTimeoutError` | Headers or body did not finish inside the one-table deadline; inspect the table invocation and report-export progress. |
+| `ChainedResponseTooLargeError` | Actual JSON body crossed 64 KiB; inspect the per-table producer's summary contract, not response bytes. |
+| `ChainedInvalidJsonError` | JSON is invalid or required counts / present `deleted` are not nonnegative safe integers; fix the producer without coercion. |
+| `ChainedResponseReadError` | The body source failed; inspect invocation/platform health, not the raw exception. |
+| `ChainedHttpError` | Non-2xx response; use the sanitized numeric `status` to inspect the per-table route. |
+| `ChainedNetworkError` | Fetch failed before headers; inspect connectivity/configuration without logging its raw error or URL. |
+
+The chained boundary refusal kinds above carry **`next_action: inspect_table_sync_before_resubmitting`**.
+Preflight/configuration and unrelated local errors retain their existing fields.
+Later tables are not attempted; completed tables keep their counts. Remote D1/R2
+work may already have completed even if observing its response failed. Inspect the
+failed table's invocation and persisted state **before** deciding to resubmit; a
+cancellation request is not a rollback. The combined HTTP route's normal
+`{upserted,rowCount}|null` contract, dry-run forwarding and correlation IDs remain
+unchanged. Optional `deleted` is validated like required counts unless skipped.
+The combined route additionally offers an opt-in `?partialProgress=true` 500
+envelope with per-table counts and the fixed `{table, code[, status]}` failure
+from the table above (default shapes unchanged; see `CUSTOMER_SNAPSHOT.md`).
+
+Wire R2 metadata keeps `stored|disabled|failed`, never arbitrary properties,
+nested data, keys or free text. Disabled reasons are exactly `SNAPSHOTS binding
+unbound` / `SNAPSHOTS_R2_ENABLED=false`. Known publication stages (`daily alias`,
+`history manifest`, `daily manifest`, `latest pointer`) retain only a fixed
+`R2 publication unavailable` classification; `R2 outcome unreported` is also fixed.
+Unknown reasons are omitted, not treated as a successful archive. This projection
+is for HTTP wire results; local single-invocation driver reporting is unchanged.
+
+Hermetic focused check (synthetic streams, deny-by-default fetch; no live sync/replay):
+
+```sh
+CI=true npx vitest run test/chainedSyncResponseBoundary.acceptance.test.ts test/combinedSyncPartialProgress.acceptance.test.ts test/chainedSyncJson.test.ts test/chainedSyncPartialFailure.test.ts test/syncSummaryContract.test.ts
+```
 
 ## 5. Local missed-run drill (no deploy, no token, no tenant)
 
@@ -182,7 +242,7 @@ curl -s http://localhost:18789/__scheduled
 ```
 
 Apply migrations first (`npm run db:migrate:local`), then re-run the §2 queries
-with `--local` (empty tables return `last_sync: NULL, rows: 0` — the missed-run
+with `--local` (empty tables return `last_sync: NULL` — the missed-run
 verdict). Two local quirks, both
 expected: `cron` is `""` (the `/__scheduled` test trigger sends no cron field;
 production sends `0 7 * * *`), and `wrangler dev` parents orphan `workerd`
@@ -195,5 +255,5 @@ and the hermetic `test/snapshotSyncE2E.test.ts` fixture path instead.
 
 ## 6. What this runbook does not cover
 
-- Real-time paging: that needs a log-alerting tier this repo deliberately does not buy (card constraint: no paid services). The daily loop bounds detection latency to ~24h.
+- Real-time paging: that needs a log-alerting tier this repo deliberately does not buy (project constraint: no paid services). The daily loop bounds detection latency to ~24h.
 - Upstream Routeware outages: Worker-side health is visible only through sync errors (§4 triage); there is no upstream probe.

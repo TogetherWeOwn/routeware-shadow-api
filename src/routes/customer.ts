@@ -7,7 +7,7 @@ import { translateSkipTakeToStartLimit } from "../lib/customersReadPagination";
 import { establishSession } from "../lib/establishSession";
 import { forwardPassthrough } from "../lib/forwardPassthrough";
 import type { SessionForwardOptions } from "../lib/forwardWithSessionRetry";
-import { logEvent } from "../lib/logger";
+import { logEvent, requestIdField } from "../lib/logger";
 import { problemJsonResponse, problemType } from "../lib/problem";
 import { routewarePostLooksSuccessful } from "../lib/routewarePostResult";
 import { refreshAfterRoutewareSave } from "../lib/routewareSaveRefresh";
@@ -34,6 +34,9 @@ export const customerRoutes = createRouteModule();
 const customersReadRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/customers-read",
+  operationId: "readRoutewareCustomers",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "CustomersRead (harvested SPA traffic)",
   description:
@@ -54,7 +57,7 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
     c.env.TARGET_BASE_PATH,
     "/Customer/CustomersRead"
   );
-  // TOG-5936: `skip`/`take` are translated onto the Ext.NET `start`/`limit`
+  // `skip`/`take` are translated onto the Ext.NET `start`/`limit`
   // spelling before forwarding, so a client sending them gets the window it
   // asked for instead of a silent unpaged/default-window result. Bodies
   // without those keys forward byte-identical.
@@ -97,6 +100,9 @@ customerRoutes.openapi(customersReadRoute, async (c) => {
 const customerDetailFullRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/detail-full",
+  operationId: "getRoutewareCustomerDetail",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "GetCustomerDetailFull",
   description:
@@ -148,6 +154,9 @@ customerRoutes.openapi(customerDetailFullRoute, async (c) => {
 const customerTypesReadRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/customer-types-read",
+  operationId: "readRoutewareCustomerTypes",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "CustomerTypesRead",
   description:
@@ -198,6 +207,9 @@ customerRoutes.openapi(customerTypesReadRoute, async (c) => {
 const customerSaveLongFormRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/customer/save-long-form",
+  operationId: "saveRoutewareCustomer",
+  "x-access": "full",
+  "x-effect": "upstream-write-local-refresh",
   tags: ["customer"],
   summary: "SaveCustomerLongForm (create or update)",
   description:
@@ -218,6 +230,9 @@ const customerSaveLongFormRoute = createRoute({
 
 customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   const rawBody = c.var.bodyBuffer;
+  // Once-per-request correlation for the token-preparation line and the
+  // post-save refresh below; read once, never re-parsed or re-minted.
+  const requestId = c.var.requestId;
   if (!rawBody || rawBody.byteLength === 0) {
     return problemJsonResponse({
       type: problemType("bad-request", c.env),
@@ -265,7 +280,8 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
     logEvent({
       level: "error",
       msg: "Customer save token preparation failed",
-      route: "POST /api/v1/routeware/customer/save-long-form"
+      route: "POST /api/v1/routeware/customer/save-long-form",
+      ...requestIdField(requestId)
     });
     const msg = cause instanceof Error ? cause.message : String(cause);
     return problemJsonResponse({
@@ -281,15 +297,15 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
   // worked when it did not. Same heuristic as the /data/* write path.
   const upText = await readUpstreamText(up, readUpstreamTimeoutMs(c.env), true);
   if (routewarePostLooksSuccessful(up.status, upText) && !(await isLoginPageResponse(up, readUpstreamTimeoutMs(c.env)))) {
-    // TOG-6463: a successful routeware-tier save must refresh D1 + evict the
+    // A successful routeware-tier save must refresh D1 + evict the
     // data-entity cache, or shadow reads keep serving the pre-save record.
     // Never throws: a local refresh failure must not turn the passthrough 200
     // into a 500 (the save itself succeeded upstream).
-    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "customer", bodyBuffer, upText);
+    await refreshAfterRoutewareSave(c.env, c.var.sessionStub, "customer", bodyBuffer, upText, requestId);
     return up;
   }
   if (up.status >= 200 && up.status < 300) {
-    // TOG-8149: the injected token was rejected upstream (silent failure),
+    // The injected token was rejected upstream (silent failure),
     // so drop it from the cache — otherwise the next token-less save replays
     // the same known-rejected token until the TTL window expires. The next
     // save refetches via one modal GET instead of 502-looping.
@@ -309,6 +325,9 @@ customerRoutes.openapi(customerSaveLongFormRoute, async (c) => {
 const customerAddNewLongRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/customer/add-new-long",
+  operationId: "getRoutewareNewCustomerForm",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "AddNewLong (new customer form shell)",
   description:
@@ -346,6 +365,9 @@ export const LOAD_LONG_MODAL_PARAMS = ["customerID"] as const;
 const customerLoadLongModalRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/customer/load-long-modal",
+  operationId: "getRoutewareCustomerForm",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["customer"],
   summary: "LoadLongCustomerModal (allowlisted query params forwarded upstream)",
   description:
@@ -396,6 +418,9 @@ customerRoutes.openapi(customerLoadLongModalRoute, async (c) => {
 const customerDeleteNotSupportedRoute = createRoute({
   method: "delete",
   path: "/api/v1/routeware/customer",
+  operationId: "deleteRoutewareCustomer",
+  "x-access": "full",
+  "x-effect": "none",
   tags: ["customer"],
   summary: "Delete customer (not supported upstream)",
   description:

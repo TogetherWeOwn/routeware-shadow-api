@@ -4,7 +4,7 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 > ### ⚠️ New owner? Verify PR checks first, production deploys separately
 >
-> GitHub Actions runs on self-hosted runners labeled `two-selfhosted`. On pull requests targeting
+> GitHub Actions runs on GitHub-hosted `ubuntu-latest` runners. On pull requests targeting
 > `main`, changed-area detection selects credential-free `build` and optional `shadow-api-v1` jobs
 > when relevant paths change; docs-only PRs targeting `main` skip both. The `hygiene` job always runs.
 > Production deploys run only when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively).
@@ -20,15 +20,15 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 
 ## Prerequisites
 
-- Node 20+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
+- Node 24+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
 - Cloudflare account (for `wrangler deploy`)
 
 ## Quick start (local)
 
 ```bash
-nvm use                             # Node 20+, per .nvmrc (engines: >=20)
+nvm use                             # Node 24+, per .nvmrc (engines: >=24)
 npm install                         # includes devDependencies (wrangler, vitest); add --include=dev if your shell omits them
-npm run types                       # generate worker-configuration.d.ts (gitignored, TOG-8373) — rerun after any wrangler.toml binding/key change
+npm run types                       # generate worker-configuration.d.ts (gitignored) — rerun after any wrangler.toml binding/key change
 cp .dev.vars.example .dev.vars      # then fill in values (see below)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
 npm run db:seed                     # load the synthetic customer→address→container fixture (idempotent, local D1 only)
@@ -121,12 +121,146 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the **local** Miniflare D1 (run once after cloning) |
 | `npm run db:seed` | Load the synthetic customer→address→container fixture into the **local** D1 (idempotent UPSERTs — safe to re-run; never touches remote) |
 | `npm run db:migrate:remote` | Apply migrations to the **deployed** D1 (CD does this automatically before deploy) |
-| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run once after cloning, and after any `wrangler.toml` binding/key change) |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run types` | Regenerate `worker-configuration.d.ts` (gitignored — run after any `wrangler.toml` binding/key change; `npm run typecheck` runs it automatically) |
+| `npm run typecheck` | Generate Wrangler declarations, then run `tsc --noEmit` |
+| `npm run test:detail-full` | Hermetic detail-full identity and reconciliation acceptance; see the [write-through contract](./CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract) |
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
-| `npm run verify:r2-manifest` | Verify R2 snapshot CSVs against the sidecar integrity manifest — see [CUSTOMER_SNAPSHOT.md](./CUSTOMER_SNAPSHOT.md#archive-integrity-manifest-and-verify) |
+| `npm run verify:r2-manifest` | Verify daily R2 key/hash/byte coverage; use `--expect=customer,address,container` for full-chain coverage, `--json` for machine results, `--dry-run` for a no-read plan — [contract](./docs/R2-MANIFEST-VERIFY.md) |
+| `npm run check:r2-manifest` | Hermetic pure + fake-reader acceptance checks; no R2/Wrangler access |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
+
+### First-run plans and local verification
+
+`npm run first-run` runs `devvars`, `migrate`, `seed`, then `smoke`, stopping at
+its first failure. It writes local D1 state and starts a loopback-only Wrangler
+server for smoke, then stops its process group. No remote target override exists.
+
+`--dry-run` (including `--json --dry-run` in either order) emits a deterministic
+`schemaVersion: 1` plan without reading credentials, running subprocesses,
+accessing the network, or writing files. `--json` executes those local steps,
+suppresses child output, and returns one bounded JSON envelope (at most 16 KiB)
+with fixed `error.code` and `next_action`; invalid or duplicate flags exit 2 before
+effects, while `--help`/`-h` anywhere takes precedence. Use npm's `--silent` to
+avoid its script banner when consuming JSON, or invoke Node directly.
+
+```sh
+# Intent only, safe without .dev.vars or installed Wrangler:
+node scripts/first-run.mjs --json --dry-run
+# Hermetic runnable local check; fake runners, credentials, sockets and HTTP:
+node --test scripts/first-run.acceptance.test.mjs
+# Real local execution (requires the local prerequisites above):
+npm run --silent first-run -- --json
+```
+
+Synthetic plan example (`<ephemeral>` is a placeholder, not an allocated port):
+
+```json
+{
+  "schemaVersion": 1,
+  "command": "first-run",
+  "mode": "dry-run",
+  "outcome": "planned",
+  "steps": [
+    {
+      "id": "devvars",
+      "outcome": "planned",
+      "commands": [["node", "scripts/check-devvars.mjs"]],
+      "effects": ["read_local_credentials", "spawn_local_check"]
+    },
+    {
+      "id": "migrate",
+      "outcome": "planned",
+      "commands": [["npm", "run", "db:migrate:local"]],
+      "effects": ["spawn_local_migration", "write_local_database"]
+    },
+    {
+      "id": "seed",
+      "outcome": "planned",
+      "commands": [["npm", "run", "db:seed"]],
+      "effects": ["spawn_local_seed", "write_local_database"]
+    },
+    {
+      "id": "smoke",
+      "outcome": "planned",
+      "commands": [
+        ["node", "node_modules/wrangler/bin/wrangler.js", "dev", "--ip", "127.0.0.1", "--port", "<ephemeral>", "--show-interactive-dev-session=false"],
+        ["node", "scripts/smoke-readiness.mjs"]
+      ],
+      "effects": ["read_local_credentials", "start_loopback_server", "request_loopback_health", "run_local_smoke", "stop_process_group"]
+    }
+  ],
+  "failed": [],
+  "skipped": [],
+  "error": null,
+  "next_action": null
+}
+```
+
+The parser, flags, command order and effect schema live in
+[`scripts/lib/firstRun.mjs`](./scripts/lib/firstRun.mjs); help is generated from
+that schema and the acceptance check pins this example against it. A plan is
+**intent, not verification**. Execution uses `mode: "run"`, overall `outcome` of
+`success`, `error` or `interrupted`, and per-step `passed`, `failed` or `skipped`.
+`failed`/`skipped` list step IDs; `error` is null or
+`{code, retryable: false, next_action}`, mirrored by top-level `next_action`.
+Codes are `FIRST_RUN_INVALID_ARGUMENT`, `FIRST_RUN_STEP_FAILED`,
+`FIRST_RUN_SPAWN_FAILED`, `FIRST_RUN_HEALTH_FAILED`, `FIRST_RUN_INTERRUPTED` and
+`FIRST_RUN_TEARDOWN_FAILED`. Exits are 0 for success/help/plan, 1 for failure,
+2 for invalid arguments and 130 for interruption. Teardown failure takes error-code
+precedence over interruption: confirm both the process group and loopback port
+are stopped before retrying. No raw exceptions, credential values or Wrangler
+tails enter either JSON output stream; use human mode for local diagnostics.
+
+### Local fixture plans and results
+
+`npm run db:seed -- --help` describes the local-only seed contract. No flags
+still writes ordinary local dev state; `--persist-to=<dir>` selects a scratch
+state directory for **every** apply/verify call. Empty/whitespace-only values,
+repeated targets, control characters and flag-looking paths are rejected (use
+`./-name` for a leading-dash directory). Unknown flags, SQL/file/database overrides
+and `--remote` are rejected, never forwarded. Wrangler always receives `--local`.
+
+```sh
+# Intent only; safe before local migrations, no Wrangler, credentials or state writes:
+npm run --silent db:seed -- --dry-run --json --persist-to=./scratch/d1
+# Real local application: migrate the SAME scratch target first, then seed:
+npm run db:migrate:local -- --persist-to=./scratch/d1
+npm run --silent db:seed -- --json --persist-to=./scratch/d1
+```
+
+Use npm's `--silent` to avoid its script banner when consuming JSON. Without
+`--json`, execution retains the human PASS summary; `--dry-run` prints a plan,
+not a success claim. Dry-run checks neither migrations nor current row availability.
+It does not apply migrations. Fixture IDs, ordered UPSERT SQL and verification
+queries remain defined once in `scripts/lib/dbSeed.mjs`.
+
+JSON v1 always has `schemaVersion: 1`, `mode: "local"`,
+`database: "routeware-customer-snapshot"`, `target: {"persistTo": null}` (default,
+otherwise the supplied directory), `stage`, `outcome`, and `counts` keyed by
+verified table. A plan has `stage: "plan"`, `outcome: "planned"`, empty counts,
+`fixtureIds`, ordered `effects` (`id: "upsert:<table>"`, `table`, `operation`, `sql`)
+and `checks` (`id: "count:<table>"`, `table`, `expected: 1`, `sql`), plus limitations
+`migrations_not_checked` and `row_availability_not_checked`.
+
+Successful execution ends with `stage: "complete"`, `outcome: "success"`, and
+`counts: {"customer_snapshot": 1, "address_snapshot": 1, "container_snapshot": 1}`.
+Failures have `outcome: "error"` and
+`error: {"code": "DB_SEED_…", "retryable": false, "next_action": "…"}`; counts
+contain only completed numeric observations, including a mismatching count.
+No child output, SQL error text, environment dump or exception message is echoed.
+A failure after apply does not imply rollback; UPSERTs are safe to re-run after correction.
+
+| Stage | Fixed error code | Exit |
+|---|---|---|
+| `arguments` | `DB_SEED_INVALID_TARGET`, `DB_SEED_DUPLICATE_TARGET`, `DB_SEED_REMOTE_FORBIDDEN`, `DB_SEED_UNKNOWN_ARGUMENT` | 2 |
+| `apply` | `DB_SEED_APPLY_FAILED` | 1 |
+| `verify` | `DB_SEED_VERIFY_FAILED`, `DB_SEED_COUNT_MISMATCH` | 1 |
+| `apply` or `verify` | `DB_SEED_INVALID_RESULT` (malformed/failed envelope or invalid count shape) | 1 |
+
+Help, plans and verified success exit 0. Each error includes a fixed correction
+action, not an automatic retry instruction. `--help`/`-h` takes precedence and
+exits without execution even alongside other flags.
 
 ## Deploy
 
@@ -137,7 +271,7 @@ and optional `shadow-api-v1`; `hygiene` always runs, and `ci-ok` accepts intenti
 PRs targeting `main` intentionally skip `build` and `shadow-api-v1`. The production `deploy` job
 runs only on a push to `main` when `PRODUCTION_DEPLOY_ENABLED` equals `true` (case-insensitively). Deploy then applies
 remote D1 migrations and runs `wrangler deploy` using the `production` environment. All jobs use
-self-hosted runners labeled `two-selfhosted`; without its optional `CF_TOKEN`, the `shadow-api-v1`
+GitHub-hosted `ubuntu-latest` runners; without its optional `CF_TOKEN`, the `shadow-api-v1`
 probe skips contract execution.
 
 **Enable production only after the full setup is ready:**
@@ -194,7 +328,8 @@ masked by default; field names, body structure, and query params are preserved.
 | `npm run discovery:record` | Headed recorder → `tools/api-discovery/out/harvest.ndjson` (redacted). Log in, do your workflow, press Enter to stop |
 | `npm run discovery:record:full` | Same, but captures **all** headers/values (cookies, tokens) for full replay — keep the harvest private |
 | `npm run discovery:codegen` | Record your **UI actions** (clicks/typing) into a replayable Playwright script |
-| `npm run discovery:process` | Validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs |
+| `npm run discovery:process` | Validate route map → validate harvest → aggregate → **HARVEST_API.md** → route gaps → curl examples → suggested route stubs (artifacts always built; gate fails last on missing shadow routes — stale entries warn unless `--strict`) |
+| `npm run discovery:validate` | Validate `route-map.json` alone (read-only); for one machine-readable object, run `npm run discovery:validate -- --json` |
 | `npm run discovery:verify` | Runs **`discovery:process`** then **`npm test`** (route-map + Worker contract tests) |
 
 Typical loop: `discovery:setup` (once) → `discovery:record` while you use the site →
@@ -219,9 +354,13 @@ Example mappings from a typical harvest (SPA + ExtJS):
 
 ## License
 
-[MIT](./LICENSE) — proposed for the TOG-4025 open-sourcing track; owner to confirm before the repo goes public.
+[MIT](./LICENSE).
 
 ## Layout
+
+For the request, session, snapshot and cron paths, start with
+[`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md), including a step-by-step trace of a
+`data/*` POST.
 
 - [`src/worker.ts`](./src/worker.ts) — Worker entry (re-exports `AuthSession` + Hono `app`).
 - [`src/app.ts`](./src/app.ts) — Routes and OpenAPI.

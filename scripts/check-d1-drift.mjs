@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * D1 migration drift check (TOG-6275).
+ * D1 migration drift check.
  *
  * Verifies `migrations/d1/*.sql` applied state matches between local and
  * remote D1 (file list + sha256 checksum compare). Read-only everywhere:
@@ -44,6 +44,29 @@ import {
   parseWranglerExecuteJson,
   verifyFileHashes,
 } from "./lib/d1DriftCheck.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+function usage() {
+  return [
+    "Usage: node scripts/check-d1-drift.mjs [--remote] [--migrations-dir=<path> --manifest=<path>]",
+    "",
+    "D1 migration drift check: verifies migration files, manifest, and applied journal all match (read-only).",
+    "",
+    "  --remote                 Also compare the remote journal (read-only SELECT; needs CLOUDFLARE_API_TOKEN).",
+    "  --migrations-dir=<path>  Directory holding *.sql (default migrations/d1).",
+    "  --manifest=<path>        sha256sum manifest (default <dir>/.sha256sum).",
+    "  -h, --help               Print this usage and exit 0.",
+    "",
+    "Exit codes:",
+    "  0  Everything matches; remote skipped with a note when no --remote flag.",
+    "  1  Drift report, or remote requested without CLOUDFLARE_API_TOKEN.",
+    "",
+    "Example:",
+    "  node scripts/check-d1-drift.mjs --remote",
+  ].join("\n");
+}
+
+handleHelpFlag(argv.slice(2), usage());
 
 // Same database the `db:migrate:*` npm scripts target (see wrangler.toml
 // `[[d1_databases]]`). Read-only here: local runs use a scratch persist dir,

@@ -2,6 +2,31 @@ export type SessionState = {
   cookieHeader: string | null;
   expiresAtMs: number | null;
   refreshing: boolean;
+  /**
+   * True when `/get` evicted a stored session as expired on this read, or an
+   * earlier `alarm()` eviction persisted the `expiredEvicted` tombstone:
+   * storage held cookie material whose recorded expiry had passed, so the DO
+   * cleared it and reported a null cookie. Absent (never `false`) otherwise —
+   * a cold start that never stored a session reports no flag, which keeps the
+   * reactive first-forward path for cookieless upstreams. Lets
+   * `sessionNeedsRefresh` tell "expired while idle" apart from "never had a
+   * session".
+   */
+  expired?: boolean;
+  /**
+   * Failed-refresh episode anchor (CISO option B): epoch ms of the
+   * first `/unlock` that released a held lock without a `/set`. Present only
+   * while an episode is recorded (never `null`), cleared by the next
+   * successful `/set`. Lets a waiter elect one bounded takeover login.
+   */
+  failedReleaseAtMs?: number;
+  /**
+   * Epoch ms of the single takeover login claimed inside the current episode.
+   * Present only after a `/takeover` win, until the next successful `/set`.
+   * Lets remaining waiters fail fast once the budget is spent instead of
+   * waiting out the window.
+   */
+  takeoverAtMs?: number;
 };
 
 export async function readSessionState(
@@ -41,7 +66,7 @@ export function sessionExpiryMs(env: Env, nowMs: number = Date.now()): number {
  * failure beats a Worker that quietly stops refreshing), the read path must
  * never hard-fail traffic on a bad value: the next login attempt already fails
  * loudly via `sessionExpiryMs`, so readers fall back to the stored expiry
- * alone (the pre-TOG-6528 behavior).
+ * alone (the previous behavior).
  */
 export function readSessionTtlMs(
   env: Pick<Env, "SESSION_TTL_SECONDS">

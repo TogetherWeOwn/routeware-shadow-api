@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the R2 bucket-existence preflight (TOG-6290).
+ * Pure helpers for the R2 bucket-existence preflight.
  *
  * The deploy job runs a read-only `wrangler r2 bucket info <name> --json`
  * lookup before `wrangler deploy` so a missing SNAPSHOTS bucket fails closed

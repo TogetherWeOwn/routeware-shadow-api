@@ -5,8 +5,8 @@ import m2 from "../migrations/d1/0002_address_container.sql?raw";
 import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
 
 /**
- * TOG-5830: the container/address free-text list filters (`q` over
- * `location_address`/`serial_number` and over `address`) had no supporting
+ * The container/address free-text list filters (`q` over
+ * `location_address`/`serial_number` and originally over `address`) had no supporting
  * index — only zip/customer/company/enabled were indexed (0001/0002).
  *
  * What this file proves, against the REAL D1 in the workerd pool (not a
@@ -24,6 +24,12 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  *   match. The "documents the substring boundary" test pins this so a later
  *   reader does not "fix" it with an index that changes nothing.
  *
+ * Address q models grouped address/city/zip OR; container q models grouped
+ * location_address/serial_number/city/zip OR. The enabled prefix still narrows
+ * candidates, but locality values are residual filters. Container exact zip has
+ * no dedicated index at baseline; zip alone scans, while ID scopes can seek.
+ * These are local query-plan observations, not latency/production claims.
+ *
  * Two pool-D1 limitations shape the helper, not the migration:
  * - `db.exec()` accepts only single-line statements ("incomplete input" on
  *   multi-line DDL), so `applyMigration` runs each `;`-separated statement
@@ -33,7 +39,7 @@ import m3 from "../migrations/d1/0003_text_filter_indexes.sql?raw";
  * - `console.log` is swallowed in the pool, so every observation is an
  *   assertion, not a log line.
  *
- * TOG-7383 extension: the same file now also audits the shapes 0003 did NOT
+ * Extension: the same file now also audits the shapes 0003 did NOT
  * touch — the customer list/filter queries (served by 0001's
  * `idx_customer_snapshot_enabled`, so 0003 is a no-op for them) and the
  * container `customerId` join composed with `enabled + q`. Verdict: no
@@ -83,11 +89,13 @@ const ADDR_SELECT =
 const CUST_SELECT =
   "SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name, " +
   "name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at FROM customer_snapshot";
-const ADDR_Q = "instr(lower(coalesce(address, '')), lower(?)) > 0";
-const CUST_Q = "instr(lower(coalesce(company_name, '')), lower(?)) > 0";
+const ADDR_Q =
+  "(instr(lower(coalesce(address, '')), lower(?)) > 0 OR instr(lower(coalesce(city, '')), lower(?)) > 0 OR instr(lower(coalesce(zip, '')), lower(?)) > 0)";
+const CUST_Q =
+  "(instr(lower(coalesce(company_name, '')), lower(?)) > 0 OR instr(lower(coalesce(first_name, '')), lower(?)) > 0 OR instr(lower(coalesce(last_name, '')), lower(?)) > 0)";
 const CONT_Q =
-  "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0)";
-// TOG-7383: same join shape as src/routes/containerSnapshot.ts `customerId` filter.
+  "(instr(lower(coalesce(c.location_address, '')), lower(?)) > 0 OR instr(lower(coalesce(c.serial_number, '')), lower(?)) > 0 OR instr(lower(coalesce(c.city, '')), lower(?)) > 0 OR instr(lower(coalesce(c.zip, '')), lower(?)) > 0)";
+// Same join shape as src/routes/containerSnapshot.ts `customerId` filter.
 const CONT_JOIN = "INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id";
 
 const plans: Record<string, string[]> = {};
@@ -100,70 +108,68 @@ beforeAll(async () => {
     "INSERT INTO customer_snapshot (customer_id, company_name, enabled, synced_at) VALUES (1, 'Acme', 1, 't'), (2, 'Other', 1, 't')"
   );
   await db().exec(
-    "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, zip, enabled, synced_at) VALUES " +
-      "(1, 1, '123 Main St', '76541', 1, 't'), (2, 1, '456 Oak Ave', '76542', 1, 't'), (3, 2, '789 Main Blvd', '78701', 0, 't')"
+    "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, city, zip, enabled, synced_at) VALUES " +
+      "(1, 1, '123 Main St', NULL, '76541', 1, 't'), (2, 1, '456 Oak Ave', 'Main Borough', '76542', 1, 't'), (3, 2, '789 Main Blvd', '', '00741-1234', 0, 't')"
   );
   await db().exec(
-    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, enabled, synced_at) VALUES " +
-      "(1, 1, 'SN-001', '123 Main St', 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', 0, 't')"
+    "INSERT INTO container_snapshot (container_id, pickup_address_id, serial_number, location_address, city, zip, enabled, synced_at) VALUES " +
+      "(1, 1, 'SN-001', '123 Main St', NULL, NULL, 1, 't'), (2, 2, 'BIN-002', '456 Oak Ave', 'Container Borough', '00888', 1, 't'), (3, 3, 'SN-003-MAIN', '789 Main Blvd', NULL, NULL, 0, 't')"
   );
 
   plans.addrEnabledQBefore = await explain(
     `${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE enabled = 1 AND ${ADDR_Q}`,
-    "main"
+    "main", "main", "main"
   );
   plans.addrQAloneBefore = await explain(
     `${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.contEnabledQBefore = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q}`,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
-  // TOG-7383: customer shapes use 0001's idx_customer_snapshot_enabled, so
+  // Customer shapes use 0001's idx_customer_snapshot_enabled, so
   // capture them BEFORE 0003 to prove 0003 is a no-op for that table.
   plans.custEnabledQBefore = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountEnabledQBefore = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
-    "acme"
+    "acme", "acme", "acme"
   );
 
   await applyMigration(m3);
 
   plans.addrEnabledQAfter = await explain(
     `${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE enabled = 1 AND ${ADDR_Q}`,
-    "main"
+    "main", "main", "main"
   );
   plans.addrQAloneAfter = await explain(
     `${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
@@ -174,39 +180,36 @@ beforeAll(async () => {
   );
   plans.contEnabledQAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q}`,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   plans.contQAloneAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
-  // TOG-7383: prove 0003 changes nothing for the customer table (0001's
+  // Prove 0003 changes nothing for the customer table (0001's
   // enabled index already serves its shapes), record the customer q-alone
   // boundary, and pin the container customerId-join + enabled + q plan.
   plans.custEnabledQAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountEnabledQAfter = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1`,
-    "acme"
+    "acme", "acme", "acme"
   );
   plans.custQAloneAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} ORDER BY customer_id LIMIT ? OFFSET ?`,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
@@ -214,8 +217,7 @@ beforeAll(async () => {
     `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
       `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
@@ -223,67 +225,63 @@ beforeAll(async () => {
   plans.addrCustomerQEnabledAfter = await explain(
     `${ADDR_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
     1,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountCustomerQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND customer_id = ? AND ${ADDR_Q} AND enabled = 1`,
     1,
-    "main"
+    "main", "main", "main"
   );
   plans.addrPickupQEnabledAfter = await explain(
     `${ADDR_SELECT} WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1 ORDER BY pickup_address_id LIMIT ? OFFSET ?`,
     1,
-    "main",
+    "main", "main", "main",
     50,
     0
   );
   plans.addrCountPickupQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM address_snapshot WHERE 1 = 1 AND pickup_address_id = ? AND ${ADDR_Q} AND enabled = 1`,
     1,
-    "main"
+    "main", "main", "main"
   );
   plans.contPickupQEnabledAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountPickupQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.pickup_address_id = ? AND ${CONT_Q} AND c.enabled = 1`,
     1,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   plans.contIdQEnabledAfter = await explain(
     `SELECT c.container_id FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1 ORDER BY c.container_id LIMIT ? OFFSET ?`,
     1,
-    "main",
-    "main",
+    "main", "main", "main", "main",
     50,
     0
   );
   plans.contCountIdQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM container_snapshot c WHERE 1 = 1 AND c.container_id = ? AND ${CONT_Q} AND c.enabled = 1`,
     1,
-    "main",
-    "main"
+    "main", "main", "main", "main"
   );
   // R2-32: customer customerId + q + enabled uses the primary key.
   plans.custIdQEnabledAfter = await explain(
     `${CUST_SELECT} WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`,
     1,
-    "acme",
+    "acme", "acme", "acme",
     50,
     0
   );
   plans.custCountIdQEnabledAfter = await explain(
     `SELECT COUNT(*) as n FROM customer_snapshot WHERE 1 = 1 AND customer_id = ? AND ${CUST_Q} AND enabled = 1`,
     1,
-    "acme"
+    "acme", "acme", "acme"
   );
 });
 
@@ -311,7 +309,7 @@ describe("migration 0003 artifact", () => {
   });
 });
 
-describe("address text filter (q over address)", () => {
+describe("address text filter (q over address OR city OR zip)", () => {
   it("scans before 0003 for enabled + q", () => {
     expect(plans.addrEnabledQBefore.join(" ")).toContain("SCAN");
     expect(plans.addrCountEnabledQBefore.join(" ")).toContain("SCAN");
@@ -338,29 +336,35 @@ describe("address text filter (q over address)", () => {
   it("still returns the right rows for enabled + q (filter proof)", async () => {
     const r = await db()
       .prepare(`${ADDR_SELECT} WHERE enabled = 1 AND ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
-      .bind("main", 50, 0)
+      .bind("main", "main", "main", 50, 0)
       .all<{ pickup_address_id: number }>();
-    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1]);
+    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 2]);
   });
 
   it("still returns the right rows for q alone across enabled values", async () => {
     const r = await db()
       .prepare(`${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
-      .bind("main", 50, 0)
+      .bind("main", "main", "main", 50, 0)
       .all<{ pickup_address_id: number }>();
-    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 3]);
+    expect((r.results ?? []).map((x) => x.pickup_address_id)).toEqual([1, 2, 3]);
   });
 });
 
-describe("container text filter (q over location_address OR serial_number)", () => {
+it("address SQL oracle matches the zip-only leg without requiring street/city", async () => {
+  const rows = await db().prepare(`${ADDR_SELECT} WHERE ${ADDR_Q} ORDER BY pickup_address_id LIMIT ? OFFSET ?`)
+    .bind("00741", "00741", "00741", 50, 0).all<{ pickup_address_id: number }>();
+  expect(rows.results.map((row) => row.pickup_address_id)).toEqual([3]);
+});
+
+describe("container text filter (q over location_address OR serial_number OR city OR zip)", () => {
   it("scans before 0003 for enabled + q", () => {
     expect(plans.contEnabledQBefore.join(" ")).toContain("SCAN");
     expect(plans.contCountEnabledQBefore.join(" ")).toContain("SCAN");
   });
 
   it("seeks a new composite index after 0003 for enabled + q", () => {
-    // The OR spans two indexed columns; the planner picks one prefix seek.
-    // Pin SEARCH on enabled plus a 0003 index, not which of the two wins.
+    // Four OR legs include unindexed locality columns. Only the enabled prefix
+    // is a seek; city/zip/substring matching remains residual work, not a new index.
     const selectPlan = plans.contEnabledQAfter.join(" ");
     expect(selectPlan).toContain("SEARCH c USING INDEX");
     expect(selectPlan).toContain("(enabled=?)");
@@ -373,14 +377,14 @@ describe("container text filter (q over location_address OR serial_number)", () 
       .prepare(
         `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind("bin-002", "bin-002", 50, 0)
+      .bind("bin-002", "bin-002", "bin-002", "bin-002", 50, 0)
       .all<{ container_id: number }>();
     expect((bySerial.results ?? []).map((x) => x.container_id)).toEqual([2]);
     const byLocation = await db()
       .prepare(
         `SELECT c.container_id FROM container_snapshot c WHERE c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind("oak", "oak", 50, 0)
+      .bind("oak", "oak", "oak", "oak", 50, 0)
       .all<{ container_id: number }>();
     expect((byLocation.results ?? []).map((x) => x.container_id)).toEqual([2]);
   });
@@ -391,13 +395,38 @@ describe("container text filter (q over location_address OR serial_number)", () 
         `SELECT c.container_id FROM container_snapshot c INNER JOIN address_snapshot a ON a.pickup_address_id = c.pickup_address_id ` +
           `WHERE a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind(1, "main", "main", 50, 0)
+      .bind(1, "main", "main", "main", "main", 50, 0)
       .all<{ container_id: number }>();
     expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
   });
 });
 
-describe("customer text filter (q over company_name) — TOG-7383", () => {
+describe("container locality SQL oracle: honest residual locality work", () => {
+  it.each(["Container Borough", "00888"])("matches the isolated city/zip leg %s", async q => {
+    const result = await db().prepare(
+      `SELECT c.container_id FROM container_snapshot c WHERE ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`,
+    ).bind(q, q, q, q, 50, 0).all<{ container_id: number }>();
+    expect(result.results.map(row => row.container_id)).toEqual([2]);
+  });
+
+  it("exact zip alone scans, while enabled and primary-key scopes can still seek", async () => {
+    for (const select of ["c.container_id", "COUNT(*) as n"]) {
+      const base = `SELECT ${select} FROM container_snapshot c WHERE c.zip = ?`;
+      const scan = (await explain(base, "00888")).join(" ");
+      expect(scan).toMatch(/SCAN c\b/);
+      expect(scan).not.toMatch(/SEARCH c\b/);
+      const enabled = (await explain(`${base} AND c.enabled = ? AND ${CONT_Q}`, "00888", 1, "Borough", "Borough", "Borough", "Borough")).join(" ");
+      expect(enabled).toMatch(/SEARCH c USING INDEX idx_container_snapshot_enabled_(serial|location)_lower/);
+      expect(enabled).toContain("(enabled=?)");
+      const id = (await explain(`${base} AND c.container_id = ? AND ${CONT_Q}`, "00888", 2, "Borough", "Borough", "Borough", "Borough")).join(" ");
+      expect(id).toContain("SEARCH c USING INTEGER PRIMARY KEY (rowid=?)");
+    }
+    const rows = await db().prepare("SELECT container_id FROM container_snapshot WHERE zip = ?").bind("00888").all<{ container_id: number }>();
+    expect(rows.results.map(row => row.container_id)).toEqual([2]);
+  });
+});
+
+describe("customer text filter (q over company_name OR first_name OR last_name)", () => {
   it("already seeks 0001's enabled index before 0003", () => {
     expect(plans.custEnabledQBefore.join(" ")).toContain(
       "SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled (enabled=?)"
@@ -421,13 +450,13 @@ describe("customer text filter (q over company_name) — TOG-7383", () => {
   it("still returns the right rows for enabled + q (filter proof)", async () => {
     const r = await db()
       .prepare(`${CUST_SELECT} WHERE 1 = 1 AND ${CUST_Q} AND enabled = 1 ORDER BY customer_id LIMIT ? OFFSET ?`)
-      .bind("acme", 50, 0)
+      .bind("acme", "acme", "acme", 50, 0)
       .all<{ customer_id: number }>();
     expect((r.results ?? []).map((x) => x.customer_id)).toEqual([1]);
   });
 });
 
-describe("container customerId join + enabled + q — TOG-7383", () => {
+describe("container customerId join + enabled + q", () => {
   it("seeks indexes after 0003 (enabled-prefix composite on c, customer_id on a)", () => {
     const plan = plans.contJoinEnabledQAfter.join(" ");
     expect(plan).toContain("SEARCH");
@@ -441,7 +470,7 @@ describe("container customerId join + enabled + q — TOG-7383", () => {
         `SELECT c.container_id FROM container_snapshot c ${CONT_JOIN} ` +
           `WHERE 1 = 1 AND a.customer_id = ? AND c.enabled = 1 AND ${CONT_Q} ORDER BY c.container_id LIMIT ? OFFSET ?`
       )
-      .bind(1, "main", "main", 50, 0)
+      .bind(1, "main", "main", "main", "main", 50, 0)
       .all<{ container_id: number }>();
     expect((r.results ?? []).map((x) => x.container_id)).toEqual([1]);
   });

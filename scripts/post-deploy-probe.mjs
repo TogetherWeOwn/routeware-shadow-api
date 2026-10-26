@@ -1,62 +1,45 @@
 #!/usr/bin/env node
 /**
- * Post-deploy probe (TOG-6274, extended TOG-7382): hits GET /api/v1/health
- * (public), GET /api/v1/shadow/health (authed) and GET /api/v1/readiness
- * (authed) against a base URL.
- *
- * Usage:
- *   node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [--skip-if-no-token] [--scheduled]
- *   npm run probe:post-deploy -- <base-url>
- *   npm run probe:post-deploy:scheduled   (scheduled mode: SHADOW_API_BASE + skip-safe)
- *
- * Base resolution: explicit <base-url> wins, then $SHADOW_API_BASE (same name
- * as scripts/smoke-readiness.mjs), then http://localhost:8787 for local dev.
- * --scheduled (also enforced for GITHUB_EVENT_NAME=schedule) requires a
- * configured remote HTTPS staging target; no local fallback is permitted.
- *
- * Token resolution (never printed, never committed):
- *   1. --token-env=NAME (value read from process.env[NAME])
- *   2. process.env.SHADOW_API_TOKEN
- *   3. process.env.CUSTOMER_SNAPSHOT_SYNC_SECRET
- *   4. `.dev.vars` beside wrangler.toml (local-dev convenience: SHADOW_API_TOKEN,
- *      else CUSTOMER_SNAPSHOT_SYNC_SECRET) — values are read, not logged.
- *
- * Exit 0 only when all three probes pass; otherwise exit 1.
+ * Fixed-GET post-deploy probe. Manual base resolution: positional target,
+ * SHADOW_API_BASE, then localhost. Scheduled validation is not probe authority.
+ * Plans/help/refusals never resolve credentials or read .dev.vars.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { argv, env, exit } from "node:process";
+import { argv, env } from "node:process";
 import {
-  BASE_ENV,
-  DEFAULT_BASE,
-  SKIP_FLAG,
-  SCHEDULED_FLAG,
-  evalCronFreshness,
-  formatSkipLine,
-  resolveBase,
+  BASE_ENV, DEFAULT_BASE, SKIP_FLAG, SCHEDULED_FLAG, PROBES, NEXT_ACTIONS,
+  evaluateProbe, formatSkipLine, probeDocument, probePlan, probeResult, resolveBase,
 } from "./lib/postDeployProbe.mjs";
 
 const DEFAULT_TIMEOUT_MS = 15_000;
-const MAX_BODY_SNIPPET = 500;
+// Bounded target plus fixed rows/diagnostics keeps JSON output below 8192 bytes.
+const MAX_ORIGIN_LENGTH = 1024;
 
 function usage() {
   return [
-    `Usage: node scripts/post-deploy-probe.mjs <base-url> [--token-env=NAME] [--timeout-ms=N] [${SKIP_FLAG}] [${SCHEDULED_FLAG}]`,
+    `Usage: node scripts/post-deploy-probe.mjs [<base-url>] [--json] [--dry-run] [--token-env=NAME] [--timeout-ms=N] [${SKIP_FLAG}] [${SCHEDULED_FLAG}]`,
     "",
-    "  <base-url>      Worker origin, e.g. http://localhost:8787 or",
-    "                  https://routeware-shadow-api.<account>.workers.dev",
-    `                  (defaults to $${BASE_ENV}, else ${DEFAULT_BASE} when omitted)`,
-    "  --token-env=NAME  Env var holding the bearer token",
-    "                  (default: SHADOW_API_TOKEN, else CUSTOMER_SNAPSHOT_SYNC_SECRET)",
-    "  --timeout-ms=N    Per-probe fetch timeout in ms (default 15000)",
-    `  ${SKIP_FLAG}  skip (exit 0) the authed probes when no token resolves;`,
-    "                  Without it a missing token fails (exit 1).",
-    `  ${SCHEDULED_FLAG}  require an approved remote HTTPS staging origin;`,
-    "                  also enforced automatically for GitHub schedule events.",
+    `  <base-url>        Worker URL (defaults to $${BASE_ENV}, else ${DEFAULT_BASE})`,
+    "  --json            One schemaVersion 1 JSON result; no stderr diagnostics.",
+    "  --dry-run         Plan only: no fetch, credential resolution or .dev.vars read.",
+    "                    Authenticated execution stays unresolved, even with a token.",
+    "  --token-env=NAME   Select only this environment variable for the bearer.",
+    "                    Default: SHADOW_API_TOKEN, else CUSTOMER_SNAPSHOT_SYNC_SECRET,",
+    "                    then .dev.vars for local-dev convenience (execution only).",
+    "  --timeout-ms=N     Per-probe timeout for fetch AND body read (default 15000).",
+    `  ${SKIP_FLAG}  Missing token skips authed checks (exit 0); otherwise fails.`,
+    `  ${SCHEDULED_FLAG}  Require a bare remote HTTPS origin; also enforced for schedule events.`,
+    "                    Validation is not a hostname approval allowlist or permission.",
+    "  --help, -h         Show this help without probing or resolving credentials.",
     "",
-    "Token is never printed. For local dev it is read from the environment or",
-    "from .dev.vars (SHADOW_API_TOKEN preferred, CUSTOMER_SNAPSHOT_SYNC_SECRET fallback).",
+    ...PROBES.map((probe) => `  ${probe.id}: ${probe.method} ${probe.path}`),
+    "",
+    "JSON output is bounded to 8192 bytes, not the current response-body reader.",
+    "No raw response, exception or cron metadata is printed. No redirects or retries.",
+    "Exit 0 means checks passed (or explicit skips), or a valid plan, NOT plan health.",
+    "In JSON mode --help returns an empty successful envelope, not a probe result.",
   ].join("\n");
 }
 
@@ -66,44 +49,36 @@ function parseArgs(args) {
   let timeoutMs = DEFAULT_TIMEOUT_MS;
   let skipIfNoToken = false;
   let scheduled = false;
+  let help = false;
+  const seen = new Set();
   for (const arg of args) {
-    if (arg === "--help" || arg === "-h") {
-      console.log(usage());
-      exit(0);
-    } else if (arg === SKIP_FLAG) {
-      skipIfNoToken = true;
-    } else if (arg === SCHEDULED_FLAG) {
-      scheduled = true;
-    } else if (arg.startsWith("--token-env=")) {
-      tokenEnv = arg.slice("--token-env=".length).trim();
+    const flag = arg.startsWith("-") ? arg.split("=", 1)[0] : "target";
+    const key = flag === "-h" ? "--help" : flag;
+    if (seen.has(key)) throw new Error("invalid_arguments");
+    seen.add(key);
+    if (arg === "--help" || arg === "-h") help = true;
+    else if (arg === "--json" || arg === "--dry-run") continue;
+    else if (arg === SKIP_FLAG) skipIfNoToken = true;
+    else if (arg === SCHEDULED_FLAG) scheduled = true;
+    else if (arg.startsWith("--token-env=")) {
+      tokenEnv = arg.slice("--token-env=".length);
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tokenEnv)) throw new Error("invalid_arguments");
     } else if (arg.startsWith("--timeout-ms=")) {
       const n = Number(arg.slice("--timeout-ms=".length));
-      if (!Number.isFinite(n) || n <= 0) {
-        console.error(`Invalid --timeout-ms value: ${arg}`);
-        exit(1);
-      }
+      // Node timers overflow outside the signed 32-bit range; never silently shorten a timeout.
+      if (!Number.isFinite(n) || n < 1 || n > 2_147_483_647) throw new Error("invalid_arguments");
       timeoutMs = Math.floor(n);
-    } else if (arg.startsWith("--")) {
-      console.error(`Unknown flag: ${arg}\n\n${usage()}`);
-      exit(1);
-    } else if (!arg.startsWith("-")) {
-      base = arg;
-    }
+    } else if (arg.startsWith("-")) throw new Error("invalid_arguments");
+    else base = arg;
   }
-  try {
-    const resolved = resolveBase({ positional: base, env, scheduled });
-    return { base: resolved, tokenEnv, timeoutMs, skipIfNoToken };
-  } catch (error) {
-    console.error(`post-deploy probe configuration: ${error.message}`);
-    exit(1);
-  }
+  return { base, tokenEnv, timeoutMs, skipIfNoToken, scheduled, help };
 }
 
-/** Read KEY=value pairs from `.dev.vars` without ever logging values. */
+/** Read KEY=value pairs from .dev.vars only during execution; never log values. */
 function readDevVars() {
   try {
     const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-    const raw = fs.readFileSync(path.join(root, ".dev.vars"), "utf8").replace(/^\uFEFF/, ""); // strips BOM
+    const raw = fs.readFileSync(path.join(root, ".dev.vars"), "utf8").replace(/^﻿/, "");
     const out = {};
     for (const line of raw.split(/\n/)) {
       const trimmed = line.trim();
@@ -121,205 +96,124 @@ function readDevVars() {
 }
 
 function resolveToken(tokenEnv) {
-  const names = tokenEnv
-    ? [tokenEnv]
-    : ["SHADOW_API_TOKEN", "CUSTOMER_SNAPSHOT_SYNC_SECRET"];
+  const names = tokenEnv ? [tokenEnv] : ["SHADOW_API_TOKEN", "CUSTOMER_SNAPSHOT_SYNC_SECRET"];
   for (const name of names) {
     const value = env[name]?.trim();
-    if (value) return { value, source: `env ${name}` };
+    if (value) return value;
   }
   if (!tokenEnv) {
     const devVars = readDevVars();
-    for (const name of ["SHADOW_API_TOKEN", "CUSTOMER_SNAPSHOT_SYNC_SECRET"]) {
-      if (devVars[name]) return { value: devVars[name], source: `.dev.vars ${name}` };
-    }
+    for (const name of names) if (devVars[name]) return devVars[name];
   }
   return null;
 }
 
-function snippet(text) {
-  const oneLine = String(text ?? "").replace(/\s+/g, " ").trim();
-  return oneLine.length > MAX_BODY_SNIPPET
-    ? `${oneLine.slice(0, MAX_BODY_SNIPPET)}…`
-    : oneLine || "(empty body)";
-}
-
-async function fetchJson(url, { token, timeoutMs }) {
+async function fetchResult(probe, origin, { token, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let httpStatus = null;
   try {
-    // The token travels in the Authorization header but is never logged.
-    const res = await fetch(url, {
+    const res = await fetch(`${origin}${probe.path}`, {
+      method: probe.method,
+      redirect: "manual",
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
       signal: controller.signal,
     });
+    httpStatus = res.status;
+    // Known HTTP failures do not need a body; a broken stream must not mask them.
+    if (httpStatus !== 200) {
+      controller.abort();
+      return evaluateProbe(probe, { httpStatus });
+    }
+    // This slice bounds output, NOT response buffering. Keep the timer through text().
     const text = await res.text();
     let body = null;
-    try {
-      body = text ? JSON.parse(text) : null;
-    } catch {
-      body = null;
-    }
-    return { status: res.status, body, raw: text };
+    let invalidJson = false;
+    try { body = JSON.parse(text); } catch { invalidJson = true; }
+    return evaluateProbe(probe, { httpStatus, body, invalidJson });
+  } catch (error) {
+    return probeResult(probe, {
+      outcome: "fail", httpStatus,
+      errorCode: controller.signal.aborted || error?.name === "AbortError" ? "timeout" : "network_error",
+    });
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function main() {
-  const { base, tokenEnv, timeoutMs, skipIfNoToken } = parseArgs(argv.slice(2));
-  let origin;
-  try {
-    origin = new URL(base).origin;
-  } catch {
-    console.error(`Invalid base URL: ${base}\n\n${usage()}`);
-    exit(1);
-  }
-
-  let failures = 0;
-
-  // Probe 1 — public liveness, no token.
-  try {
-    const { status, body, raw } = await fetchJson(`${origin}/api/v1/health`, {
-      token: null,
-      timeoutMs,
-    });
-    const ok =
-      status === 200 && body !== null && body.status === "ok" && typeof body.service === "string";
-    console.log(
-      `${ok ? "PASS" : "FAIL"} GET /api/v1/health -> HTTP ${status}${ok ? "" : ` ${snippet(raw)}`}`
-    );
-    if (!ok) {
-      console.error("  expected 200 with { status: \"ok\", service: <string> }");
-      failures += 1;
-    }
-  } catch (error) {
-    console.log(`FAIL GET /api/v1/health -> ${error.name === "AbortError" ? "timeout" : String(error)}`);
-    failures += 1;
-  }
-
-  // Probe 2 — authenticated staging slice. In scheduled (skip-safe) mode a
-  // missing token skips the authed probes with an explicit log instead of
-  // failing: the job has no operator credentials and must not page on that.
-  const token = resolveToken(tokenEnv);
-  let authedSkipped = 0;
-  if (!token) {
-    if (skipIfNoToken) {
-      console.log(formatSkipLine({ path: "/api/v1/shadow/health" }));
-      authedSkipped += 1;
-    } else {
-      console.log("FAIL GET /api/v1/shadow/health -> no bearer token found");
-      console.error(
-        "  set SHADOW_API_TOKEN (or CUSTOMER_SNAPSHOT_SYNC_SECRET) in the environment,",
-        "pass --token-env=NAME, or populate .dev.vars for local dev. The token value is never logged."
-      );
-      failures += 1;
-    }
-  } else {
-    try {
-      const { status, body, raw } = await fetchJson(`${origin}/api/v1/shadow/health`, {
-        token: token.value,
-        timeoutMs,
-      });
-      const ok =
-        status === 200 &&
-        body !== null &&
-        body.status === "ok" &&
-        typeof body.service === "string" &&
-        body.version === "v1";
-      console.log(
-        `${ok ? "PASS" : "FAIL"} GET /api/v1/shadow/health -> HTTP ${status} (token from ${token.source}; value redacted)${ok ? "" : ` ${snippet(raw)}`}`
-      );
-      if (!ok) {
-        if (status === 401) {
-          console.error("  got 401: the token was rejected (check the value, not the script).");
-        } else {
-          console.error('  expected 200 with { status: "ok", service: <string>, version: "v1" }');
-        }
-        failures += 1;
-      }
-    } catch (error) {
-      console.log(
-        `FAIL GET /api/v1/shadow/health -> ${error.name === "AbortError" ? "timeout" : String(error)} (token from ${token.source}; value redacted)`
-      );
-      failures += 1;
-    }
-  }
-
-  // Probe 3 — authenticated deep readiness (D1, R2, report config).
-  // Uses the same bearer resolved above; 200 means ready, 503 means the
-  // Worker is up but a dependency is degraded — both prove the endpoint
-  // answered, but either way the deploy must not roll forward silently.
-  if (!token) {
-    if (skipIfNoToken) {
-      console.log(formatSkipLine({ path: "/api/v1/readiness" }));
-      authedSkipped += 1;
-    } else {
-      console.log("FAIL GET /api/v1/readiness -> no bearer token found (see probe 2)");
-      failures += 1;
-    }
-  } else {
-    try {
-      const { status, body, raw } = await fetchJson(`${origin}/api/v1/readiness`, {
-        token: token.value,
-        timeoutMs,
-      });
-      const ok =
-        (status === 200 || status === 503) &&
-        body !== null &&
-        (body.status === "ok" || body.status === "degraded") &&
-        typeof body.service === "string" &&
-        body.checks !== null &&
-        typeof body.checks === "object";
-      console.log(
-        `${ok ? "PASS" : "FAIL"} GET /api/v1/readiness -> HTTP ${status} (token from ${token.source}; value redacted)${ok ? "" : ` ${snippet(raw)}`}`
-      );
-      if (!ok) {
-        if (status === 401) {
-          console.error("  got 401: the token was rejected (check the value, not the script).");
-        } else {
-          console.error('  expected 200/503 with { status: "ok"|"degraded", service: <string>, checks: {...} }');
-        }
-        failures += 1;
-      } else if (status === 503 || body.status === "degraded") {
-        console.error("  readiness reports degraded dependencies (see checks above) — failing the probe.");
-        failures += 1;
-      }
-      // Probe 3b — cron freshness (TOG-9225, gap O4). The scheduled 07:30 UTC
-      // probe runs after the 07:00 cron, so a stale verdict here means the
-      // cron is dead (two consecutive misses past the 48h threshold) and the
-      // job must go red — that is the alert. Manual runs assert it too: a
-      // human pointing the probe at staging wants the same answer. Only
-      // timestamps/outcomes leave the server (never row data or error text).
-      const freshness = evalCronFreshness({ cron: body.checks?.cron });
-      if (freshness.verdict === "stale") {
-        console.log(
-          `FAIL cron freshness -> STALE lastRunAt=${freshness.lastRunAt ?? "none"}${freshness.detail ? ` — ${freshness.detail}` : ""}`
-        );
-        console.error("  the daily cron has not recorded a run within 48h — check the cron trigger and docs/CRON-SYNC-ALARM-RUNBOOK.md.");
-        failures += 1;
-      } else if (freshness.verdict === "fresh") {
-        console.log(`PASS cron freshness -> fresh lastRunAt=${freshness.lastRunAt ?? "none"}`);
-      } else {
-        console.log("  cron freshness: UNKNOWN (older deploy without checks.cron) — advisory only, not failing.");
-      }
-    } catch (error) {
-      console.log(
-        `FAIL GET /api/v1/readiness -> ${error.name === "AbortError" ? "timeout" : String(error)} (token from ${token.source}; value redacted)`
-      );
-      failures += 1;
-    }
-  }
-
-  if (failures > 0) {
-    console.error(`\npost-deploy probe: ${failures} probe(s) failed against ${origin}`);
-    exit(1);
-  }
-  if (authedSkipped > 0) {
-    console.log(`\npost-deploy probe: public probe passed against ${origin}; ${authedSkipped} authed probe(s) skipped (no token, ${SKIP_FLAG})`);
+function printTextCheck(row) {
+  if (row.outcome === "skip") {
+    console.log(formatSkipLine({ path: row.path }));
     return;
   }
-  console.log(`\npost-deploy probe: all three probes passed against ${origin}`);
+  const diagnosis = row.errorCode === "missing_token" ? "no bearer token found"
+    : row.httpStatus === null ? row.errorCode : `HTTP ${row.httpStatus}`;
+  console.log(`${row.outcome.toUpperCase()} GET ${row.path} -> ${diagnosis}`);
+  if (row.errorCode !== null) console.error(`  ${NEXT_ACTIONS[row.errorCode]}`);
+  if (row.cron === "stale" || row.cron === "malformed") {
+    console.log(`FAIL cron freshness -> ${row.cron === "stale" ? "STALE" : "malformed cron metadata"}`);
+  } else if (row.cron === "fresh") console.log("PASS cron freshness -> fresh");
+  else if (row.cron === "absent") console.log("  cron freshness: UNKNOWN (older deploy without checks.cron) — advisory only, not failing.");
+}
+
+function emit(doc, json) {
+  if (json) console.log(JSON.stringify(doc));
+  else if (doc.errorCode && doc.checks.length === 0) {
+    console.error(`post-deploy probe configuration: ${NEXT_ACTIONS[doc.errorCode]}`);
+  } else if (doc.mode === "dry-run") {
+    console.log(`post-deploy probe plan against ${doc.target} (not a health result)`);
+    for (const row of doc.checks) console.log(`${row.outcome} ${row.method} ${row.path}${row.nextAction ? ` — ${row.nextAction}` : ""}`);
+  } else {
+    const failures = doc.checks.filter((row) => row.outcome === "fail").length;
+    const skipped = doc.checks.filter((row) => row.outcome === "skip").length;
+    if (failures) console.error(`\npost-deploy probe: ${failures} probe(s) failed against ${doc.target}`);
+    else if (skipped) console.log(`\npost-deploy probe: public probe passed against ${doc.target}; ${skipped} authed probe(s) skipped (no token, ${SKIP_FLAG})`);
+    else console.log(`\npost-deploy probe: all three probes passed against ${doc.target}`);
+  }
+  process.exitCode = doc.ok ? 0 : 1;
+}
+
+async function main() {
+  const args = argv.slice(2);
+  // Detect a requested JSON mode even when its spelling/value or an earlier flag is invalid.
+  const json = args.some((arg) => arg === "--json" || arg.startsWith("--json="));
+  const mode = args.includes("--dry-run") ? "dry-run" : "run";
+  let options;
+  try { options = parseArgs(args); } catch {
+    emit(probeDocument({ mode, errorCode: "invalid_arguments" }), json);
+    return;
+  }
+  if (options.help) {
+    if (json) emit(probeDocument({ mode }), true);
+    else console.log(usage());
+    return;
+  }
+  let origin;
+  try {
+    const base = resolveBase({ positional: options.base, env, scheduled: options.scheduled });
+    const url = new URL(base);
+    origin = url.origin;
+    if (!["http:", "https:"].includes(url.protocol) || origin.length > MAX_ORIGIN_LENGTH) throw new Error();
+  } catch {
+    emit(probeDocument({ mode, errorCode: "invalid_target" }), json);
+    return;
+  }
+  if (mode === "dry-run") {
+    emit(probeDocument({ mode, target: origin, checks: probePlan() }), json);
+    return;
+  }
+  const checks = [];
+  // Preserve public-first execution, then resolve the bearer once for both authed checks.
+  let token = null;
+  for (const probe of PROBES) {
+    if (probe === PROBES[1]) token = resolveToken(options.tokenEnv);
+    const row = probe.authenticated && !token
+      ? probeResult(probe, { outcome: options.skipIfNoToken ? "skip" : "fail", errorCode: "missing_token" })
+      : await fetchResult(probe, origin, { token: probe.authenticated ? token : null, timeoutMs: options.timeoutMs });
+    checks.push(row);
+    if (!json) printTextCheck(row);
+  }
+  emit(probeDocument({ mode, target: origin, checks }), json);
 }
 
 await main();

@@ -16,7 +16,7 @@ import type { CustomerSnapshotRow } from "../src/lib/csvCustomerSnapshot";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
- * TOG-6552: `getCustomerBundleFromD1` fanned container reads out in `IN (...)`
+ * `getCustomerBundleFromD1` fanned container reads out in `IN (...)`
  * chunks of exactly 100 binds — equal to D1's 100-bind cap — so a ~100-address
  * customer risked a bind-limit 500 on `GET /api/v1/data/customer`.
  *
@@ -162,7 +162,7 @@ function capEnforcingDb(addressCount: number) {
   return { db: db as unknown as D1Database, stats };
 }
 
-describe("customer-bundle bind chunking (TOG-6552)", () => {
+describe("customer-bundle bind chunking", () => {
   it("sizes the chunk strictly below the D1 bind cap", () => {
     // Arrange / Act / Assert — the static margin proof. If D1 ever lowers
     // the cap, this fails at the constant rather than in production.
@@ -207,7 +207,7 @@ describe("customer-bundle bind chunking (TOG-6552)", () => {
   });
 });
 
-describe("100+-address customer against seeded D1 (TOG-6552)", () => {
+describe("100+-address customer against seeded D1", () => {
   const db = env.CUSTOMER_DB;
 
   beforeAll(async () => {

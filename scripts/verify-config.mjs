@@ -1,39 +1,40 @@
 #!/usr/bin/env node
 /**
- * One-command config preflight (TOG-9213, gap O3).
+ * One-command config preflight (gap O3).
  *
  * Chains check:devvars + check:vars-parity + check:d1-drift (local-only,
  * credential-free — the read-only remote journal compare stays a
  * deploy-time concern behind `check:d1-drift --remote`) and prints one
- * pass/fail summary. Exit 0 when every leg passes, exit 1 otherwise.
+ * pass/fail summary. Exit 0 when every leg passes, exit 1 otherwise,
+ * exit 2 on unsupported arguments.
  *
- * Pure logic lives in `./lib/verifyConfig.mjs` and is unit-tested; this
- * wrapper is intentionally thin.
+ * `--json` prints exactly one versioned JSON object instead of human output;
+ * `--dry-run` prints the check plan without spawning anything. Each leg is
+ * bounded by CHECK_TIMEOUT_MS (see `./lib/verifyConfig.mjs`); a timed-out
+ * leg aborts its child and the run continues with the remaining legs.
+ *
+ * Pure logic and CLI orchestration live in `./lib/verifyConfig.mjs` and are
+ * unit-tested with injected fake runners; the real spawn runner lives in
+ * `./lib/verifyConfigRunner.mjs`. This wrapper is intentionally thin.
  *
  * Usage:
- *   npm run verify:config
+ *   node scripts/verify-config.mjs [--json] [--dry-run]
  */
-import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { exit } from "node:process";
+import { argv, exit } from "node:process";
 
-import { CHECKS, CHECK_NAME, formatSummary, summarizeResults } from "./lib/verifyConfig.mjs";
+import { buildUsage, runCli } from "./lib/verifyConfig.mjs";
+import { createSpawnRunner } from "./lib/verifyConfigRunner.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
+
+handleHelpFlag(argv.slice(2), buildUsage());
 
 const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
+const runner = createSpawnRunner({ cwd: root });
 
-const results = [];
-for (const { name, script, args } of CHECKS) {
-  process.stdout.write(`--- ${name} ---\n`);
-  try {
-    execFileSync("node", [script, ...args], { cwd: root, stdio: "inherit" });
-    results.push({ name, ok: true });
-  } catch {
-    // The leg already printed its own detail; record the failure for the
-    // single summary below. Never print values — legs name keys only.
-    results.push({ name, ok: false });
-  }
-}
-
-const summary = summarizeResults(results);
-console.log(`\n${formatSummary(summary)}`);
-exit(summary.ok ? 0 : 1);
+const code = await runCli(argv.slice(2), {
+  runner,
+  stdout: (text) => process.stdout.write(text),
+  stderr: (text) => process.stderr.write(text),
+});
+exit(code);

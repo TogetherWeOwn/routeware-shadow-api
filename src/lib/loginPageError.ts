@@ -1,5 +1,5 @@
 /**
- * Non-200 login-page signal (TOG-6536).
+ * Non-200 login-page signal.
  *
  * A WAF block or maintenance page (403/500/…) carries no anti-forgery token,
  * so without a status check the login falls through to "token not found",
@@ -9,7 +9,7 @@
  * entirely.
  *
  * Lives in its own module on purpose: five test files mock `../httpAuth`,
- * which would wipe a class defined there (see TOG-6531's
+ * which would wipe a class defined there (see
  * `InvalidAuthModeError` precedent in `establishSession.ts`). A name check
  * (not `instanceof`) keeps the predicate true across module doubles.
  *

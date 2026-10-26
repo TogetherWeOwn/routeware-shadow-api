@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const API_TOKEN = "test-api-token";
 
 /**
- * TOG-6272 — the customer, address and container routes publish
- * request/response `example` payloads so Scalar shows realistic bodies.
+ * The customer, address and container routes publish
+ * request/response `example` or named `examples` payloads so Scalar shows realistic bodies.
  *
  * The examples are docs-only: every schema is a raw OpenAPI object (never a
  * zod schema), so `@hono/zod-openapi` renders it into `/openapi.json`
@@ -19,6 +19,9 @@ const API_TOKEN = "test-api-token";
 type ExampleSchema = {
   $ref?: string;
   type?: string | string[];
+  nullable?: boolean;
+  anyOf?: ExampleSchema[];
+  oneOf?: ExampleSchema[];
   properties?: Record<string, ExampleSchema>;
   required?: string[];
   items?: ExampleSchema;
@@ -27,7 +30,11 @@ type ExampleSchema = {
   minimum?: number;
   maximum?: number;
 };
-type MediaExample = { schema?: ExampleSchema; example?: unknown };
+type MediaExample = {
+  schema?: ExampleSchema;
+  example?: unknown;
+  examples?: Record<string, { value?: unknown }>;
+};
 type Operation = {
   tags?: string[];
   parameters?: Array<{ name: string; in: string; schema?: ExampleSchema; example?: unknown }>;
@@ -65,10 +72,21 @@ function assertExampleMatchesSchema(
   schemas: Record<string, ExampleSchema> = {}
 ): void {
   expect(media, `${route} ${mediaType} media`).toBeDefined();
-  const { schema, example } = media!;
+  const { schema, example, examples } = media!;
   expect(schema, `${route} ${mediaType} schema`).toBeDefined();
-  expect(example, `${route} ${mediaType} example`).toBeDefined();
-  assertValueMatchesSchema(schema!, example, `${route} ${mediaType}`, schemas);
+  if (examples !== undefined) {
+    expect(example, `${route} ${mediaType} example and examples are mutually exclusive`).toBeUndefined();
+    const entries = Object.entries(examples);
+    expect(entries.length, `${route} ${mediaType} named examples`).toBeGreaterThan(0);
+    for (const [name, named] of entries) {
+      const label = `${route} ${mediaType} example ${name}`;
+      expect(named.value, `${label} value`).toBeDefined();
+      assertValueMatchesSchema(schema!, named.value, label, schemas);
+    }
+  } else {
+    expect(example, `${route} ${mediaType} example`).toBeDefined();
+    assertValueMatchesSchema(schema!, example, `${route} ${mediaType}`, schemas);
+  }
 }
 
 function assertValueMatchesSchema(
@@ -82,11 +100,34 @@ function assertValueMatchesSchema(
     expect(referenced, `${label} reference`).toBeDefined();
     return assertValueMatchesSchema(referenced, value, label, schemas);
   }
+  if (schema.nullable && value === null) return;
+  for (const [kind, branches] of [["anyOf", schema.anyOf], ["oneOf", schema.oneOf]] as const) {
+    if (!branches) continue;
+    const matches = branches.filter((branch) => {
+      try {
+        assertValueMatchesSchema(branch, value, label, schemas);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (kind === "oneOf") expect(matches.length, `${label} oneOf matches`).toBe(1);
+    else expect(matches.length, `${label} anyOf matches`).toBeGreaterThan(0);
+  }
   if (schema.enum) expect(schema.enum, label).toContain(value);
   const type = Array.isArray(schema.type)
     ? schema.type.find((candidate) => candidate !== "null")
     : schema.type;
   if (Array.isArray(schema.type) && schema.type.includes("null") && value === null) return;
+  // Null-only schemas (`z.null()` renders as `{type: "null"}`): the value
+  // must be exactly null. Nullable unions are handled by the early return
+  // above; anything else reaching the dispatcher with a null-only type fails
+  // closed instead of falling into the `typeof` check (`typeof null` is
+  // "object", never "null").
+  if (type === "null" || (Array.isArray(schema.type) && schema.type.every((candidate) => candidate === "null"))) {
+    expect(value, label).toBeNull();
+    return;
+  }
   if (typeof value === "number") {
     if (schema.minimum !== undefined) expect(value, label).toBeGreaterThanOrEqual(schema.minimum);
     if (schema.maximum !== undefined) expect(value, label).toBeLessThanOrEqual(schema.maximum);
@@ -115,6 +156,98 @@ function assertValueMatchesSchema(
     expect(typeof value, label).toBe(type);
   }
 }
+
+describe("media example schema checks", () => {
+  const schemas: Record<string, ExampleSchema> = {
+    Result: {
+      type: "object",
+      required: ["id", "localSync"],
+      properties: {
+        id: { type: ["integer", "null"], minimum: 1 },
+        localSync: { $ref: "#/components/schemas/LocalSync" }
+      }
+    },
+    LocalSync: {
+      anyOf: [
+        { type: "object", required: ["done"], properties: { done: { type: "boolean", enum: [true] } } },
+        {
+          type: "object",
+          required: ["done", "code"],
+          properties: { done: { type: "boolean", enum: [false] }, code: { type: "string", enum: ["sync_failed"] } }
+        }
+      ]
+    }
+  };
+  const schema = { $ref: "#/components/schemas/Result" };
+  const refreshed = { id: 5, localSync: { done: true } };
+  const failed = { id: null, localSync: { done: false, code: "sync_failed" } };
+
+  it("checks named values through shared refs, including nullable fields and both union branches", () => {
+    const media = { schema, examples: { refreshed: { value: refreshed }, failed: { value: failed } } };
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).not.toThrow();
+  });
+
+  it.each([
+    ["missing examples", { schema }],
+    ["empty named examples", { schema, examples: {} }],
+    ["a named example without a value", { schema, examples: { missing: {} } }],
+    ["both singular and named examples", { schema, example: refreshed, examples: { refreshed: { value: refreshed } } }],
+    ["missing media", undefined],
+    ["missing schema", { examples: { refreshed: { value: refreshed } } }]
+  ] as Array<[string, MediaExample | undefined]>)("rejects %s", (_name, media) => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).toThrow();
+  });
+
+  it.each([
+    ["wrong integer type", { ...failed, id: "5" }],
+    ["below-minimum integer", { ...failed, id: 0 }],
+    ["missing required field", { localSync: failed.localSync }],
+    ["wrong discriminator type", { id: null, localSync: { done: "false", code: "sync_failed" } }],
+    ["unknown union code", { id: null, localSync: { done: false, code: "exception text" } }],
+    ["missing union field", { id: null, localSync: { done: false } }]
+  ])("rejects a later named value with %s", (_name, value) => {
+    const media = { schema, examples: { refreshed: { value: refreshed }, invalid: { value } } };
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", media, schemas)).toThrow();
+  });
+
+  it("retains singular examples and OpenAPI nullable fields", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: "integer", nullable: true }, example: null
+    })).not.toThrow();
+  });
+
+  it("accepts null-only type schemas with a null value", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: "null" }, example: null
+    })).not.toThrow();
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { type: ["null"] }, example: null
+    })).not.toThrow();
+  });
+
+  it("matches a null value against the null branch of a union", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { anyOf: [{ type: "integer" }, { type: "null" }] }, example: null
+    })).not.toThrow();
+  });
+
+  it.each([
+    ["a null-only type with an integer", { type: "null" }, 0],
+    ["a null-only type with a string", { type: "null" }, "null"],
+    ["a null-only type with false", { type: "null" }, false],
+    ["a null-only array type with an integer", { type: ["null"] }, 5]
+  ] as Array<[string, ExampleSchema, unknown]>)("rejects %s", (_name, schema, value) => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema, example: value
+    })).toThrow();
+  });
+
+  it("rejects a oneOf value matching more than one branch", () => {
+    expect(() => assertExampleMatchesSchema("fixture", "application/json", {
+      schema: { oneOf: [{ type: "integer" }, { type: "number" }] }, example: 5
+    })).toThrow();
+  });
+});
 
 const ROUTES: Array<{ path: string; group: string; requestMedia: string }> = [
   {
@@ -149,7 +282,7 @@ const ROUTES: Array<{ path: string; group: string; requestMedia: string }> = [
   }
 ];
 
-describe("OpenAPI example payloads (TOG-6272)", () => {
+describe("OpenAPI example payloads", () => {
   it.each(ROUTES)(
     "$path publishes a request example matching its schema",
     async ({ path, requestMedia }) => {
@@ -205,29 +338,238 @@ describe("OpenAPI example payloads (TOG-6272)", () => {
   });
 });
 
-const REMAINING_RESPONSES = [
-  ...["customer", "address", "container"].flatMap((entity) => [
-    { path: `/api/v1/${entity}-snapshot`, method: "get", mediaType: "application/json" },
-    {
-      path: `/api/v1/${entity}-snapshot/{${entity === "address" ? "pickupAddress" : entity}Id}`,
-      method: "get",
-      mediaType: "application/json"
-    },
-    { path: `/api/v1/${entity}-snapshot/export`, method: "get", mediaType: "text/csv" },
-    { path: `/api/v1/${entity}-snapshot/import`, method: "post", mediaType: "application/json" },
-    { path: `/api/v1/${entity}-snapshot/sync`, method: "post", mediaType: "application/json" },
-    { path: `/api/v1/data/${entity}`, method: "get", mediaType: "application/json" },
-    { path: `/api/v1/data/${entity}`, method: "post", mediaType: "application/json" }
-  ]),
-  { path: "/api/v1/snapshots/{table}/{date}", method: "get", mediaType: "text/csv" },
-  { path: "/api/v1/customer-snapshot/changes", method: "get", mediaType: "application/json" },
-  { path: "/api/v1/customer-snapshot/{customerId}", method: "delete", mediaType: "application/json" },
-  { path: "/api/v1/data-snapshot/sync", method: "post", mediaType: "application/json" },
-  { path: "/api/v1/data-snapshot/orphans", method: "get", mediaType: "application/json" },
-  { path: "/api/v1/routeware/home/index", method: "get", mediaType: "text/html" },
-  { path: "/api/v1/routeware/account/login-page", method: "get", mediaType: "text/html" },
-  { path: "/api/v1/routeware/data/app-settings-get", method: "post", mediaType: "application/json" },
-  { path: "/api/v1/routeware/reports/query-request-is-complete", method: "get", mediaType: "application/json" }
+type RemainingResponse = {
+  path: string;
+  method: string;
+  mediaType: string;
+  /**
+   * Expected query + path parameter names for exactly this operation, in
+   * mounted order; `[]` when the operation mounts none. Adding a selector
+   * edits only its own operation's array — the checked total below is
+   * derived as the sum of these records, so unrelated PRs never share an
+   * integer to collide on.
+   */
+  parameterNames: string[];
+};
+
+const REMAINING_RESPONSES: RemainingResponse[] = [
+  // Customer snapshot block.
+  {
+    path: "/api/v1/customer-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses", "hasPhone1", "hasPhone2",
+      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ]
+  },
+  {
+    path: "/api/v1/customer-snapshot/{customerId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["customerId", "fields"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/customer-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/customer",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "customerId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/customer",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Address snapshot block.
+  {
+    path: "/api/v1/address-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
+      "lastAuditDate", "hasLastAuditDate",
+      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ]
+  },
+  {
+    path: "/api/v1/address-snapshot/{pickupAddressId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["pickupAddressId", "fields"]
+  },
+  {
+    path: "/api/v1/address-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/address-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/address-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/address",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "pickupAddressId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/address",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Container snapshot block.
+  {
+    path: "/api/v1/container-snapshot",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
+      "hasSerialNumber", "hasRfid",
+      "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ]
+  },
+  {
+    path: "/api/v1/container-snapshot/{containerId}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["containerId", "fields"]
+  },
+  {
+    path: "/api/v1/container-snapshot/export",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/container-snapshot/import",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/container-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  {
+    path: "/api/v1/data/container",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: [
+      "id", "containerId", "ids", "fields",
+      "fields[customer]", "fields[address]", "fields[container]"
+    ]
+  },
+  {
+    path: "/api/v1/data/container",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun"]
+  },
+  // Archive, changes, data-snapshot and Routeware operations.
+  {
+    path: "/api/v1/snapshots/{table}/{date}",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: ["table", "date"]
+  },
+  {
+    path: "/api/v1/snapshots/{table}",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["table", "limit"]
+  },
+  {
+    path: "/api/v1/snapshots/{table}/latest",
+    method: "get",
+    mediaType: "text/csv",
+    parameterNames: ["table"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/changes",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["since", "since_id", "until", "limit", "fields"]
+  },
+  {
+    path: "/api/v1/customer-snapshot/{customerId}",
+    method: "delete",
+    mediaType: "application/json",
+    parameterNames: ["customerId"]
+  },
+  {
+    path: "/api/v1/data-snapshot/sync",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: ["dryRun", "partialProgress"]
+  },
+  {
+    path: "/api/v1/data-snapshot/orphans",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["sampleLimit"]
+  },
+  {
+    path: "/api/v1/routeware/home/index",
+    method: "get",
+    mediaType: "text/html",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/account/login-page",
+    method: "get",
+    mediaType: "text/html",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/data/app-settings-get",
+    method: "post",
+    mediaType: "application/json",
+    parameterNames: []
+  },
+  {
+    path: "/api/v1/routeware/reports/query-request-is-complete",
+    method: "get",
+    mediaType: "application/json",
+    parameterNames: ["requestID", "_"]
+  }
 ];
 
 const REMAINING_REQUESTS = [
@@ -267,16 +609,29 @@ describe("snapshot, data-entity and Routeware examples", () => {
   it("publishes schema-compatible examples for every query and path parameter", async () => {
     const doc = await fetchDoc();
     let checked = 0;
-    for (const { method, path } of REMAINING_RESPONSES) {
-      for (const parameter of op(doc, path, method).parameters ?? []) {
-        if (parameter.in !== "query" && parameter.in !== "path") continue;
+    for (const { method, path, parameterNames } of REMAINING_RESPONSES) {
+      const mounted = (op(doc, path, method).parameters ?? []).filter(
+        (parameter) => parameter.in === "query" || parameter.in === "path"
+      );
+      const mountedNames = mounted.map((parameter) => parameter.name);
+      for (const name of parameterNames) {
+        expect(mountedNames, `${method} ${path} ${name}`).toContain(name);
+      }
+      for (const parameter of mounted) {
+        expect(parameterNames, `${method} ${path} ${parameter.name}`).toContain(parameter.name);
         const example = parameter.example ?? parameter.schema?.example;
         expect(example, `${method} ${path} ${parameter.name}`).toBeDefined();
         assertValueMatchesSchema(parameter.schema!, example, `${path} ${parameter.name}`);
         checked++;
       }
     }
-    expect(checked).toBe(46);
+    // Derived from the per-operation records above: adding a selector edits
+    // only its own operation's array, never a shared integer.
+    const expected = REMAINING_RESPONSES.reduce(
+      (total, entry) => total + entry.parameterNames.length,
+      0
+    );
+    expect(checked).toBe(expected);
   });
 
   it("keeps sync requests bodyless and conditional data responses bodyless", async () => {
@@ -298,7 +653,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
   );
 });
 
-describe("example bodies install no runtime validators (TOG-6272)", () => {
+describe("example bodies install no runtime validators", () => {
   const originalFetch = globalThis.fetch;
   const forwarded: string[] = [];
 

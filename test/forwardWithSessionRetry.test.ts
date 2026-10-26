@@ -13,13 +13,13 @@ const stormCounters = vi.hoisted(() => ({ httpLogins: 0 }));
 // the REAL storeSession, so the single-login assertion exercises the actual
 // lock wiring rather than a reimplementation of it.
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     stormCounters.httpLogins += 1;
     // Hold the login briefly so all N first-wave forwards land (and observe
     // the redirect) before the fresh session is published.
     await new Promise((resolve) => setTimeout(resolve, 25));
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=fresh", Date.now() + 600_000);
+    await storeSession(stub, ".WebRW=fresh", Date.now() + 600_000, lockToken);
   })
 }));
 
@@ -59,11 +59,13 @@ type LockState = {
   expiresAtMs: number | null;
   refreshing: boolean;
   lockedAt: number | null;
+  lockToken: string | null;
 };
 
 /**
- * AuthSession stub fake implementing the real /lock, /unlock, /set, /get
- * semantics so the expiry-storm test drives the actual refresh-lock wiring.
+ * AuthSession stub fake implementing the real /lock, /takeover, /unlock,
+ * /set, /get semantics — including the lock-token owner check —
+ * so the expiry-storm test drives the actual refresh-lock wiring.
  */
 function makeLockStub(
   state: LockState,
@@ -73,7 +75,7 @@ function makeLockStub(
     fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
       const path = new URL(url).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         const now = Date.now();
         const heldAndFresh =
           state.refreshing === true &&
@@ -84,11 +86,19 @@ function makeLockStub(
         }
         state.refreshing = true;
         state.lockedAt = now;
-        return new Response("OK");
+        state.lockToken = `synthetic-lock-token-${now}`;
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as { lockToken?: unknown };
+          if (typeof state.lockToken !== "string" || body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
         state.lockedAt = null;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/set") {
@@ -96,11 +106,15 @@ function makeLockStub(
         const body = JSON.parse(String(init?.body)) as {
           cookieHeader: string;
           expiresAtMs: number;
+          lockToken?: unknown;
         };
         state.cookieHeader = body.cookieHeader;
         state.expiresAtMs = body.expiresAtMs;
-        state.refreshing = false;
-        state.lockedAt = null;
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockedAt = null;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       if (path === "/get") {
@@ -120,6 +134,11 @@ describe("sessionNeedsRefresh", () => {
   it("does not proactively refresh a missing session (handled reactively)", () => {
     expect(sessionNeedsRefresh({ cookieHeader: null, expiresAtMs: null, refreshing: false }, now)).toBe(false);
   });
+  it("proactively refreshes an idle-expired session flagged by the DO", () => {
+    expect(
+      sessionNeedsRefresh({ cookieHeader: null, expiresAtMs: null, refreshing: false, expired: true }, now)
+    ).toBe(true);
+  });
   it("does not refresh a fresh cookie with no/future expiry", () => {
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: null, refreshing: false }, now)).toBe(false);
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 600_000, refreshing: false }, now)).toBe(false);
@@ -128,7 +147,7 @@ describe("sessionNeedsRefresh", () => {
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now + 1000, refreshing: false }, now)).toBe(true);
     expect(sessionNeedsRefresh({ cookieHeader: "c=1", expiresAtMs: now - 1, refreshing: false }, now)).toBe(true);
   });
-  it("refreshes when the stored expiry outlives the current TTL (TOG-6528)", () => {
+  it("refreshes when the stored expiry outlives the current TTL", () => {
     // Arrange — logged in under a 30-minute TTL, then the operator lowers the
     // TTL to 5 minutes to contain a suspected leaked session. The stored
     // absolute expiry never moves, so without this check the far-future expiry
@@ -200,7 +219,7 @@ describe("forwardWithSessionRetry", () => {
     expect(res.status).toBe(200);
   });
 
-  it("proactively refreshes when the TTL was lowered below the stored expiry (TOG-6528)", async () => {
+  it("proactively refreshes when the TTL was lowered below the stored expiry", async () => {
     // Arrange — acceptance: logged in under a long TTL, then the reviewer
     // lowers the TTL. The stored far-future expiry must trigger a proactive
     // refresh instead of reusing the possibly-dead cookie.
@@ -305,7 +324,8 @@ describe("forwardWithSessionRetry", () => {
       cookieHeader: ".WebRW=stale",
       expiresAtMs: Date.now() + 600_000,
       refreshing: false,
-      lockedAt: null
+      lockedAt: null,
+      lockToken: null
     };
     const stub = makeLockStub(state, setCounter);
     const stormEnv = { ...env, AUTH_MODE: "http" } as unknown as Env;
@@ -350,7 +370,7 @@ describe("forwardWithSessionRetry", () => {
     expect(state.cookieHeader).toBe(".WebRW=fresh");
   });
 
-  it("reactively re-establishes and retries once on a 200 login page (TOG-6515)", async () => {
+  it("reactively re-establishes and retries once on a 200 login page", async () => {
     // Arrange — the common ASP.NET expiry shape: HTTP 200 with a login form,
     // not a 302. Fixture is structural only (no credentials/PII).
     const holder = {
@@ -391,7 +411,7 @@ describe("forwardWithSessionRetry", () => {
     expect(await res.text()).toBe("ok");
   });
 
-  it("does not retry-loop when the retry also sees a 200 login page (TOG-6515)", async () => {
+  it("does not retry-loop when the retry also sees a 200 login page", async () => {
     const holder = {
       value: { cookieHeader: "c=1", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState
     };
@@ -424,7 +444,7 @@ describe("forwardWithSessionRetry", () => {
     expect(res.status).toBe(200);
   });
 
-  it("passes through a 200 JSON body mentioning login words without retrying (TOG-6515)", async () => {
+  it("passes through a 200 JSON body mentioning login words without retrying", async () => {
     // Guards against false positives: JSON payloads are never body-sniffed.
     const holder = {
       value: { cookieHeader: "c=1", expiresAtMs: Date.now() + 600_000, refreshing: false } as SessionState

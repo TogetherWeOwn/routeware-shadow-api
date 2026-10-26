@@ -26,6 +26,9 @@ export const routewareRoutes = createRouteModule();
 const loginPageRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/account/login-page",
+  operationId: "getRoutewareLoginPage",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["routeware"],
   summary: "Routeware login page (sessionless probe)",
   description:
@@ -48,7 +51,7 @@ const loginPageRoute = createRoute({
 routewareRoutes.openapi(loginPageRoute, async (c) => {
   const upstreamUrl = new URL(c.env.LOGIN_URL);
   // Sessionless probe honors UPSTREAM_TIMEOUT_MS like every other interactive
-  // forward (TOG-8359) — the forwarder default alone would ignore the override.
+  // forward — the forwarder default alone would ignore the override.
   return forwardToUpstream(c.req.raw, upstreamUrl, null, c.var.bodyBuffer, {
     timeoutMs: readUpstreamTimeoutMs(c.env)
   });
@@ -57,6 +60,9 @@ routewareRoutes.openapi(loginPageRoute, async (c) => {
 const homeIndexRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/home/index",
+  operationId: "getRoutewareHome",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["routeware"],
   summary: "Routeware home index (sessioned passthrough)",
   description:
@@ -96,6 +102,9 @@ routewareRoutes.openapi(homeIndexRoute, async (c) => {
 const appSettingsGetRoute = createRoute({
   method: "post",
   path: "/api/v1/routeware/data/app-settings-get",
+  operationId: "getRoutewareAppSettings",
+  "x-access": "full",
+  "x-effect": "upstream-read",
   tags: ["data"],
   summary: "appSettingsGet",
   description:
@@ -178,6 +187,9 @@ export const QUERY_REQUEST_IS_COMPLETE_PARAMS = ["requestID", "_"] as const;
 const queryRequestIsCompleteRoute = createRoute({
   method: "get",
   path: "/api/v1/routeware/reports/query-request-is-complete",
+  operationId: "getRoutewareReportStatus",
+  "x-access": "read",
+  "x-effect": "upstream-read",
   tags: ["reports"],
   summary: "QueryRequestIsComplete (allowlisted query params forwarded upstream)",
   description:

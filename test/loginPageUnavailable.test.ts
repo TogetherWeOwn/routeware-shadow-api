@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "../src/app";
 import { httpLogin } from "../src/lib/httpAuth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
+import { AuthSession } from "../src/authSession.do";
+import { authSessionTestState } from "./authSessionTestState";
 
 /**
- * Fail fast on a non-200 login page (TOG-6536).
+ * Fail fast on a non-200 login page.
  *
  * Amplification bug: `httpLogin` read the login page body without a status
  * check, so a WAF/maintenance 403/500 fell through to "anti-forgery token
@@ -30,8 +32,11 @@ import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 const browserLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/browserAuth", () => ({
-  establishSessionWithBrowser: vi.fn(async () => {
+  establishSessionWithBrowser: vi.fn(async (env: Env, stub: DurableObjectStub, _bootstrapUrl: string, lockToken?: string | null) => {
     browserLoginCalls.count += 1;
+    const { storeSession } = await import("../src/lib/sessionRefreshLock");
+    const { sessionExpiryMs } = await import("../src/lib/sessionState");
+    await storeSession(stub, ".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL", sessionExpiryMs(env), lockToken);
   })
 }));
 
@@ -41,6 +46,7 @@ const { isLoginPageUnavailableError } = await import("../src/lib/loginPageError"
 const ORIGIN = "https://killeen.routeware.com";
 const LOGIN_URL = `${ORIGIN}/WebRW/Account/Login`;
 const UPSTREAM = `${ORIGIN}/WebRW/Home/Index`;
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 const PII_BODY =
   `<html><body>WAF block — customer "Jane Example" phone 555-0199 ` +
@@ -60,24 +66,39 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
   } as unknown as Env;
 }
 
-/** Refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Refresh-lock stub: /lock grants a token, /unlock and /set verify it,
+ * /get is empty — mirroring the owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
         return Response.json({ cookieHeader: null, expiresAtMs: null, refreshing: false });
       }
       if (path === "/set") {
-        state.refreshing = false;
+        const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       return new Response("Not Found", { status: 404 });
@@ -87,7 +108,7 @@ function lockStub(state: { refreshing: boolean }): DurableObjectStub {
 
 const originalFetch = globalThis.fetch;
 
-describe("httpLogin fail-fast on non-200 (TOG-6536)", () => {
+describe("httpLogin fail-fast on non-200", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -166,7 +187,7 @@ describe("httpLogin fail-fast on non-200 (TOG-6536)", () => {
   });
 });
 
-describe("establishSession never launches the browser for a blocked login page (TOG-6536)", () => {
+describe("establishSession never launches the browser for a blocked login page", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -177,7 +198,7 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode rethrows the 403 without a browser launch and releases the lock", async () => {
     // Arrange — free lock, upstream login page 403s.
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     globalThis.fetch = (async () =>
       new Response(PII_BODY, { status: 403 })) as unknown as typeof fetch;
 
@@ -197,7 +218,14 @@ describe("establishSession never launches the browser for a blocked login page (
 
   it("auto mode still falls back to the browser on a genuine 200 markup change", async () => {
     // Arrange — 200 page, no token anywhere: the case the fallback exists for.
-    const state = { refreshing: false };
+    // Real DO so the lock-token threading is exercised end to end:
+    // the browser fallback publishes with the holder's token.
+    const fake = authSessionTestState();
+    const session = new AuthSession(fake.state, {} as Env);
+    await fake.ready();
+    const stub = {
+      fetch: (input: RequestInfo | URL, init?: RequestInit) => session.fetch(new Request(input, init))
+    } as unknown as DurableObjectStub;
     globalThis.fetch = (async () =>
       new Response("<html><body>redesigned login, no token</body></html>", {
         status: 200,
@@ -205,10 +233,13 @@ describe("establishSession never launches the browser for a blocked login page (
       })) as unknown as typeof fetch;
 
     // Act
-    await establishSession(baseEnv(), lockStub(state), LOGIN_URL);
+    await establishSession(baseEnv(), stub, LOGIN_URL);
 
-    // Assert — the fallback ran exactly once.
+    // Assert — the fallback ran exactly once and published a usable session.
     expect(browserLoginCalls.count).toBe(1);
+    expect(fake.values.get("cookieHeader")).toBe(".WebRW=SYNTHETIC-BROWSER-FALLBACK-NOT-A-CREDENTIAL");
+    expect(fake.values.get("expiresAtMs")).toBeGreaterThan(Date.now());
+    expect(fake.values.get("refreshing")).toBe(false);
   });
 });
 
@@ -222,16 +253,24 @@ const ctx = {
  * forward → reactive re-login → onError path with a stubbed upstream.
  */
 function blockedAppEnv(fetchImpl: typeof fetch): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/throttle/clear" || path === "/throttle/failure") {
@@ -252,7 +291,7 @@ function blockedAppEnv(fetchImpl: typeof fetch): Env {
   return env;
 }
 
-describe("app 502 on blocked login page (TOG-6536)", () => {
+describe("app 502 on blocked login page", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -279,7 +318,10 @@ describe("app 502 on blocked login page (TOG-6536)", () => {
     }) as unknown as typeof fetch;
     const env = blockedAppEnv(fetchImpl);
     const req = new Request("http://test.local/api/v1/routeware/home/index", {
-      headers: { authorization: "Bearer test-api-token" }
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
     });
 
     // Act
@@ -289,6 +331,16 @@ describe("app 502 on blocked login page (TOG-6536)", () => {
     // exactly 2 upstream calls (forward + login-page GET), zero browser.
     expect(res.status).toBe(502);
     expect(res.headers.get("content-type")).toContain("problem+json");
+    // onError branch (login-page unavailable, src/app.ts) must carry the API
+    // posture via withCors — otherwise a browser sees a CORS error instead
+    // of the real 502.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
     const body = (await res.json()) as {
       type: string;
       title: string;

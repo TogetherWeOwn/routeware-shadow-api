@@ -4,7 +4,7 @@ import { createRouteModule } from "./shared";
 /**
  * Staging slice of the versioned Shadow API (`/api/v1/shadow/*`).
  *
- * TOG-3495: OpenAPI stub + zod validator only. No prod route is changed —
+ * OpenAPI stub + zod validator only. No prod route is changed —
  * this module adds one new authenticated liveness probe behind the existing
  * `/api/v1/*` bearer gate (only `GET /api/v1/health` is public, see
  * `src/app.ts`). The contract test (`test/shadowContract.test.ts`,
@@ -23,6 +23,9 @@ export const shadowRoutes = createRouteModule();
 const shadowHealthRoute = createRoute({
   method: "get",
   path: "/api/v1/shadow/health",
+  operationId: "getShadowHealth",
+  "x-access": "read",
+  "x-effect": "none",
   tags: ["shadow"],
   summary: "Shadow API liveness probe (versioned, staging slice)",
   description:

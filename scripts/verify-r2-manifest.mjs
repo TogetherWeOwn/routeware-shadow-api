@@ -1,190 +1,182 @@
 #!/usr/bin/env node
 /**
- * R2 snapshot-manifest verifier (TOG-8881, gap R3-06).
- *
- * Re-downloads one UTC date's archived CSVs from R2, re-hashes the bytes,
- * and compares against the sidecar `snapshots/<date>.manifest.json` written
- * by `src/lib/r2SnapshotArchive.ts`. A tampered (or truncated, or dropped)
- * CSV fails loudly by name with both hashes — `FAIL <table>.csv ...`.
- *
- * Credential-free in local mode (Miniflare R2 under a `--persist-to` dir);
- * remote mode issues read-only GETs and needs `CLOUDFLARE_API_TOKEN` in the
- * environment, never a flag. Object bytes are hashed in memory and never
- * printed: failures name keys and hex hashes only, never row data
- * (CONVENTIONS.md §4–5).
- *
- * Pure logic lives in `./lib/r2ManifestVerify.mjs` and is unit-tested; this
- * wrapper is intentionally thin (fetch + exit code).
- *
- * Usage:
- *   node scripts/verify-r2-manifest.mjs [--date=YYYY-MM-DD] [--bucket=<name>]
- *       [--persist-to=<dir>] [--remote]
- *
- * Reviewer acceptance path (local-miniflare fixture, no credentials):
- *
- *   export FIX="$PAPERCLIP_RUN_SCRATCH_DIR/r2fix"  # or any scratch dir
- *   mkdir -p "$FIX" && cd <repo>
- *   printf 'CustomerID,Name\n1,ExampleCo\n' > "$FIX/customer.csv"
- *   cp "$FIX/customer.csv" "$FIX/address.csv"
- *   npx wrangler r2 object put --local --persist-to "$FIX/persist" \
- *     routeware-csv-snapshots/snapshots/2026-09-28/customer.csv --file "$FIX/customer.csv"
- *   npx wrangler r2 object put --local --persist-to "$FIX/persist" \
- *     routeware-csv-snapshots/snapshots/2026-09-28/address.csv --file "$FIX/address.csv"
- *   # write the sidecar with real hashes (node one-liner prints JSON):
- *   node -e 'const {readFileSync}=require("node:fs");const {createHash}=require("node:crypto");const h=f=>createHash("sha256").update(readFileSync(f)).digest("hex");const s=f=>readFileSync(f).length;console.log(JSON.stringify({version:1,date:"2026-09-28",files:{...Object.fromEntries(["customer.csv","address.csv"].map(n=>[n,{key:`snapshots/2026-09-28/${n}`,sha256:h(`${process.env.FIX}/${n}`),bytes:s(`${process.env.FIX}/${n}`)}]))}},null,2))' > "$FIX/manifest.json"
- *   npx wrangler r2 object put --local --persist-to "$FIX/persist" \
- *     routeware-csv-snapshots/snapshots/2026-09-28.manifest.json --file "$FIX/manifest.json" \
- *     --content-type 'application/json; charset=utf-8'
- *   node scripts/verify-r2-manifest.mjs --date=2026-09-28 --persist-to "$FIX/persist"
- *   # → r2-manifest: PASS … 2 passed, 0 mismatched, 0 missing (exit 0)
- *
- *   # Tamper one byte and re-upload only the CSV (the manifest still pins the old hash):
- *   printf 'CustomerID,Name\n1,ExampleCoX\n' > "$FIX/customer.csv"
- *   npx wrangler r2 object put --local --persist-to "$FIX/persist" \
- *     routeware-csv-snapshots/snapshots/2026-09-28/customer.csv --file "$FIX/customer.csv"
- *   node scripts/verify-r2-manifest.mjs --date=2026-09-28 --persist-to "$FIX/persist"
- *   # → FAIL customer.csv … sha256 mismatch … (exit 1)
- *
- * Exit 0 when every manifest entry verifies; exit 1 on any mismatch, missing
- * object, or unreadable manifest; exit 2 on flag/usage errors.
+ * Read-only daily-alias verifier. Local by default; remote execution requires an
+ * injected token, not a flag. Dry-run never launches Wrangler or touches objects.
+ * See docs/R2-MANIFEST-VERIFY.md for the v1 JSON contract and recovery actions.
  */
 import { execFileSync } from "node:child_process";
-import path from "node:path";
+import { writeSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { argv, env, exit } from "node:process";
-
 import {
-  CHECK_NAME,
-  formatVerifyReport,
-  parseManifest,
-  sha256HexBytes,
-  verifyManifestHashes,
+  ARCHIVE_TABLES, CHECK_NAME, formatVerifyReport, isArchiveDate,
+  parseManifest, sha256HexBytes, verifyManifestHashes,
 } from "./lib/r2ManifestVerify.mjs";
+import { handleHelpFlag } from "./lib/usage.mjs";
 
-// Same bucket the Worker's `SNAPSHOTS` binding targets (see wrangler.toml
-// `[[r2_buckets]]`). Read-only here: local runs read a scratch persist dir,
-// remote runs issue GETs only.
 const DEFAULT_BUCKET = "routeware-csv-snapshots";
-
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = fileURLToPath(new URL("../", import.meta.url));
+const rawArgs = argv.slice(2);
 
 function usage() {
   return [
-    `Usage: node scripts/verify-r2-manifest.mjs [--date=YYYY-MM-DD] [--bucket=<name>] [--persist-to=<dir>] [--remote]`,
-    ``,
-    `  --date=<YYYY-MM-DD>  archive date (default: today, UTC).`,
+    "Usage: node scripts/verify-r2-manifest.mjs [--date=YYYY-MM-DD] [--bucket=<name>]",
+    "       [--persist-to=<dir>] [--remote] [--expect=customer,address,container] [--dry-run] [--json]",
+    "",
+    "Verify daily CSV object identity, SHA-256 and byte size against the requested sidecar.",
+    "  --date=<YYYY-MM-DD>  canonical UTC calendar date (default: today, UTC).",
     `  --bucket=<name>      R2 bucket (default ${DEFAULT_BUCKET}).`,
-    `  --persist-to=<dir>   local Miniflare persist dir (local mode only).`,
-    `  --remote             read remote R2 (needs CLOUDFLARE_API_TOKEN in env);`,
-    `                       default is --local (credential-free).`,
-    `  --help               print this usage and exit 0.`,
-    ``,
-    `  Value flags accept either spelling: --persist-to=<dir> or --persist-to <dir>.`,
+    "  --persist-to=<dir>   local Miniflare persistence only; forbidden with --remote.",
+    "  --remote            read remote R2; requires CLOUDFLARE_API_TOKEN in env.",
+    "                      Default is credential-free local mode; no remote grant is implied.",
+    "  --expect=<tables>   nonempty unique subset of customer,address,container (bare names).",
+    "                      Missing expected entries fail even when omitted from the sidecar.",
+    "                      Default: listed-only (partial), not proof that all tables exist.",
+    "  --dry-run           validate and print the plan; zero child processes, reads or writes.",
+    "  --json              one bounded schemaVersion:1 result on stdout, stderr empty.",
+    "  -h, --help          print usage with zero execution.",
+    "",
+    "Value flags accept --name=value or --name value; duplicate flags are errors.",
+    "Exit codes: 0 = verification PASS or valid dry-run; 1 = verification/credential failure; 2 = invalid arguments.",
+    "Example (full-chain local audit):",
+    "  node scripts/verify-r2-manifest.mjs --date=2026-09-28 --persist-to=fixture-state --expect=customer,address,container --json",
+    "Hermetic acceptance check: npm run check:r2-manifest",
   ].join("\n");
 }
+handleHelpFlag(rawArgs, usage());
 
-if (argv.includes("--help")) {
-  console.log(usage());
-  exit(0);
+// Fixed messages/actions, never interpolated driver errors, manifest values,
+// flag values, persistence paths or credentials. At most three table findings.
+const ERRORS = {
+  R2_ARGUMENT_INVALID: ["Invalid arguments.", "Use --help; choose one real YYYY-MM-DD date and unique recognized --expect tables; do not combine --remote and --persist-to."],
+  R2_REMOTE_CREDENTIAL_REQUIRED: ["Remote execution requires CLOUDFLARE_API_TOKEN in the environment.", "Use local mode, or obtain authorized environment injection of CLOUDFLARE_API_TOKEN. Never pass or print the token."],
+  R2_OBJECT_MISSING: ["Required object is missing or unreadable; absence is not confirmed.", "Stop recovery. Confirm the authorized bucket/date, object availability and reader access privately; do not switch credentials or synthesize a manifest."],
+  R2_MANIFEST_INVALID: ["Daily sidecar does not match the requested identity or supported schema.", "Stop recovery. Select a known-good daily archive; investigate publication privately. Never rewrite the sidecar to make verification pass."],
+  R2_EXPECTED_TABLE_MISSING: ["An explicitly expected table is absent from the manifest.", "Stop full-chain recovery. Select an archive containing every expected table; do not narrow --expect without an approved partial-recovery plan."],
+  R2_HASH_MISMATCH: ["Object identity, hash or byte size differs from the manifest.", "Stop recovery. Treat the archive as suspect and select a known-good archive; do not overwrite data or regenerate its integrity record."],
+};
+const json = rawArgs.includes("--json");
+const report = {
+  schemaVersion: 1, checkId: CHECK_NAME, ok: false,
+  date: null, mode: rawArgs.includes("--remote") ? "remote" : "local",
+  dryRun: rawArgs.includes("--dry-run"),
+  coverage: { kind: "listed-only", expectedTables: [], verifiedTables: [] },
+  checks: [], findings: [],
+};
+function check(id, status) {
+  report.checks.push({ id: `${CHECK_NAME}.${id}`, status });
+}
+function finding(id, code, table = null) {
+  const [message, next_action] = ERRORS[code];
+  report.findings.push({ id: `${CHECK_NAME}.${id}`, code, message, retryable: false, next_action, ...(table ? { table } : {}) });
+}
+function finish(code, detail = "") {
+  report.ok = code === 0;
+  const text = json ? JSON.stringify(report) : [
+    detail,
+    ...report.findings.map((f) => `${CHECK_NAME}: FAIL ${f.table ? `${f.table}.csv: ` : ""}${f.code}: ${f.message} Next: ${f.next_action}`),
+    `Coverage: ${report.coverage.kind === "listed-only" ? "listed-only (partial): not proof that all tables were archived" : `expected-tables: ${report.coverage.expectedTables.join(",")}`}.`,
+  ].filter(Boolean).join("\n");
+  // Synchronous bounded output also works for piped machine consumers.
+  writeSync(1, `${text}\n`);
+  exit(code);
+}
+function invalidArguments() {
+  check("arguments", "fail");
+  finding("arguments", "R2_ARGUMENT_INVALID");
+  finish(2);
 }
 
-// Value flags accept `--name=value` and `--name value` alike (the reviewer
-// path in the header comment uses the space form; `=` keeps wrangler-style
-// one-token flags working).
-const VALUE_FLAGS = new Set(["date", "bucket", "persist-to"]);
+const VALUE_FLAGS = new Set(["date", "bucket", "persist-to", "expect"]);
+const BOOL_FLAGS = new Set(["remote", "dry-run", "json"]);
 const values = {};
-let remote = false;
-
-const rawArgs = argv.slice(2);
+const seenFlags = new Set();
 for (let i = 0; i < rawArgs.length; i++) {
   const arg = rawArgs[i];
-  if (arg === "--remote") {
-    remote = true;
-    continue;
-  }
   const eq = arg.indexOf("=");
-  const name = (eq === -1 ? arg : arg.slice(0, eq)).replace(/^--/, "");
-  if (!arg.startsWith("--") || !VALUE_FLAGS.has(name)) {
-    console.error(`${CHECK_NAME}: unknown flag: ${arg}\n\n${usage()}`);
-    exit(2);
-  }
-  if (eq === -1) {
-    const next = rawArgs[i + 1];
-    if (next === undefined || next.startsWith("--")) {
-      console.error(`${CHECK_NAME}: ${arg} needs a value\n\n${usage()}`);
-      exit(2);
-    }
-    values[name] = next;
-    i++;
-  } else {
-    values[name] = arg.slice(eq + 1);
-  }
+  const name = (eq < 0 ? arg : arg.slice(0, eq)).slice(2);
+  if (!arg.startsWith("--") || seenFlags.has(name)) invalidArguments();
+  seenFlags.add(name);
+  if (BOOL_FLAGS.has(name) && eq < 0) continue;
+  if (!VALUE_FLAGS.has(name)) invalidArguments();
+  const value = eq < 0 ? rawArgs[++i] : arg.slice(eq + 1);
+  if (!value || value.startsWith("-") || value.length > 4096 || /[\x00-\x1f\x7f]/.test(value)) invalidArguments();
+  values[name] = value;
 }
-
-const dateFlag = values.date ?? null;
-const date = dateFlag ?? new Date().toISOString().slice(0, 10);
-if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-  console.error(`${CHECK_NAME}: --date must be YYYY-MM-DD, got ${JSON.stringify(dateFlag)}\n\n${usage()}`);
-  exit(2);
-}
+const date = values.date ?? new Date().toISOString().slice(0, 10);
 const bucket = values.bucket ?? DEFAULT_BUCKET;
 const persistTo = values["persist-to"] ?? null;
-
-if (remote && persistTo) {
-  console.error(`${CHECK_NAME}: --persist-to is local-only; drop it with --remote\n\n${usage()}`);
-  exit(2);
+const remote = report.mode === "remote";
+if (!isArchiveDate(date) || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucket) || (remote && persistTo)) invalidArguments();
+let expectedTables = [];
+if (values.expect !== undefined) {
+  expectedTables = values.expect.split(",");
+  if (expectedTables.some((table) => !ARCHIVE_TABLES.includes(table)) ||
+      new Set(expectedTables).size !== expectedTables.length) invalidArguments();
+  expectedTables.sort();
+}
+report.date = date;
+report.coverage.kind = expectedTables.length ? "expected-tables" : "listed-only";
+report.coverage.expectedTables = expectedTables;
+check("arguments", "pass");
+const manifestKey = `snapshots/${date}.manifest.json`;
+if (report.dryRun) {
+  check("plan", "pass");
+  finish(0, `${CHECK_NAME}: DRY-RUN ${date} ${report.mode}; would read ${manifestKey} then validate listed keys before CSV reads. No objects verified.`);
 }
 if (remote && !env.CLOUDFLARE_API_TOKEN?.trim()) {
-  console.error(
-    `${CHECK_NAME}: --remote needs CLOUDFLARE_API_TOKEN in the environment (never a flag or log).`
-  );
-  exit(1);
+  check("credentials", "fail");
+  finding("credentials", "R2_REMOTE_CREDENTIAL_REQUIRED");
+  finish(1);
 }
+check("credentials", "pass");
 
-/** Raw object bytes via `wrangler r2 object get --pipe`; null when the key is absent. */
-function getObjectBytes(key) {
-  const args = ["r2", "object", "get", "--pipe", remote ? "--remote" : "--local", `${bucket}/${key}`];
+/** A nonzero reader exit means unavailable, not proof of absence. Never emit stderr. */
+function getObjectBytes(key, maxBuffer) {
+  const args = ["--no-install", "wrangler", "r2", "object", "get", "--pipe", remote ? "--remote" : "--local", `${bucket}/${key}`];
   if (persistTo) args.push("--persist-to", persistTo);
   try {
-    return execFileSync("npx", ["wrangler", ...args], {
-      cwd: root,
-      encoding: "buffer",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 256 * 1024 * 1024,
+    return execFileSync("npx", args, {
+      cwd: root, encoding: "buffer", stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer, timeout: 120_000,
     });
-  } catch (error) {
-    const stderr = String(error.stderr?.toString() ?? error.message);
-    if (/does not exist/i.test(stderr)) return null;
-    console.error(`${CHECK_NAME}: FAIL — wrangler r2 object get ${key} failed:\n${stderr.slice(0, 2000)}`);
-    exit(1);
+  } catch {
+    return null;
   }
 }
-
-function fail(msg) {
-  console.error(`${CHECK_NAME}: FAIL — ${msg}`);
-  exit(1);
-}
-
-const manifestKey = `snapshots/${date}.manifest.json`;
-const manifestBytes = getObjectBytes(manifestKey);
+const manifestBytes = getObjectBytes(manifestKey, 64 * 1024);
 if (manifestBytes === null) {
-  fail(`manifest ${manifestKey} not found in bucket ${bucket} — nothing archived for ${date} (or wrong --date/--bucket).`);
+  check("manifest", "fail");
+  finding("manifest-read", "R2_OBJECT_MISSING");
+  finish(1);
 }
 const parsed = parseManifest(manifestBytes.toString("utf8"), manifestKey);
 if (!parsed.ok) {
-  fail(parsed.error);
+  check("manifest", "fail");
+  finding("manifest-schema", "R2_MANIFEST_INVALID");
+  finish(1);
 }
-
+check("manifest", "pass");
+const files = parsed.manifest.files;
+const absent = expectedTables.filter((table) => !files.some((file) => file.name === `${table}.csv`));
+check("coverage", absent.length ? "fail" : "pass");
+for (const table of absent) finding(`expected.${table}`, "R2_EXPECTED_TABLE_MISSING", table);
+// A coverage failure stops before any CSV read. A deliberately partial manifest
+// still verifies when no missing expectation was declared.
+if (absent.length) finish(1);
 const actual = [];
 const missing = [];
-for (const entry of parsed.manifest.files) {
-  const bytes = getObjectBytes(entry.key);
-  if (bytes === null) {
-    missing.push(entry.name);
-    continue;
-  }
-  actual.push({ name: entry.name, key: entry.key, sha256: sha256HexBytes(bytes), bytes: bytes.byteLength });
+for (const entry of files) {
+  const bytes = getObjectBytes(entry.key, 256 * 1024 * 1024);
+  if (bytes === null) missing.push(entry.name);
+  else actual.push({ name: entry.name, key: entry.key, sha256: sha256HexBytes(bytes), bytes: bytes.byteLength });
 }
-
-const result = verifyManifestHashes(parsed.manifest.files, actual, missing);
-console.log(formatVerifyReport(manifestKey, result));
-if (!result.ok) exit(1);
+const result = verifyManifestHashes(files, actual, missing);
+report.coverage.verifiedTables = result.passed.map((name) => name.slice(0, -4));
+for (const entry of files) {
+  const table = entry.name.slice(0, -4);
+  const passed = result.passed.includes(entry.name);
+  check(`object.${table}`, passed ? "pass" : "fail");
+  if (!passed) finding(`object.${table}`, missing.includes(entry.name) ? "R2_OBJECT_MISSING" : "R2_HASH_MISMATCH", table);
+}
+finish(result.ok ? 0 : 1, formatVerifyReport(manifestKey, result));

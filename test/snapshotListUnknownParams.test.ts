@@ -13,15 +13,15 @@ type ListPolicy = { unknownParams: "ignore"; filteredQuery: string };
 const LIST_POLICIES: Record<string, ListPolicy> = {
   "/api/v1/customer-snapshot": {
     unknownParams: "ignore",
-    filteredQuery: "customerId=7&q=Synthetic&enabled=true&limit=1&offset=2"
+    filteredQuery: "ids=7,17&customerId=7&q=Synthetic&enabled=true&limit=1&offset=2"
   },
   "/api/v1/address-snapshot": {
     unknownParams: "ignore",
-    filteredQuery: "customerId=7&pickupAddressId=11&q=Synthetic&enabled=true&limit=1&offset=2"
+    filteredQuery: "ids=11,21&customerId=7&pickupAddressId=11&q=Synthetic&enabled=true&limit=1&offset=2"
   },
   "/api/v1/container-snapshot": {
     unknownParams: "ignore",
-    filteredQuery: "customerId=7&pickupAddressId=11&containerId=13&q=Synthetic&enabled=true&limit=1&offset=2"
+    filteredQuery: "ids=13,23&customerId=7&pickupAddressId=11&containerId=13&q=Synthetic&enabled=true&limit=1&offset=2"
   },
   // The incremental feed is registered on newer revisions. Probe it whenever
   // present; the three root list routes below remain mandatory on all revisions.
@@ -42,7 +42,9 @@ const NON_LIST_ROUTES: Record<string, string> = {
   "/api/v1/data/address": "Single-address aggregate selected by id",
   "/api/v1/data/container": "Single-container aggregate selected by id",
   "/api/v1/data-snapshot/orphans": "Integrity report with counts and bounded id samples, not collection pagination",
-  "/api/v1/snapshots/:table/:date": "One archived CSV object by table and date"
+  "/api/v1/snapshots/:table/:date": "One archived CSV object by table and date",
+  "/api/v1/snapshots/:table": "R2-backed archived-date listing bounded by limit, not D1 pagination (unknown params ignored, pinned in snapshotArchiveDates.acceptance)",
+  "/api/v1/snapshots/:table/latest": "One archived CSV object by table via the latest pointer"
 };
 
 function snapshotDataGets(routes: RegisteredRoute[]): string[] {

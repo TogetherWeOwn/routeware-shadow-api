@@ -4,22 +4,22 @@ import app from "../src/app";
 import { problemType } from "../src/lib/problem";
 
 /**
- * TOG-8386 (gap G16): auth-gate re-sweep on the newest routes.
+ * Gap G16: auth-gate re-sweep on the newest routes.
  *
  * The last full sweep predates PRs #96-#110 and the `GET ...-snapshot/export`
- * routes (TOG-8361). `test/authGateSweep.test.ts` already probes every
+ * routes. `test/authGateSweep.test.ts` already probes every
  * registered route with no/wrong tokens at the OUTER gate, and
  * `test/snapshotAuth.test.ts` pins the inner 401 body per privileged route —
  * both green. What neither pins is the privileged SET itself: a new
- * sync/import/export/data route that forgot `requireSnapshotAuth` would still
+ * privileged route that forgot `requireSnapshotAuth` would still
  * 401 without a token (outer gate) while wrongly accepting the general API
  * token.
  *
  * This file closes that gap:
  * - the privileged inventory is derived from the live router (`app.routes`)
- *   and must equal the pinned 17 below — adding a matching route fails here
+ *   and must equal the pinned 20 below — adding a matching route fails here
  *   until its inner gate is verified;
- * - every one of the 17 is re-probed: no token → outer 401, API token →
+ * - every one of the 20 is re-probed: no token → outer 401, API token →
  *   inner 401 (wrong-token cells ride on `authGateSweep`, which sweeps all
  *   38 routes with no and bad tokens).
  *
@@ -56,29 +56,44 @@ function isPrivilegedRoute(method: string, path: string): boolean {
     path.endsWith("/import") ||
     path.endsWith("/export") ||
     path.startsWith("/api/v1/data/") ||
-    // TOG-9202: R2 archive readback carries the same sync-secret inner gate.
-    path.startsWith("/api/v1/snapshots/")
+    // R2 archive readback carries the same sync-secret inner gate.
+    path.startsWith("/api/v1/snapshots/") ||
+    // D1 integrity audit: same inner gate, but no /sync|/import|/export
+    // suffix, so it needs an exact match.
+    (method === "GET" && path === "/api/v1/data-snapshot/orphans") ||
+    // Customer-row erasure. Method-qualified: GET on the same path is the
+    // outer-gate-only single-customer read; only DELETE carries the inner gate.
+    (method === "DELETE" && path === "/api/v1/customer-snapshot/:customerId")
   );
 }
 
 /**
- * Pinned privileged set, `METHOD path` sorted. Any new sync/import/export/data
- * route must land here (and carry `requireSnapshotAuth`) or the inventory
- * test below fails.
+ * Pinned privileged set, `METHOD path` sorted. Any new route matching
+ * `isPrivilegedRoute` must land here (and carry `requireSnapshotAuth`) or the
+ * inventory test below fails.
  */
 const PINNED_PRIVILEGED: string[] = [
+  "DELETE /api/v1/customer-snapshot/:customerId",
   "GET /api/v1/address-snapshot/export",
   "GET /api/v1/container-snapshot/export",
   "GET /api/v1/customer-snapshot/export",
+  "GET /api/v1/data-snapshot/orphans",
   "GET /api/v1/data/address",
   "GET /api/v1/data/container",
   "GET /api/v1/data/customer",
-  // TOG-9202: R2 archive readback (sync secret only). The router renders the
+  // R2 archive readback (sync secret only). The router renders the
   // path in Hono `:param` syntax. `livePrivilegedRoutes` sorts with
   // `localeCompare`, so this GET lands with the GET group (after
   // `data/customer`, `data` < `snapshots`); probes carry a concrete table +
   // date.
+  // Archived-date listing: same /snapshots/ prefix, same inner gate; the
+  // shorter `:table` sorts before `:table/:date`. Probes carry a concrete
+  // table (the `:date` replacement is a no-op here).
+  "GET /api/v1/snapshots/:table",
   "GET /api/v1/snapshots/:table/:date",
+  // Latest-pointer readback: same /snapshots/ prefix, same inner gate.
+  // `localeCompare` sorts the literal `latest` after the `:date` param.
+  "GET /api/v1/snapshots/:table/latest",
   "POST /api/v1/address-snapshot/import",
   "POST /api/v1/address-snapshot/sync",
   "POST /api/v1/container-snapshot/import",
@@ -123,14 +138,19 @@ type ProblemBody = {
 // `?id=1` (same as `test/snapshotAuth.test.ts`) so the probe exercises the
 // gates, not the query validator. `instance` still echoes the bare pathname.
 //
-// Same for `GET /api/v1/snapshots/:table/:date` (TOG-9202): the enum/date
+// Same for `GET /api/v1/snapshots/:table/:date`: the enum/date
 // validators reject the literal `:table`/`:date` placeholders, so the probe
-// carries concrete values. `expectedInstance` is the pathname the 401 echoes
-// (probe path minus query) — identical to the pinned string for every other
-// entry.
+// carries concrete values. And the erasure route's literal `:customerId`
+// 400s at param validation before the gates, so it probes with a concrete id
+// (same as `test/snapshotAuth.test.ts`). `expectedInstance` is the pathname
+// the 401 echoes (probe path minus query) — identical to the pinned string
+// for every other entry.
 function probePath(path: string): string {
   if (path.includes(":table")) {
     return path.replace(":table", "customer").replace(":date", "2026-09-27");
+  }
+  if (path.includes(":customerId")) {
+    return path.replace(":customerId", "1");
   }
   return path.startsWith("/api/v1/data/") && !path.includes("?") ? `${path}?id=1` : path;
 }
@@ -139,7 +159,7 @@ function expectedInstance(path: string): string {
   return probePath(path).split("?")[0];
 }
 
-describe("auth-gate re-sweep on newest routes (TOG-8386)", () => {
+describe("auth-gate re-sweep on newest routes", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -153,7 +173,7 @@ describe("auth-gate re-sweep on newest routes (TOG-8386)", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("privileged inventory from the live router equals the pinned 17", () => {
+  it("privileged inventory from the live router equals the pinned 20", () => {
     expect(livePrivilegedRoutes()).toEqual(PINNED_PRIVILEGED);
   });
 

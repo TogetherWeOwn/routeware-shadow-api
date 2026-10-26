@@ -1,5 +1,5 @@
 import { syncCustomerDetailFullToD1 } from "./detailFullSync";
-import { errorKind, logEvent } from "./logger";
+import { errorKind, logEvent, requestIdField } from "./logger";
 import { invalidateCustomerGraph, invalidateDataEntity } from "./entityDataCache";
 import {
   parseCustomerIdFromSaveResponse,
@@ -17,7 +17,7 @@ export type RoutewareSaveKind = "customer" | "address" | "container";
  * successful upstream save; the routeware tier used to forward upstream and
  * return, so a successful save (including the documented
  * `Enabled=false` disable flow) stayed invisible to shadow reads until the
- * next cron sync (TOG-6463).
+ * next cron sync.
  *
  * Never throws: the upstream save succeeded, so a local refresh failure must
  * not turn the passthrough 200 into a 500. Failures are logged, and the
@@ -29,7 +29,8 @@ export async function refreshAfterRoutewareSave(
   sessionStub: DurableObjectStub,
   kind: RoutewareSaveKind,
   forwardedBody: ArrayBuffer | null,
-  upstreamText: string
+  upstreamText: string,
+  requestId?: string
 ): Promise<void> {
   try {
     const posted = urlEncodedToObject(forwardedBody);
@@ -50,9 +51,10 @@ export async function refreshAfterRoutewareSave(
         msg: "Post-save snapshot sync failed; evicting affected cache keys",
         route: "routeware.saveRefresh",
         entity: kind,
-        kind: errorKind(syncErr)
+        kind: errorKind(syncErr),
+        ...requestIdField(requestId)
       });
-      await invalidateSaveFallback(kind, customerId, posted);
+      await invalidateSaveFallback(kind, customerId, posted, requestId);
     }
   } catch (err) {
     logEvent({
@@ -60,7 +62,8 @@ export async function refreshAfterRoutewareSave(
       msg: "Post-save refresh failed",
       route: "routeware.saveRefresh",
       entity: kind,
-      kind: errorKind(err)
+      kind: errorKind(err),
+      ...requestIdField(requestId)
     });
   }
 }
@@ -104,7 +107,8 @@ async function resolveCustomerId(
 async function invalidateSaveFallback(
   kind: RoutewareSaveKind,
   customerId: number,
-  posted: Record<string, string>
+  posted: Record<string, string>,
+  requestId?: string
 ): Promise<void> {
   const attempts: Array<Promise<void>> = [];
   attempts.push(
@@ -114,7 +118,8 @@ async function invalidateSaveFallback(
         msg: "Post-save customer cache invalidation failed",
         route: "routeware.saveRefresh.invalidate",
         entity: "customer",
-        kind: errorKind(err)
+        kind: errorKind(err),
+        ...requestIdField(requestId)
       })
     )
   );
@@ -130,7 +135,8 @@ async function invalidateSaveFallback(
             msg: "Post-save entity cache invalidation failed",
             route: "routeware.saveRefresh.invalidate",
             entity,
-            kind: errorKind(err)
+            kind: errorKind(err),
+            ...requestIdField(requestId)
           })
         )
       );

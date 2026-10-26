@@ -59,7 +59,7 @@ async function call(path: string, opts: CallOpts = {}): Promise<Response> {
 }
 
 describe("clientIpFromRequest", () => {
-  // TOG-8888: XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
+  // XFF is trusted only with the explicit THROTTLE_TRUST_XFF="true"
   // opt-in (dev/test). Production (flag absent/"false") ignores XFF so an
   // attacker value can neither evade the throttle nor frame a victim bucket.
   const TRUST_XFF = { THROTTLE_TRUST_XFF: "true" };
@@ -202,10 +202,37 @@ describe("throttle DO endpoints", () => {
       storage: {
         get: async <T>(key: string): Promise<T | undefined> =>
           store.get(key) as T | undefined,
-        put: async (key: string, value: unknown): Promise<void> => {
-          store.set(key, value);
+        put: async (key: string | Record<string, unknown>, value?: unknown): Promise<void> => {
+          if (typeof key === "string") store.set(key, value as unknown);
+          else for (const [k, v] of Object.entries(key)) store.set(k, v);
         },
-        delete: async (key: string): Promise<boolean> => store.delete(key)
+        delete: async (key: string | string[]): Promise<boolean | number> => {
+          if (typeof key === "string") return store.delete(key);
+          return key.reduce((n, k) => n + Number(store.delete(k)), 0);
+        },
+        getAlarm: async (): Promise<number | null> => null,
+        setAlarm: async (): Promise<void> => {},
+        deleteAlarm: async (): Promise<void> => {},
+        transaction: async <T>(cb: (txn: DurableObjectTransaction) => Promise<T>): Promise<T> =>
+          cb(
+            {
+              get: async <T>(k: string) => store.get(k) as T | undefined,
+              put: async (k: string | Record<string, unknown>, v?: unknown) => {
+                if (typeof k === "string") store.set(k, v as unknown);
+                else for (const [kk, vv] of Object.entries(k)) store.set(kk, vv);
+              },
+              delete: async (k: string | string[]) => {
+                if (typeof k === "string") return store.delete(k);
+                return k.reduce((n, kk) => n + Number(store.delete(kk)), 0);
+              },
+              getAlarm: async () => null,
+              setAlarm: async () => {},
+              deleteAlarm: async () => {}
+            } as unknown as DurableObjectTransaction
+          )
+      },
+      blockConcurrencyWhile: async (cb: () => Promise<unknown>) => {
+        await cb();
       }
     } as unknown as DurableObjectState;
   }
@@ -232,6 +259,33 @@ describe("throttle DO endpoints", () => {
     });
     const verdict = await (await throttleCall(session, "/throttle/failure")).json();
     expect(verdict).toEqual({ blocked: false, retryAfterSec: 0 });
+  });
+
+  it("reports the stored block on check after failures accumulate", async () => {
+    // Arrange — enough failures to trip the block, all inside one window.
+    // Date.now is frozen across the failures and the check: the retry interval
+    // is ceil((blockedUntil - now) / 1000), so a wall-clock second elapsing
+    // before the check would report 59 instead of 60 on a slow run.
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+    try {
+      const session = sessionWith();
+      for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {
+        await throttleCall(session, "/throttle/failure");
+      }
+
+      // Act
+      const verdict = await (await throttleCall(session, "/throttle/check")).json();
+
+      // Assert — the check reads the stored state (blocked), not a fresh empty one.
+      expect(verdict).toEqual({
+        blocked: true,
+        retryAfterSec: 60,
+        resetAtSec: expect.any(Number)
+      });
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("treats a corrupt stored value as empty instead of throwing", async () => {
@@ -375,7 +429,7 @@ describe("throttle fail-open paths", () => {
     await expect(clearAuthFailures(env, req)).resolves.toBeUndefined();
   });
 
-  it("logs exactly one error line per window when the DO is down (TOG-6530)", async () => {
+  it("logs exactly one error line per window when the DO is down", async () => {
     // Arrange — the throttle DO is dead; caller still enforces auth (open verdict).
     const env = envWithStub({
       fetch: async () => {
@@ -421,7 +475,7 @@ describe("throttle fail-open paths", () => {
   });
 });
 
-describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
+describe("bearer brute-force throttle on /api/v1/*", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -489,9 +543,9 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
     expect(body.title).toBe("Too Many Requests");
     expect(body.status).toBe(429);
     expect(body.detail).toContain("PROBLEMS.md#rate-limited");
-    // Port note (TOG-5820 onto main without sibling TOG-5809): main has no
+    // Port note (ported onto main without its sibling): main has no
     // CORS layer yet, so no ACAO stamp is asserted here. The scope-branch
-    // version asserts the stamp; TOG-5809's merge restores it.
+    // version asserts the stamp; merging that branch restores it.
   });
 
   it("a valid token from the throttled IP still passes and resets the counter", async () => {
@@ -531,7 +585,7 @@ describe("bearer brute-force throttle on /api/v1/* (TOG-5820)", () => {
   });
 
   it("CORS preflight never consumes throttle budget", async () => {
-    // Arrange — TOG-5809 answers OPTIONS with a 204 preflight before the
+    // Arrange — OPTIONS is answered with a 204 preflight before the
     // bearer gate; it must not burn throttle budget doing so.
     const PREFLIGHT_IP = "192.0.2.71";
     for (let i = 0; i < AUTH_THROTTLE_MAX_FAILURES; i++) {

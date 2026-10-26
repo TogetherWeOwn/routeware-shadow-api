@@ -3,10 +3,11 @@ import { establishSessionViaHttp } from "./httpAuth";
 import { isLoginPageUnavailableError } from "./loginPageError";
 import { logEvent } from "./logger";
 import { isMissingSetCookieCapabilityError } from "./setCookieCapabilityError";
+import { readSessionState } from "./sessionState";
 import {
   acquireRefreshLock,
   releaseRefreshLock,
-  waitForConcurrentRefresh
+  waitForPublicationOrTakeover
 } from "./sessionRefreshLock";
 
 /** The closed set of valid `AUTH_MODE` values (lowercase, post-trim). */
@@ -20,7 +21,7 @@ export type AuthMode = (typeof AUTH_MODES)[number];
  *
  * A typo must fail fast here — never fall into the HTTP-then-browser
  * fallback, which would silently trigger expensive Browser Rendering logins
- * on what the operator intended as an `http`-only deploy (TOG-6531).
+ * on what the operator intended as an `http`-only deploy.
  * `received` echoes the operator's own config value (never a credential or
  * customer data), so it is safe to surface in a 503 detail.
  */
@@ -71,22 +72,52 @@ export async function establishSession(
   stub: DurableObjectStub,
   bootstrapUrl: string
 ): Promise<void> {
-  const holdsLock = await acquireRefreshLock(stub);
-  if (!holdsLock) {
-    // Another request is already refreshing. Wait for it rather than logging in
-    // again (the lock auto-expires if that refresh dies). On deadline the wait
-    // throws `ConcurrentRefreshTimeoutError` (TOG-6526) — it propagates so the
-    // caller fails closed to 502 instead of forwarding with the expired cookie.
-    await waitForConcurrentRefresh(stub);
-    return;
+  // The lock token proves this caller holds the refresh lock: only the
+  // matching token releases it via `/unlock` or the holder's `/set`.
+  // It is granted by `/lock` directly, or by `/takeover` after
+  // waiting — and is presented on the failure-path `/unlock` so a late
+  // release can never clear another holder's live lock.
+  let lockToken = await acquireRefreshLock(stub);
+  if (lockToken === null) {
+    // Another request is already refreshing. Wait for its publication — or,
+    // after its explicit failed release, take over with one bounded fresh
+    // login (CISO option B: the atomic `/takeover` elects a single
+    // winner inside the failed-release window; losers wait on the new
+    // holder). On deadline, or once a failed takeover spent the window
+    // budget, the wait throws `ConcurrentRefreshTimeoutError` — it
+    // propagates so the caller fails closed to 502 instead of forwarding with
+    // the expired cookie.
+    const settlement = await waitForPublicationOrTakeover(stub);
+    if (settlement.outcome === "published") {
+      return;
+    }
+    // "takeover": this caller won the atomic `/takeover` and now holds the
+    // lock — fall through to the holder login path below.
+    lockToken = settlement.token;
   }
 
   try {
-    await login(env, stub, bootstrapUrl);
+    await login(env, stub, bootstrapUrl, lockToken);
   } catch (err) {
-    // The DO clears the lock on a successful /set, so release only on failure.
-    await releaseRefreshLock(stub);
+    // The holder's /set already cleared its own lock on success, so release
+    // only on failure — with our token, so a superseded holder's late release
+    // can never drop another holder's live lock.
+    await releaseRefreshLock(stub, lockToken);
     throw err;
+  }
+
+  // A successful publication released our lock. Validate the published material
+  // outside the catch: a delayed write/read can expire. Lock ownership is NOT
+  // checked here — another caller may legitimately hold the lock for the next
+  // refresh by the time this read lands, while our just-published cookie is
+  // still live. Only the cookie and its expiry determine success.
+  const session = await readSessionState(stub);
+  if (
+    typeof session.cookieHeader !== "string" || session.cookieHeader.length === 0 ||
+    typeof session.expiresAtMs !== "number" || !Number.isFinite(session.expiresAtMs) ||
+    session.expiresAtMs <= Date.now()
+  ) {
+    throw new Error("Session refresh completed without an available live session.");
   }
 }
 
@@ -94,25 +125,26 @@ export async function establishSession(
 async function login(
   env: Env,
   stub: DurableObjectStub,
-  bootstrapUrl: string
+  bootstrapUrl: string,
+  lockToken: string
 ): Promise<void> {
-  // Closed validation (TOG-6531): unknown values throw before any login
+  // Closed validation: unknown values throw before any login
   // attempt, so a typo never falls into the HTTP-then-browser fallback.
   const mode = resolveAuthMode(env);
 
   if (mode === "browser") {
-    return establishSessionWithBrowser(env, stub, bootstrapUrl);
+    return establishSessionWithBrowser(env, stub, bootstrapUrl, lockToken);
   }
 
   try {
-    await establishSessionViaHttp(env, stub);
+    await establishSessionViaHttp(env, stub, lockToken);
     return;
   } catch (err) {
-    // A blocked login page (TOG-6536) is never a browser case: the token is
+    // A blocked login page is never a browser case: the token is
     // missing because upstream answered 403/500, not because the markup
     // changed. Re-run the browser there would burn Browser Rendering budget
     // on a page that has no form at all. A missing getSetCookie capability
-    // (TOG-6537) is likewise never a browser case: there are no cookies to
+    // is likewise never a browser case: there are no cookies to
     // fall back from, so a browser retry would burn budget on a platform
     // gap, not a markup change.
     if (
@@ -128,6 +160,6 @@ async function login(
       route: "auth.login",
       fallback: "browser"
     });
-    return establishSessionWithBrowser(env, stub, bootstrapUrl);
+    return establishSessionWithBrowser(env, stub, bootstrapUrl, lockToken);
   }
 }

@@ -14,7 +14,7 @@ export type ForwardOptions = {
    */
   internalMarker?: string;
   /**
-   * Per-attempt time-to-headers budget in ms (TOG-5835). Defaults to
+   * Per-attempt time-to-headers budget in ms. Defaults to
    * `DEFAULT_UPSTREAM_TIMEOUT_MS`; report-CSV callers pass the larger
    * report budget. A hung upstream throws `UpstreamTimeoutError` (never
    * retried — the single retry is reserved for the login redirect).
@@ -53,7 +53,7 @@ export async function forwardToUpstream(
     headers.set("Cookie", session.cookieHeader);
   }
 
-  // Bounded per-attempt budget (TOG-5835): a hung Routeware host throws
+  // Bounded per-attempt budget: a hung Routeware host throws
   // `UpstreamTimeoutError` instead of holding the Worker to the 300s CPU
   // limit. The timer covers time-to-headers only, so a started body stream is
   // not cut off. Timeouts are never retried — the single retry is reserved
@@ -70,20 +70,24 @@ export async function forwardToUpstream(
     timeoutMs
   );
 
-  return stripUpstreamSetCookie(upstream);
+  return secureUpstreamResponse(upstream);
 }
 
 /**
- * Strip upstream `Set-Cookie` before returning to the client. The Worker owns
- * the Routeware session (browser login → Durable Object); relaying upstream
- * `Set-Cookie` would leak the shared session cookies to shadow-API clients.
+ * Strip upstream session cookies and cache policy before returning to clients.
+ * The Worker owns the Routeware session, and client-facing upstream responses
+ * must not make potentially sensitive bodies cacheable.
  */
-function stripUpstreamSetCookie(res: Response): Response {
-  if (!res.headers.has("set-cookie")) {
+function secureUpstreamResponse(res: Response): Response {
+  if (
+    !res.headers.has("set-cookie") &&
+    res.headers.get("cache-control") === "no-store"
+  ) {
     return res;
   }
   const headers = new Headers(res.headers);
   headers.delete("set-cookie");
+  headers.set("cache-control", "no-store");
   return inheritUpstreamController(res, new Response(res.body, {
     status: res.status,
     statusText: res.statusText,

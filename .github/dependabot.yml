@@ -1,15 +1,39 @@
-# Dependabot weekly bumps (TOG-8904): npm prod/dev deps plus GitHub Actions.
+# Dependabot weekly bumps: npm prod/dev deps plus GitHub Actions.
 # Grouped minor/patch keeps the PR count low; security updates always break
 # out into their own PRs regardless of grouping. `chore(deps)` keeps titles
-# inside the pr-lint Conventional Commits types, and the bot needs a card ref
-# in the body — it cannot know ours, so add `Refs: TOG-xxxx` when merging.
-# Parked (TOG-13379): open-pull-requests-limit 0 stops all new PRs until
+# inside the pr-lint Conventional Commits types, and an issue ref belongs
+# in the body — it cannot know ours, so add `Refs: #123` when merging.
+# Parked: open-pull-requests-limit 0 stops all new PRs until
 # resume. Weekly schedule is kept because the check:ci-workflow gate pins
-# weekly presence (TOG-8904); restore the limits on unpark.
+# weekly presence; restore the limits on unpark.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    groups:
+      minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 0
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+  # tools/api-discovery has its own lockfile. Without this entry its
+  # advisories would have no automated fix path (check:deps-audit gates
+  # the lockfile; Dependabot proposes the bumps). Parked with the same
+  # limit-0 as above.
+  - package-ecosystem: "npm"
+    directory: "/tools/api-discovery"
     schedule:
       interval: "weekly"
       day: "monday"

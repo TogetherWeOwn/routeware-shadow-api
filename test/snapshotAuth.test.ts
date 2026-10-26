@@ -15,7 +15,7 @@ import { problemType } from "../src/lib/problem";
  * either, so sending the API token passes the outer gate and is then rejected
  * by the inner check — which is exactly the path these tests exercise.
  *
- * The inner 401 body is canonical (TOG-7030): one detail naming the sync
+ * The inner 401 body is canonical: one detail naming the sync
  * secret and the remedy doc, plus `instance` for the request path. Per-route
  * wording drift was unified in `requireSnapshotAuth` itself.
  */
@@ -59,7 +59,7 @@ function probePath(path: string): string {
     .replace(":date", "2026-09-27");
 }
 
-/** Every route guarded by the narrower snapshot-secret check. All 19 share the canonical inner 401 body. */
+/** Every route guarded by the narrower snapshot-secret check. All 20 share the canonical inner 401 body. */
 const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "DELETE", path: "/api/v1/customer-snapshot/:customerId" },
   { method: "POST", path: "/api/v1/customer-snapshot/sync" },
@@ -79,9 +79,15 @@ const GUARDED_ROUTES: Array<{ method: string; path: string }> = [
   { method: "POST", path: "/api/v1/data/customer" },
   { method: "POST", path: "/api/v1/data/address" },
   { method: "POST", path: "/api/v1/data/container" },
-  // TOG-9202: R2 archive readback (sync secret only), probed with a concrete
+  // R2 archive readback (sync secret only), probed with a concrete
   // table/date by probePath just like the customer erasure route above.
-  { method: "GET", path: "/api/v1/snapshots/:table/:date" }
+  { method: "GET", path: "/api/v1/snapshots/:table/:date" },
+  // Archived-date listing (sync secret only): same inner gate, probed
+  // with a concrete table (probePath's :date replacement is a no-op here).
+  { method: "GET", path: "/api/v1/snapshots/:table" },
+  // Latest-pointer readback (sync secret only): same inner gate, probed
+  // with a concrete table (probePath's :date replacement is a no-op here).
+  { method: "GET", path: "/api/v1/snapshots/:table/latest" }
 ];
 
 describe("snapshot-secret auth gate", () => {
@@ -99,7 +105,7 @@ describe("snapshot-secret auth gate", () => {
     upstreamFetch = vi.fn(async (input: RequestInfo | URL): Promise<Response> => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-      // TOG-6543: the query-id leg polls QueryRequestIsComplete before its
+      // The query-id leg polls QueryRequestIsComplete before its
       // download. The poll answers complete so the download attempt is what
       // throws, preserving the "reached the sync body" proof below.
       if (url.includes("/Reports/QueryRequestIsComplete")) {
@@ -131,7 +137,7 @@ describe("snapshot-secret auth gate", () => {
       const path = route.path.split("?")[0];
       expect(registered).toContain(`${route.method} ${path}`);
     }
-    expect(GUARDED_ROUTES).toHaveLength(19);
+    expect(GUARDED_ROUTES).toHaveLength(21);
   });
 
   for (const route of GUARDED_ROUTES) {
@@ -177,7 +183,7 @@ describe("snapshot-secret auth gate", () => {
     // handler. `not.toBe(401)` would also accept the **404** you get by deleting the
     // route outright, which must not read as a passing auth test.
     expect(response.status).toBe(500);
-    // Two upstream calls: the TOG-6543 completion poll (answered complete by
+    // Two upstream calls: the completion poll (answered complete by
     // the stub above), then the report download — which throws. Asserting both
     // URLs, not "some fetch happened", which any future middleware would satisfy.
     expect(upstreamFetch).toHaveBeenCalledTimes(2);

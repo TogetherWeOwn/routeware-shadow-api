@@ -29,7 +29,7 @@ describe("routewareQueryReportCsv", () => {
 });
 
 /**
- * TOG-6543 — the completion poll before the query-id CSV download.
+ * The completion poll before the query-id CSV download.
  *
  * Without the poll, a large async report downloads truncated with
  * `dataRows > 0`, and reconcile deletes the missing tail as stale. The poll
@@ -103,7 +103,7 @@ beforeEach(() => {
   behavior.responses = [];
 });
 
-describe("fetchReportCsvByQueryId completion poll (TOG-6543)", () => {
+describe("fetchReportCsvByQueryId completion poll", () => {
   it("polls not-complete→complete, then downloads with the same requestID", async () => {
     // Arrange — Routeware says the async query is not ready, then ready.
     behavior.responses = [() => pollBody(false), () => pollBody(true), csv];
@@ -164,7 +164,7 @@ describe("fetchReportCsvByQueryId completion poll (TOG-6543)", () => {
 });
 
 /**
- * TOG-7389 — malformed-input coverage for the CSV query-report path.
+ * Malformed-input coverage for the CSV query-report path.
  *
  * `src/lib/routewareQueryReportCsv.ts` previously had poll-happy-path tests
  * only. These cases pin the parsing guards that keep a truncated or
@@ -177,7 +177,7 @@ describe("fetchReportCsvByQueryId completion poll (TOG-6543)", () => {
  *
  * Fixtures are structural only (stand-in CSV, no PII/secrets).
  */
-describe("extractRequestIdFromText malformed input (TOG-7389)", () => {
+describe("extractRequestIdFromText malformed input", () => {
   it("returns null when the text carries no UUID at all", () => {
     // Arrange
 
@@ -245,7 +245,7 @@ describe("extractRequestIdFromText malformed input (TOG-7389)", () => {
   });
 });
 
-describe("parseQueryRequestIsCompleteResponse malformed input (TOG-7389)", () => {
+describe("parseQueryRequestIsCompleteResponse malformed input", () => {
   it("returns false for an empty or whitespace-only body", () => {
     // Arrange — a blank 200 body means "not done", never an error.
 
@@ -306,7 +306,7 @@ describe("parseQueryRequestIsCompleteResponse malformed input (TOG-7389)", () =>
   });
 });
 
-describe("fetchReportCsvByQueryId malformed download responses (TOG-7389)", () => {
+describe("fetchReportCsvByQueryId malformed download responses", () => {
   const htmlLoginPage = () =>
     new Response(
       '<html><body><form action="/Account/Login">' +

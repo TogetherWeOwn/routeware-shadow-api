@@ -1,5 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 // Matches wrangler.toml [env.test.vars].
 const API_TOKEN = "test-api-token";
@@ -30,13 +31,13 @@ describe("HTTP API", () => {
         init?: RequestInit
       ): Promise<Response> => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("killeen.routeware.com") && url.includes("/WebRW/Home/Index")) {
+        if (isUpstreamUrl(url) && url.includes("/WebRW/Home/Index")) {
           return new Response("mock-index", {
             status: 200,
             headers: { "content-type": "text/plain" }
           });
         }
-        if (url.includes("killeen.routeware.com") && url.includes("Account/Login")) {
+        if (isUpstreamUrl(url) && url.includes("Account/Login")) {
           return new Response("<html>login</html>", {
             status: 200,
             headers: { "content-type": "text/html" }
@@ -49,7 +50,7 @@ describe("HTTP API", () => {
         const internalTokenFetch = shadowHdr === "anti-forgery-modal";
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Customer/LoadLongCustomerModal")
         ) {
           return new Response(
@@ -59,7 +60,7 @@ describe("HTTP API", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Customer/AddNewLong")
         ) {
           return new Response(
@@ -69,7 +70,7 @@ describe("HTTP API", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/PickupAddress/LoadAddressModal")
         ) {
           return new Response(
@@ -79,7 +80,7 @@ describe("HTTP API", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/PickupAddress/CreateBlankAddress")
         ) {
           return new Response(
@@ -89,7 +90,7 @@ describe("HTTP API", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Container/LoadContainerModal")
         ) {
           return new Response(
@@ -99,7 +100,7 @@ describe("HTTP API", () => {
         }
         if (
           internalTokenFetch &&
-          url.includes("killeen.routeware.com") &&
+          isUpstreamUrl(url) &&
           url.includes("/WebRW/Container/CreateBlankContainer")
         ) {
           return new Response(
@@ -107,7 +108,7 @@ describe("HTTP API", () => {
             { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
           );
         }
-        if (url.includes("killeen.routeware.com") && url.includes("/WebRW/")) {
+        if (isUpstreamUrl(url) && url.includes("/WebRW/")) {
           return new Response(JSON.stringify({ mocked: true, url }), {
             status: 200,
             headers: { "content-type": "application/json" }
@@ -308,7 +309,7 @@ describe("HTTP API", () => {
     expect(body.url).toContain("LoadLongCustomerModal");
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal drops unknown query params upstream", async () => {
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     const response = await call(
       "/api/v1/routeware/customer/load-long-modal?customerID=99&evilParam=1"
@@ -325,7 +326,7 @@ describe("HTTP API", () => {
     expect(upstreamUrl.searchParams.has("evilParam")).toBe(false);
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal 400s without customerID and never fetches upstream", async () => {
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     const before = fetchMock.mock.calls.length;
     const response = await call("/api/v1/routeware/customer/load-long-modal");
@@ -343,7 +344,7 @@ describe("HTTP API", () => {
     expect(upstreamCalls).toHaveLength(0);
   });
 
-  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID (TOG-6404)", async () => {
+  it("GET /api/v1/routeware/customer/load-long-modal 400s on a non-numeric customerID", async () => {
     const response = await call("/api/v1/routeware/customer/load-long-modal?customerID=abc");
     expect(response.status).toBe(400);
     expect(response.headers.get("content-type")).toContain("problem+json");

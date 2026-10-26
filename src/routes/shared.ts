@@ -6,7 +6,7 @@ import { findForeignKeyError } from "../lib/snapshot/upsert";
 import type { AppEnv } from "./types";
 
 /**
- * Default zod-validation hook for every route module (TOG-5836).
+ * Default zod-validation hook for every route module.
  *
  * Without this, `@hono/zod-openapi` answers schema rejections (bad query,
  * path or body shapes) with its raw `{success:false, error}` 400 as
@@ -15,7 +15,7 @@ import type { AppEnv } from "./types";
  * `bad-request` problem+json, and the handler never runs.
  *
  * `detail` names the rejected target and fields, never values: query strings
- * here can carry customer PII (company-name/company substrings), so the zod
+ * here can carry customer PII (customer-name substrings), so the zod
  * messages (which echo received values) are deliberately not forwarded.
  */
 export function validationFailureHook(
@@ -42,7 +42,34 @@ export function validationFailureHook(
     type: problemType("bad-request", c?.env),
     title: "Bad Request",
     status: 400,
-    detail: `Invalid request ${result.target} (${unique.join(", ")}). See docs/PROBLEMS.md#bad-request.`
+    detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
+      (result.target === "query" && unique.includes("hasAddresses")
+        ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasPhone1")
+        ? "Send one hasPhone1=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasPhone2")
+        ? "Send one hasPhone2=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("streetAddress")
+        ? "URL-encode one nonblank stored street value or omit streetAddress and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("driverNote")
+        ? "Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("lastAuditDate")
+        ? "Send one nonblank lastAuditDate of 1..100 Unicode code points, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasLastAuditDate")
+        ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("countOnly")
+        ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("comments")
+        ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
 
@@ -72,7 +99,7 @@ export function createRouteModule(): OpenAPIHono<AppEnv> {
  * on top of the app-wide `/api/v1/*` bearer gate in `app.ts`.
  *
  * Only the sync secret clears it — never `SHADOW_API_TOKEN`, and never the
- * read-only `SHADOW_API_READ_TOKEN` (TOG-8878): the read token may pass the
+ * read-only `SHADOW_API_READ_TOKEN`: the read token may pass the
  * outer gate on GET, but every privileged route (including GET exports and
  * `/api/v1/data/*` reads) 401s here.
  */
@@ -89,7 +116,7 @@ type SnapshotAuthContext = {
  * Guard for the snapshot-secret routes: returns a 401 problem+json response to
  * return as-is, or `null` when the caller is authorized.
  *
- * The detail is fixed here (TOG-7030): every privileged route names the sync
+ * The detail is fixed here: every privileged route names the sync
  * secret and the remedy doc, so clients see one canonical 401 body.
  */
 export function requireSnapshotAuth(c: SnapshotAuthContext): Response | null {
@@ -125,18 +152,23 @@ export function requireSnapshotSecret(c: SnapshotAuthContext): Response | null {
 }
 
 /**
- * `?dryRun=true` query flag for the snapshot sync/import routes (TOG-9203).
- * An enum, not a coerced boolean: `z.coerce.boolean()` maps every non-empty
- * string (including `"false"`) to `true`, which would turn a cautious
- * `?dryRun=false` probe into a real write. Only the exact string `"true"`
- * dry-runs; anything else is rejected with the anchored 400 below.
+ * `?dryRun=true` query flag for the snapshot sync/import routes and the
+ * data-entity saves. An enum, not a coerced boolean: `z.coerce.boolean()`
+ * maps every non-empty string (including `"false"`) to `true`, which would
+ * turn a cautious `?dryRun=false` probe into a real write. Only the exact
+ * string `"true"` dry-runs; anything else is rejected with the anchored 400
+ * below. The object is intentionally non-strict: unknown keys pass the
+ * validator and are rejected after auth by the respective unknown-key
+ * guards below, so an inner 401 precedes an unknown-key 400 while an invalid
+ * `dryRun` value 400s first.
  */
 export const dryRunQuery = z.object({
   dryRun: z
     .enum(["true", "false"])
     .optional()
     .describe(
-      "Dry run: validate the CSV and return the would-be counts without writing D1 or R2"
+      "Dry run: run validation only and persist nothing — no upstream write, no D1 write, no R2 write, no cache invalidation. " +
+        "Mutating snapshot POSTs reject any other query key with a value-free 400 before any work."
     )
     .openapi({ example: "true" })
 });
@@ -144,6 +176,147 @@ export const dryRunQuery = z.object({
 /** True only for `?dryRun=true` — absent or `?dryRun=false` runs for real. */
 export function isDryRunRequested(query: { dryRun?: string }): boolean {
   return query.dryRun === "true";
+}
+
+/**
+ * Declared query keys for the three hydrated single-entity GETs
+ * (`GET /api/v1/data/customer|address|container`): `id`, the route's alias,
+ * the batch `ids` selector, the optional `fields` sparse-fieldset
+ * selector, and the optional typed `fields[customer]` / `fields[address]` /
+ * `fields[container]` selectors (every typed key is valid on every route).
+ * Single source of truth for the strict-query guard below — route handlers
+ * pass one of these, never an inline list.
+ */
+export const DATA_CUSTOMER_QUERY_KEYS = [
+  "id",
+  "customerId",
+  "ids",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+export const DATA_ADDRESS_QUERY_KEYS = [
+  "id",
+  "pickupAddressId",
+  "ids",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+export const DATA_CONTAINER_QUERY_KEYS = [
+  "id",
+  "containerId",
+  "ids",
+  "fields",
+  "fields[customer]",
+  "fields[address]",
+  "fields[container]"
+] as const;
+
+/**
+ * Declared query keys for the mutating snapshot POSTs: `dryRun` on the six
+ * per-table sync/import routes, plus the combined-only `partialProgress`
+ * opt-in on `POST /api/v1/data-snapshot/sync`. Single source of truth for
+ * the strict-query guard below — route handlers pass one of these, never an
+ * inline list.
+ */
+export const SNAPSHOT_POST_QUERY_KEYS = ["dryRun"] as const;
+export const DATA_SNAPSHOT_SYNC_QUERY_KEYS = [
+  "dryRun",
+  "partialProgress"
+] as const;
+
+/**
+ * Strict unknown-key guard for the seven mutating snapshot POSTs. Returns a
+ * 400 `bad-request` problem+json response to return as-is, or `null` when
+ * every submitted query key is in `allowed`.
+ *
+ * Call this in the handler immediately after the snapshot-auth gates and
+ * before any other check or work, so a mistyped `?dryrun=true` fails loudly
+ * instead of stripping to `{}` and running a real mutation. Placement is
+ * load-bearing: the zod validator still owns known-key VALUES (an invalid
+ * `?dryRun=maybe` 400s before the handler's inner auth check), while unknown
+ * KEYS are checked here, after auth — an API-token bearer with a typo'd key
+ * keeps the sync-secret 401. Repeated known keys likewise keep failing in
+ * the validator's string schema before this runs.
+ *
+ * The 400 is fixed guidance naming only the `allowed` keys, never the
+ * submitted names or values: unknown key bytes can carry PII probes, so they
+ * must not echo — which is also why this does not route through
+ * `validationFailureHook` (the hook forwards rejected field paths, safe only
+ * for allowlisted schema keys). Same `bad-request` type, title, status and
+ * `docs/PROBLEMS.md#bad-request` anchor as validator rejections, with a
+ * pathname-only instance (query stripped).
+ */
+export function rejectUnknownSnapshotPostQuery(
+  c: { req: { url: string }; env?: Env },
+  allowed: readonly string[]
+): Response | null {
+  const keys = new Set(new URL(c.req.url).searchParams.keys());
+  let unknown = false;
+  for (const key of keys) {
+    if (!allowed.includes(key)) {
+      unknown = true;
+      break;
+    }
+  }
+  if (!unknown) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail:
+      `Unknown query parameter. Allowed query parameters: ${allowed.join(", ")}. ` +
+      "See docs/PROBLEMS.md#bad-request.",
+    instance: new URL(c.req.url).pathname
+  });
+}
+
+/**
+ * Strict-query tail for routes whose zod query schema is non-strict on
+ * purpose: reject every raw query key outside `allowed` with a value-free
+ * 400 `bad-request` problem+json, or `null` when the query is clean.
+ *
+ * Call this AFTER `requireSnapshotAuth`: known-key values and repeats stay
+ * with the existing validator, while unknown keys must 401 first for a
+ * wrong bearer and 400 only once authorized. Raw searchParams retain empty
+ * names (`?=x`) that Hono's c.req.query() drops; a bare `&` carries no key.
+ *
+ * Hydrated GETs select `allowed-only`: fixed guidance must never echo
+ * submitted names or values, including names carrying PII. This bypasses
+ * validationFailureHook, which forwards rejected field paths. The detail
+ * keeps the shared `Invalid request query (fields selectors)` anchor: the
+ * bundle-selector contract pins that anchor shape for selector-bearing
+ * rejections, while the strict-key contract pins the allowed-keys clause
+ * and the no-echo rule. The default retains the existing POST guidance
+ * (key names, never values). Both use the same problem type and
+ * pathname-only instance, with no query echo.
+ */
+export function rejectUnknownQueryKeys(
+  c: { env?: Env; req: { url: string } },
+  allowed: readonly string[],
+  guidance: "submitted-keys" | "allowed-only" = "submitted-keys"
+): Response | null {
+  const names = new Set(new URL(c.req.url).searchParams.keys());
+  const unknown = [...names].filter((name) => !allowed.includes(name)).sort();
+  if (unknown.length === 0) {
+    return null;
+  }
+  return problemJsonResponse({
+    type: problemType("bad-request", c.env),
+    title: "Bad Request",
+    status: 400,
+    detail: guidance === "allowed-only"
+      ? `Invalid request query (fields selectors). Unknown query parameter. ` +
+        `Allowed query parameters: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`
+      : `Unknown query parameter${unknown.length === 1 ? "" : "s"}: ${unknown.join(", ")}. ` +
+        `Allowed: ${allowed.join(", ")}. See docs/PROBLEMS.md#bad-request.`,
+    instance: new URL(c.req.url).pathname
+  });
 }
 
 /**
@@ -476,25 +649,7 @@ export const containerSaveFormDocs: RouteDocs = {
 };
 
 /**
- * Shared by the customer, address and container snapshot list routes. Keep this
- * a single instance — the `.openapi()` name registers one reusable component,
- * and three separate instances would register it three times.
- *
- * `nextCursor` is the last row's primary key when the page came back full
- * (there may be more rows), or `null` at the end of the result set — set on
- * every list response, not just cursor-driven ones, so an offset caller can
- * switch to cursor pagination once OFFSET gets expensive (TOG-5810).
- */
-export const snapshotListResponse = z
-  .object({
-    rows: z.array(z.record(z.string(), z.unknown())),
-    total: z.number().int(),
-    nextCursor: z.number().int().nullable()
-  })
-  .openapi("CustomerSnapshotList");
-
-/**
- * Worked 200 result for the snapshot import/sync responses (TOG-8360).
+ * Worked 200 result for the snapshot import/sync responses.
  *
  * Byte-identical to the bodies pinned by `test/syncSummaryContract.test.ts`
  * (`{upserted: 2, rowCount: 2, deleted: 0}`), so the Scalar "try it" panel
@@ -509,7 +664,7 @@ export const snapshotWriteResultExample = {
 };
 
 /**
- * Worked 200 result for `POST /api/v1/data-snapshot/sync` (TOG-8360): one
+ * Worked 200 result for `POST /api/v1/data-snapshot/sync`: one
  * `{upserted, rowCount}` pair per table, matching the combined-shape contract
  * in `test/syncSummaryContract.test.ts` (no `deleted` leak, `null` when a
  * table is skipped).

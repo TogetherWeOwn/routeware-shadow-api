@@ -1,9 +1,10 @@
 import { CsvControlCharacterError } from "../lib/csvParse";
 import { problemJsonResponse, problemType } from "../lib/problem";
+import { SnapshotImportIdentityError } from "../lib/snapshot/importIdentity";
 import { InvalidSnapshotCsvError } from "../lib/snapshot/streamSync";
 
 /**
- * Edge guards for the `...-snapshot/import` routes (TOG-6279), kept in their
+ * Edge guards for the `...-snapshot/import` routes, kept in their
  * own module — not in `./shared` — so the pick applies cleanly wherever the
  * snapshot auth helpers have diverged. The input is plain data (a URL string
  * plus the declared length), never the framework context type, so callers on
@@ -22,7 +23,10 @@ export function rejectUnsupportedSnapshotImportContentType(
   env?: Env
 ): Response | null {
   // Media types are case-insensitive and may carry parameters (RFC 9110 §8.3.1).
-  const mediaType = input.contentType?.split(";", 1)[0].trim().toLowerCase();
+  // noUncheckedIndexedAccess: `split(...)[0]` is `string | undefined`; default
+  // to "" so a missing part falls through to the 415 below, as before.
+  const firstPart = input.contentType?.split(";", 1)[0];
+  const mediaType = firstPart?.trim().toLowerCase() ?? "";
   if (mediaType === "text/csv" || mediaType === "application/octet-stream") {
     return null;
   }
@@ -72,7 +76,7 @@ export function rejectOversizedSnapshotImport(
 /**
  * Map a snapshot import failure to its problem+json response:
  * `SnapshotTooLargeError` (direct or `cause`-wrapped by `streamCsvLines`'s
- * read guard) → 413; `InvalidSnapshotCsvError` or `CsvControlCharacterError`
+ * read guard) → 413; CSV shape, control-character or strict identity errors
  * → 400. Only fixed strings and a numeric row are returned — no submitted bytes, so the
  * error body cannot leak PII. Returns `null` for anything else, which the
  * caller lets propagate to the global 500 handler.
@@ -91,6 +95,15 @@ export function mapSnapshotImportError(
       status: 413,
       detail:
         "Snapshot import body exceeds the size limit. See docs/PROBLEMS.md#payload-too-large.",
+      instance: new URL(url).pathname
+    });
+  }
+  if (e instanceof SnapshotImportIdentityError) {
+    return problemJsonResponse({
+      type: problemType("bad-request", env),
+      title: "Bad Request",
+      status: 400,
+      detail: `${e.message} See docs/PROBLEMS.md#bad-request.`,
       instance: new URL(url).pathname
     });
   }

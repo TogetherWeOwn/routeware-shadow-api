@@ -1,7 +1,7 @@
 <!--
 Title: Conventional Commits header, e.g. `fix(auth): refuse expired sudo sessions`.
 Types: feat fix perf refactor test docs build ci chore revert style security. Max 100 chars, no trailing period.
-Keep the card ID out of the title. This repo is private, so put it on the Refs line under "Linked Issues".
+Keep issue numbers out of the title. Link them under "Linked Issues" instead.
 Write short, plain sentences. Fill in every section: the `pr-lint` check reads them.
 Full rules: CONTRIBUTING.md, "Pull request standards".
 -->
@@ -25,11 +25,11 @@ Full rules: CONTRIBUTING.md, "Pull request standards".
 
 <!--
   Required for feat, fix, perf, refactor and security. Pick ONE:
-  (A) Issue exists: link it. A card goes on the Refs line; a public GitHub issue is `Fixes #123`.
+  (A) Issue exists: link the GitHub issue, e.g. `Fixes #123` or `Refs #123`.
   (B) No issue exists: describe the problem here in your own words.
 -->
 
-Refs: TOG-
+Fixes #
 
 ## What Changed
 
@@ -69,5 +69,5 @@ Refs: TOG-
 - [ ] No secret, token or credential is in the diff, the title, the body or the branch name
 - [ ] CI is green on the exact head before I ask for review
 - [ ] I followed `docs/CONVENTIONS.md` and kept the authentication, PII and no-network-test invariants intact
-- [ ] I added a `TOG-…` bullet under `CHANGELOG.md ## [Unreleased]` for any consumer-visible contract change, or this is docs/test/scripts/CI-only
+- [ ] I added an issue-referencing bullet under `CHANGELOG.md ## [Unreleased]` for any consumer-visible contract change, or this is docs/test/scripts/CI-only
 - [ ] I did not run a production deploy or remote migration as ordinary development

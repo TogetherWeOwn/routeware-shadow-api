@@ -5,7 +5,7 @@ import { stringToUint8Stream } from "../src/lib/csvStream";
 import { syncCustomerSnapshotFromStream } from "../src/lib/snapshot/streamSync";
 
 /**
- * Customer snapshot changes feed (TOG-8877).
+ * Customer snapshot changes feed.
  *
  * `GET /api/v1/customer-snapshot/changes?since=<ts>` is the incremental-sync
  * counterpart to the full table list: it returns only rows with
@@ -108,7 +108,7 @@ describe("customer snapshot changes feed", () => {
   });
 
   it("discovers migration 0005 and applies its feed index", async () => {
-    // Pin (TOG-8877 review): `migrations/d1/.sha256sum` pins 0005's bytes and
+    // Pin (review): `migrations/d1/.sha256sum` pins 0005's bytes and
     // CI's `check:d1-drift` re-verifies manifest + fresh-apply journal, but no
     // test proved the file is discovered or that its index lands. Both halves
     // live here with the slice that needs the migration — the sibling-owned

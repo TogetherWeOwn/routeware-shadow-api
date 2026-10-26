@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * PII-scrub extension (TOG-7378): cron summary + problem-detail paths.
+ * PII-scrub extension: cron summary + problem-detail paths.
  *
- * `test/piiScrub.test.ts` (TOG-5821) pins the scrub where untrusted upstream
+ * `test/piiScrub.test.ts` pins the scrub where untrusted upstream
  * text used to enter a thrown `Error`. Its audit table marks two further
  * emission paths as "clean" without a single assertion proving it:
  *
@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   property (company name, phone, …) straight into the cron log.
  * - site 11: `runDataSnapshotSyncChainedHttp` used to embed a 1200-char slice
  *   of each per-table subrequest body in its throw, which landed in the cron
- *   `error` field. FIXED twice: TOG-9205 (R4-04/B1) cut the throw to step tag +
+ *   `error` field. FIXED twice: the R4-04/B1 change cut the throw to step tag +
  *   status only, and the structured logger drops exception text entirely — the
  *   failure record carries only the allowlisted `table`. Pinned below by
  *   feeding PII-shaped extras through both and proving only counts (success)
@@ -247,6 +247,7 @@ describe("cron success line carries counts only (site 1)", () => {
     await runScheduled(envWith("https://api.example.test"));
 
     // Assert — a new key on the record or on any table breaks the contract loudly.
+    // `runId` is the per-run correlation id (a bare UUID, PII-free).
     const line = loggedLine();
     expect(Object.keys(line).sort()).toEqual([
       "configSource",
@@ -260,6 +261,7 @@ describe("cron success line carries counts only (site 1)", () => {
       "msg",
       "outcome",
       "route",
+      "runId",
       "scheduledTime",
       "summary",
       "tables"
@@ -317,6 +319,7 @@ describe("cron failure line carries the allowlisted table only (site 1)", () => 
       "msg",
       "outcome",
       "route",
+      "runId",
       "scheduledTime",
       "summary",
       "table",
@@ -389,7 +392,7 @@ describe("chained runner carries counts, never row data (site 11)", () => {
     expectNoPii(JSON.stringify(result));
   });
 
-  it("failure carries zero subrequest body bytes, even for a PII-shaped problem body (TOG-9205)", async () => {
+  it("failure carries zero subrequest body bytes, even for a PII-shaped problem body", async () => {
     // Arrange — the subrequest answers a problem+json body smuggling
     // PII-shaped row fields alongside the fixed shape. The thrown message
     // lands verbatim in the cron `data-snapshot-sync failed` record's `error`

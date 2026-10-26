@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the CHANGELOG gate (TOG-8385, gap G9).
+ * Pure helpers for the CHANGELOG gate (PR #171).
  *
  * Gap: `[Unreleased]` sits empty with no enforcement, so consumer-visible
  * contract changes land without a changelog entry and the release notes lag
@@ -9,7 +9,9 @@
  * surface — `src/routes/**`, `src/app.ts`, `src/worker.ts`, `src/lib/*.ts`
  * response shapes, `wrangler.toml` routes/vars, or `migrations/d1/**`
  * (schema consumers read through). A contract-visible change must add at
- * least one bullet under `## [Unreleased]` naming its card (`TOG-1234`).
+ * least one bullet under `## [Unreleased]` naming its reference: a GitHub
+ * issue (`#123`, bullet-leading or parenthesised) or a legacy card id
+ * (`TOG-1234`, kept for historical entries).
  * Docs-only, test-only, script-only, and CI-only changes carry no consumer
  * surface and skip the gate.
  *
@@ -67,15 +69,36 @@ export function unreleasedSection(text) {
 }
 
 /**
- * Collect card ids (`TOG-1234`) named by bullets in a changelog section.
+ * Collect references named by bullets in a changelog section: GitHub issue
+ * refs (`#123` at a bullet start or parenthesised, e.g. `(#123)`) and
+ * legacy card ids (`TOG-1234`).
  *
  * @param {unknown} section section body text
- * @returns {string[]} sorted unique card ids
+ * @returns {string[]} sorted unique references
  */
 export function unreleasedCardIds(section) {
   const found = new Set();
-  for (const match of String(section ?? "").matchAll(/\bTOG-(\d+)\b/g)) {
+  const text = String(section ?? "");
+  for (const match of text.matchAll(/\bTOG-(\d+)\b/g)) {
     found.add(`TOG-${match[1]}`);
+  }
+  // `#N` refs count only inside a bullet: at its start (`- #123:`) or
+  // parenthesised anywhere in the bullet, including wrapped continuation
+  // lines. Prose and heading lines never satisfy the gate.
+  let inBullet = false;
+  for (const line of text.split("\n")) {
+    if (/^\s*[-*]\s+/.test(line)) {
+      inBullet = true;
+      const start = line.match(/^\s*[-*]\s+#(\d+)\b/);
+      if (start) found.add(`#${start[1]}`);
+    } else if (!/^\s+\S/.test(line)) {
+      inBullet = false;
+    }
+    if (inBullet) {
+      for (const match of line.matchAll(/\(#(\d+)\)/g)) {
+        found.add(`#${match[1]}`);
+      }
+    }
   }
   return [...found].sort();
 }
@@ -85,7 +108,7 @@ export function unreleasedCardIds(section) {
  *
  * @param {string[]} [changedPaths] repo-relative changed paths
  * @param {unknown} [changelogText] full CHANGELOG.md text
- * @param {string[]} [cardIds] card ids claimed for this change (e.g. PR Refs)
+ * @param {string[]} [cardIds] references claimed for this change (e.g. `#123`)
  * @returns {{ ok: boolean, contractPaths: string[], cards: string[], skipped: boolean }}
  */
 export function evaluateChangelogGate(changedPaths, changelogText, cardIds) {
@@ -111,7 +134,7 @@ export function formatPassLog(contractPaths, cards) {
   }
   return (
     `${CHECK_NAME}: PASS — ${contractPaths.length} consumer-visible path(s) ` +
-    `covered by ${cards.length} Unreleased card bullet(s): ${cards.join(", ")}`
+    `covered by ${cards.length} Unreleased referencing bullet(s): ${cards.join(", ")}`
   );
 }
 
@@ -123,10 +146,10 @@ export function formatFailureLog({ contractPaths, cards }) {
     lines.push(`  contract path changed: ${path}`);
   }
   if (cards.length === 0) {
-    lines.push("  no TOG-1234 bullet under ## [Unreleased] (add one, e.g. `- TOG-8385: …`)");
+    lines.push("  no referencing bullet under ## [Unreleased] (add one, e.g. `- #123: …`)");
   } else {
     lines.push(
-      `  Unreleased names ${cards.join(", ")} but not this change's card — add a bullet for it`
+      `  Unreleased names ${cards.join(", ")} but not this change's reference — add a bullet for it`
     );
   }
   lines.push("Docs/test/scripts/CI-only changes skip the gate; contract changes do not.");

@@ -1,4 +1,4 @@
--- TOG-5830: covering indexes for the container/address free-text list filters.
+-- Covering indexes for the container/address free-text list filters.
 --
 -- The list routes filter with `instr(lower(coalesce(col, '')), lower(?)) > 0`
 -- (substring, case-insensitive). SQLite cannot seek a B-tree for a substring

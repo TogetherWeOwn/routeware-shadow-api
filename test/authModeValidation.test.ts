@@ -3,7 +3,7 @@ import app from "../src/app";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Closed `AUTH_MODE` validation (TOG-6531).
+ * Closed `AUTH_MODE` validation.
  *
  * Cost bug: `mode` was lowercased but never validated, so a typo (e.g.
  * `AUTH_MODE=browserr`) fell into the HTTP-then-browser fallback and silently
@@ -49,6 +49,7 @@ const {
 } = await import("../src/lib/establishSession");
 
 const LOGIN_URL = "https://killeen.routeware.com/WebRW/Account/Login";
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 function envWith(mode: unknown): Env {
   return {
@@ -61,17 +62,28 @@ function envWith(mode: unknown): Env {
   } as unknown as Env;
 }
 
-/** Minimal refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
+ * /get is empty — mirroring the owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
@@ -82,7 +94,7 @@ function lockStub(state: { refreshing: boolean }): DurableObjectStub {
   } as unknown as DurableObjectStub;
 }
 
-describe("resolveAuthMode (TOG-6531)", () => {
+describe("resolveAuthMode", () => {
   it("accepts the closed set case-insensitively with surrounding whitespace", () => {
     expect(resolveAuthMode(envWith("auto"))).toBe("auto");
     expect(resolveAuthMode(envWith("http"))).toBe("http");
@@ -117,7 +129,7 @@ describe("resolveAuthMode (TOG-6531)", () => {
   });
 });
 
-describe("establishSession with a typo'd AUTH_MODE (TOG-6531)", () => {
+describe("establishSession with a typo'd AUTH_MODE", () => {
   beforeEach(() => {
     httpLoginCalls.count = 0;
     browserLoginCalls.count = 0;
@@ -125,7 +137,7 @@ describe("establishSession with a typo'd AUTH_MODE (TOG-6531)", () => {
 
   it("rejects without attempting either login strategy and releases the lock", async () => {
     // Arrange — typo'd mode, free lock
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     const stub = lockStub(state);
 
     // Act
@@ -159,16 +171,24 @@ const originalFetch = globalThis.fetch;
  * `test/openapiDocsGate.test.ts` does.
  */
 function typoAppEnv(): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock" || path === "/throttle/clear" || path === "/throttle/failure") {
-        state.refreshing = path === "/unlock" ? false : state.refreshing;
+        if (path === "/unlock" && state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+          state.refreshing = false;
+          state.lockToken = null;
+        }
         return Response.json({ blocked: false, retryAfterSec: 0 });
       }
       if (path === "/get") {
@@ -192,7 +212,7 @@ function typoAppEnv(): Env {
   } as unknown as Env;
 }
 
-describe("app 503 on typo'd AUTH_MODE (TOG-6531)", () => {
+describe("app 503 on typo'd AUTH_MODE", () => {
   beforeEach(() => {
     httpLoginCalls.count = 0;
     browserLoginCalls.count = 0;
@@ -214,7 +234,10 @@ describe("app 503 on typo'd AUTH_MODE (TOG-6531)", () => {
   it("returns a fast 503 misconfigured naming the valid values, never launching the browser", async () => {
     // Arrange — authorized request under a typo'd AUTH_MODE
     const req = new Request("http://test.local/api/v1/routeware/home/index", {
-      headers: { authorization: "Bearer test-api-token" }
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
     });
 
     // Act
@@ -224,6 +247,16 @@ describe("app 503 on typo'd AUTH_MODE (TOG-6531)", () => {
     // received typo and every valid value; neither login strategy ran.
     expect(res.status).toBe(503);
     expect(res.headers.get("content-type")).toContain("problem+json");
+    // onError branch (invalid AUTH_MODE, src/app.ts) must carry the API
+    // posture via withCors — otherwise a browser sees a CORS error instead
+    // of the real 503.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
     const body = (await res.json()) as {
       type: string;
       title: string;

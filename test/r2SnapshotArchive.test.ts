@@ -128,7 +128,7 @@ describe("putReadableStreamToR2", () => {
   });
 });
 
-describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
+describe("archiveReportCsvToR2AfterD1", () => {
   const logged: Array<Record<string, unknown>> = [];
   const errored: Array<Record<string, unknown>> = [];
   const realInfo = console.info;
@@ -314,6 +314,97 @@ describe("archiveReportCsvToR2AfterD1 (TOG-6550)", () => {
         key: expect.stringMatching(/^snapshot-history\/\d{4}-\d{2}-\d{2}\/[^/]+\/container\.csv$/)
       })
     );
+  });
+});
+
+describe("putReadableStreamToR2 abort failure", () => {
+  const warned: Array<Record<string, unknown>> = [];
+  const realWarn = console.warn;
+
+  beforeEach(() => {
+    warned.length = 0;
+    console.warn = (...args: unknown[]) => {
+      warned.push(args[0] as Record<string, unknown>);
+    };
+  });
+
+  afterEach(() => {
+    console.warn = realWarn;
+  });
+
+  it("rethows the original upload error when abort also fails, with one dangling-upload warning", async () => {
+    // Arrange — a full 5 MiB part forces the multipart path; the part write
+    // fails and the cleanup abort fails too. Synthetic bytes only, no PII.
+    const uploadError = new Error("SYNTHETIC_UPLOAD_FAILURE_7f3a");
+    const abortError = new Error("SYNTHETIC_ABORT_FAILURE_9c2e");
+    const key = "snap/abort-failure.csv";
+    let cancelCalled = false;
+    let cancelReason: unknown;
+    const body = new Uint8Array(R2_MULTIPART_PART_SIZE);
+    body.fill(0x41);
+    // Note: no close() here — the stream stays open when the part write
+    // fails, so reader.cancel() reaches this cancel hook (a closed stream
+    // would make cancel a no-op and hide the teardown assertion).
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(body);
+      },
+      cancel(reason) {
+        cancelCalled = true;
+        cancelReason = reason;
+      }
+    });
+    const mpu = {
+      async uploadPart() {
+        throw uploadError;
+      },
+      async complete() {
+        throw new Error("complete must not run after a part failure");
+      },
+      async abort() {
+        throw abortError;
+      }
+    };
+    const bucket = {
+      async createMultipartUpload() {
+        return mpu as unknown as R2MultipartUpload;
+      }
+    } as unknown as R2Bucket;
+
+    // Act
+    const caught = await putReadableStreamToR2(bucket, key, stream, {
+      httpMetadata: { contentType: "text/csv" }
+    }).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    // Assert — the original upload error is rethrown unchanged, not the abort error.
+    expect(caught).toBe(uploadError);
+    // Assert — exactly one fixed-shape warning identifying the dangling upload.
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatchObject({
+      level: "warn",
+      msg: "R2 multipart abort failed; upload may be left dangling",
+      route: "snapshot.r2.multipart",
+      key
+    });
+    expect(Object.keys(warned[0]).sort()).toEqual([
+      "key",
+      "level",
+      "ms",
+      "msg",
+      "route"
+    ]);
+    // Assert — no uploaded bytes or PII leak into the warning record.
+    const serialized = JSON.stringify(warned[0]);
+    expect(serialized).not.toContain("SYNTHETIC_UPLOAD_FAILURE_7f3a");
+    expect(serialized).not.toContain("SYNTHETIC_ABORT_FAILURE_9c2e");
+    expect(serialized).not.toContain("AAAA");
+    // Assert — the source stream is torn down and its lock released.
+    expect(cancelCalled).toBe(true);
+    expect(cancelReason).toBe(uploadError);
+    expect(stream.locked).toBe(false);
   });
 });
 

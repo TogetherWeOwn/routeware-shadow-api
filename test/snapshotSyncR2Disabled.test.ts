@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
- * TOG-9209 (gap QA1) — full sync-route test for the R2-disabled path.
+ * Gap QA1 — full sync-route test for the R2-disabled path.
  *
  * `SNAPSHOTS_R2_ENABLED=false` had unit coverage only (`test/r2SnapshotArchive.test.ts`):
  * nothing drove the real per-table sync routes or the combined route with the flag off.
@@ -37,10 +38,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const httpLoginCalls = { count: 0 };
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=r2-disabled-test-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=r2-disabled-test-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -97,7 +98,7 @@ type SyncResult = {
   upserted: number;
   rowCount: number;
   deleted?: number;
-  /** R2 archive outcome (TOG-6549): always `disabled` in this file. */
+  /** R2 archive outcome: always `disabled` in this file. */
   r2?: { status: string; reason?: string; key?: string };
 };
 
@@ -185,7 +186,7 @@ describe("sync routes with R2 archiving disabled", () => {
           CTX
         );
       }
-      // TOG-6543: every query-id fetch polls QueryRequestIsComplete before its
+      // Every query-id fetch polls QueryRequestIsComplete before its
       // download. The poll answers complete immediately (no 302 re-auth dance:
       // the retry leg is pinned by snapshotSyncE2E.test.ts, not here).
       if (url.includes("/Reports/QueryRequestIsComplete")) {
@@ -206,7 +207,7 @@ describe("sync routes with R2 archiving disabled", () => {
         });
       }
       // Fail loudly on any other upstream URL instead of hitting the network.
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);

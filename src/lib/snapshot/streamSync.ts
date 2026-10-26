@@ -6,6 +6,10 @@ import { parseCustomerSnapshotRow } from "../csvCustomerSnapshot";
 import type { CustomerSnapshotRow } from "../csvCustomerSnapshot";
 import { assertCsvControlCharacters, mapCsvHeaders, normHeader, parseCsvLine } from "../csvParse";
 import { stringToUint8Stream, streamCsvLines } from "../csvStream";
+import {
+  assertSnapshotRecordIdentities,
+  validateSnapshotIdentityHeaders
+} from "./importIdentity";
 import type { SnapshotSyncCounts, StreamSyncOptions } from "./upsert";
 import {
   countWouldDeleteStale,
@@ -20,7 +24,7 @@ export const STREAM_BATCH_ADDR = 80;
 export const STREAM_BATCH_CONT = 40;
 
 /**
- * Cap on `...-snapshot/import` request bodies (TOG-6279). The report `sync`
+ * Cap on `...-snapshot/import` request bodies. The report `sync`
  * path is uncapped — upstream export size is the operator's own config — and
  * both paths stream, so neither buffers the whole file either way.
  */
@@ -91,7 +95,7 @@ export function isSnapshotTooLarge(e: unknown): boolean {
 }
 
 /**
- * TOG-6541: read the expected header off the *parsed* first cell, not the raw
+ * Read the expected header off the *parsed* first cell, not the raw
  * line. Real exports quote headers (`"CustomerID",...`) and `parseCsvLine`
  * strips those quotes; the old raw `line.startsWith(...)` rejected a valid
  * quoted export while the row parser below would have accepted it. Carried
@@ -104,15 +108,29 @@ function firstHeaderCell(line: string): string {
 /** Imports validate raw records before trimming/D1; reports keep legacy parsing. */
 async function* cappedLines(
   body: ReadableStream<Uint8Array>,
-  options: StreamSyncOptions
+  options: StreamSyncOptions,
+  table: "customer_snapshot" | "address_snapshot" | "container_snapshot"
 ): AsyncGenerator<string, void, undefined> {
   let rowNumber = 0;
-  for await (const line of streamCsvLines(
-    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes)
-  )) {
+  let identityCols: Record<string, number> | null = null;
+  const source =
+    options.maxBytes === undefined ? body : withByteCap(body, options.maxBytes);
+  const stalled =
+    options.stallTimeoutMs === undefined
+      ? undefined
+      : { stallTimeoutMs: options.stallTimeoutMs };
+  for await (const line of streamCsvLines(source, stalled)) {
     rowNumber += 1;
     if (options.rejectControlCharacters) {
       assertCsvControlCharacters(line, rowNumber);
+    }
+    if (options.strictImportIdentities) {
+      if (identityCols === null) {
+        identityCols = validateSnapshotIdentityHeaders(table, line);
+      } else {
+        // Throw before the consumer can parse, enqueue, flush or reconcile.
+        assertSnapshotRecordIdentities(table, identityCols, line, rowNumber);
+      }
     }
     yield line;
   }
@@ -135,7 +153,7 @@ export async function syncCustomerSnapshotFromStream(
   let dataRows = 0;
   let upserted = 0;
   // Dry runs keep every seen primary key so the would-be delete count can
-  // exclude rows the CSV would refresh (TOG-9203). Only populated in
+  // exclude rows the CSV would refresh. Only populated in
   // dry-run mode, so real syncs keep their streaming memory profile.
   const dryRunKeys: number[] = [];
 
@@ -160,7 +178,7 @@ export async function syncCustomerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "customer_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "customerid") {
         throw new InvalidSnapshotCsvError(
@@ -230,7 +248,7 @@ export async function syncAddressSnapshotFromStream(
   const batch: AddressSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
-  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // Same dry-run contract as the customer path above: count rows
   // without touching D1, keep seen keys for the would-be delete count.
   const dryRunKeys: number[] = [];
 
@@ -255,7 +273,7 @@ export async function syncAddressSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "address_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "pickupaddressid") {
         throw new InvalidSnapshotCsvError(
@@ -325,7 +343,7 @@ export async function syncContainerSnapshotFromStream(
   const batch: ContainerSnapshotRow[] = [];
   let dataRows = 0;
   let upserted = 0;
-  // Same dry-run contract as the customer path above (TOG-9203): count rows
+  // Same dry-run contract as the customer path above: count rows
   // without touching D1, keep seen keys for the would-be delete count.
   const dryRunKeys: number[] = [];
 
@@ -350,7 +368,7 @@ export async function syncContainerSnapshotFromStream(
     batch.length = 0;
   }
 
-  for await (const line of cappedLines(body, options)) {
+  for await (const line of cappedLines(body, options, "container_snapshot")) {
     if (lineNo++ === 0) {
       if (firstHeaderCell(line) !== "containerid") {
         throw new InvalidSnapshotCsvError(

@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { LoginPageUnavailableError } from "../src/lib/loginPageError";
+import { MissingSetCookieCapabilityError } from "../src/lib/setCookieCapabilityError";
 import type { ConcurrentRefreshTimeoutError } from "../src/lib/sessionRefreshLock";
 
 const httpLoginCalls = { count: 0 };
@@ -13,21 +15,21 @@ const LOCK_TTL_MS = 120_000;
 // session through the REAL storeSession, so this file exercises the actual
 // store-and-unlock wiring rather than a reimplementation of it.
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     httpLoginCalls.count += 1;
     if (httpLoginShouldFail) {
       throw new Error("HTTP login failed (status 500)");
     }
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=http", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=http", Date.now() + 60_000, lockToken);
   })
 }));
 
 vi.mock("../src/lib/browserAuth", () => ({
-  establishSessionWithBrowser: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionWithBrowser: vi.fn(async (_env: Env, stub: DurableObjectStub, _bootstrapUrl: string, lockToken?: string | null) => {
     browserLoginCalls.count += 1;
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=browser", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=browser", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -44,13 +46,16 @@ const { isConcurrentRefreshTimeout } = await import("../src/lib/sessionRefreshLo
 type LockState = {
   refreshing: boolean;
   lockedAt: number | null;
+  lockToken: string | null;
   cookieHeader: string | null;
 };
 
 /**
- * Durable Object stub fake implementing the real /lock, /unlock, /set, /get
- * semantics, including the LOCK_TTL_MS stale-lock expiry: a lock older than
- * the TTL is treated as crashed and re-granted, matching `AuthSession`.
+ * Durable Object stub fake implementing the real /lock, /takeover, /unlock,
+ * /set, /get semantics, including the LOCK_TTL_MS stale-lock expiry and the
+ * lock-token owner check: a lock older than the TTL is treated as
+ * crashed and re-granted with a fresh token, and only the matching token
+ * releases a held lock — matching `AuthSession`.
  */
 function fakeStub(
   state: LockState,
@@ -60,7 +65,7 @@ function fakeStub(
     fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
 
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         const now = Date.now();
         const heldAndFresh =
           state.refreshing === true &&
@@ -71,14 +76,22 @@ function fakeStub(
         }
         state.refreshing = true;
         state.lockedAt = now;
-        return new Response("OK");
+        state.lockToken = `synthetic-lock-token-${now}`;
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
         if ("unlockFailure" in options) {
           throw options.unlockFailure;
         }
+        if (state.refreshing === true) {
+          const body = JSON.parse(String(init?.body ?? "{}")) as { lockToken?: unknown };
+          if (typeof state.lockToken !== "string" || body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
         state.lockedAt = null;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/set") {
@@ -87,10 +100,13 @@ function fakeStub(
           // Mirrors the DO's parseSetBody rejection: 400 and the lock stays held.
           return new Response("Bad Request", { status: 400 });
         }
-        const body = JSON.parse(String(init?.body)) as { cookieHeader: string };
+        const body = JSON.parse(String(init?.body)) as { cookieHeader: string; lockToken?: unknown };
         state.cookieHeader = body.cookieHeader;
-        state.refreshing = false;
-        state.lockedAt = null;
+        if (state.refreshing !== true || body.lockToken === state.lockToken) {
+          state.refreshing = false;
+          state.lockedAt = null;
+          state.lockToken = null;
+        }
         return new Response("OK");
       }
       if (path === "/get") {
@@ -106,7 +122,7 @@ function fakeStub(
 }
 
 function freshState(): LockState {
-  return { refreshing: false, lockedAt: null, cookieHeader: null };
+  return { refreshing: false, lockedAt: null, lockToken: null, cookieHeader: null };
 }
 
 function envWith(mode: string): Env {
@@ -145,6 +161,7 @@ describe("establishSession refresh-lock serialization", () => {
     const state: LockState = {
       refreshing: false,
       lockedAt: null,
+      lockToken: null,
       cookieHeader: ".WebRW=stale"
     };
     const stub = fakeStub(state);
@@ -171,6 +188,7 @@ describe("establishSession refresh-lock serialization", () => {
       const state: LockState = {
         refreshing: true,
         lockedAt: Date.now(),
+        lockToken: "synthetic-crashed-holder",
         cookieHeader: null
       };
       const stub = fakeStub(state);
@@ -191,19 +209,20 @@ describe("establishSession refresh-lock serialization", () => {
     }
   });
 
-  it("fails closed when a fresh lock is held by a stalled holder (TOG-6526)", async () => {
+  it("fails closed when a fresh lock is held by a stalled holder", async () => {
     // Arrange — a holder took the lock "now" and then stalled without
     // publishing a session (no /set, no /unlock). The lock stays fresh for
     // the whole wait, so the waiter must time out without logging in itself —
     // a duplicate login here is exactly the thundering-herd the lock exists
     // to prevent. Fake timers drive waitForConcurrentRefresh's poll loop
-    // deterministically (90s default timeout, TOG-6527).
+    // deterministically (90s default timeout).
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
       const state: LockState = {
         refreshing: true,
         lockedAt: Date.now(),
+        lockToken: "synthetic-crashed-holder",
         cookieHeader: null
       };
       const stub = fakeStub(state);
@@ -319,6 +338,102 @@ describe("establishSession refresh-lock serialization", () => {
     expect(state.refreshing).toBe(false);
   });
 
+  describe("browser-fallback log marker", () => {
+    // The R5-17 keep/remove-Browser-Rendering decision queries this record, so
+    // its static shape is a contract: renaming a field breaks that query.
+    const SYNTHETIC_SECRET = "SYNTHETIC-HTTP-FAILURE-NOT-A-CREDENTIAL";
+    const MARKER = {
+      level: "warn",
+      msg: "HTTP authentication failed; falling back to Browser Rendering",
+      route: "auth.login",
+      ms: null,
+      fallback: "browser"
+    };
+
+    function fallbackMarkers(warn: { mock: { calls: unknown[][] } }): unknown[] {
+      return warn.mock.calls
+        .map((call) => call[0])
+        .filter((record) => (record as { fallback?: unknown } | null)?.fallback === "browser");
+    }
+
+    async function runWithHttpFailure(
+      mode: string,
+      failure: unknown,
+      warn: { mock: { calls: unknown[][] } }
+    ): Promise<unknown[]> {
+      const { establishSessionViaHttp } = await import("../src/lib/httpAuth");
+      vi.mocked(establishSessionViaHttp).mockRejectedValueOnce(failure);
+      const state = freshState();
+      await establishSession(envWith(mode), fakeStub(state), "https://upstream/Account/Login").catch(
+        () => undefined
+      );
+      return fallbackMarkers(warn);
+    }
+
+    it("emits exactly one allowlisted marker and no error text when auto mode falls back", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure("auto", new Error(SYNTHETIC_SECRET), warn);
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(markers).toEqual([MARKER]);
+        expect(Object.keys(markers[0] as object).sort()).toEqual(
+          ["fallback", "level", "ms", "msg", "route"]
+        );
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(SYNTHETIC_SECRET);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it.each([
+      ["http mode", "http", new Error(SYNTHETIC_SECRET)],
+      ["blocked login page", "auto", new LoginPageUnavailableError(403, "synthetic")],
+      ["missing getSetCookie capability", "auto", new MissingSetCookieCapabilityError()]
+    ])("emits no marker and launches no browser for %s", async (_label, mode, failure) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const markers = await runWithHttpFailure(mode, failure, warn);
+
+        expect(markers).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+        expect(browserLoginCalls.count).toBe(0);
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("emits no marker when HTTP login succeeds in auto mode", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("auto"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(state.cookieHeader).toBe(".WebRW=http");
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("emits no marker for direct browser mode without an HTTP attempt", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        const state = freshState();
+        await establishSession(envWith("browser"), fakeStub(state), "https://upstream/Account/Login");
+
+        expect(browserLoginCalls.count).toBe(1);
+        expect(httpLoginCalls.count).toBe(0);
+        expect(state.cookieHeader).toBe(".WebRW=browser");
+        expect(fallbackMarkers(warn)).toEqual([]);
+        expect(warn).not.toHaveBeenCalled();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+
   it("releases the lock when the DO rejects the session write", async () => {
     // Arrange — the DO 400s the /set (e.g. a NaN expiry). The login "succeeds"
     // but nothing is stored, so the lock must not be left held.
@@ -336,11 +451,71 @@ describe("establishSession refresh-lock serialization", () => {
     expect(state.cookieHeader).toBeNull();
   });
 
+  it("accepts a live published session even when another caller re-locks before verification", async () => {
+    // Arrange — our login publishes a live cookie, but another caller takes
+    // the lock again before our post-login verification read lands. The guard
+    // must judge only the cookie material, not lock ownership.
+    const state = freshState();
+    const inner = fakeStub(state);
+    const innerFetch = inner.fetch.bind(inner);
+    const stub = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const response = await innerFetch(input, init);
+        const path = new URL(typeof input === "string" ? input : String(input)).pathname;
+        if (path === "/set") {
+          // Another caller immediately re-acquires the lock after our publish.
+          state.refreshing = true;
+          state.lockedAt = Date.now();
+        }
+        if (path === "/get") {
+          const body = (await response.json()) as Record<string, unknown>;
+          return Response.json({ ...body, refreshing: true });
+        }
+        return response;
+      }
+    } as unknown as DurableObjectStub;
+
+    // Act — must not throw "without an available live session"
+    await establishSession(envWith("http"), stub, envWith("http").LOGIN_URL);
+
+    // Assert — our cookie is live and the other caller's lock is untouched
+    expect(state.cookieHeader).toBe(".WebRW=http");
+    expect(state.refreshing).toBe(true);
+  });
+
+  it("rejects when the published session already expired by verification time", async () => {
+    // Arrange — login publishes, but the cookie is already past expiry when
+    // verified (delayed write/read). Must fail rather than report success.
+    const state = freshState();
+    const inner = fakeStub(state);
+    const innerFetch = inner.fetch.bind(inner);
+    const stub = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+        const response = await innerFetch(input, init);
+        const path = new URL(typeof input === "string" ? input : String(input)).pathname;
+        if (path === "/get") {
+          return Response.json({
+            cookieHeader: ".WebRW=http",
+            expiresAtMs: Date.now() - 1,
+            refreshing: false
+          });
+        }
+        return response;
+      }
+    } as unknown as DurableObjectStub;
+
+    // Act / Assert
+    await expect(
+      establishSession(envWith("http"), stub, envWith("http").LOGIN_URL)
+    ).rejects.toThrow(/without an available live session/);
+  });
+
   it("waits for the in-flight refresh instead of logging in again", async () => {
     // Arrange — someone else already holds the lock and has published a session
     const state: LockState = {
       refreshing: true,
       lockedAt: Date.now(),
+      lockToken: "synthetic-prior-holder",
       cookieHeader: ".WebRW=already-established"
     };
     const stub = fakeStub(state);

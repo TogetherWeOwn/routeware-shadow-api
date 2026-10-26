@@ -17,7 +17,7 @@ import {
 } from "../scripts/lib/syncBatchBudget.mjs";
 
 /**
- * TOG-6293 — sync batch-sizing benchmark vs the D1 per-invocation budget.
+ * Sync batch-sizing benchmark vs the D1 per-invocation budget.
  *
  * Pure-logic pins for `scripts/lib/syncBatchBudget.mjs` (numbers in, numbers
  * out — no Wrangler, credentials, or network). The headline assertions lock

@@ -4,9 +4,15 @@ What the test suite pins, per file, and **why** — most of it guards behaviour 
 in production rather than loudly. Read this before changing any file it names, or before deleting a
 test that looks redundant.
 
-Extracted verbatim from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
-every session, but is only needed when touching these specific modules). Coverage percentages are as
-measured at commit `ad7acde`; re-measure rather than trusting them.
+Originally extracted from `CLAUDE.md` on 2026-08-10 (it was ~11 KB of an always-on file that is read
+every session, but is only needed when touching these specific modules). Per-file percentages in the
+invariant descriptions are historical measurements at commit `ad7acde` unless dated otherwise;
+re-measure rather than trusting them. The dated suite-wide measurement under
+[The coverage ratchet](#the-coverage-ratchet) is separate.
+
+**[No test may reach the network](#no-test-may-reach-the-network).** Coverage runs use the local
+Vitest bindings and synthetic fixtures, never the live tenant or remote D1. Keep outbound fetches
+stubbed and throw on any unexpected upstream URL.
 
 ---
 
@@ -19,9 +25,11 @@ number up.** That is the whole mechanism.
 Read per-file numbers from `coverage/coverage-summary.json`, **not** the istanbul terminal table: the
 table drops files once they reach 100% and truncates long names.
 
-### Current floors, and why they were lowered once
+### Historical correction (2026-08-22)
 
-| Measured 2026-08-22 (hermetic) | Floor in `vitest.config.ts` |
+These are the **historical** baseline and floors, not the current gate.
+
+| Measured 2026-08-22 (hermetic) | Floor on 2026-08-22 |
 |---|---|
 | Statements 85.74% (1407/1641) | 85 |
 | Branches **79.48%** (833/1048) | 79 |
@@ -43,42 +51,109 @@ Stubbing `fetch` in that file (house pattern: throw on any unanticipated upstrea
 incidental execution and gave the numbers above. **No source line lost a real test; the code did not
 change.** This is a measurement correction, and it is the one time these floors move down.
 
+### Current main measurement (2026-10-16)
+
+Latest hermetic full run recorded in `vitest.config.ts` (2026-10-16, `efa883b`;
+not re-run for this refresh). `test/d1TestMigrations.ts` applies the D1 migrations to the local
+test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the customer → address → container
+sync path with mocked login and stubbed report fetches:
+
+| Metric | Measured 2026-10-16 | Floor in `vitest.config.ts` at this head |
+|---|---:|---:|
+| Statements | 97.85% (3518/3595) | 97 |
+| Branches | **93.93%** (2418/2574) | 93 |
+| Functions | 98.65% (515/522) | 98 |
+| Lines | 98.15% (3403/3467) | 98 |
+
+The 2026-08-22 figures above remain a historical baseline, not the current main measurement.
+**Do not recover coverage by letting tests reach the network.**
+
 ### Remaining gaps, highest risk first
 
-### Two known weaknesses in the ratchet itself
+### Known weaknesses in the ratchet itself
 
-- **The thresholds are global-only — `vitest.config.ts` does not set `perFile: true`.** A new module
-  with no tests at all can be masked by well-covered ones and never trip the gate. Pre-existing, but
-  it matters more after a downward re-baseline, because a global floor that has just been lowered is
-  exactly where a localized regression hides.
-- **"Raise them whenever the number goes up" is prose, not a guardrail.** Nothing enforces the
-  re-raise. Making it real needs a CI step comparing `coverage/coverage-summary.json` against the
-  configured floors — a comment cannot do it. Note also that the floors are uneven in practice:
-  `functions` sits 0.09 points under the measurement (hair-trigger) while `statements` sits 0.74
-  under (slack).
+- **The thresholds are global-only — closed by the per-file gate.** A new module with no
+  tests used to hide behind well-covered ones and never trip any global floor. The `build` job now
+  runs `npm run check:per-file-coverage` on every build, which fails when any `src` file in
+  `coverage/coverage-summary.json` has zero covered statements. Native `perFile: true` was rejected:
+  the installed Vitest only supports boolean `perFile`, which would force every file against the
+  global 97/94/98/98 floors that the known-gap files (csv parsers ~33–39%, `r2SnapshotArchive.ts`
+  62.3% statements) cannot meet. The allowlist (`scripts/per-file-coverage-allowlist.json`) starts
+  empty — `browserAuth.ts` graduated to direct tests — and the gate also fails on graduated or stale
+  entries so the list cannot rot. Low-but-nonzero files stay the global ratchet's job, not this check's.
+- **"Raise them whenever the number goes up" is enforced on pull requests.** The `build` job
+  runs `npm run check:coverage-ratchet`, which compares `coverage/coverage-summary.json`
+  against the configured floors and fails when a metric climbs a full point above its
+  floor without raising it. The step runs only on pull requests
+  (`if: github.event_name == 'pull_request'`), so a coverage gain can never turn the
+  main-branch build red or skip a deploy; Vitest thresholds plus the per-file gate remain the
+  main-branch gates.
 
-- **Branches, 79.48% — just under the ECC 80% standard.** The single highest-value fix is to apply
-  the D1 migrations in the test environment (`vitest.config.ts` has no `applyD1Migrations`, so
-  `CUSTOMER_DB` has no tables and no route test can drive a snapshot sync to a 200). With that in
-  place, an end-to-end sync test — mock `../src/lib/httpAuth` the way `test/establishSession.test.ts`
-  does, stub only the `QueryExecuteDownload` CSV — would cover the login → download → parse → upsert
-  path **with assertions**, which is what the removed incidental execution never did.
+- **The missing-D1-table / snapshot E2E gap is closed.** `test/d1TestMigrations.ts` applies the
+  migrations to the local test `CUSTOMER_DB`, and `test/snapshotSyncE2E.test.ts` asserts the
+  customer → address → container sync path with local fixtures. The 2026-10-16 recorded run measured
+  93.93% branches (2418/2574), above the 93% global floor in effect at that recording. **Do not recover coverage by
+  allowing tests to reach the network.**
 
 - The three `csv*Snapshot.ts` parsers — 33–39% statements, 33% functions. The per-row
   `parse*SnapshotRow` half is well covered via `streamSync`; the bulk `parse*SnapshotCsv` half is not.
 - `r2SnapshotArchive.ts` — 62.3% statements, 28.6% functions.
 - `routewareQueryReportCsv.ts` — 69.8% statements, 51.1% functions.
 
+### Test worker bindings
+
+`vitest.config.ts` builds the test worker's `miniflare.bindings` from `wrangler.toml [env.test.vars]`,
+so the toml is the single source: change it to change the test env. A local `.dev.vars` never affects
+`npx vitest run`.
+
+---
+
+## Worker caps — why local runs don't use every core
+
+`vitest.config.ts` sets `maxWorkers` to **2 on CI** (`process.env.CI`, which GitHub
+Actions always sets) and defaults local runs to **half the available parallelism**
+(`Math.max(1, Math.floor(os.availableParallelism() / 2))`). Both caps exist for
+the same reason: **worker oversubscription under istanbul instrumentation**.
+
+Each workers-pool worker boots its own workerd instance, and istanbul
+instrumentation adds ~65% to run time. An uncapped `vitest run --coverage`
+spawns a worker per core, so on a loaded host the workers contend past the 30s
+`testTimeout` and tests fail with timeouts that reproduce neither alone nor on
+an idle box:
+
+- **CI:** several CI jobs shared each self-hosted runner (self-hosted at
+  the time; CI has since moved to `ubuntu-latest`); the
+  unrestricted run stalled 7 files, every failure a timeout (red main
+  `3657b4f`, run 36357586974; PR #85 the same). Capping at 2 cleared it with
+  no test, assertion or timeout change (PR #89: unrestricted timed out 2
+  throttle tests, `--maxWorkers=2` passed 78 files / 1,128 tests).
+- **Local:** one uncapped local `vitest run --coverage` failed
+  `test/authThrottle.test.ts` ("brute-forcing a bad token") at the 30s
+  timeout while the same file passes alone in ~3.6s. Halving the core count
+  leaves headroom for whatever else the host is doing while keeping most of
+  the parallelism.
+
+Do not "restore full speed" by uncapping either side: a timeout failure after
+such a change is the cap doing its job, not a slow test. To override once on a
+local run, pass a Vitest-supported `--maxWorkers` value; the local cap is set at
+the root config level so Vitest can apply CLI overrides (including percentages
+and kebab-case spelling) to every project. CI stays fixed at 2. If a new local
+default proves stable, change `localMaxWorkers` instead so
+`npm run check:ci-workflow` keeps pinning the invariant.
+
 ---
 
 ## Per-file invariants
 
-### `dataEntityHandlers.ts` — 93.4% statements / 100% functions
+### `dataEntityHandlers.ts` — 93.4% statements / 100% functions (GET/ETag paths; POST moved to `dataEntitySave.ts`)
 
-`test/dataEntityHandlers.test.ts` covers the GET/ETag paths; `test/dataEntityPostHandlers.test.ts`
-covers the three POST write paths — including the branch where the upstream save succeeds but the D1
-sync throws, which must keep the 200 and fall back to `invalidateDataEntity` so stale PII is not
-served from cache.
+`test/dataEntityHandlers.test.ts` covers the GET/ETag paths.
+
+### `dataEntitySave.ts` — POST write paths (split from `dataEntityHandlers.ts`)
+
+`test/dataEntityPostHandlers.test.ts` covers the three POST write paths — including the branch where
+the upstream save succeeds but the D1 sync throws, which must keep the 200 and fall back to
+`invalidateDataEntity` so stale PII is not served from cache.
 
 Still open, smaller: several handlers here exceed the 50-line guideline.
 
@@ -99,7 +174,17 @@ does nothing. Two invariants before touching that file:
 
 Mutation-verified six ways, including both casing swaps.
 
-### `detailFullSync.ts` — two test files, split by what they need
+### `detailFullSync.ts` — mapping, fetch and write-through boundaries
+
+- `test/detailFullIdentity.acceptance.test.ts` parameterizes malformed primary/FK
+  aliases, normalized duplicates and wrong enclosing parents against real local
+  test D1 and cache invalidation through a confirmed save. Refusal must preserve
+  rows/timestamps with zero mutation attempts or graph cache publication, keep
+  `ok: true` with fixed `localSync.code: sync_failed`, and leak no fixture values.
+  Positive controls pin decimal string/numeric IDs, inherited parents, empty
+  deletion, fresh/deleted IDs, erasure suppression and tolerant read-only mapping.
+  `npm run test:detail-full` runs it with `test/detailFullReconciliation.test.ts`;
+  see the [identity contract](../CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract).
 
 - `test/detailFullSyncMapping.test.ts` (pure, no mocks) pins the field mapping: the
   Routeware→snapshot renames (`NameFirst`→`firstName` and friends) and the absent-key defaults, where
@@ -117,7 +202,22 @@ Mutation-verified six ways, including both casing swaps.
 
 Both mutation-verified.
 
-### `upstreamTimeout.ts` / bounded upstream budgets (TOG-5835)
+### Concurrent identical saves
+
+- `test/concurrentDuplicateSave.test.ts` fires 8 identical saves at once at each of the six save
+  routes (`/api/v1/routeware/{customer,address,container}/save-*` and
+  `POST /api/v1/data/{customer,address,container}`), through `app.fetch` with real D1 and the Cache
+  API. Every request answers 200, each is forwarded upstream exactly once, and D1 ends with one row
+  per id and the whole customer graph.
+- The newest-first case makes the sync with the newest `synced_at` write first. The older syncs that
+  land after it must neither overwrite it (the `synced_at <= excluded.synced_at` upsert guard) nor
+  delete it in `reconcileCustomerChildren`.
+- Identical creates are not deduplicated: Routeware takes no idempotency key, so 8 creates make 8
+  customers upstream. D1 mirrors exactly those 8, no more.
+
+Mutation-verified: dropping the upsert guard fails the newest-first case on all six routes.
+
+### `upstreamTimeout.ts` / bounded upstream budgets
 
 `test/upstreamTimeout.test.ts` (11 tests) pins the retry-budget split the whole
 change rests on: a hung upstream throws `UpstreamTimeoutError` within budget
@@ -128,6 +228,24 @@ non-idempotent POST. Budgets: 15s interactive / 60s report CSV (overridable via
 `UPSTREAM_TIMEOUT_MS` / `UPSTREAM_REPORT_TIMEOUT_MS`). A caller abort with the
 timer unfired rethrows verbatim so a client disconnect is never misreported as
 a 502. `app.onError` is the backstop for direct `forwardToUpstream` callers.
+Streamed consumption adds an idle stall bound on top (`REPORT_STREAM_STALL_TIMEOUT_MS`,
+default 30s): `test/streamedReportStallBound.test.ts` (13 tests) pins that a
+byte-prefix-then-stall stream fails as a top-level `UpstreamTimeoutError` on
+all three sync paths and both archive-readback passes while slow-drip streams
+complete, and `test/reportStreamStall.test.ts` pins cancel-on-stall,
+window-reset near the bound, and the env reader's default/override/fallback.
+
+### Chained sync response boundary
+
+`test/chainedSyncResponseBoundary.acceptance.test.ts` uses synthetic streams and a
+deny-by-default fetch stub. It pins a single 180s per-table header+body deadline
+(`CHAINED_SYNC_TIMEOUT_MS` override), the inclusive 65,536-byte UTF-8 ceiling,
+headers/prefix-then-stall, continuous/oversized producers, nonsettling cancellation,
+immediate non-2xx refusal, safe optional `deleted`, allowlisted R2 wire metadata,
+fixed cron kinds/next action, partial progress and dry-run/run-ID compatibility.
+The combined HTTP route still returns only `{upserted,rowCount}|null` on success.
+The [runbook](CRON-SYNC-ALARM-RUNBOOK.md#41-chained-response-boundary) gives the
+hermetic focused check. Do not recover by retrying a sync POST or using live data.
 
 ### `snapshot/reportFetch.ts` — 100% on all four metrics
 
@@ -199,9 +317,10 @@ The container module diverges on two points that must not be unified with the ot
 
 - its `INNER JOIN address_snapshot` is **conditional** on `customerId` (joining unconditionally
   silently drops every container whose address row is missing);
-- its free-text `q` binds the same value **twice**, once per column in the
-  `location_address OR serial_number` clause — one bind for two placeholders shifts every later bind
-  by one.
+- its free-text `q` binds the same trimmed value **four times**, once per column
+  in the grouped `location_address OR serial_number OR city OR zip` clause;
+  missing binds shift later scope and pagination parameters. Exact `c.zip = ?`
+  stays outside that OR and AND-composes with it.
 
 ### `routes/dataEntity.ts` (100% all four) and `routes/dataSnapshot.ts` (92.3% / 75%)
 
@@ -236,13 +355,12 @@ an assertion. The `*.sql?raw` / `cloudflare:test` declarations live in
 `test/sqlRaw.d.ts` (no precedent existed; the `?raw` import was probe-verified
 in-pool before use).
 
-TOG-7383 full-table audit (2026-09-27): every list/filter shape in
+Full-table audit (2026-09-27): every list/filter shape in
 `src/routes/{customer,address,container}Snapshot.ts` (23 shapes: plain list,
 id lookups, `q`-alone, `enabled`-alone, `enabled + q` SELECT + COUNT, and the
 container `customerId` join composed with `enabled + q`) was run through
 `EXPLAIN QUERY PLAN` before and after 0003 under `node:sqlite`
-(SQLite 3.53.4, same engine family as D1; full 146-line matrix attached to
-[TOG-7383](/TOG/issues/TOG-7383)). Post-0003 plans: customer `enabled + q`
+(SQLite 3.53.4, same engine family as D1; the full 146-line matrix was recorded with the audit). Post-0003 plans: customer `enabled + q`
 `SEARCH customer_snapshot USING INDEX idx_customer_snapshot_enabled
 (enabled=?)` — 0001 already served it, 0003 is a no-op there (pinned by
 before/after equality assertions); address `enabled + q` `SEARCH
@@ -263,16 +381,21 @@ change; removing them is a separate decision.
 
 ### `routes/shared.ts` — the snapshot auth helpers
 
-`requireSnapshotAuth()` / `requireSnapshotSecret()` guard all 16 privileged
-routes (13 at TOG-7030 plus the 3 `GET ...-snapshot/export` downloads,
-TOG-8361), and `test/snapshotAuth.test.ts` pins the canonical inner 401/503
-body every route shares. The per-call-site `detail` wording was unified in
-the helpers by TOG-7030 (one 401 detail naming the sync secret, one 503
+`requireSnapshotAuth()` guards all 19 privileged
+routes (13 originally, plus the 3 `GET ...-snapshot/export` downloads, plus `DELETE` erasure, `GET /api/v1/data-snapshot/orphans`, and `GET /api/v1/snapshots/:table/:date`), and `test/snapshotAuth.test.ts` pins the canonical inner 401
+body every route shares. `requireSnapshotSecret()` additionally checks the
+secret is configured on the 4 sync routes, behind the auth guard, so an unset
+secret currently surfaces as the 401 (pinned in
+`test/dataSnapshotRoutes.test.ts`), not its own 503. The per-call-site `detail` wording was unified in
+the helpers (one 401 detail naming the sync secret, one 503
 detail naming the secret config, each with the remedy-doc link and
-`instance`). `test/authGateResweep.test.ts` (TOG-8386) pins the privileged
-inventory itself from the live router, so a new sync/import/export/data route
-without `requireSnapshotAuth` fails there instead of slipping past the outer
-gate on the general API token.
+`instance`). `test/authGateResweep.test.ts` pins all 19 privileged routes
+from the live router, so a new route in those classes without
+`requireSnapshotAuth` fails there instead of slipping past the outer gate on
+the general API token; the `DELETE` erasure route matches method-qualified
+(`GET` on the same path is the outer-gate-only single-customer read) and the
+`orphans` route by exact match, while `GUARDED_ROUTES` in
+`test/snapshotAuth.test.ts` pins the canonical inner 401 on each of the 19.
 
 ### `src/app.ts` and the `src/routes/` module rules
 
@@ -281,6 +404,28 @@ gate on the general API token.
 directory are load-bearing enough to also be stated in [`CONVENTIONS.md`](CONVENTIONS.md), and
 `test/openapiContract.test.ts` enforces both plus the full generated document (verified to fail when
 a route is dropped).
+
+### `test/routeExamples.test.ts` — per-operation parameter pins (no shared count)
+
+`REMAINING_RESPONSES` is the single operation inventory, and every entry carries
+its own `parameterNames: string[]` record (including `[]` for parameterless
+operations). The parameter walker pins each operation's mounted query/path
+names against exactly that operation's record — a missing, extra or renamed
+parameter fails naming the operation and the name — then walks every mounted
+parameter for a schema-compatible example. The checked total is derived as the
+sum of the records, so adding a selector edits only its own operation's array:
+there is no shared integer for unrelated PRs to collide on, and the old
+hand-counted ledger is retired.
+
+The seam is load-bearing for `test/routeExamplesParameters.acceptance.test.ts`
+(the Node-pool oracle): it transpiles this module, swaps the inventory for
+tiny synthetic fixtures, and runs the two real callbacks, so keep the
+`REMAINING_RESPONSES` name, the `parameterNames` field, and the exact test
+names `pins the complete operation inventory of the remaining route modules`
+and `publishes schema-compatible examples for every query and path parameter`.
+Focused checks: `npx vitest run test/routeExamples.test.ts` for the mounted
+pins, `npx vitest run --config
+test/routeExamplesParameters.acceptance.config.ts` for the oracle in isolation.
 
 ---
 
@@ -308,7 +453,10 @@ but is **not** a test-only change.
 Every test runs against stubs. `test/integration.test.ts` sets the house pattern: replace
 `globalThis.fetch` in `beforeEach`, restore it in `afterEach`, and **throw** on any upstream URL the
 test did not anticipate, so a leak fails loudly instead of silently calling
-`killeen.routeware.com`.
+`killeen.routeware.com`. Detect upstream URLs with `test/upstreamHost.ts`
+(`isUpstreamUrl`, exact parsed-hostname comparison) — never `url.includes(host)`,
+which both false-trips on crafted URLs and misses case variants (CodeQL
+`js/incomplete-url-substring-sanitization`).
 
 **`test/snapshotAuth.test.ts` must keep its stub.** Fifteen of its sixteen tests are rejected at the
 auth gate and never reach a handler body, which is why the file had no stub for a long time. The

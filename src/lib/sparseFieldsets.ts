@@ -1,0 +1,285 @@
+import { z } from "@hono/zod-openapi";
+
+/**
+ * Sparse fieldsets (`?fields=`) for flat snapshot reads and the customer
+ * changes feed, plus per-type selectors (`?fields[customer]=`,
+ * `?fields[address]=`, `?fields[container]=`) for the three hydrated
+ * `/api/v1/data/*` bundles.
+ *
+ * Single source of truth for which response keys a client may select: each
+ * whitelist below mirrors the route's D1 SELECT list exactly (id + stored
+ * business columns + `synced_at`). Anything not listed here — `rowid`,
+ * cross-resource columns, erasure-tombstone columns — is not selectable and
+ * not probeable: an unknown name is a fixed value-free 400, identical for
+ * every rejected selector, so rejection reveals nothing about other tables.
+ *
+ * Parsing is strict by design: exact snake_case names, comma-separated, no
+ * whitespace trimming, no case folding, no empty segments, no duplicates, and
+ * a single key per selector (a repeated key reaches zod as an array and fails
+ * the string schema). The resource id is always present in responses even when
+ * omitted from the selector; naming it explicitly is not a duplicate.
+ *
+ * Validation lives in the query zod schema so the module `defaultHook`
+ * (`validationFailureHook`) answers rejections with the existing anchored
+ * 400 before the handler — and therefore before any D1 work — runs.
+ * Unknown `fields[TYPE]` keys are not visible to the schema (zod strips
+ * unknown keys), so the data routes reject them in-handler with the same
+ * anchored shape, after auth and before cache/D1.
+ */
+
+export type SnapshotFieldsetResource = "customer" | "address" | "container";
+
+/** Exact `SELECT` column list of customer snapshot list/detail/changes reads. */
+const CUSTOMER_SNAPSHOT_FIELDS = [
+  "customer_id",
+  "customer_type_id",
+  "company_name",
+  "first_name",
+  "middle_initial",
+  "last_name",
+  "name_suffix",
+  "customer_number",
+  "sub_customer_number",
+  "phone1",
+  "phone2",
+  "comments",
+  "enabled",
+  "synced_at"
+] as const;
+
+/** Exact `SELECT` column list of the address snapshot list/detail reads. */
+const ADDRESS_SNAPSHOT_FIELDS = [
+  "pickup_address_id",
+  "customer_id",
+  "route_id",
+  "address",
+  "city",
+  "state",
+  "zip",
+  "franchise_id",
+  "comments",
+  "extras_allowed",
+  "enabled",
+  "driver_note",
+  "latitude",
+  "longitude",
+  "last_audit_date",
+  "synced_at"
+] as const;
+
+/** Exact `SELECT` column list of the container snapshot list/detail reads. */
+const CONTAINER_SNAPSHOT_FIELDS = [
+  "container_id",
+  "pickup_address_id",
+  "container_type_id",
+  "serial_number",
+  "rfid",
+  "oncall",
+  "event_code",
+  "gps_locked",
+  "latitude",
+  "longitude",
+  "enabled",
+  "location_address",
+  "city",
+  "state",
+  "zip",
+  "container_note",
+  "ud_cost_share_ud",
+  "ud_enclosure_doors_ud",
+  "ud_last_compactor_inspection_ud",
+  "ud_last_enclosure_inspection_ud",
+  "ud_material_stream_ud",
+  "color",
+  "service_code_type",
+  "service_code_input",
+  "service_code",
+  "service_date",
+  "route_ids",
+  "frequency_ids",
+  "synced_at"
+] as const;
+
+export const SNAPSHOT_FIELDSETS: Record<
+  SnapshotFieldsetResource,
+  { idColumn: string; columns: readonly string[] }
+> = {
+  customer: { idColumn: "customer_id", columns: CUSTOMER_SNAPSHOT_FIELDS },
+  address: { idColumn: "pickup_address_id", columns: ADDRESS_SNAPSHOT_FIELDS },
+  container: { idColumn: "container_id", columns: CONTAINER_SNAPSHOT_FIELDS }
+};
+
+const FIELDSET_DELIMITER = ",";
+
+const FIELDS_EXAMPLES: Record<SnapshotFieldsetResource, string> = {
+  customer: "company_name,phone1",
+  address: "city,address",
+  container: "serial_number,location_address"
+};
+
+/**
+ * Strictly parse a raw `fields=` selector. Returns the requested column names
+ * in selector order, or `null` when the selector is invalid: empty value,
+ * empty segment (leading/trailing/doubled comma), unknown name, or duplicate.
+ * Matching is exact — no trimming, no case folding — so `" Company_Name "`
+ * fails closed instead of guessing.
+ */
+export function parseSnapshotFields(
+  resource: SnapshotFieldsetResource,
+  raw: string
+): string[] | null {
+  const allowed = new Set<string>(SNAPSHOT_FIELDSETS[resource].columns);
+  const seen = new Set<string>();
+  const names = raw.split(FIELDSET_DELIMITER);
+  for (const name of names) {
+    if (name === "" || seen.has(name) || !allowed.has(name)) {
+      return null;
+    }
+    seen.add(name);
+  }
+  return names;
+}
+
+/**
+ * Trim a full D1 row to exactly the requested columns plus the resource id.
+ * The id leads and is always present even when omitted from the selector;
+ * an explicitly requested id collapses into that same key (it appeared once
+ * in the selector, so it was never a duplicate).
+ */
+export function projectSnapshotRow(
+  resource: SnapshotFieldsetResource,
+  row: Record<string, unknown>,
+  columns: string[]
+): Record<string, unknown> {
+  const idColumn = SNAPSHOT_FIELDSETS[resource].idColumn;
+  const out: Record<string, unknown> = { [idColumn]: row[idColumn] };
+  for (const column of columns) {
+    if (column !== idColumn) {
+      out[column] = row[column];
+    }
+  }
+  return out;
+}
+
+/** Vendor extension v1: registry-derived discovery, not an enum of selectors. */
+function snapshotFieldsetMetadata(resource: SnapshotFieldsetResource) {
+  return {
+    schemaVersion: 1,
+    resource,
+    selectableFields: [...SNAPSHOT_FIELDSETS[resource].columns],
+    alwaysIncludedFields: [SNAPSHOT_FIELDSETS[resource].idColumn],
+    delimiter: FIELDSET_DELIMITER,
+    rules: {
+      caseSensitive: true,
+      whitespace: "reject",
+      emptySegments: "reject",
+      duplicates: "reject",
+      unknownNames: "reject",
+      repeatedKeys: "reject"
+    }
+  };
+}
+
+/**
+ * The `fields` query fragment for snapshot list/by-id and customer changes routes.
+ * Invalid selectors fail the string schema in the hook (`Invalid request
+ * query (fields)`); valid selectors arrive in the handler as parsed columns.
+ */
+export function snapshotFieldsQuery(resource: SnapshotFieldsetResource) {
+  return z
+    .string()
+    .refine((v) => parseSnapshotFields(resource, v) !== null)
+    .transform((v) => parseSnapshotFields(resource, v) as string[])
+    .optional()
+    .describe(
+      "Comma-separated sparse fieldset: exact stored column names from this route's allowlist " +
+        "(case-sensitive, no spaces, no empty segments, no duplicates, single key only). " +
+        "Response rows contain exactly these fields plus the resource id, which is always " +
+        "present even when omitted. Unknown names are a value-free 400 before any D1 work."
+    )
+    .openapi({
+      example: FIELDS_EXAMPLES[resource],
+      "x-snapshot-fieldset": snapshotFieldsetMetadata(resource)
+    });
+}
+
+/** The three hydrated-bundle per-type selector keys, one per projectable type. */
+export const BUNDLE_TYPED_FIELD_KEYS = {
+  customer: "fields[customer]",
+  address: "fields[address]",
+  container: "fields[container]"
+} as const satisfies Record<SnapshotFieldsetResource, string>;
+
+/**
+ * The `fields[TYPE]` query fragment for the hydrated `/api/v1/data/*` reads.
+ * Strictness is identical to the flat root selector: the same per-type
+ * allowlist, the same `parseSnapshotFields` rejection set, and a repeated key
+ * failing the string schema. Invalid selectors fail in the hook (`Invalid
+ * request query (fields[TYPE])`); valid selectors arrive as parsed columns.
+ * Omitted keys leave their type full; projection applies to every object of
+ * the listed type — the route root when it serves this type, plus all nested
+ * relations — with the primary id always retained.
+ */
+export function typedBundleFieldsQuery(resource: SnapshotFieldsetResource) {
+  return z
+    .string()
+    .refine((v) => parseSnapshotFields(resource, v) !== null)
+    .transform((v) => parseSnapshotFields(resource, v) as string[])
+    .optional()
+    .describe(
+      `Comma-separated sparse fieldset for every \`${resource}\` object in the served bundle: ` +
+        `exact stored column names from the \`${resource}\` allowlist ` +
+        "(case-sensitive, no spaces, no empty segments, no duplicates, single key only). " +
+        "Each projected object contains exactly these fields plus its primary id, which is always " +
+        "present even when omitted. Unknown names are a value-free 400 before any cache or D1 work."
+    )
+    .openapi({
+      example: FIELDS_EXAMPLES[resource],
+      "x-snapshot-fieldset": snapshotFieldsetMetadata(resource)
+    });
+}
+
+/** Local guidance for the existing single-ID hydrated selectors, never batch projection. */
+function bundleFieldsetMode(root: SnapshotFieldsetResource, selector: string) {
+  const rootKey = BUNDLE_TYPED_FIELD_KEYS[root];
+  const conflict = selector === "fields" ? rootKey : selector === rootKey ? "fields" : undefined;
+  return {
+    schemaVersion: 1,
+    rootResource: root,
+    projectionScope: selector === "fields" ? "root" : "type",
+    omittedTypes: "full",
+    singleIdOnly: true,
+    conflictsWith: ["ids", ...(conflict ? [conflict] : [])].sort(),
+    composesWith: ["fields", ...Object.values(BUNDLE_TYPED_FIELD_KEYS)]
+      .filter((key) => key !== selector && key !== conflict).sort()
+  };
+}
+
+/** Catalogs and root-specific modes beside only the hydrated GET declarations. */
+export function hydratedBundleFieldsQuery(root: SnapshotFieldsetResource) {
+  const typed = (resource: SnapshotFieldsetResource) => typedBundleFieldsQuery(resource).openapi({
+    "x-snapshot-fieldset-mode": bundleFieldsetMode(root, BUNDLE_TYPED_FIELD_KEYS[resource])
+  });
+  return {
+    fields: snapshotFieldsQuery(root).openapi({
+      "x-snapshot-fieldset-mode": bundleFieldsetMode(root, "fields")
+    }),
+    [BUNDLE_TYPED_FIELD_KEYS.customer]: typed("customer"),
+    [BUNDLE_TYPED_FIELD_KEYS.address]: typed("address"),
+    [BUNDLE_TYPED_FIELD_KEYS.container]: typed("container")
+  };
+}
+
+/**
+ * Unknown `fields[...]` keys among raw query keys, sorted for deterministic
+ * detection. The hydrated validation hook uses this before reporting mixed
+ * ID/selector errors so unknown selectors still pass the inner auth gate.
+ * The in-handler strict-query guard owns every unknown-key response; this
+ * helper only detects typed-selector names and does not emit diagnostics.
+ */
+export function findUnknownTypedBundleFieldKeys(queryKeys: readonly string[]): string[] {
+  const known = new Set<string>(Object.values(BUNDLE_TYPED_FIELD_KEYS));
+  return queryKeys
+    .filter((key) => key.startsWith("fields[") && !known.has(key))
+    .sort();
+}

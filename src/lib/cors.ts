@@ -1,5 +1,5 @@
 /**
- * CORS preflight + response headers for `/api/v1/*` (TOG-5809).
+ * CORS preflight + response headers for `/api/v1/*`.
  *
  * Browser clients calling the API cross-origin were failing before any
  * handler ran: a preflight (`OPTIONS`) carries no `Authorization` header by
@@ -21,13 +21,50 @@
  */
 
 const ALLOW_METHODS = "GET, POST, DELETE, OPTIONS";
-const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type";
-// Allowlist for `Access-Control-Allow-Headers` (TOG-8368 audit): the API only
+const DEFAULT_ALLOW_HEADERS = "Authorization, Content-Type, X-Request-Id";
+// Allowlist for `Access-Control-Allow-Headers`: the API only
 // reads `Authorization` (bearer gate) and `Content-Type` (POST bodies) plus
-// `If-None-Match` (conditional GETs on the data-entity ETag cache). Anything
+// `If-None-Match` (conditional GETs on JSON lists, data entities and CSV) and
+// `X-Request-Id` (request correlation). Anything
 // else the browser asks for is dropped instead of reflected.
-const ALLOWED_REQUEST_HEADERS = ["authorization", "content-type", "if-none-match"];
+const ALLOWED_REQUEST_HEADERS = [
+  "authorization",
+  "content-type",
+  "if-none-match",
+  "x-request-id"
+];
 const MAX_AGE_SECONDS = "86400";
+// One-per-line so parallel header cards merge without conflicts: each new
+// exposed field gets its own line.
+const EXPOSED_RESPONSE_HEADERS = [
+  "ETag",
+  "Retry-After",
+  "X-RateLimit-Limit",
+  "X-RateLimit-Remaining",
+  "X-RateLimit-Reset",
+  "RateLimit",
+  "RateLimit-Policy",
+  "Content-Disposition",
+  "X-Request-Id",
+  "Link"
+];
+// Default `Cache-Control` for `/api/v1/*` responses: nothing under
+// the bearer gate is public-cacheable, and the authenticated snapshot routes
+// return customer PII to browser clients, so an unset policy must fail closed
+// to `no-store`. Handlers that set their own value keep it (the data-entity
+// `private, max-age=60` reads, contained upstream errors).
+export const API_CACHE_CONTROL_NO_STORE = "no-store";
+
+/**
+ * Stamp the default API cache policy: set `Cache-Control: no-store` only when
+ * the handler left none. Case-insensitive via the `Headers` API, so a
+ * handler-set value in any casing is preserved.
+ */
+export function applyApiCachePolicy(headers: Headers): void {
+  if (!headers.has("Cache-Control")) {
+    headers.set("Cache-Control", API_CACHE_CONTROL_NO_STORE);
+  }
+}
 
 /**
  * Resolve the `Access-Control-Allow-Headers` value for a preflight: the
@@ -95,22 +132,35 @@ export function applyCorsHeaders(headers: Headers, origin: string | null): void 
   const clean = origin?.trim();
   headers.set("Access-Control-Allow-Origin", clean ? clean : "*");
   appendVary(headers, "Origin");
-  // The data-entity GETs version with ETag; expose it so browser clients can
-  // do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
-  // can honor the auth-throttle 429 backoff (TOG-7380). Content-Disposition is
-  // exposed so a fetch-based CSV download (`GET ...-snapshot/export`, TOG-8361) can read
-  // the attachment filename.
+  // JSON lists, data entities and CSV reads version with ETag; expose it so
+  // browser clients can do conditional reads. Retry-After and X-RateLimit-* are exposed so clients
+  // can honor the auth-throttle 429 backoff; RateLimit/RateLimit-Policy are
+  // the standard equivalents stamped on that same 429 (Retry-After is also on
+  // the upstream-timeout backstop 502). Content-Disposition is
+  // exposed so a fetch-based CSV download (`GET ...-snapshot/export`) can read
+  // the attachment filename. X-Request-Id is exposed so browser clients can
+  // correlate retries with server-side logs. Link exposes snapshot list continuations.
   headers.set(
     "Access-Control-Expose-Headers",
-    "ETag, Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, Content-Disposition"
+    EXPOSED_RESPONSE_HEADERS.join(", ")
   );
   applySecurityHeaders(headers);
 }
 
-/** Return `res` with CORS + hardening headers applied, preserving status and body. */
+/**
+ * Return `res` with CORS + hardening headers applied, preserving status and
+ * body — plus the default API cache policy: `Cache-Control:
+ * no-store` when the handler set none. A handler-set value is preserved (the
+ * data-entity `private, max-age=60` reads, contained upstream errors).
+ * Preflight (`corsPreflightResponse`) is intentionally untouched: it carries
+ * no body or data, only the CORS grant with its own `Access-Control-Max-Age`.
+ * `/openapi.json` and `/docs` use `withSecurityHeaders` directly, so they are
+ * untouched as well.
+ */
 export function withCors(res: Response, req: Request): Response {
   const headers = new Headers(res.headers);
   applyCorsHeaders(headers, req.headers.get("origin"));
+  applyApiCachePolicy(headers);
   return new Response(res.body, {
     status: res.status,
     statusText: res.statusText,

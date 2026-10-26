@@ -19,10 +19,10 @@ loop below.
 
 ## Dev setup
 
-Requires Node 20+ (`nvm use` picks it up from [`.nvmrc`](./.nvmrc)).
+Requires Node 24+ (`nvm use` picks it up from [`.nvmrc`](./.nvmrc)).
 
 ```bash
-nvm use                             # Node 20+
+nvm use                             # Node 24+
 npm install                         # add --include=dev if your shell omits devDependencies
 cp .dev.vars.example .dev.vars      # then fill in values (never commit this file)
 npm run db:migrate:local            # create the local D1 tables (once per clone)
@@ -49,10 +49,48 @@ and review the checked-in contract with:
 npx vitest run test/openapiContract.test.ts -u
 ```
 
-This updates `docs/openapi.json`; commit it only when the API change or
-version bump is intentional. Review the diff before committing. See
-[`docs/OPENAPI-DRIFT-CHECK.md`](./docs/OPENAPI-DRIFT-CHECK.md) for the
+This updates [`docs/openapi.json`](./docs/openapi.json), the complete published
+document. Commit it only when the API change or version bump is intentional.
+Review the diff before committing. See
+[`docs/OPENAPI-DRIFT-CHECK.md`](./docs/OPENAPI-DRIFT-CHECK.md) for the separate
 route-registration drift check.
+
+### verify:config: one-command preflight (human and JSON)
+
+`npm run verify:config` chains `check:devvars`, `check:vars-parity` and local-only
+`check:d1-drift` with one summary; exit 0 when every leg passes, 1 otherwise.
+
+Use npm's `--silent` flag for machine-readable output; plain `npm run` adds script
+banners to stdout before the JSON.
+
+- `npm --silent run verify:config:json` (`--json`) prints exactly one single-line JSON object
+  (`schemaVersion: 1`) with a per-leg `outcome` (`passed`, `nonzero_exit`, `timeout`,
+  `spawn_error`), `errorCode` and fixed `nextAction` — no child output or secret text.
+- `npm --silent run verify:config:dry-run` (`--dry-run --json`) prints the check plan and spawns
+  nothing; repeat runs are identical.
+- Every leg is bounded by the documented per-leg `timeout` (`CHECK_TIMEOUT_MS`); a
+  timed-out leg aborts its child and the run continues with the remaining legs.
+
+## Forks (external contributors)
+
+This is a public repo. External contributors work from a fork:
+
+1. Fork the repo, clone your fork, and create a `type/short-slug` branch.
+2. Follow Dev setup and the Verification loop below — local setup and checks
+   run without real upstream credentials, but still require non-empty
+   `LOGIN_USERNAME`/`LOGIN_PASSWORD` placeholder values (upstream-backed
+   routes still need real credentials).
+3. Open the PR from your fork against `upstream` `main` using the PR template.
+   CI runs the same credential-free checks on fork PRs (`build`, `hygiene`,
+   `pr-lint`); the `shadow-api-v1` contract step skips without `CF_TOKEN`,
+   which is expected. Secrets are never available to fork PRs.
+4. First-time contributors: GitHub may hold your CI run for maintainer approval
+   (the default for public repos). If checks do not start, comment on the PR
+   to ask a maintainer to approve them.
+5. Keep internal tracker ids, internal hosts and internal links out of the
+   title, body, branch name and commits — link a public GitHub issue when
+   one exists, otherwise describe the problem (`pr-lint` warns on internal
+   references and missing template content).
 
 ## Verification loop (PR checks)
 
@@ -64,6 +102,11 @@ npm run typecheck
 npm run lint
 npm test
 ```
+
+For the detail-full write-through boundary, run `npm run test:detail-full`
+without credentials. It uses synthetic graphs, local test D1 and throwing network
+stubs to check identity refusal before any write, reconciliation or graph cache
+publication. See the [detail-full contract](./CUSTOMER_SNAPSHOT.md#detail-full-write-through-identity-contract).
 
 Run `npm run test:coverage` before pushing — coverage is a ratchet
 (`vitest.config.ts` pins thresholds just under current levels; raise them when
@@ -79,8 +122,10 @@ Hard rules (enforced by tests or CI — see `docs/CONVENTIONS.md` §§ 3–4):
 - No hand-written source file over 800 lines — split the module instead.
 - Route modules must be `OpenAPIHono` via `createRouteModule()`, never plain `Hono`.
 - Consumer-visible contract changes (routes, response shapes, wrangler
-  routes/vars, D1 schema) need a `TOG-…` bullet under `CHANGELOG.md`
-  `## [Unreleased]` — enforced by `npm run check:changelog`. Docs-only,
+  routes/vars, D1 schema) need a bullet under `CHANGELOG.md`
+  `## [Unreleased]` referencing the GitHub issue (e.g. `- #123: …`) —
+  enforced by `npm run check:changelog`. When no issue exists, cite the
+  PR number instead (`- #<PR>: …`). Docs-only,
   test-only, script-only and CI-only changes skip the gate.
 - Never run `npm run deploy` / `wrangler deploy` / remote migrations as ordinary
   development — deploys target production and are separately gated.
@@ -94,15 +139,15 @@ PR titles and branch commits follow
 - Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`, `ci`,
   `chore`, `revert`, `style`, `security`.
 - Max 100 characters, no trailing period. The scope is the area of code
-  (`auth`, `events`, `sync`) — keep the card ID out of the title and put it on
-  the PR body's `Refs:` line instead (see the PR template).
+  (`auth`, `events`, `sync`) — keep issue numbers out of the title and link
+  them in the PR body's Linked Issues section instead (see the PR template).
 - Branch names: `type/short-slug`, e.g. `fix/sudo-window`.
 - Merging is squash only — each PR lands on `main` as one commit.
 
 ## Pull request standards
 
 These follow the upstream paperclipai/paperclip contributor rules, adapted for
-this private repo. The existing `pr-lint` check enforces them
+this repo. The existing `pr-lint` check enforces them
 (`.github/scripts/pr_standards.py`, tests beside it).
 
 - **Title** is a Conventional Commits header, `type(scope): summary`, at most
@@ -111,20 +156,23 @@ this private repo. The existing `pr-lint` check enforces them
   Thinking Path, Linked Issues or Issue Description, What Changed, Verification,
   Risks, Model Used and the Checklist. A PR created through the API gets no
   template, so paste it in. Thinking Path needs at least three real items.
-- **Private card reference** stays required: include `Refs: TOG-1234` in the body,
-  never in the title or branch name. `docs`, `chore`, `build`, `ci`, `style`, `test`
-  and `revert` PRs need no linked-issue description or duplicate-search tick,
-  but still need the private card reference.
+- **Linked issue**: link the GitHub issue in the body (`Fixes #123` or
+  `Refs #123`), never in the title or branch name, or describe the problem
+  in the Linked Issues section when no issue exists. `docs`, `chore`,
+  `build`, `ci`, `style`, `test` and `revert` PRs need no linked-issue
+  description or duplicate-search tick.
 - **Model Used** names the provider and exact model/version that wrote or helped
   with the change, or says `None - human-authored`.
 - **Search first.** Look for an open or recent PR that touches the same area,
   and link what you find.
-- **Branch name** is `type/short-slug`, for example `fix/sudo-window`. Agent
-  workspaces may be named after a card: push with
-  `git push origin HEAD:refs/heads/fix/short-slug`.
-- **Rollout** starts with `PR_STANDARDS_MODE: "warn"`: new body-section and
-  duplicate-search findings warn. Invalid titles, empty bodies and missing
-  required private card references remain errors. No new required check is added.
+- **Branch name** is `type/short-slug`, for example `fix/sudo-window`.
+- **Enforcement levels**: invalid titles and empty bodies are errors;
+  missing template sections, an unticked duplicate search, and internal
+  tracker references in the title, body or branch name warn
+  (`PR_STANDARDS_MODE: "warn"`). This is a public repo: keep internal
+  tracker ids, internal hosts and internal links out of every title, body,
+  branch name and commit message — link a public GitHub issue when one
+  exists, otherwise describe the problem.
 
 ## PR process
 

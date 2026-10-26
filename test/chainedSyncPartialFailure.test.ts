@@ -1,7 +1,8 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { isUpstreamUrl } from "./upstreamHost";
 
 /**
- * Chained-sync partial-failure contract (TOG-9211, round-4 gap QA3).
+ * Chained-sync partial-failure contract (round-4 gap QA3).
  *
  * Combined `POST /api/v1/data-snapshot/sync` chains three per-table
  * subrequests (customer → address → container). When one table's subrequest
@@ -12,17 +13,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  *    generic `internal` problem+json: no per-table keys, zero upstream bytes.
  * 2. **No body leak**: no byte of the upstream HTML body reaches the response
  *    or any log record (`Unhandled request error`, cron `data-snapshot-sync
- *    failed`). Fixed by TOG-9205
- *    (R4-04): `post()` in `src/lib/snapshot/orchestration.ts` used to embed a
+ *    failed`).
+ *    R4-04: `post()` in `src/lib/snapshot/orchestration.ts` used to embed a
  *    1200-char slice of the subrequest body in the thrown error, and both log
  *    lines printed it verbatim. This file is the reappearance tripwire: if
  *    upstream bytes ever return to either surface, the probe below goes red.
  *
  * Non-goals (owned elsewhere): exact `detail` wording and any future
- * fixed-shape fields (table/step/status) belong to TOG-9205, so this file
+ * fixed-shape fields (table/step/status) are owned elsewhere, so this file
  * asserts the stable subset only. Per-table counts for *completed* tables on
- * the cron `data-snapshot-sync failed` record belong to TOG-6546 (partial
- * progress) — pinned here are only the pieces stable across both: the
+ * the cron `data-snapshot-sync failed` record belong to partial
+ * progress — pinned here are only the pieces stable across both: the
  * failed/unattempted tables stay null and the allowlisted table survives.
  *
  * Hermetic like `test/syncSummaryContract.test.ts`: the real app against the
@@ -33,9 +34,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
  */
 
 vi.mock("../src/lib/httpAuth", () => ({
-  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub) => {
+  establishSessionViaHttp: vi.fn(async (_env: Env, stub: DurableObjectStub, lockToken?: string | null) => {
     const { storeSession } = await import("../src/lib/sessionRefreshLock");
-    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000);
+    await storeSession(stub, ".WebRW=partial-failure-probe-session", Date.now() + 60_000, lockToken);
   })
 }));
 
@@ -47,7 +48,7 @@ const SYNC_SECRET = "test-sync-secret";
 const ADDRESS_QID = "24";
 
 /** Unique token standing in for upstream HTML bytes; must appear nowhere else. */
-const UPSTREAM_HTML_MARKER = "CHAINED-SYNC-PROBE-TOG-9211";
+const UPSTREAM_HTML_MARKER = "CHAINED-SYNC-PROBE-UPSTREAM-HTML";
 
 /**
  * Upstream HTML error page for the failing table. Kept well under the
@@ -208,7 +209,7 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
           headers: { "content-type": "text/csv" }
         });
       }
-      if (url.includes("killeen.routeware.com")) {
+      if (isUpstreamUrl(url)) {
         throw new Error(`Unexpected upstream fetch in test: ${url}`);
       }
       return originalFetch(input, init);
@@ -227,7 +228,7 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     // Assert — a failure is a failure: the combined shape carries no
     // per-table keys at all (neither counts nor nulls-with-200), so no
     // client can mistake it for "customer synced, rest pending". Exact
-    // `detail` wording is NOT pinned here — TOG-9205 owns the future
+    // `detail` wording is NOT pinned here — a later change owns the future
     // fixed-shape body (table/step/status) — only the stable subset below.
     expect(res.status).toBe(500);
     const body = JSON.parse(res.raw) as Record<string, unknown>;
@@ -264,7 +265,7 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
     // success/unconfigured), its allowlisted `table` names the failed step
     // for triage with no exception text, and
     // the failed and unattempted tables stay null. Completed-table counts are
-    // NOT pinned here — TOG-6546 (partial progress) owns that evolution;
+    // NOT pinned here — partial-progress work owns that evolution;
     // pinning all-null would collide with it.
     const line = failedCronLine();
     expect(line).toMatchObject({
@@ -303,7 +304,7 @@ describe("chained-sync partial failure (address 500s with HTML)", () => {
       kind: "ChainedHttpError"
     });
 
-    // Assert — TOG-9205 (R4-04/B1): `post()` in orchestration.ts carries
+    // Assert — R4-04/B1: `post()` in orchestration.ts carries
     // table/step/status only, zero subrequest body bytes. The response half
     // already passed pre-fix (onError never echoes); both halves now double
     // as the reappearance tripwire — if body bytes ever return to either

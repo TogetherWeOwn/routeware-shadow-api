@@ -116,7 +116,7 @@ The same reads are available over HTTP (same bearer): `GET /api/v1/customer-snap
 
 ## 4. Orphan checks (must both be zero)
 
-On the local D1 the FK chain is enforced, so an out-of-order `import` fails at the offending batch (§2) rather than writing orphans — but a zero orphan count is still the acceptance proof (and on any D1 where FKs are *not* enforced, a `sync` that reconciles a parent away can strand children). The counts below must be `0` before the backfill is accepted. (An HTTP equivalent, `GET /api/v1/data-snapshot/orphans`, lands with [TOG-5814](/TOG/issues/TOG-5814) and is not on `main` yet — use the SQL here.)
+On the local D1 the FK chain is enforced, so an out-of-order `import` fails at the offending batch (§2) rather than writing orphans — but a zero orphan count is still the acceptance proof (and on any D1 where FKs are *not* enforced, a `sync` that reconciles a parent away can strand children). The counts below must be `0` before the backfill is accepted. (An HTTP equivalent, `GET /api/v1/data-snapshot/orphans` — same bearer as the other snapshot routes — returns per-edge orphan counts plus id samples from the deployed D1; the SQL here remains the check for a local backfill.)
 
 ```bash
 npx wrangler d1 execute routeware-customer-snapshot --local --json \

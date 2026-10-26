@@ -47,7 +47,7 @@ function liveShadowPaths(): Set<string> {
   return out;
 }
 
-describe("route-map freshness (TOG-7088)", () => {
+describe("route-map freshness", () => {
   it("has the 8 known entries", () => {
     expect(routeMap).toHaveLength(8);
   });
@@ -78,7 +78,7 @@ describe("route-map freshness (TOG-7088)", () => {
   });
 });
 
-describe("stub generator naming (TOG-7088, pure, no browser)", () => {
+describe("stub generator naming (pure, no browser)", () => {
   it("maps upstream paths to shadow paths deterministically", () => {
     expect(suggestShadowPath("/WebRW/Customer/CustomersRead")).toBe(
       "/api/v1/routeware/customer/customers-read"

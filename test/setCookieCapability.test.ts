@@ -4,7 +4,7 @@ import { httpLogin, mergeSetCookies } from "../src/lib/httpAuth";
 import { PROBLEM_TYPE_BASE } from "../src/lib/problem";
 
 /**
- * Fail fast when the runtime has no `Headers.getSetCookie` (TOG-6537).
+ * Fail fast when the runtime has no `Headers.getSetCookie`.
  *
  * Silent-mode-flip bug: `mergeSetCookies` fell back to `[]` when the runtime
  * lacked `getSetCookie`, so every HTTP login silently collected an empty jar —
@@ -42,6 +42,7 @@ const { isMissingSetCookieCapabilityError } = await import(
 const ORIGIN = "https://killeen.routeware.com";
 const LOGIN_URL = `${ORIGIN}/WebRW/Account/Login`;
 const UPSTREAM = `${ORIGIN}/WebRW/Home/Index`;
+const FOREIGN_ORIGIN = "https://app.example.com";
 
 function baseEnv(extra: Record<string, unknown> = {}): Env {
   return {
@@ -57,17 +58,28 @@ function baseEnv(extra: Record<string, unknown> = {}): Env {
   } as unknown as Env;
 }
 
-/** Refresh-lock stub: /lock grants, /unlock releases, /get is empty. */
-function lockStub(state: { refreshing: boolean }): DurableObjectStub {
+/**
+ * Minimal refresh-lock stub: /lock grants a token, /unlock verifies it,
+ * /get is empty — mirroring the owner check in `AuthSession`.
+ */
+function lockStub(state: { refreshing: boolean; lockToken: string | null }): DurableObjectStub {
   return {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/get") {
@@ -100,7 +112,7 @@ function restoreGetSetCookie(): void {
 
 const originalFetch = globalThis.fetch;
 
-describe("mergeSetCookies fails fast without getSetCookie (TOG-6537)", () => {
+describe("mergeSetCookies fails fast without getSetCookie", () => {
   afterEach(() => {
     restoreGetSetCookie();
   });
@@ -137,7 +149,7 @@ describe("mergeSetCookies fails fast without getSetCookie (TOG-6537)", () => {
   });
 });
 
-describe("httpLogin fails fast without getSetCookie (TOG-6537)", () => {
+describe("httpLogin fails fast without getSetCookie", () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
     restoreGetSetCookie();
@@ -165,7 +177,7 @@ describe("httpLogin fails fast without getSetCookie (TOG-6537)", () => {
   });
 });
 
-describe("establishSession never launches the browser without getSetCookie (TOG-6537)", () => {
+describe("establishSession never launches the browser without getSetCookie", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -177,7 +189,7 @@ describe("establishSession never launches the browser without getSetCookie (TOG-
 
   it("auto mode rethrows without a browser launch and releases the lock", async () => {
     // Arrange — free lock, capability missing.
-    const state = { refreshing: false };
+    const state = { refreshing: false, lockToken: null as string | null };
     removeGetSetCookie();
     globalThis.fetch = (async () => {
       throw new Error("unexpected upstream fetch: capability assert must run first");
@@ -208,16 +220,24 @@ const ctx = {
  * forward → reactive re-login → onError path with a stubbed upstream.
  */
 function capabilityAppEnv(fetchImpl: typeof fetch): Env {
-  const state = { refreshing: false };
+  const state = { refreshing: false, lockToken: null as string | null };
   const stub = {
-    fetch: async (input: RequestInfo | URL): Promise<Response> => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       const path = new URL(typeof input === "string" ? input : String(input)).pathname;
-      if (path === "/lock") {
+      if (path === "/lock" || path === "/takeover") {
         state.refreshing = true;
-        return new Response("OK");
+        state.lockToken = "synthetic-lock-token";
+        return Response.json({ lockToken: state.lockToken });
       }
       if (path === "/unlock") {
+        if (state.refreshing === true) {
+          const body = JSON.parse(String((init as RequestInit | undefined)?.body ?? "{}")) as { lockToken?: unknown };
+          if (body.lockToken !== state.lockToken) {
+            return new Response("Forbidden", { status: 403 });
+          }
+        }
         state.refreshing = false;
+        state.lockToken = null;
         return new Response("OK");
       }
       if (path === "/throttle/clear" || path === "/throttle/failure") {
@@ -238,7 +258,7 @@ function capabilityAppEnv(fetchImpl: typeof fetch): Env {
   return env;
 }
 
-describe("app 503 on missing getSetCookie capability (TOG-6537)", () => {
+describe("app 503 on missing getSetCookie capability", () => {
   beforeEach(() => {
     browserLoginCalls.count = 0;
   });
@@ -264,7 +284,10 @@ describe("app 503 on missing getSetCookie capability (TOG-6537)", () => {
     }) as unknown as typeof fetch;
     const env = capabilityAppEnv(fetchImpl);
     const req = new Request("http://test.local/api/v1/routeware/home/index", {
-      headers: { authorization: "Bearer test-api-token" }
+      headers: {
+        authorization: "Bearer test-api-token",
+        Origin: FOREIGN_ORIGIN
+      }
     });
 
     // Act
@@ -274,6 +297,16 @@ describe("app 503 on missing getSetCookie capability (TOG-6537)", () => {
     // cookie/PII bytes; exactly 1 upstream call (the forward), zero browser.
     expect(res.status).toBe(503);
     expect(res.headers.get("content-type")).toContain("problem+json");
+    // onError branch (missing getSetCookie, src/app.ts) must carry the API
+    // posture via withCors — otherwise a browser sees a CORS error instead
+    // of the real 503.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(res.headers.get("access-control-allow-origin")).toBe(FOREIGN_ORIGIN);
+    expect(res.headers.get("vary")).toMatch(/origin/i);
+    expect(res.headers.get("access-control-allow-credentials")).toBeNull();
     const body = (await res.json()) as {
       type: string;
       title: string;

@@ -1,3 +1,19 @@
+import { readWithStallTimeout, UpstreamTimeoutError } from "./upstreamTimeout";
+
+/** Options for `streamCsvLines`. */
+export type StreamCsvLinesOptions = {
+  /**
+   * Idle stall bound in ms: a `reader.read()` pending with no bytes for this
+   * long rejects with a top-level `UpstreamTimeoutError` (which `app.onError`
+   * maps to 502) and cancels the read. Each completed read resets the window,
+   * so slow-but-progressing streams complete. A positive number enables the
+   * bound; `undefined` (or a non-positive number) leaves the stream unbounded
+   * — the report sync path always passes the env-derived bound, while
+   * operator imports and in-memory fallbacks stay unbounded.
+   */
+  stallTimeoutMs?: number;
+};
+
 /** Expose a UTF-8 string as a one-chunk `ReadableStream` (small fixtures / `sync*FromCsvText` fallback). */
 export function stringToUint8Stream(s: string): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -18,7 +34,7 @@ type LineBreak = { end: number; nextStart: number };
  * A `"` opens a quoted field only at field start (line start or just after a
  * delimiter comma, tolerating spaces/tabs); a mid-field `"` is a literal stray
  * (inch mark), not a multiline open — otherwise one bad cell silently swallows
- * every following row (TOG-8536). `""` inside a quoted field is still an
+ * every following row. `""` inside a quoted field is still an
  * escaped literal, and a `"` while already quoted still closes.
  *
  * Returns the break position, or `null` when the buffer is exhausted (or ends on a
@@ -107,11 +123,18 @@ function scanForLineBreak(
  * **EOF:** If the file ends without a closing `"` (stray quote / inch mark in a cell),
  * we still yield the final buffer as one line instead of failing — many Routeware
  * exports are not strictly well-formed.
+ *
+ * **Stall bound:** with `options.stallTimeoutMs` set, a gap with no bytes for
+ * that long rejects with a top-level `UpstreamTimeoutError` (502 via
+ * `app.onError`) and cancels the read; each completed read resets the window.
  */
 export async function* streamCsvLines(
-  body: ReadableStream<Uint8Array>
+  body: ReadableStream<Uint8Array>,
+  options?: StreamCsvLinesOptions
 ): AsyncGenerator<string, void, undefined> {
   const reader = body.getReader();
+  const stallTimeoutMs = options?.stallTimeoutMs;
+  const stalled = typeof stallTimeoutMs === "number" && stallTimeoutMs > 0;
   const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
   let buffer = "";
   let inQuotes = false;
@@ -144,10 +167,18 @@ export async function* streamCsvLines(
       let done: boolean;
       let value: Uint8Array | undefined;
       try {
-        const r = await reader.read();
+        const r =
+          stalled && stallTimeoutMs !== undefined
+            ? await readWithStallTimeout(reader, stallTimeoutMs)
+            : await reader.read();
         done = r.done;
         value = r.value;
       } catch (e) {
+        // A stall timeout travels top-level so `app.onError` maps it to 502;
+        // wrapping it here would misreport a bounded timeout as a 500.
+        if (e instanceof UpstreamTimeoutError) {
+          throw e;
+        }
         const m = e instanceof Error ? e.message : String(e);
         throw new Error(
           `CSV stream read failed (upstream closed, timeout, or client disconnect): ${m}`,

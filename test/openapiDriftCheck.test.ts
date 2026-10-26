@@ -79,7 +79,7 @@ describe("openapi drift check", () => {
   it("flags pure direct-handler plain-Hono traffic with zero declarations", () => {
     // A module with no createRoute() declarations at all but direct
     // .get()/.post() handlers still serves traffic that never reaches
-    // /openapi.json — one drop per unmatched handler (TOG-7016 review).
+    // /openapi.json — one drop per unmatched handler (review).
     const pureHandlers = `import { Hono } from "hono";
 export const widgetRoutes = new Hono();
 widgetRoutes.get("/api/v1/widget", (c) => c.json([]));
