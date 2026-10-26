@@ -22,11 +22,7 @@ import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
 // facade import throws at module scope there. The deep module is never mocked.
 import { InvalidSnapshotCsvError, SNAPSHOT_IMPORT_MAX_BYTES, isSnapshotTooLarge } from "../lib/snapshot/streamSync";
-import {
-  CUSTOMER_SNAPSHOT_EXPORT,
-  readSnapshotExportPageSize,
-  snapshotCsvResponse
-} from "../lib/snapshot/export";
+import { CUSTOMER_SNAPSHOT_EXPORT, readSnapshotExportPageSize, snapshotCsvResponse } from "../lib/snapshot/export";
 import { invalidateDataEntity } from "../lib/entityDataCache";
 import { problemJsonResponse, problemType, snapshotProblem400Media, snapshotProblem404Media } from "../lib/problem";
 import { isForeignKeyConstraintFailure } from "../lib/snapshot/upsert";
