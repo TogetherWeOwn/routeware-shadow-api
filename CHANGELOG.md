@@ -5,7 +5,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
-- Customer snapshot lists accept optional `addressCity`, `addressState`
+- #431: Customer snapshot lists accept optional `addressCity`, `addressState`
   and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
   code points including a non-whitespace character; leading zeros and
   significant whitespace preserved; no trimming, normalization or
