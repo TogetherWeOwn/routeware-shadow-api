@@ -457,11 +457,9 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
 // and error discovery are asserted independently in
 // containerIdentifierFilters.acceptance.test.ts,
 // containerMaterialColorFilters.acceptance.test.ts,
-// containerExactLocation.acceptance.test.ts,
-// containerParentScopes.acceptance.test.ts and
-// containerServiceDateFilters.acceptance.test.ts; service-date selectors join
-// the same ownership, not frozen as speculative prose or parameter position.
-// All legacy parameters and unrelated operations remain frozen.
+// containerExactLocation.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts, not frozen as speculative prose or
+// parameter position. All legacy parameters and unrelated operations remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
   const operation = copy.paths["/api/v1/container-snapshot"]?.get as
@@ -476,9 +474,27 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "serviceDate", "hasServiceDate", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "materialStream", "color", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
+  }
+  return copy;
+}
+
+// Exact stored service-date selectors are asserted independently in
+// containerServiceDateFilters.acceptance.test.ts, not frozen as speculative
+// prose or parameter position here.
+function withoutContainerServiceDateAdditions(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["serviceDate", "hasServiceDate"].includes(parameter.name ?? "")
+    );
   }
   return copy;
 }
@@ -886,7 +902,7 @@ describe("published OpenAPI document", () => {
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerServiceDateAdditions(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
   });
 });
 
