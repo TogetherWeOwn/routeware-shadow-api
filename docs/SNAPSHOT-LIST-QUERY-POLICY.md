@@ -18,8 +18,8 @@ and never authorizes deletion or reconciliation.
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -669,6 +669,46 @@ oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 and [local query-plan
 evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
 
+## Sites by parent customer enabled state
+
+Only the existing address list accepts `parentCustomerEnabled`, selecting
+sites by the stored `enabled` of their related mirrored customer
+(`customer_snapshot.customer_id = address_snapshot.customer_id`, qualified
+columns). It is one optional exact `true|false|any` (default `any`): true
+keeps only sites whose stored customer row has `enabled = 1`, false keeps
+only `enabled = 0`. Omission or `any` adds no parent predicate, so
+unconstrained reads still include pre-existing orphan rows and customers
+with noncanonical stored values; explicit true/false never matches a
+missing parent or a noncanonical stored value. The site's own `enabled`
+stays independent: parent and site state intersect by AND with each other
+and with `customerId`, IDs, route/franchise, locality/street, `q`,
+`driverNote`, `extrasAllowed`, `hasContainers`, audit-date selection and
+traversal bounds; contradictions return empty 200. Mirrored stored customer
+enabled is not current account eligibility, service permission, billing
+status or authorization, and never replaces the site predicate. Invalid,
+blank or repeated (including encoded duplicate) values return the existing
+value-free bad-request problem before D1, after auth; submitted values are
+never echoed or logged.
+
+One correlated `EXISTS (SELECT 1 FROM customer_snapshot ...)` literal
+predicate (no JOIN, no binds, no parent payload expansion) shares the
+WHERE between COUNT and page; `includeTotal=false` still issues zero
+COUNTs and `countOnly` stays COUNT-only. Sparse fields and ETag/304
+describe the same final envelope. Relative next Links retain a filtering
+parent value (omit `any`) in either order and when moving offset-to-seek;
+unknown raw parameters and origins never travel.
+
+The lookup uses the customer primary key; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/addressParentCustomerEnabled.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-parent-customer-enabled` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
+
 ## Address street or locality search
 
 Only the address list searches `q` across three columns. The existing `q` is a
@@ -813,6 +853,62 @@ qualified customer/address join and bound `c.serial_number = ?` / `c.rfid = ?`
 predicates. This demonstrates executable synthetic query shape only, not a
 runtime latency improvement. No new indexes, migrations, bindings or upstream
 requests are introduced.
+
+## Stored on-call and GPS-lock selection
+
+Only the existing container list accepts `onCall` and `gpsLocked`. Each is an
+optional exact case-sensitive enum of `true`, `false` or `any` (default).
+`true` matches the stored `1`, `false` matches the stored `0`, and
+`any`/omission adds no predicate. Malformed, blank and repeated selectors
+receive the stable value-free 400 before D1:
+`Invalid request query (onCall). See docs/PROBLEMS.md#bad-request.` (or the
+fixed `gpsLocked` key, or both keys when both are invalid). Correct the named
+selector and retry; submitted values never appear in diagnostics.
+
+The two predicates AND independently with one another and every existing
+filter — customer/address/container IDs, `ids`, `serialNumber`, `rfid`, `q`,
+`enabled`, `upperId` and cursor/offset scope — on both the bare and the
+customer-join `FROM` shapes. The predicates are integer literals
+(`c.oncall = 1`, `c.gps_locked = 0`) shared by the COUNT and the page SELECT,
+so filtered pages carry no extra binds, D1 calls, indexes, migration or
+upstream request. Counts and rows use the same scope; `includeTotal=false`
+issues zero COUNT statements. Filtering never multiplies rows, never changes
+canonical `container_id`, join behavior, seek direction, sparse fields or
+conditional JSON-read semantics. Non-`any` selectors round-trip in `Link`
+continuations; `any` is omitted canonically like `enabled=any`. Unknown keys
+remain ignored. Other lists, the changes feed and single-row reads do not gain
+these selectors.
+
+The flags are stored snapshot values: selecting on-call rows is not permission
+to mutate equipment, and selecting GPS-locked rows is not proof of fresh GPS.
+Neither flag is a live operational-health assertion.
+
+Synthetic fixture recipe (not a production request): seed the eight-container
+matrix from `test/containerOnCallGpsLocked.acceptance.test.ts` locally, then
+request:
+
+```text
+GET /api/v1/container-snapshot?onCall=true&limit=2&fields=oncall&includeTotal=false
+
+{"rows":[{"container_id":1,"oncall":1},{"container_id":2,"oncall":1}],"total":null,"nextCursor":2}
+Link: </api/v1/container-snapshot?onCall=true&fields=oncall&limit=2&includeTotal=false&cursor=2>; rel="next"
+```
+
+Follow the returned same-origin Link exactly rather than reconstructing it.
+The next page carries IDs 3 and 4 with `cursor=4`, and following once more
+reaches the empty terminal page; a full last page can still emit a
+continuation. With counts enabled, totals remain cursor-relative.
+
+Run `npm run check:container-oncall-gps-locked` for synthetic local-D1
+selection, validation/auth precedence, composition, count, seek, field,
+conditional-read and followed-link checks. Network/R2/browser doubles deny
+unexpected access; a read-only recorder proves zero writes. The suite executes
+`EXPLAIN QUERY PLAN` on the COUNT/row SELECT shapes with the qualified
+customer/address join and literal `c.oncall = 1` / `c.gps_locked = 0`
+predicates. This demonstrates executable synthetic query shape only, not a
+runtime latency improvement. No new indexes, migrations, bindings or upstream
+requests are introduced. Pinned by
+`test/containerOnCallGpsLocked.acceptance.test.ts`.
 
 ## Exact stored container labels
 
