@@ -97,7 +97,7 @@ const SPECS: Spec[] = [
     id: "pickup_address_id",
     field: "address",
     allowed: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state",
       "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "limit", "offset", "cursor", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
@@ -134,7 +134,7 @@ const SAMPLES: Record<string, string> = {
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
   comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any",
-  routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
+  routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location",

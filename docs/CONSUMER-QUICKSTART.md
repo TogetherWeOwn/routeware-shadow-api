@@ -755,6 +755,52 @@ The ZIP, fields and count-free mode round-trip in Link; do not log ZIP values
 or rows. Authentication, no-store, ETags and existing count semantics remain
 unchanged. These checks are not deployed performance evidence.
 
+### Exact stored street address
+
+Use `listAddressSnapshot` with `streetAddress` to resolve a known stored
+street to **all** matching canonical `pickup_address_id` values. Unlike `q`,
+this is case-sensitive exact equality on the stored `address` column, never
+a city/ZIP or partial-street match. Duplicate streets are not unique sites;
+follow every returned relative Link unchanged on the same origin.
+
+Send one opaque string of 1..200 Unicode code points containing a non-whitespace
+character. Preserve nonblank whitespace, leading zeros and punctuation. Use
+`new URLSearchParams({ streetAddress: "001 Cedar St", fields: "address", limit: "2", includeTotal: "false" })`,
+not string interpolation. A synthetic request and first response are:
+
+```text
+GET /api/v1/address-snapshot?streetAddress=001+Cedar+St&fields=address&limit=2&includeTotal=false
+{"rows":[{"pickup_address_id":10,"address":"001 Cedar St"},{"pickup_address_id":20,"address":"001 Cedar St"}],"total":null,"nextCursor":20}
+Link: </api/v1/address-snapshot?streetAddress=001+Cedar+St&fields=address&limit=2&includeTotal=false&cursor=20>; rel="next"
+```
+
+Run the credential-free synthetic local-D1 recipe:
+
+```bash
+npm run check:address-street-exact
+```
+
+The exact-street fixture follows IDs `10,20`, then `30,50`, then `120,130`,
+then a terminal empty page. Descending traversal reverses that order. Each
+count-free page performs one SELECT and zero COUNTs. Additional cases prove
+literal Unicode/quotes/%/_, significant whitespace, duplicate sites, null
+exclusion, 200-code-point boundaries, SQL binding, every selector intersection,
+offset-to-seek links, `upperId`, sparse fields and representation ETags/304.
+Network, R2 and request-boundary writes are denied by the oracle.
+
+Omission preserves existing behavior; a valid nonmatch returns 200 empty.
+Empty, whitespace-only, overlength or repeated values fail after auth and
+before D1 with a value-free problem: URL-encode one nonblank stored street
+value or omit streetAddress and retry. Do not log streets, response rows or
+continuation URLs. `q` remains the trimmed ASCII-case-insensitive substring
+across street/city/ZIP and intersects by AND when combined with streetAddress.
+There is no address normalization, postal verification, geocoding or uniqueness
+claim. Equality may scan without a dedicated index. This GET is an idempotent
+local read; `--dry-run` is N/A. No deployment, live lookup or adoption is
+established by this local check. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-street-address) and
+[correction guidance](PROBLEMS.md#exact-stored-street-address-bad-request).
+
 ### Exact stored container stream/color labels
 
 Use `listContainerSnapshot` with optional `materialStream` (stored
