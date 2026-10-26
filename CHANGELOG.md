@@ -24,6 +24,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   migration or performance promise. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
   `npm run check:container-cost-share-enclosure`.
+- #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
+  list: each selects rows by stored `phone1`/`phone2` text as stored —
+  `true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
+  exact null-or-empty complement — so missing-phone cohorts read without
+  downloading every customer's phone values. Both flags AND-compose with
+  each other and every existing selector in the shared COUNT/page WHERE;
+  `any`/omission adds no predicate, `countOnly=true` keeps the existing
+  COUNT-only path, and `includeTotal=false` stays count-free. Whitespace-only
+  stored text counts as present: no trimming, normalization, digit-stripping
+  or number validation. Stored presence is not a valid number, preferred
+  channel, contact consent, deliverability or reachability. Invalid, blank,
+  repeated or case-variant values fail with the fixed value-free 400 after
+  auth and before D1; effective values round-trip in relative next Links
+  while `any`/default stays out. Presence-only selections may scan; no phone
+  index or migration, no upstream hydration, no latency promise. Synthetic
+  neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-phone-presence`.
 - #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
   dated and latest downloads (404 not-found, 409 replacement conflict),
   the unreadable latest-pointer 500, the date-listing 500, and the
