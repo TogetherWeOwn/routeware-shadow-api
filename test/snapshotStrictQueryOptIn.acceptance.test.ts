@@ -114,12 +114,12 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "zip", "locationAddress", "city", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "routeId=7", "franchiseId=F-1", "city=Riverton",
+      "hasAddresses=true", "routeId=7", "franchiseId=F-1",
       "hasContainers=true"
     ]
   }
