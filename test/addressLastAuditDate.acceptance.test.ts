@@ -281,7 +281,10 @@ describe("lastAuditDate is only a stored exact opaque string", () => {
     expect(ids(unrelated.body)).toEqual([73, 79, 83, 89, 97]);
     for (const statement of unrelated.statements) {
       expect(statement.sql).toContain("last_audit_date = ?");
-      expect(statement.sql).not.toMatch(/comments|driver_note|latitude|longitude/i);
+      // The page SELECT legitimately projects every address column, so the
+      // column-isolation check scopes to the WHERE clause predicate only.
+      const where = statement.sql.slice(statement.sql.search(/\bWHERE\b/i)).split(/\bORDER\s+BY\b|\bLIMIT\b/i)[0];
+      expect(where).not.toMatch(/comments|driver_note|latitude|longitude/i);
     }
   });
 
