@@ -113,7 +113,7 @@ const SPECS: Spec[] = [
     id: "container_id",
     field: "location_address",
     allowed: [
-      "containerTypeId",
+      "containerTypeId", "owningCustomerNumber", "owningSubCustomerNumber",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
       "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
@@ -132,7 +132,7 @@ const SPECS: Spec[] = [
  *  only proves the name is not rejected as unknown under strict mode. */
 const SAMPLES: Record<string, string> = {
   customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
-  customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
+  customerNumber: "N-1", subCustomerNumber: "S-1", owningCustomerNumber: "N-1", owningSubCustomerNumber: "S-1", q: "synthetic", phone: "555",
   comments: "note", driverNote: "access", enabled: "true", onCall: "true", gpsLocked: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
