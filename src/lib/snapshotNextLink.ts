@@ -26,6 +26,8 @@ type SnapshotListQuery = {
   rfid?: string;
   materialStream?: string;
   color?: string;
+  serviceCodeType?: string;
+  serviceCodeInput?: string;
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;
@@ -58,7 +60,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state", "driverNote"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
