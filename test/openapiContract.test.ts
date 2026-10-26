@@ -388,8 +388,9 @@ function withoutCustomerSyncedWindowParameters(doc: OpenApiDocument): OpenApiDoc
 
 /**
  * Customer child-cohort schemas, examples, single-list scope and outcomes are
- * independently owned by customerAddressCohorts.acceptance.test.ts. Remove only
- * these three new query parameters; preserve every existing golden contract.
+ * independently owned by customerAddressCohorts.acceptance.test.ts and
+ * customerAddressServicePolicy.acceptance.test.ts. Remove only these cohort
+ * query parameters; preserve every existing golden contract.
  */
 function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -398,7 +399,7 @@ function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDo
     | undefined;
   if (operation?.parameters) {
     operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
-      !["addressRouteId", "addressFranchiseId", "addressEnabled"].includes(p.name ?? ""));
+      !["addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate"].includes(p.name ?? ""));
   }
   return copy;
 }
