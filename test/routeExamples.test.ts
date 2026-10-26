@@ -461,8 +461,9 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
       "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ].flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name])
+      "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ]
+      .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name])
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",

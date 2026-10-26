@@ -115,9 +115,10 @@ const SPECS: Spec[] = [
     allowed: [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "serviceDate", "hasServiceDate", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
-    ],
+    ]
+      .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name]),
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
       "hasAddresses=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1", "city=Riverton",
@@ -140,7 +141,7 @@ const SAMPLES: Record<string, string> = {
   serviceDate: "2026-01-15", hasServiceDate: "true",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
+  lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
