@@ -5,6 +5,22 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #404: `GET /api/v1/container-snapshot` accepts optional exact `serviceDate`
+  (stored `service_date` text) and `hasServiceDate=true|false|any` (default
+  `any`) selectors. Case-sensitive opaque strings of 1..100 Unicode code
+  points are preserved verbatim and never parsed as dates; null never
+  matches. `true` keeps non-null nonempty stored text including
+  whitespace-only values, `false` keeps exactly the null-or-empty
+  complement. Both AND-compose with all existing filters; valid unknown
+  dates return empty 200s. Malformed or repeated keys fail value-free
+  before D1. Validated next links preserve encoded selectors; counts,
+  count-free reads, fields, upperId and ETags remain compatible. Stored
+  date text is mirrored report data, not service history, dispatch state,
+  proof of service or a schedule. No index/migration is added and
+  equality/presence selection may scan. Idempotent local-read GET, CLI
+  dry-run N/A. Synthetic recipe: `npm run check:container-service-date`;
+  see `docs/CONSUMER-QUICKSTART.md`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
