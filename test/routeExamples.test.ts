@@ -360,7 +360,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
+      "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -408,8 +408,8 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     method: "get",
     mediaType: "application/json",
     parameterNames: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state", "q", "enabled", "extrasAllowed", "hasContainers",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
+      "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -459,7 +459,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "containerTypeId",
       "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order", "fields", "strictQuery"
+      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -524,7 +524,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     path: "/api/v1/customer-snapshot/changes",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["since", "since_id", "limit", "fields"]
+    parameterNames: ["since", "since_id", "until", "limit", "fields"]
   },
   {
     path: "/api/v1/customer-snapshot/{customerId}",

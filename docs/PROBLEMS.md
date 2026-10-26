@@ -22,6 +22,17 @@ section below.
 | `upstream-error` | 400–599 (upstream status) | A client-facing retry passthrough received an upstream error; its body and headers are withheld. |
 | `internal` | 500 | <a name="internal"></a>An unexpected error. Only a fixed summary is logged (`Unhandled request error`) with the error class as `kind`; the exception text and stack are neither logged nor returned. |
 
+## Exact next-page flag (`bad-request`)
+
+On the three ordinary snapshot list GETs, send `exactNext=true` to opt in or
+`exactNext=false` (the default) to keep legacy pagination. Supply the key once,
+using those exact case-sensitive strings, with no surrounding whitespace.
+Empty, other or repeated values fail with the value-free detail
+`Invalid request query (exactNext). See docs/PROBLEMS.md#bad-request.`
+after authentication and before any D1 read, including conditional requests.
+Correct the named key or omit it, then retry; never put credentials in queries.
+See the [query contract](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
+
 ## Snapshot count-only (`bad-request`)
 
 On the three ordinary flat snapshot list GETs, send `countOnly` once as exact
@@ -196,13 +207,19 @@ when zero. If sending `since_id`, pair it with nonempty valid `since` and
 use an unpadded ASCII decimal integer from `0` through `9007199254740991`.
 Do not use signs, spaces, exponents, prefixes, fractions or repeated cursor
 keys. Omit both cursor fields for the initial page, or replay both fields
-from the previous `nextCursor` for tie-safe continuation. See
-[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation).
+from the previous `nextCursor` for tie-safe continuation. Optional `until`
+is an inclusive upper bound with the same UTC `Z` millisecond contract:
+empty, repeated, offset and overprecise values are invalid, and normalized
+`since` must not exceed `until` (equality stays valid). Omit `until` for
+the unbounded tail. See
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-changes-cursor-validation)
+and the [bounded window](SNAPSHOT-LIST-QUERY-POLICY.md#bounded-changes-window-until).
 
 Validation happens before D1 and returns fixed, value-free guidance:
 `Invalid request query (since_id). See docs/PROBLEMS.md#bad-request.`
-The named field can instead be `since` (or multiple invalid fields); no
-submitted timestamp or id is echoed. Authentication still precedes validation.
+The named field can instead be `since` or `until` (or multiple invalid
+fields); no submitted timestamp or id is echoed. Authentication still
+precedes validation.
 
 ## Address route and franchise scopes (`bad-request`)
 
@@ -326,6 +343,23 @@ coerce numeric-looking strings. Omit a selector only if no such scope is
 intended. Valid no-match returns 200 empty, not an error; stored nulls never
 match supplied strings. See the
 [city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
+
+## Stored address driver note (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `driverNote` string of
+at most 100 Unicode code points **before trimming**. Repeated keys (including
+encoded aliases) and overlength strings fail before D1 or conditional 304;
+authentication stays first. Fixed detail for this field alone:
+
+`Invalid request query (driverNote). Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when no
+note filter is intended. Blank/whitespace-only values mean omitted, not an
+error. No submitted notes or unknown names are echoed or logged. Matching is
+literal, ASCII-case-insensitive and limited to stored `driver_note`, not
+address comments or locality. A valid fragment with no matches returns 200
+empty. See the [synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note)
+and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
 ## Exact stored container installation (`bad-request`)
 

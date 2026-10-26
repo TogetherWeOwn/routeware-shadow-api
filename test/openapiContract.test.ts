@@ -107,15 +107,16 @@ const EXPECTED_TAGS = [
 
 /**
  * Projection without agent metadata pinned in `openapiAgentMetadata.test.ts`
- * and the fields vendor extension owned by `sparseFieldsetDiscovery.acceptance.test.ts`.
- * Everything else, including fields schema/prose/defaults, stays frozen.
+ * and fieldset catalogs/modes owned by the flat and hydrated discovery oracles.
+ * Only those extensions on supported selectors move; schema/prose/defaults and
+ * unrelated parameter extensions stay frozen.
  */
 function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc) as unknown as Record<string, unknown> & OpenApiDocument;
   for (const key of Object.keys(copy)) {
     if (key.startsWith("x-")) delete copy[key];
   }
-  for (const item of Object.values(copy.paths)) {
+  for (const [path, item] of Object.entries(copy.paths)) {
     for (const [method, operation] of Object.entries(item)) {
       if (!HTTP_METHODS.includes(method.toLowerCase())) continue;
       const op = operation as Record<string, unknown>;
@@ -126,10 +127,17 @@ function withoutAgentMetadata(doc: OpenApiDocument): OpenApiDocument {
       if (Array.isArray(op["security"]) && op["security"].length === 0) delete op["security"];
       if (Array.isArray(op.parameters)) {
         for (const param of op.parameters as Array<Record<string, unknown>>) {
-          if (param.name !== "fields" || param.in !== "query") continue;
-          delete param["x-snapshot-fieldset"];
+          const hydratedGet = method.toLowerCase() === "get" &&
+            ["/api/v1/data/customer", "/api/v1/data/address", "/api/v1/data/container"].includes(path);
+          const typed = hydratedGet && ["fields[customer]", "fields[address]", "fields[container]"].includes(String(param.name));
+          if (param.in !== "query" || (param.name !== "fields" && !typed)) continue;
           const schema = param.schema as Record<string, unknown> | undefined;
+          delete param["x-snapshot-fieldset"];
           if (schema) delete schema["x-snapshot-fieldset"];
+          if (hydratedGet) {
+            delete param["x-snapshot-fieldset-mode"];
+            if (schema) delete schema["x-snapshot-fieldset-mode"];
+          }
         }
       }
     }
@@ -335,12 +343,32 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
 }
 
 /**
+ * The opt-in exact next-page signal (`exactNext`) is owned by
+ * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
+ * description guidance and absence from every other operation are pinned
+ * there. Exclude only that new query parameter from the three ordinary
+ * lists; put new guidance on the new parameter, not on frozen prose.
+ */
+function withoutExactNextParameter(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["customer", "address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((p) => p.in !== "query" || p.name !== "exactNext");
+    }
+  }
+  return copy;
+}
+
+/**
  * Scope parameters and the address list's evolving filter/recovery prose have
  * semantic checks in addressScopeFilters.acceptance.test.ts, with the stored-zip
- * selector covered by addressZipFilter.acceptance.test.ts and city/state
- * declarations independently pinned by addressCityStateFilters.acceptance.test.ts.
- * Keep all existing parameter schemas, responses, tags and other operations
- * in the legacy golden.
+ * selector covered by addressZipFilter.acceptance.test.ts, city/state by
+ * addressCityStateFilters.acceptance.test.ts and driverNote by
+ * addressDriverNoteSearch.acceptance.test.ts. Keep all existing parameter
+ * schemas, responses, tags and other operations in the legacy golden.
  */
 function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   const copy = structuredClone(doc);
@@ -352,7 +380,7 @@ function withoutAddressScopeContract(doc: OpenApiDocument): OpenApiDocument {
   delete operation.description;
   delete operation.responses["400"].description;
   operation.parameters = operation.parameters.filter(parameter =>
-    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state"].includes(parameter.name));
+    parameter.in !== "query" || !["routeId", "franchiseId", "zip", "city", "state", "driverNote"].includes(parameter.name));
   return copy;
 }
 
@@ -435,6 +463,34 @@ function withoutContainerTypeFilter(doc: OpenApiDocument): OpenApiDocument {
       parameter.in !== "query" || parameter.name !== "containerTypeId"
     );
   }
+  return copy;
+}
+
+/**
+ * The interval's parameter/prose is owned by customerChangesUntil.acceptance:
+ * it checks the served schema and HTTP behavior without freezing new wording.
+ * Keep every pre-existing schema, response and unrelated query parameter pinned.
+ */
+function withoutDedicatedChangesIntervalMetadata(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const get = copy.paths["/api/v1/customer-snapshot/changes"]?.get as {
+    description?: string;
+    summary?: string;
+    parameters?: Array<{ name?: string; in?: string; description?: string; schema?: Record<string, unknown> }>;
+    responses?: Record<string, { description?: string }>;
+  } | undefined;
+  if (!get) return copy;
+  delete get.description;
+  delete get.summary;
+  if (get.parameters) {
+    get.parameters = get.parameters.filter((param) => !(param.in === "query" && param.name === "until"));
+    for (const param of get.parameters) {
+      if (param.name !== "since") continue;
+      delete param.description;
+      if (param.schema) delete param.schema.description;
+    }
+  }
+  if (get.responses?.["400"]) delete get.responses["400"].description;
   return copy;
 }
 
@@ -729,7 +785,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()));
+    const doc = withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -739,9 +795,10 @@ describe("published OpenAPI document", () => {
     // The agent-metadata layer (operationId, x-* extensions, the empty `security`
     // on the public probe, the bearer role description) is owned by
     // `test/openapiAgentMetadata.test.ts`, so it is projected out here and
-    // enriching it never re-records this frozen document. The fields-only
-    // x-snapshot-fieldset extension is likewise pinned by the discovery oracle;
-    // no other fields parameter property is projected out. Conditional list
+    // enriching it never re-records this frozen document. The flat/typed
+    // x-snapshot-fieldset catalogs and hydrated x-snapshot-fieldset-mode guidance
+    // are pinned by the discovery oracles; no other selector property moves.
+    // Conditional list
     // If-None-Match, 200 ETag and 304 declarations are separately pinned by
     // `test/snapshotListConditional.acceptance.test.ts` and projected out here.
     // Only ids schema/400 prose moves to the independent acceptance contract.
@@ -751,7 +808,8 @@ describe("published OpenAPI document", () => {
     // parent selectors move to containerParentScopes.acceptance.test.ts.
     // Typed hydrated GET 200 declarations/examples move to the seeded semantic
     // oracle in typedHydratedBundles.acceptance.test.ts, not this old golden.
-    // Unrelated golden contracts stay pinned.
+    // Interval-only query/prose moves to customerChangesUntil.acceptance.test.ts;
+    // its since schema and all unrelated golden contracts stay pinned.
     // Only the three ordinary lists' upperId query parameters are also projected
     // out: their bounds, strict validation, scope and authority are independently
     // pinned in `test/snapshotUpperId.acceptance.test.ts`. Order remains frozen.
@@ -760,7 +818,7 @@ describe("published OpenAPI document", () => {
     // independently pinned in `test/containerTypeFilter.acceptance.test.ts`.
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(doc)))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutHydratedBundleDeclarations(withoutDedicatedChangesIntervalMetadata(doc))))))))))).toMatchSnapshot();
   });
 });
 

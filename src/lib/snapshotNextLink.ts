@@ -1,3 +1,17 @@
+import { z } from "@hono/zod-openapi";
+
+export const snapshotExactNextQuery = z.enum(["true", "false"]).optional().default("false")
+  .describe(
+    "Opt-in exact next-page signal: exactNext=true fetches limit+1 matching rows in one page SELECT " +
+    "(at most 501), returns at most limit rows, and emits nextCursor/Link only if the extra row exists. " +
+    "The cursor is the last returned primary ID, not the lookahead row. Default false preserves full " +
+    "terminal-page false positives (a Link may lead to an empty page). Works with every list filter, " +
+    "order, upperId and fields; includeTotal=false still runs zero COUNTs. countOnly=true takes precedence: " +
+    "one COUNT, no lookahead or next Link. No snapshot isolation: " +
+    "concurrent inserts/deletes can change later pages. Send exactly one exactNext=true or false, " +
+    "or omit it and retry."
+  ).openapi({ example: "true" });
+
 type SnapshotListResource = "customer" | "address" | "container";
 
 type SnapshotListQuery = {
@@ -21,6 +35,7 @@ type SnapshotListQuery = {
   locationAddress?: string;
   city?: string;
   state?: string;
+  driverNote?: string;
   q?: string;
   phone?: string;
   comments?: string;
@@ -36,12 +51,13 @@ type SnapshotListQuery = {
   // default-valued targets stay byte-identical while explicit values round-trip.
   order?: "asc" | "desc";
   includeTotal?: "true" | "false";
+  exactNext?: "true" | "false";
   strictQuery?: "true" | "false";
 };
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state"] },
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state", "driverNote"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
 } as const;
 
@@ -92,6 +108,7 @@ export function snapshotNextLink(
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
   if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
+  if (query.exactNext === "true") params.set("exactNext", "true");
   // Direction travels with the cursor: an explicitly requested order is echoed
   // so desc traversals continue downward; omitted order keeps the asc default.
   if (query.order !== undefined) params.set("order", query.order);

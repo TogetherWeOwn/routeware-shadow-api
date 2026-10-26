@@ -13,10 +13,10 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `limit`, `fields` | Ignore |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
 children, including disabled rows; absence is not proof of no upstream site
@@ -171,6 +171,38 @@ and [400 recovery](PROBLEMS.md#snapshot-count-only-bad-request).
 Run `npm run check:snapshot-count-only` for the independent local-D1 oracle and
 pagination/auth/fieldset/conditional/mounted-OpenAPI regressions. No live data or
 production/staging probes; this idempotent local-read GET has no CLI dry-run mode.
+
+## Exact next-page signal (opt-in)
+
+Only the three ordinary flat lists accept `exactNext=true|false` (default
+`false`). This is not snapshot isolation: concurrent inserts/deletes can still
+change later pages. Omitted/false preserves the existing page SQL/binds and
+full-terminal false positives (a full page may link to an empty page).
+
+True uses the existing single page SELECT with `limit+1` (at most 501 fetched),
+returns at most `limit`, and emits `nextCursor`/`Link` only when the extra matching
+row exists. The cursor is the **last returned canonical primary ID**, never the
+lookahead row; trimming happens before sparse projection and ETag generation.
+The same filters/joins/upperId/order apply to lookahead, including offset-first
+and seek continuation. Seek SQL never adds OFFSET. Totals retain cursor-relative
+meaning; `includeTotal=false` still runs zero COUNTs. No second page query,
+upstream call, R2 access, write, migration or index is introduced.
+`countOnly=true` takes precedence over exact pagination: it performs one COUNT,
+no page SELECT or lookahead, and returns no cursor or next Link. `strictQuery=true`
+recognizes `exactNext` and stays enabled in generated continuation links.
+
+Send one exact case-sensitive boolean, or omit `exactNext` and retry. Invalid,
+empty or repeated values return value-free 400 after auth and before D1, even
+for conditional reads. Relative next links retain true and validated selectors,
+fields, limit and explicit order/count flags; false/default, unknown keys,
+origins and credentials are not propagated. No-store and 200/304 Link parity
+remain unchanged. Other endpoints do not gain this capability.
+
+Run `npm run check:snapshot-exact-next`: the independent
+`test/snapshotExactNext.acceptance.test.ts` proves complete distinct traversal,
+terminal signals, unchanged default behavior and bounded query work with local
+synthetic fixtures. See the [consumer recipe](CONSUMER-QUICKSTART.md#exact-next-page-signal).
+No production latency or stable-snapshot claim is made.
 
 ## Exact customer account numbers
 
@@ -398,6 +430,36 @@ Run `npm run check:address-city-state` for the protected real local-D1
 acceptance oracle and neighboring contracts. The
 [encoded consumer recipe](CONSUMER-QUICKSTART.md#exact-stored-address-city-and-state)
 uses synthetic values only, with no live credentials or network probes.
+
+## Stored address driver note
+
+Only the existing address list accepts `driverNote`, a literal substring of
+stored `address_snapshot.driver_note` only. It never matches address comments,
+street, city, state or ZIP; `q` keeps its street/city/ZIP-only meaning. Reuse
+the search contract: one optional string, maximum 100 Unicode code points
+**before trimming**; trim boundaries and omit blank/whitespace-only values.
+Null notes act as empty. SQLite `lower()` folds ASCII only; non-ASCII case
+variants remain distinct. `%`, `_`, quotes and Unicode are bound literal data,
+not LIKE wildcards or instructions to execute. Repeated or overlength input
+returns the existing value-free bad-request problem before D1, after auth;
+[fixed correction guidance](PROBLEMS.md#stored-address-driver-note-bad-request)
+never echoes submitted notes or unknown names. Do not log search values.
+
+One bound `instr(lower(coalesce(driver_note, '')), lower(?)) > 0` predicate
+AND-composes with q, IDs, route/franchise, ZIP, city/state, enabled, mirrored
+child presence and traversal bounds. COUNT and page share predicates/binds;
+`includeTotal=false` still issues zero COUNTs. Duplicate notes remain distinct
+sites by canonical `pickup_address_id`. Sparse fields and ETag/304 describe
+the same final envelope. Relative next Links retain only the validated,
+trimmed note (omit blank), with URLSearchParams encoding in either order and
+when moving offset-to-seek; unknown raw parameters and origins never travel.
+
+Note-only reads may scan; no index/migration or production performance,
+operational scheduling or accuracy claim is added. This GET is idempotent,
+local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-driver-note` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note).
 
 ## Address street or locality search
 
@@ -989,8 +1051,10 @@ keeps sparse pages. Both cursor halves replace the previous boundary
 together, including when starting with bare/omitted `since`. No unknown key,
 request origin, forwarded host, credential or arbitrary path is copied.
 This feed recognizes optional `fields` (sparse projection after cursor
-derivation; omit for full rows) but not `until`, which keeps the existing
-unknown-name ignore policy. The ordinary-list helper and its integer cursor
+derivation; omit for full rows) and optional `until` (inclusive upper bound,
+carried normalized in the target so followed links cannot escape the window);
+other unknown keys keep the ignore policy. An unbounded page's next target
+carries no `until`. The ordinary-list helper and its integer cursor
 contract are unchanged.
 
 A full terminal page can link to an empty page; short/empty pages have null
@@ -1007,6 +1071,55 @@ traversal, unchanged wire/SQL goldens and executable-doc safety checks. Fixtures
 prove zero application writes and fail on any unexpected outbound fetch.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#2c-follow-the-composite-next-link).
 Normal `npm test`/CI runs both the HTTP and published-recipe oracles.
+
+### Bounded changes window (`until=`)
+
+Only the customer changes feed recognizes `until`: an optional inclusive
+upper bound conjoined with the unchanged lower-bound/composite tuple
+predicate as a bound `synced_at <= ?`, so callers read a finite
+caller-chosen time window instead of chasing newly synchronized timestamps.
+Omit `until` for the unbounded tail; omission keeps the previous SQL, binds,
+JSON and Link bytes untouched.
+
+Validation reuses the `since` lossless UTC `Z`/millisecond contract:
+seconds and 1–3 fraction digits normalize to the stored millisecond form
+before comparison, while empty, repeated, calendar-invalid, offset and
+overprecision values fail with the existing stable value-free 400 before D1,
+after read-role authentication. Legacy empty-`since` initial-page semantics
+are unchanged. Normalized `since` must not exceed `until` (a 400 naming
+`until`); equality stays valid — a bare `since` then yields no rows at that
+instant, while a composite `since_id` resumes the remaining same-timestamp
+rows inside the inclusive bound. Ordering, `limit` 1..500, page-length
+`total`, the full-page maybe-more cursor and cursor-before-projection
+derivation are unchanged, as are canonical ids, auth precedence, no-store,
+operation identity and the single-SELECT budget (no COUNT or lookahead).
+
+Every non-null `nextCursor` still advertises a relative `rel="next"` Link
+that replaces `since` and `since_id` together and retains the effective
+limit, the validated `fields` selector and now the normalized `until`;
+unrelated unknown keys stay ignored and are never copied into Link. See the
+[synthetic bounded two-page recipe](CONSUMER-QUICKSTART.md#bounded-changes-window-until).
+
+This remains a current-row upserts-only feed: a concurrent overwrite can move
+a row outside the window between pages, bulk imports advance timestamps,
+and there are no delete events, historical versions or snapshot isolation,
+so bounded traversal does not guarantee completeness.
+
+Synthetic query-shape evidence (Node `node:sqlite`, in-memory, all committed
+D1 migrations, 6 synthetic rows, production SELECT columns): the initial and
+bare bound shapes plan as
+`SEARCH customer_snapshot USING INDEX idx_customer_snapshot_synced_at (synced_at>? AND synced_at<?)`
+(EQP renders the inclusive bound as `<`; the SQL is `synced_at <= ?` with
+bound values and the limit bind last), and the composite bound shape plans
+as a `MULTI-INDEX OR` over the same index with `USE TEMP B-TREE FOR ORDER BY`.
+The executable `test/customerChangesUntil.acceptance.test.ts` records every
+actual handler SELECT/bind against real local test D1 and runs
+`EXPLAIN QUERY PLAN` on the emitted bound shapes. No index, migration,
+latency measurement or production-performance claim is made.
+
+Run `npm run check:customer-changes-until` for the focused synthetic-local-D1
+window, validation/auth-precedence, traversal, Link-carry and contract
+regressions. No live replay.
 
 ## Coverage boundary and non-list classifications
 

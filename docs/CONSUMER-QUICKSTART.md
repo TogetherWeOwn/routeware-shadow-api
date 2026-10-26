@@ -115,6 +115,40 @@ Too many bad tokens from one IP trips per-IP throttling (HTTP 429 for 60 s);
 a valid token always passes and resets the counter. See
 [`PROBLEMS.md`](./PROBLEMS.md#rate-limited).
 
+## Exact next-page signal
+
+Opt in with `exactNext=true` on the ordinary customer, address or container
+snapshot list to stop at the last nonempty page, even when its size equals
+`limit`. Default/`false` keeps the existing full-terminal false positives.
+Concurrent inserts/deletes can still change later pages: this is **not snapshot
+isolation**, even with `upperId`.
+
+```bash
+# Synthetic local fixture with three enabled customer IDs 11, 23, 37.
+# TOKEN is your existing local read credential; no production credential needed.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?enabled=true&fields=customer_id&limit=2&includeTotal=false&exactNext=true"
+# {"rows":[{"customer_id":11},{"customer_id":23}],"total":null,"nextCursor":23}
+# Follow the relative Link unchanged; total null means deliberately not computed.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?enabled=true&fields=customer_id&limit=2&includeTotal=false&exactNext=true&cursor=23"
+# rows [37], total null, nextCursor null, no Link: stop.
+```
+
+The single page SELECT fetches at most `limit+1` (501 max), returns at most
+`limit`, and leaves the lookahead row eligible for the next stateless query. The cursor is the
+last returned canonical ID even with sparse fields; offset-first, either order,
+all filters and `upperId` work unchanged. `includeTotal=false` still skips every
+COUNT. No-store and ETag/304 Link parity remain intact. Send exactly one
+`exactNext=true` or `false`; invalid/repeated values fail value-free 400 before
+D1 after auth. Relative links retain true, never false/default or unknown keys.
+`countOnly=true` wins over `exactNext=true`: one COUNT, no page SELECT or
+lookahead, empty rows, null cursor and no Link. `strictQuery=true` accepts
+`exactNext` and remains enabled in continuation links.
+Run `npm run check:snapshot-exact-next` for the credential-free local contract;
+see the [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
+No staging/production probes or performance claims are part of this recipe.
+
 ## 2. First 200: snapshot reads
 
 Snapshots are the daily Routeware CSV reports cached in D1 — the fast path
@@ -137,7 +171,8 @@ location/serial/city/zip on containers), `&enabled=true|false|any`
 (default `any`), `&limit=1..500` (default 50), `&offset=`. Address lists
 also accept `customerId` / `pickupAddressId`, exact `routeId` / `franchiseId`
 scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
-an exact stored `zip` selector ([synthetic ZIP-page recipe](#exact-stored-address-zip))
+exact stored `zip` / `city` / `state` selectors ([synthetic ZIP-page recipe](#exact-stored-address-zip)),
+literal stored `driverNote` substring ([synthetic note recipe](#stored-address-driver-note)),
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
 and mirrored-child `hasContainers=true|false|any` presence
 ([synthetic present/absent recipe](#address-container-presence)). Every list response includes
@@ -152,6 +187,44 @@ curl -H "Authorization: Bearer $TOKEN" \
 # {"rows":[...],"total":...,"nextCursor":50500} — pass 50500 as the next cursor
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
+
+### Stored address driver note
+
+Use `listAddressSnapshot` with `driverNote` when you know a fragment of the
+stored access note. It searches **only `driver_note`**: comments and locality
+cannot satisfy it. Use `q` for street/city/ZIP substrings, or `city`/`state`/`zip`
+for exact stored locality; combine them with driverNote for an AND intersection.
+This finds stored text, not a scheduling/accuracy guarantee or an instruction
+execution service. Never log notes, search values or continuation targets.
+
+Send one URL-encoded fragment of at most 100 Unicode code points measured
+before trimming. Boundaries are trimmed, blank means omitted, null notes act
+as empty; SQLite folds ASCII case only, so non-ASCII case variants remain
+distinct. `%`, `_`, quotes and Unicode are literal, never wildcards.
+Repeated/overlength keys receive fixed value-free 400 correction before D1,
+after auth; see [recovery](PROBLEMS.md#stored-address-driver-note-bad-request).
+
+Synthetic local example: sites 11 and 23 have `driver_note="Use side gate %_雪"`;
+a street/comment-only decoy does not match. With sparse fields, note contents
+need not be returned:
+
+```text
+GET /api/v1/address-snapshot?driverNote=side+gate+%25_%E9%9B%AA&fields=address&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11,"address":"11 Example St"}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?driverNote=side+gate+%25_%E9%9B%AA&fields=address&limit=1&includeTotal=false&cursor=11>; rel="next"
+```
+
+Follow the relative Link unchanged on the same origin: next comes site 23,
+then an empty terminal page. Duplicate notes never collapse sites. Explicit
+`order=desc`, `upperId`, and other filters survive next Links; offset becomes
+seek, and blank driverNote is omitted. COUNT/page share scope; count-free is
+zero COUNTs; ETag/304 and no-store remain unchanged. Note-only queries may
+scan: no new index or production performance claim. GET is idempotent and
+local-read, no upstream/R2/write effects; CLI `--dry-run` is N/A.
+
+Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
+neighboring regressions; no live credentials or network probe is required.
+See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
 ### Opt-in query typo detection
 
@@ -1067,6 +1140,67 @@ bearer from step 1. No separately published static spec is required. Run the
 credential-free, synthetic, network-denying discovery oracle plus existing
 projection/OpenAPI checks with `npm run check:snapshot-fieldset-discovery`.
 
+#### Typed hydrated-fieldset discovery
+
+On each of the three hydrated GETs above, all three `fields[customer]`,
+`fields[address]` and `fields[container]` parameters publish the same v1
+`x-snapshot-fieldset` shape for their own type. Selectable names and mandatory
+identities come from the same registry as validation, never from record values.
+Typed selectors project **every object of that type**, including nested relations;
+flat `fields` projects only the route root. Omitted types stay full.
+
+Each hydrated `fields`/`fields[type]` string schema also declares this adjacent,
+operation-local `x-snapshot-fieldset-mode` v1 extension:
+
+| Key | Contract |
+|---|---|
+| `schemaVersion` | Integer `1`; stop selection for an unsupported version. |
+| `rootResource` | This route's `customer`, `address` or `container` root. |
+| `projectionScope` | `root` for flat `fields`, `type` for a typed selector. |
+| `omittedTypes` | `full`: unselected types retain their full representation. |
+| `singleIdOnly` | `true`; no batch projection is advertised. |
+| `conflictsWith` | Sorted query names: always `ids`, plus the same-root typed selector for `fields`, or `fields` for the typed root. |
+| `composesWith` | Sorted other field-selector names that may accompany this selector. Distinct typed selectors compose; flat fields composes with non-root types. |
+
+This guidance is not a new runtime mode, endpoint or global capability registry.
+`ids` rejects **all** fieldsets; unsupported operations advertise no typed
+selectors or mode extension. Unknown typed-selector keys are rejected without
+echoing submitted names or values; correction guidance names supported keys only.
+Mixed invalid IDs preserve existing validation and auth ordering.
+Auth precedence, full/projected bytes, canonical full-cache contents and
+representation-specific ETags are unchanged. Batch entries still stay full.
+
+This offline, synthetic recipe composes two legal typed selectors from a saved
+`openapi.json` (no record request or credential access):
+
+```bash
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const doc = JSON.parse(readFileSync(0, "utf8"));
+const op = doc.paths["/api/v1/data/customer"].get;
+const selections = [["fields[address]", "address", ["city", "address"]], ["fields[container]", "container", ["serial_number"]]];
+const query = new URLSearchParams({ id: "42" });
+const selected = selections.map(([name]) => name);
+const identities = {};
+for (const [name, type, wanted] of selections) {
+  const p = op.parameters.find(p => p.in === "query" && p.name === name);
+  const f = p?.schema?.["x-snapshot-fieldset"], m = p?.schema?.["x-snapshot-fieldset-mode"];
+  if (f?.schemaVersion !== 1 || f.resource !== type) throw Error("Unsupported catalog");
+  if (m?.schemaVersion !== 1 || m.rootResource !== "customer" || m.projectionScope !== "type" || !m.singleIdOnly || m.omittedTypes !== "full") throw Error("Unsupported mode");
+  if (selected.some(k => m.conflictsWith.includes(k) || (k !== name && !m.composesWith.includes(k)))) throw Error("Incompatible selectors");
+  if (!wanted.every(n => f.selectableFields.includes(n))) throw Error("Unavailable selection");
+  query.set(name, wanted.join(f.delimiter));
+  identities[name] = f.alwaysIncludedFields;
+}
+console.log(JSON.stringify({ query: query.toString(), identities }));
+' < openapi.json
+```
+
+Run `npm run check:hydrated-fieldset-discovery` for mounted catalogs, legal-mode
+request parity, synthetic examples, strict rejection/auth/no-work controls and
+full/projected/cache/ETag preservation. GET remains idempotent; `--dry-run` is
+not applicable. Discovery and source checks are not deployment or adoption proof.
+
 ## 2a. Upstream customer pagination: `skip`/`take` or `start`/`limit`
 
 `POST /api/v1/routeware/customer/customers-read` is an **upstream read**, not
@@ -1173,13 +1307,15 @@ never appear as tombstones, so re-list to detect disappearance.
 
 Prefer the server's `Link: <relative-target>; rel="next"` to rebuilding the
 pair from JSON. It appears exactly when `nextCursor` is non-null, replaces
-both cursor halves and retains the effective limit (1..500, default 50) and
-the validated `fields` selector, so sparse traversal keeps sparse pages.
+both cursor halves and retains the effective limit (1..500, default 50),
+the normalized `until` and the validated `fields` selector, so sparse
+bounded traversal keeps sparse bounded pages.
 The target is always `/api/v1/customer-snapshot/changes` with URL-encoded
-`since`, `since_id`, `limit` and, when requested, `fields`: unknown keys,
+`since`, `since_id`, `limit` and, when requested, `until`/`fields`: unknown keys,
 origins and credentials are never echoed. This feed recognizes optional
 `fields` (sparse stored-column projection after cursor derivation; omit for
-full rows) but not `until`. Other unknown keys remain ignored.
+full rows) and optional `until` (inclusive upper bound; omit for the
+unbounded tail). Other unknown keys remain ignored.
 
 Omission means stop. A full terminal page may link to an empty page; short,
 empty and error pages have no next link. JSON bytes/shape, row ordering,
@@ -1229,6 +1365,46 @@ application writes and fails on unexpected outbound fetch. The recipe oracle
 executes this exact block with synthetic responses and no real network. Both
 run in normal `npm test`/CI. These are source regressions, not installed or
 production verification.
+
+### Bounded changes window (until)
+
+Pass `until` for a finite caller-chosen window: only rows with
+`synced_at <= until` qualify, using the same UTC `Z` millisecond contract as
+`since` (seconds or 1–3 fraction digits; empty, repeated, offset and
+overprecise values are 400s, and normalized `since` must not exceed `until`).
+The Link retains the normalized bound, so rows synced after the first page
+cannot extend the traversal. Disposable synthetic local fixture, not a live
+probe:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?until=2026-09-01T00:00:00.5Z&limit=2"
+# {"rows":[...2 rows at/below 00:00:00.500Z...],"total":2,
+#  "nextCursor":{"since":"2026-09-01T00:00:00.100Z","since_id":8402}}
+# Link: </api/v1/customer-snapshot/changes?since=2026-09-01T00%3A00%3A00.100Z&since_id=8402&limit=2&until=2026-09-01T00%3A00%3A00.500Z>; rel="next"
+```
+
+Follow the Link target unchanged for page two; the terminal page carries no
+Link:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot/changes?since=2026-09-01T00:00:00.100Z&since_id=8402&limit=2&until=2026-09-01T00:00:00.500Z"
+# {"rows":[...remaining rows at/below the bound...],"total":1,"nextCursor":null}
+```
+
+Equal endpoints stay valid: bare `since == until` yields no rows at that
+instant, while the composite pair resumes the remaining same-stamp rows.
+This is still current-row upserts only — overwrites can move rows outside
+the window and bulk imports advance timestamps — with no delete events,
+historical versions, snapshot isolation or completeness promise. Focused
+command (no Worker, credentials or network needed):
+
+```bash
+npm run check:customer-changes-until
+```
+
+### Typed changes rows
 
 Delta rows are typed in `/openapi.json` (`CustomerSnapshotChangesRow`): every
 stored customer column with storage-faithful integer/text/null types.
@@ -1397,7 +1573,10 @@ npx vitest run test/hydratedFields.acceptance.test.ts
 Each single-ID read above also accepts `fields[customer]`, `fields[address]`
 and `fields[container]`, projecting every object of that type — the root and
 all nested relations — from the same strict per-type allowlists. Omitted types
-stay full; every projected object keeps its primary id. Synthetic examples:
+stay full; every projected object keeps its primary id. Discover legal per-type
+names and combinations from the existing document using
+[typed hydrated-fieldset discovery](#typed-hydrated-fieldset-discovery).
+Synthetic examples:
 
 ```bash
 curl -H "Authorization: Bearer $SYNC" \

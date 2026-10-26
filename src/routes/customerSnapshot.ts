@@ -5,9 +5,10 @@ import { customerSnapshotListResponse, customerSnapshotRowSchema } from "./snaps
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
-import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
+import { customerChangesSinceQuery, customerChangesUntilQuery } from "../lib/customerChangesTimestamp";
 import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -48,7 +49,6 @@ import {
   rejectOversizedSnapshotImport,
   rejectUnsupportedSnapshotImportContentType
 } from "./snapshotImport";
-
 /** D1 customer snapshot: reads plus the CSV sync/import writers. */
 export const customerSnapshotRoutes = createRouteModule();
 const customerSnapshotListRoute = createRoute({
@@ -91,6 +91,7 @@ const customerSnapshotListRoute = createRoute({
           "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
         )
         .openapi({ example: "false" }),
+      exactNext: snapshotExactNextQuery,
       order: snapshotOrderQuery,
       fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
     }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
@@ -109,7 +110,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -186,7 +187,8 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     p.cursor !== undefined
       ? `ORDER BY customer_id${order.suffix} LIMIT ?`
       : `ORDER BY customer_id${order.suffix} LIMIT ? OFFSET ?`;
-  const pageBinds = p.cursor !== undefined ? [p.limit] : [p.limit, p.offset];
+  const pageLimit = p.limit + (p.exactNext === "true" ? 1 : 0);
+  const pageBinds = p.cursor !== undefined ? [pageLimit] : [pageLimit, p.offset];
   const { results } = await db
     .prepare(
       `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
@@ -195,9 +197,9 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
     )
     .bind(...binds, ...pageBinds)
     .all();
-  const rows = results ?? [];
+  const rows = p.exactNext === "true" ? (results ?? []).slice(0, p.limit) : results ?? [];
   const nextCursor =
-    rows.length === p.limit ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
+    (p.exactNext === "true" ? (results?.length ?? 0) > p.limit : rows.length === p.limit) ? Number((rows[rows.length - 1] as Record<string, unknown>).customer_id) : null;
   // Project only after paging; retain the canonical id on every sparse row.
   const fields = p.fields;
   const out =
@@ -260,30 +262,12 @@ const customerSnapshotChangesRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows changed since a cursor (D1)",
   description:
-    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit and the validated fields selector. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link; until is not supported. Optional `fields` selects stored customer columns, always retaining `customer_id`; omit it for full rows. Page membership, total (returned page length), order and composite `nextCursor` are computed from full rows before projection, even when `synced_at` is not selected. This is an upserts-only feed, not historical isolation or a deletion log.",
+    "Incremental-sync feed: returns rows with `synced_at > since` in `(synced_at, customer_id)` keyset order. Omit `since` for the first page (equivalent to the epoch — every row is newer). A bare `since` replays every later run whole. To page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id`: the composite pair resumes at the boundary timestamp without skipping same-timestamp rows past the page boundary. `limit` caps the page at 1..500 (default 50). Optional `until` adds an inclusive upper bound (`synced_at <= until`, same UTC Z millisecond contract as `since`; normalized `since` must not exceed it) so callers read a finite caller-chosen window instead of chasing newly synced rows; omit it for the unbounded tail. When nextCursor is non-null, follow the relative Link rel=next target instead of rebuilding the cursor: it replaces since and since_id together and retains the effective limit, the normalized until and the validated fields selector. Omission means stop; a full terminal page can link to an empty page, with no lookahead or snapshot-isolation guarantee. Unknown query keys are ignored and never copied into Link. Optional `fields` selects stored customer columns, always retaining `customer_id`; omit it for full rows. Page membership, total (returned page length), order and composite `nextCursor` are computed from full rows before projection, even when `synced_at` is not selected. This is an upserts-only feed over current rows, not historical isolation or a deletion log: concurrent overwrites can move rows outside the window, bulk imports advance timestamps, and bounded traversal does not guarantee completeness.",
   request: {
     query: z.object({
-      since: z
-        .preprocess(
-          (v) => (v === "" || v === undefined ? undefined : v),
-          z.string().datetime()
-            .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/)
-            // `Date` rolls calendar-invalid days (Feb 30 → Mar 1) instead of
-            // failing: reject before the transform so normalization never
-            // alters the instant it was given. The hook answers with the
-            // fixed value-free 400; the handler never runs.
-            .refine((v) => {
-              const date = new Date(v);
-              return !Number.isNaN(date.getTime()) &&
-                date.toISOString().slice(0, 10) === v.slice(0, 10);
-            })
-            // Stored synced_at uses toISOString(): lexical comparisons must use
-            // the same milliseconds, never raw .1Z/seconds or rounded precision.
-            .transform((v) => new Date(v).toISOString())
-            .optional()
-        )
-        .describe("UTC Z datetime cursor with seconds or 1–3 fractional digits, normalized to milliseconds before comparison. More than 3 digits is rejected, never rounded/truncated. Only later synced_at values qualify (plus the since_id tiebreak). Omit or leave empty for the first page without since_id.")
-        .openapi({ example: "2025-12-31T00:00:00.000Z" }),
+      // Shared lossless chain (`../lib/customerChangesTimestamp`): identical
+      // validation/normalization for both endpoints.
+      since: customerChangesSinceQuery,
       since_id: z.string()
         .regex(/^(0|[1-9][0-9]*)$/)
         .refine((v) => Number.isSafeInteger(Number(v)))
@@ -291,9 +275,14 @@ const customerSnapshotChangesRoute = createRoute({
         .optional()
         .describe("Tiebreak half of the composite cursor; requires a nonempty valid since. Exact unpadded ASCII decimal integer from 0 through 9007199254740991 (0 is the boundary sentinel); no signs, whitespace, exponent, fractions or prefixes. Omit for first pages and bare-since whole-run replays.")
         .openapi({ example: "345733" }),
+      // Inclusive upper bound on the same shared chain (empty is a 400 here).
+      until: customerChangesUntilQuery,
       limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 50 }),
       fields: snapshotFieldsQuery("customer")
     }).refine((p) => p.since_id === undefined || p.since !== undefined, { path: ["since_id"] })
+      // Normalized toISOString by now, so lexical is chronological. Equality
+      // stays valid: bare since yields an empty page, composite resumes ties.
+      .refine((p) => p.since === undefined || p.until === undefined || p.since <= p.until, { path: ["until"] })
   },
   responses: {
     200: {
@@ -308,7 +297,7 @@ const customerSnapshotChangesRoute = createRoute({
     },
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Omit both cursor fields for the first page. For the fields selector, use exact stored customer column names once each: no empty names, spaces, duplicates or repeated keys. Omit fields for full rows. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before D1. Send a UTC Z datetime with at most millisecond precision and pair since_id only with a nonempty valid since. since_id must be an exact unpadded nonnegative safe-integer decimal; repeated cursor keys are invalid. Optional until is an inclusive synced_at upper bound with the same UTC Z millisecond contract: empty, offset, overprecise and repeated values are invalid, and normalized since must not exceed until. Omit both cursor fields for the first page. For the fields selector, use exact stored customer column names once each: no empty names, spaces, duplicates or repeated keys. Omit fields for full rows. Errors name fields, never submitted values. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -331,13 +320,19 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
     p.since_id === undefined
       ? "synced_at > ?"
       : "(synced_at > ? OR (synced_at = ? AND customer_id > ?))";
+  // Caller-held inclusive ceiling, conjoined as a bound `<= ?` with the limit
+  // bind last. Omitted `until` keeps the previous SQL/binds untouched.
+  const predicates = p.until === undefined ? [where] : [where, "synced_at <= ?"];
+  const whereSql = predicates.join(" AND ");
   const binds: unknown[] =
-    p.since_id === undefined ? [since, p.limit] : [since, since, p.since_id, p.limit];
+    p.since_id === undefined ? [since] : [since, since, p.since_id];
+  if (p.until !== undefined) binds.push(p.until);
+  binds.push(p.limit);
   const { results } = await db
     .prepare(
       `SELECT customer_id, customer_type_id, company_name, first_name, middle_initial, last_name,
               name_suffix, customer_number, sub_customer_number, phone1, phone2, comments, enabled, synced_at
-       FROM customer_snapshot WHERE ${where} ORDER BY synced_at, customer_id LIMIT ?`
+       FROM customer_snapshot WHERE ${whereSql} ORDER BY synced_at, customer_id LIMIT ?`
     )
     .bind(...binds)
     .all();
@@ -358,9 +353,10 @@ customerSnapshotRoutes.openapi(customerSnapshotChangesRoute, async (c) => {
       : rows.map((row) =>
           projectSnapshotRow("customer", row as Record<string, unknown>, fields)
         );
-  // The next link retains the validated projection so sparse traversal keeps
-  // sparse pages; an absent selector keeps the pre-existing three-key target.
-  const nextLink = customerChangesNextLink(nextCursor, p.limit, fields);
+  // The next link retains the validated projection and normalized `until` so
+  // sparse bounded traversal stays sparse and bounded; absent selectors keep
+  // the pre-existing target bytes.
+  const nextLink = customerChangesNextLink(nextCursor, p.limit, fields, p.until);
   if (nextLink !== null) c.header("Link", nextLink);
   return c.json({ rows: out, total: rows.length, nextCursor });
 });
