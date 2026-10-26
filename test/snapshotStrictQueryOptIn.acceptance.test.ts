@@ -83,7 +83,7 @@ const SPECS: Spec[] = [
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
       "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
-      "countOnly", "order", "fields", "strictQuery"
+      "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
@@ -99,7 +99,7 @@ const SPECS: Spec[] = [
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
       "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
-      "countOnly", "order", "fields", "strictQuery"
+      "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
@@ -113,8 +113,9 @@ const SPECS: Spec[] = [
     id: "container_id",
     field: "location_address",
     allowed: [
-      "customerId", "pickupAddressId", "containerId", "containerTypeId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "countOnly", "order",
+      "containerTypeId",
+      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
+      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
@@ -137,7 +138,7 @@ const SAMPLES: Record<string, string> = {
   serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
   locationAddress: "Synthetic location",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", countOnly: "true", order: "asc", fields: "enabled",
+  upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
@@ -357,34 +358,6 @@ describe.each(SPECS)("$name list: strict mode accepts its own declared names", (
   });
 });
 
-describe("container list: strict containerTypeId validation", () => {
-  const spec = SPECS.find((s) => s.name === "container")!;
-
-  it.each(["0", "7", "9007199254740991"])(
-    "accepts exact safe-integer %s under strict mode without matching null stored types", async (value) => {
-      const result = await page(spec, `strictQuery=true&containerTypeId=${value}`);
-      // All four fixture rows have a NULL container_type_id, never literal zero.
-      expect(result.body).toEqual({ rows: [], total: 0, nextCursor: null });
-      expect(result.response.headers.get("link")).toBeNull();
-    }
-  );
-
-  it.each([
-    "containerTypeId=", "containerTypeId=00", "containerTypeId=-1",
-    "containerTypeId=1.0", "containerTypeId=1e0", "containerTypeId=%2B7",
-    "containerTypeId=%207", "containerTypeId=7%20", "containerTypeId=%D9%A7",
-    "containerTypeId=9007199254740992", `containerTypeId=${MARKER}`,
-    "containerTypeId=7&containerTypeId=7", "containerTypeId=7&%63ontainerTypeId=7"
-  ])("rejects malformed or repeated %s value-free before D1 in strict mode", async (fragment) => {
-    const denied = forbiddenDb();
-    const logs = silence();
-    const { response } = await request(`${spec.path}?strictQuery=true&${fragment}`, { db: denied.db });
-    await expectBadQuery(response, ["%2B7", "%207", "7%20", "%D9%A7"]);
-    expect(denied.calls).toEqual([]);
-    for (const log of logs) expect(log).not.toHaveBeenCalled();
-  });
-});
-
 describe("address list: strictQuery and driverNote compose", () => {
   it("filters both a strict page and count-only by the recognized stored note", async () => {
     await TEST_ENV.CUSTOMER_DB.prepare(
@@ -467,6 +440,34 @@ describe.each(SPECS)("$name list: strict mode rejects unknown names value-free",
       const result = await page(spec, pair);
       expect(idsOf(spec, result.body), pair).toEqual(IDS);
     }
+  });
+});
+
+describe("container list: strict containerTypeId validation", () => {
+  const spec = SPECS.find((s) => s.name === "container")!;
+
+  it.each(["0", "7", "9007199254740991"])(
+    "accepts exact safe-integer %s under strict mode without matching null stored types", async (value) => {
+      const result = await page(spec, `strictQuery=true&containerTypeId=${value}`);
+      // All four fixture rows have a NULL container_type_id, never literal zero.
+      expect(result.body).toEqual({ rows: [], total: 0, nextCursor: null });
+      expect(result.response.headers.get("link")).toBeNull();
+    }
+  );
+
+  it.each([
+    "containerTypeId=", "containerTypeId=00", "containerTypeId=-1",
+    "containerTypeId=1.0", "containerTypeId=1e0", "containerTypeId=%2B7",
+    "containerTypeId=%207", "containerTypeId=7%20", "containerTypeId=%D9%A7",
+    "containerTypeId=9007199254740992", `containerTypeId=${MARKER}`,
+    "containerTypeId=7&containerTypeId=7", "containerTypeId=7&%63ontainerTypeId=7"
+  ])("rejects malformed or repeated %s value-free before D1 in strict mode", async (fragment) => {
+    const denied = forbiddenDb();
+    const logs = silence();
+    const { response } = await request(`${spec.path}?strictQuery=true&${fragment}`, { db: denied.db });
+    await expectBadQuery(response, ["%2B7", "%207", "7%20", "%D9%A7"]);
+    expect(denied.calls).toEqual([]);
+    for (const log of logs) expect(log).not.toHaveBeenCalled();
   });
 });
 
