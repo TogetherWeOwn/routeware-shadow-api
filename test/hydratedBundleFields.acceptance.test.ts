@@ -827,7 +827,11 @@ describe.each(specs)("$kind hydrated bundle fields", (spec) => {
       expect(response.headers.get("content-type")).toMatch(/^application\/problem\+json\b/);
       const body = await response.json() as Record<string, unknown>;
       expect(body).toMatchObject({ type: `${PROBLEMS}#bad-request`, title: "Bad Request", status: 400 });
-      expect(String(body.detail)).toMatch(/Invalid request query \(.*fields.*\).*See docs\/PROBLEMS\.md#bad-request\./);
+      const detail = String(body.detail);
+      expect(detail).toContain("See docs/PROBLEMS.md#bad-request.");
+      expect((detail.match(/fields\[[^\]]*\]/g) ?? []).sort())
+        .toEqual(["fields[address]", "fields[container]", "fields[customer]"]);
+      expect(detail).not.toContain(`fields[${unknown}]`);
       expect(JSON.stringify(body)).not.toMatch(/received|invalid_type|"input"/i);
       expectNoWork();
     });

@@ -100,6 +100,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
   focused check: `npm run check:snapshot-count-only`.
 
+- #394: Each existing hydrated GET publishes registry-derived v1 field catalogs
+  on all three typed selectors, plus root-specific legal-mode guidance:
+  distinct types compose, flat fields conflicts with the typed root, and batch
+  ids rejects every fieldset. Remove the redundant unknown-selector branch;
+  mounted guards already prevent submitted key/value reflection. Authentication,
+  successful bytes, projection, full-cache contents, ETags and batch schemas
+  are unchanged. Offline synthetic extraction recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused mounted contract and safety check:
+  `npm run check:hydrated-fieldset-discovery`. No deployment or access change.
+
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
   opaque strings of 1..100 Unicode code points preserve significant nonblank
