@@ -331,7 +331,7 @@ describe("serviceCode AND composition on both SQL paths", () => {
 
   it("ignores unrelated names without changing successful rows, SQL or ETag", async () => {
     const base = await page({ serviceCode: CODE });
-    const unknown = await page({ serviceCode: CODE, unrelated: "private-marker", serviceCodeType: "not-a-filter", serviceCodeInput: "not-a-filter" });
+    const unknown = await page({ serviceCode: CODE, unrelated: "private-marker", unrelatedType: "not-a-filter", unrelatedInput: "not-a-filter" });
     expect(ids(base.body)).toEqual([101, 102, 103, 104]);
     expect(unknown.body).toEqual(base.body);
     expect(unknown.recorder.statements).toEqual(base.recorder.statements);
