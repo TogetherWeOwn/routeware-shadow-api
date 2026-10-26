@@ -161,8 +161,9 @@ async function fetchOpenApiDocument(): Promise<OpenApiDocument> {
  * Conditional list declarations are owned by the behavioral/structured oracle
  * in snapshotListConditional.acceptance.test.ts, not this pre-feature snapshot.
  * Only its three new header params, 200 ETags and bodyless 304 declarations are
- * projected out. The optional upperId query on these same three lists is pinned
- * independently by snapshotUpperId.acceptance.test.ts. The changes operation/400
+ * projected out. The optional lowerId/upperId queries on these same three lists
+ * are pinned independently by snapshotLowerId.acceptance.test.ts and
+ * snapshotUpperId.acceptance.test.ts. The changes operation/400
  * descriptions are asserted semantically in customerChangesFields.acceptance.test.ts,
  * so only those two strings are excluded here. Its fields schema and all
  * cursor/limit/response structure stay snapshot-frozen, as does every unrelated
@@ -220,7 +221,7 @@ function withoutDedicatedListMetadata(doc: OpenApiDocument): unknown {
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((param) =>
         !(param.in === "header" && String(param.name).toLowerCase() === "if-none-match") &&
-        !(param.in === "query" && ["upperId", "countOnly"].includes(String(param.name)))
+        !(param.in === "query" && ["lowerId", "upperId", "countOnly"].includes(String(param.name)))
       );
     }
     if (operation.responses) delete operation.responses["304"];
@@ -338,6 +339,20 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
     | undefined;
   if (operation?.parameters) {
     operation.parameters = operation.parameters.filter((p) => p.in !== "query" || p.name !== "comments");
+  }
+  return copy;
+}
+
+/** Only the new customer-list query parameters move to the independent
+ * customerPhonePresence oracle; all legacy schemas/prose/endpoints stay frozen. */
+function withoutCustomerPhonePresenceParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((p) =>
+      p.in !== "query" || !["hasPhone1", "hasPhone2"].includes(p.name ?? ""));
   }
   return copy;
 }
@@ -851,7 +866,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))));
+    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The

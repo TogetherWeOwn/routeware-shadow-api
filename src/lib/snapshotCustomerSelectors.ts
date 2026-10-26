@@ -88,6 +88,40 @@ export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope
 }
 
 /**
+ * Stored phone-slot presence selectors for the ordinary customer list.
+ *
+ * One shared enum shape so the two slots cannot drift; per-slot aliases
+ * below name their stored column and carry the fixed remedy. Present means
+ * stored `phoneN IS NOT NULL AND phoneN <> ''`; absent is the exact
+ * null-or-empty complement — whitespace-only stored text counts as present.
+ * No trimming, normalization, digit-stripping, number validation, consent or
+ * reachability is inferred. Validation lives in the query zod schema so the
+ * module `defaultHook` answers rejections before any D1 work runs; a
+ * repeated key reaches zod as an array and fails the enum schema.
+ */
+const customerPhonePresenceQuery = z.enum(["true", "false", "any"]).optional().default("any");
+
+/** Primary stored-phone (phone1) presence; see the shared contract above. */
+export const customerPhone1PresenceQuery = customerPhonePresenceQuery
+  .describe('Stored primary-phone presence: "true" selects rows where stored phone1 is present (IS NOT NULL AND <> \'\'), "false" selects the exact null-or-empty complement; "any" or omission adds no filter. Whitespace-only stored text counts as present: no trimming, normalization, number validation or digit-stripping. Stored presence is NOT a valid number, preferred channel, contact consent, deliverability or reachability. AND-composes with every other filter. Presence-only selections may scan; no phone index exists and none is added. Send one hasPhone1=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "false" });
+
+/** Secondary stored-phone (phone2) presence; see the shared contract above. */
+export const customerPhone2PresenceQuery = customerPhonePresenceQuery
+  .describe('Stored secondary-phone presence: "true" selects rows where stored phone2 is present (IS NOT NULL AND <> \'\'), "false" selects the exact null-or-empty complement; "any" or omission adds no filter. Whitespace-only stored text counts as present: no trimming, normalization, number validation or digit-stripping. Stored presence is NOT a valid number, preferred channel, contact consent, deliverability or reachability. AND-composes with every other filter. Presence-only selections may scan; no phone index exists and none is added. Send one hasPhone2=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "false" });
+
+/**
+ * Stored phone-slot presence predicate (no binds): the caller supplies the
+ * slot column. Present is stored `phoneN IS NOT NULL AND phoneN <> ''`;
+ * absent is the exact null-or-empty complement, parenthesized so it ANDs
+ * safely with sibling predicates. Whitespace-only text stays present.
+ */
+export function customerPhonePresencePredicate(slot: "phone1" | "phone2", value: "true" | "false"): string {
+  return value === "true" ? `${slot} IS NOT NULL AND ${slot} <> ''` : `(${slot} IS NULL OR ${slot} = '')`;
+}
+
+/**
  * Opaque-string selectors for the ordinary customer list.
  *
  * Single source of truth for the account-number and stored-phone-fragment

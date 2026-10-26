@@ -13,9 +13,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -130,6 +130,42 @@ evidence, not a production latency claim. No migration/index change. GET
 is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts) and
 [correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
+## Customer stored-phone presence
+
+Only the ordinary customer list recognizes `hasPhone1=true|false|any` and
+`hasPhone2=true|false|any`. `true` keeps rows where the stored slot is
+present (`phoneN IS NOT NULL AND phoneN <> ''`); `false` keeps the exact
+null-or-empty complement. Omission/`any` adds no predicate. Whitespace-only
+stored text counts as present: no trimming, normalization, digit-stripping or
+number validation. Stored presence is **not** a valid number, a preferred
+channel, contact consent, deliverability or reachability, and never
+authorizes outreach or provider lookups.
+
+Send each supported key once as `true`, `false` or `any`, or omit it.
+Invalid, blank, repeated or case-variant values return the value-free
+`application/problem+json` 400 after authentication and before D1, including
+conditional requests. Both predicates share the COUNT/page WHERE and binds,
+AND-composing with each other and every existing customer selector;
+`hasPhone1=false&hasPhone2=false` identifies rows with no stored phone text
+in either slot. Count-free mode still runs one SELECT and zero COUNTs, and
+`countOnly=true` runs the existing COUNT-only path. Canonical `customer_id`,
+sparse fields, cursor-relative totals and exact-representation ETag/304
+semantics are unchanged. Validated true/false travel in relative next Links;
+any/default and unknown keys do not. Presence-only selections may scan; no
+phone index exists and none is added. A full terminal page may link to an
+empty page; concurrent writes are not snapshot-isolated.
+
+Run `npm run check:customer-phone-presence`; the independent
+`test/customerPhonePresence.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2/writes and verifies the full nine-combination matrix,
+AND-composition, bidirectional traversal and representation-correct
+conditional reads. Synthetic EXPLAIN on the equivalent specification queries
+shows SCAN plans (SEARCH only when a selective primary-key predicate
+applies); this is local planner evidence, not a production latency claim. No
+migration/index change, no upstream hydration. GET is an idempotent
+local-read operation; CLI `--dry-run` is N/A. See the [local recipe](CONSUMER-QUICKSTART.md#customer-stored-phone-presence)
+and [correction guidance](PROBLEMS.md#bad-request).
 
 ## Address container presence
 
@@ -1051,6 +1087,62 @@ GET /api/v1/customer-snapshot?upperId=6&cursor=4&limit=2
 ```
 
 Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
+validation, resume, composition, discovery and header regressions. No live
+replay.
+
+## Caller-held lower bound (`lowerId=`)
+
+The three ordinary lists accept an optional `lowerId=` inclusive floor:
+only rows whose resource primary key (`customer_id`, `pickup_address_id`,
+`container_id`) is at or above the floor are listed and counted. The caller
+supplies the floor explicitly and retains it unchanged across pages, so
+lower-ID arrivals outside the window cannot extend the traversal beyond
+its chosen scope. A descending cursor at or below the floor yields an empty
+page, not a validation error; totals keep existing cursor-relative semantics.
+With `order=asc`, the same inclusive floor applies while the cursor seeks
+strictly above its ID: a cursor below the floor may still return floored rows,
+and a cursor equal to the floor excludes that ID but can return higher IDs.
+Next targets retain both the floor and the explicitly supplied direction.
+
+The floor composes with every existing singular/relationship filter, `q`,
+`enabled`, sparse `fields=`, offset or cursor pagination,
+`includeTotal=false`, and the `upperId=` ceiling: the bound `>= ?`
+predicate is in both the page `SELECT` and the `COUNT`, with no `MIN`
+query, migration or index. A crossed `lowerId` above `upperId` is an empty
+cohort (cursor-relative count `0` when computed), not a validation error.
+Unknown parameter names stay ignored, and omission preserves existing
+behavior. When the page is non-terminal, the `Link` next target preserves
+the same `lowerId=` floor verbatim, so following the server's link cannot
+escape the chosen scope; an unfloored page's next target carries no
+`lowerId`.
+
+Validation is strict and shared (`src/lib/snapshotLowerId.ts`): one
+canonical unpadded ASCII decimal integer from `1` to `9007199254740991` —
+no signs, whitespace, fractions, exponents or prefixes, and a single
+`lowerId` key. Anything else (including an empty value or a repeated key,
+even percent-encoded) is the existing value-free 400 naming `lowerId`
+before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#bad-request).
+
+Numeric IDs are not timestamps: inserts inside the window remain visible,
+and updates and deletions can change later pages, while deleted rows are
+omitted from the current snapshot lists. The bound promises neither
+snapshot isolation, exact-once delivery nor automatic watermark
+discovery. Synthetic resume with an explicitly supplied window:
+
+```text
+GET /api/v1/customer-snapshot?lowerId=4&upperId=10&limit=2
+
+{"rows":[{"customer_id":4,...},{"customer_id":6,...}],"total":4,"nextCursor":6}
+
+# customer_id=7 arrives here; the caller resumes with the same window:
+
+GET /api/v1/customer-snapshot?lowerId=4&upperId=10&cursor=6&limit=2
+
+{"rows":[{"customer_id":7,...},{"customer_id":8,...}],"total":3,"nextCursor":8}
+```
+
+Run `npm run check:snapshot-lower-id` for the focused synthetic-local-D1
 validation, resume, composition, discovery and header regressions. No live
 replay.
 

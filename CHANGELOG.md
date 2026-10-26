@@ -28,6 +28,54 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
   check: `npm run check:customer-address-cohorts`.
+
+- #409: Three ordinary snapshot lists (`GET
+  /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
+  caller-held inclusive floor: only rows whose resource primary key is at or
+  above the floor are listed and counted, alone or windowed with the `upperId`
+  ceiling. The caller retains its window unchanged across pages in either
+  direction, so out-of-window arrivals cannot extend the traversal; a
+  descending cursor at or below the floor yields an empty page with
+  cursor-relative totals, and crossed `lowerId` above `upperId` reads as an
+  empty cohort rather than a validation error. The floor composes with all
+  filters, `ids`, `q`, sparse `fields`, offset/cursor paging,
+  `includeTotal=false`, `countOnly` and `exactNext`, is preserved verbatim in
+  `Link` next targets, needs no migration or index, and omission preserves
+  existing behavior with no `MIN` query. Values are one canonical unpadded
+  ASCII decimal integer from `1` to `9007199254740991`; anything else is a
+  value-free 400 before D1, after read-role authentication. Numeric IDs are
+  not timestamps: in-window arrivals, updates and deletions remain visible,
+  with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
+  Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
+  check: `npm run check:snapshot-lower-id`.
+
+- #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
+  list: each selects rows by stored `phone1`/`phone2` text as stored —
+  `true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
+  exact null-or-empty complement — so missing-phone cohorts read without
+  downloading every customer's phone values. Both flags AND-compose with
+  each other and every existing selector in the shared COUNT/page WHERE;
+  `any`/omission adds no predicate, `countOnly=true` keeps the existing
+  COUNT-only path, and `includeTotal=false` stays count-free. Whitespace-only
+  stored text counts as present: no trimming, normalization, digit-stripping
+  or number validation. Stored presence is not a valid number, preferred
+  channel, contact consent, deliverability or reachability. Invalid, blank,
+  repeated or case-variant values fail with the fixed value-free 400 after
+  auth and before D1; effective values round-trip in relative next Links
+  while `any`/default stays out. Presence-only selections may scan; no phone
+  index or migration, no upstream hydration, no latency promise. Synthetic
+  neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-phone-presence`.
+
+- #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
+  dated and latest downloads (404 not-found, 409 replacement conflict),
+  the unreadable latest-pointer 500, the date-listing 500, and the
+  unbound-store 503 all resolve their problem `type` from the request
+  environment. Status, title, detail, instance,
+  headers, auth, request-id behavior and success/conditional bytes are
+  unchanged; absent, empty or whitespace-only overrides keep the exact
+  existing default. See
+  `docs/CONSUMER-QUICKSTART.md#problem-type-base-override`.
 - #405: Address snapshot lists accept optional `lastAuditDate` exact and
   `hasLastAuditDate=true|false|any` (default `any`) selectors on stored
   `last_audit_date` only. The exact value binds verbatim (1..100 Unicode

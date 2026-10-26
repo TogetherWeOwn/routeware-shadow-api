@@ -50,7 +50,10 @@ type SnapshotListQuery = {
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
+  hasPhone1?: "true" | "false" | "any";
+  hasPhone2?: "true" | "false" | "any";
   fields?: string[];
+  lowerId?: number;
   upperId?: number;
   limit: number;
   // Routes pass order/includeTotal only when the request spelled them out, so
@@ -113,12 +116,21 @@ export function snapshotNextLink(
   if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
     params.set("addressEnabled", query.addressEnabled);
   }
+  // Customer-only stored-phone presence: carry only filtering values so
+  // any/omitted continuations stay byte-identical.
+  if (resource === "customer" && query.hasPhone1 !== undefined && query.hasPhone1 !== "any") {
+    params.set("hasPhone1", query.hasPhone1);
+  }
+  if (resource === "customer" && query.hasPhone2 !== undefined && query.hasPhone2 !== "any") {
+    params.set("hasPhone2", query.hasPhone2);
+  }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
-  // Caller-held inclusive ceiling: the next target keeps the same cap so the
-  // continuation cannot escape the traversal the caller chose to bound.
+  // Caller-held inclusive window: the next target keeps the same floor and cap
+  // so the continuation cannot escape the traversal the caller chose to bound.
+  if (query.lowerId !== undefined) params.set("lowerId", String(query.lowerId));
   if (query.upperId !== undefined) params.set("upperId", String(query.upperId));
   params.set("limit", String(query.limit));
   if (query.includeTotal !== undefined) params.set("includeTotal", query.includeTotal);
