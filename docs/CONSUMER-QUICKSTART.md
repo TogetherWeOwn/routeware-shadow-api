@@ -698,6 +698,51 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Stored container event-code cohorts
+
+Use `listContainerSnapshot` with optional `eventCode` (stored `event_code`)
+and/or `hasEventCode=true|false|any` to retrieve equipment with a known
+stored code, or to count equipment without code text, without downloading
+the full inventory. The code is an opaque, case-sensitive exact string of
+1..100 Unicode code points containing a non-whitespace character: leading
+zeros, significant whitespace and punctuation are preserved, and the value
+is never parsed as a number, enum or status. Stored code text is mirrored
+import text, not current dispatch state, event history, proof of service or
+a controlled taxonomy. `hasEventCode=false` keeps exactly the null-or-empty
+complement; whitespace-only stored text counts as present.
+
+Send each key once. Encode with `new URLSearchParams({ eventCode: "E-001",
+hasEventCode: "true" })`. Empty, whitespace-only, overlength or repeated
+keys fail value-free before D1 after auth; correct the named format and
+retry. Valid unknown codes return an empty 200, as does the contradictory
+`eventCode` plus `hasEventCode=false`. For a cohort size without rows, add
+`countOnly=true` and read `total` only.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:container-event-code
+```
+
+The fixture's `eventCode=E-001&fields=event_code&limit=2&includeTotal=false`
+request returns IDs `[101,102]`, then `[104,105]`, then `[125]` and an empty
+terminal page by following the returned
+[same-origin Link](#follow-the-servers-next-page-target) unchanged.
+`hasEventCode=false` returns the `[108,112,126]` null-or-empty cohort.
+Validated selectors stay encoded, `hasEventCode=any` is omitted, and neither
+raw origins nor unknown query keys are copied.
+
+Both selectors AND-compose with existing IDs, identifiers, labels, locality,
+parent scopes, equipment state and cursor/upper bounds on both customer-join
+paths; omission preserves the unjoined list and orphan visibility. Sparse
+fields, container-ID order, count-free reads and representation ETags/304
+stay intact. The recipe denies outbound fetch/R2/writes and checks both
+traversal directions. Equality/presence can scan; no new index, migration,
+deployment or production latency is claimed. GET is idempotent local-read,
+CLI dry-run N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-event-codes)
+and [400 recovery](PROBLEMS.md#container-stored-event-code-selectors-bad-request).
+
 ### Exact stored address city and state
 
 Use `listAddressSnapshot` with optional `city` and/or `state` to select an

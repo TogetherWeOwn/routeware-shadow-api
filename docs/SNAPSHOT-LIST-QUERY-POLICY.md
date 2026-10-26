@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `eventCode`, `hasEventCode`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -687,6 +687,56 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Exact stored container event codes
+
+Only the existing container list accepts optional `eventCode` and
+`hasEventCode=true|false|any` (default `any`). `eventCode` binds
+`c.event_code = ?`; `hasEventCode=true` keeps non-null nonempty codes while
+`false` keeps only the null-or-empty complement. Stored code text is opaque
+mirrored import text, not current dispatch state, event history, proof of
+service or a controlled taxonomy. The code must contain 1..100 Unicode code
+points and a non-whitespace character. Leading zeros, significant
+whitespace, punctuation and Unicode composition are preserved exactly;
+quotes, `%` and `_` are literal data, not SQL or wildcards. Null never
+matches a supplied string. Valid unknown codes return an empty 200.
+Whitespace-only stored text counts as present, never as missing.
+
+URL-encode one supported-length nonblank exact code, or omit the selector
+and retry if no code scope is intended. Send `hasEventCode` once as exact
+`true`, `false` or `any`. Empty, whitespace-only, overlength and repeated
+keys fail with the existing value-free `application/problem+json`
+bad-request after authentication and before D1.
+See [correction guidance](PROBLEMS.md#container-stored-event-code-selectors-bad-request).
+
+Both selectors AND-compose with each other and all existing filters on the
+joined and unjoined paths, including an empty 200 for `eventCode` plus
+`hasEventCode=false`. COUNT and page queries share the same bound scope;
+duplicates are retained and paginated. `includeTotal=false` executes zero
+COUNTs. Neither selector adds a join, so omission preserves unjoined orphan
+visibility. IDs, sparse projection, `upperId`, asc/desc seeks and
+representation ETags retain their existing contracts.
+
+Synthetic local fixture example (IDs 101, 102, 104, 105, 125 share `E-001`):
+
+```text
+GET /api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&includeTotal=false
+
+{"rows":[{"container_id":101,"event_code":"E-001"},{"container_id":102,"event_code":"E-001"}],"total":null,"nextCursor":102}
+Link: </api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&includeTotal=false&cursor=102>; rel="next"
+```
+
+Follow the returned same-origin Link unchanged through 104, 105, 125 and the
+empty terminal page. Validated selectors round-trip encoded, including
+significant whitespace; raw origins, credentials and unknown keys are never
+copied. `hasEventCode=any` is omitted from continuation targets.
+
+Run `npm run check:container-event-code` for a hermetic local-D1 recipe including
+literal codes, malformed/auth zero-work checks, both join paths, count-free
+pagination, sparse fields, ETags and followed links. Equality/presence
+queries may scan; no new index/migration or performance claim is made. GET
+is an idempotent local-read with no upstream, R2, browser or write work;
+CLI `--dry-run` is N/A.
 
 ## Mutating POST query keys are strict
 
