@@ -77,7 +77,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -114,8 +114,9 @@ export function snapshotNextLink(
   if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
     params.set("extrasAllowed", query.extrasAllowed);
   }
-  // Address-only presence selector (other lists never set it): carry only
-  // filtering values so any/omitted continuations stay byte-identical.
+  // Mirrored-container presence (address direct-child, customer grandchild;
+  // the container list never sets it): carry only filtering values so
+  // any/omitted continuations stay byte-identical.
   if (query.hasContainers !== undefined && query.hasContainers !== "any") {
     params.set("hasContainers", query.hasContainers);
   }

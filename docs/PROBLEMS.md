@@ -160,6 +160,26 @@ is independent. No mirrored child is not proof of no upstream site and never
 authorizes deletion, reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
 
+## Customer container presence (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, send one `hasContainers=true`, `false`
+or `any` (default), or omit the selector and retry. On this list the key
+selects by mirrored grandchild reachability (a stored container through any
+stored address the customer owns); the address list keeps its own
+direct-child selector of the same spelling with its existing detail below.
+The enum is exact and case-sensitive: unknown, empty and repeated values
+fail after authentication and before D1 with the existing value-free 400.
+Detail for this field alone:
+
+`Invalid request query (hasContainers). Send one hasContainers=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value is echoed or logged. Zero matches is a successful empty
+collection. Disabled stored addresses and containers count as present;
+customer `enabled` is independent. No mirrored reachable container is not
+proof of no upstream equipment and never authorizes deletion,
+reconciliation or sync. See the
+[local present/absent recipe](CONSUMER-QUICKSTART.md#customer-container-presence).
+
 ## Customer service-site cohorts (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
@@ -484,6 +504,23 @@ No submitted value is echoed or logged. Valid no-match returns 200 empty.
 These selectors match only the container's own columns, never parent-address
 values; stored nulls never match. See the
 [exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
+
+## Exact stored container city (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `city` is one case-sensitive
+exact opaque string of 1..100 Unicode code points containing a non-whitespace
+character. Empty/whitespace-only, repeated (including encoded duplicates) and
+overlength values fail after authentication but before D1 or conditional 304,
+with the existing value-free problem body:
+`Invalid request query (city). See docs/PROBLEMS.md#bad-request.`
+URL-encode one nonblank stored value within the limit or omit the key, then
+retry. Do not trim significant whitespace, change case, normalize Unicode or
+coerce leading zeros. No submitted value is echoed or logged. Valid no-match
+returns 200 empty. The selector matches only the container's own `city`,
+never the parent-address city; stored nulls never match. Unlike `city`, `q`
+is a trimmed substring over location/serial/city/zip. See the
+[exact city policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city)
+and [city recipe](CONSUMER-QUICKSTART.md#exact-stored-container-city).
 
 ## Snapshot list direction (`bad-request`)
 

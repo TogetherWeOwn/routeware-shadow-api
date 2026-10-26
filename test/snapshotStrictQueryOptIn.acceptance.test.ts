@@ -82,12 +82,12 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "serialNumber=SN-1", "rfid=RF-1",
+      "city=Riverton", "state=ST", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "containerTypeId=7"
     ]
   },
@@ -116,12 +116,12 @@ const SPECS: Spec[] = [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
-      "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1", "city=Riverton",
+      "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
       "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
     ]
   }

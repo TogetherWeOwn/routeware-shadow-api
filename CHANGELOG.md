@@ -5,6 +5,41 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #419: Container snapshot lists accept an optional exact stored `city`:
+  one nonblank case-sensitive opaque string of 1..100 Unicode code points
+  bound as `c.city = ?` on the container row only, never the parent address
+  city. Leading zeros, case, punctuation and significant whitespace are
+  preserved; stored nulls never match and valid unknown cities return an
+  empty 200. The selector AND-composes with every existing container filter
+  with shared COUNT/page scope, COUNT-only `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and city-retaining relative
+  next Links in asc/desc, including offset-to-seek. Unlike `city`, `q` stays
+  a trimmed substring over location/serial/city/zip; supplying both
+  intersects. Empty/whitespace-only, repeated and overlength values fail with
+  the existing value-free 400 after auth and before D1. Stored city is
+  mirrored text, not geolocation; unscoped equality scans with no
+  index/migration or latency claim. Synthetic city-vs-`q` recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-container-city`; local check:
+  `npm run check:container-exact-city`.
+- #415: Optional `hasContainers=true|false|any` (default `any`) on the
+  existing customer snapshot list: `true` keeps accounts with at least one
+  stored container reachable through any stored address they own, `false`
+  the exact NOT EXISTS complement — disabled addresses and containers count
+  as stored, orphan containers never qualify, and a customer row is never
+  duplicated. Presence is global to the customer: it AND-composes with
+  `hasAddresses` and every existing selector in the shared COUNT/page WHERE
+  without claiming the equipment sits on any site a separate cohort
+  selector matched; `hasAddresses=false&hasContainers=true` is a 200 empty
+  page. `countOnly=true` keeps the existing COUNT-only path and
+  `includeTotal=false` stays count-free; effective values round-trip in
+  relative next Links while `any`/default stays out. Absence means no
+  currently mirrored reachable equipment — not upstream emptiness, active
+  service, authorization, reconciliation or deletion authority. Invalid,
+  blank, repeated or encoded-duplicate values fail with the fixed
+  value-free 400 after auth and before D1. Uses the existing foreign-key
+  lookup indexes; no new index, migration or latency promise. Synthetic
+  present/absent and contradiction recipes: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:customer-container-presence`.
 - #412: Optional `addressRouteId`, `addressFranchiseId` and
   `addressEnabled=true|false|any` (default `any`) on the ordinary customer
   snapshot list only, selecting accounts in a mirrored
@@ -28,7 +63,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
   check: `npm run check:customer-address-cohorts`.
-
 - Optional `parentCustomerEnabled=true|false|any` (default `any`) on the
   existing address snapshot list (`GET /api/v1/address-snapshot`): selects
   sites by the related stored customer's `enabled` — `true` keeps only
