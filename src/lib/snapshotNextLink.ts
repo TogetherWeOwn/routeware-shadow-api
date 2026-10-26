@@ -45,11 +45,19 @@ type SnapshotListQuery = {
   phone?: string;
   comments?: string;
   enabled: "true" | "false" | "any";
+  // Container-only stored-flag selectors. Optional because the customer and
+  // address lists share this query shape without defining these keys.
+  onCall?: "true" | "false" | "any";
+  gpsLocked?: "true" | "false" | "any";
   // Address list only; sibling lists omit the key and keep unfiltered links.
   extrasAllowed?: "true" | "false" | "any";
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
+  parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  addressRouteId?: number;
+  addressFranchiseId?: string;
+  addressEnabled?: "true" | "false" | "any";
   hasPhone1?: "true" | "false" | "any";
   hasPhone2?: "true" | "false" | "any";
   fields?: string[];
@@ -65,7 +73,7 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "city", "state"] }
 } as const;
@@ -96,6 +104,10 @@ export function snapshotNextLink(
   if (query.ids !== undefined) params.set("ids", query.ids.join(","));
   if (query.q !== undefined) params.set("q", query.q);
   if (query.enabled !== "any") params.set("enabled", query.enabled);
+  // Non-any stored-flag selectors round-trip; `any`/omission stays canonical
+  // by omission, exactly like `enabled=any`.
+  if (query.onCall !== undefined && query.onCall !== "any") params.set("onCall", query.onCall);
+  if (query.gpsLocked !== undefined && query.gpsLocked !== "any") params.set("gpsLocked", query.gpsLocked);
   // Non-any only, like enabled: any/omission stays out of the canonical target.
   if (query.extrasAllowed !== undefined && query.extrasAllowed !== "any") {
     params.set("extrasAllowed", query.extrasAllowed);
@@ -110,8 +122,16 @@ export function snapshotNextLink(
   if (query.hasLastAuditDate !== undefined && query.hasLastAuditDate !== "any") {
     params.set("hasLastAuditDate", query.hasLastAuditDate);
   }
+  // Parent stored-customer state (address only): carry only filtering values
+  // so any/omitted continuations stay byte-identical.
+  if (resource === "address" && query.parentCustomerEnabled !== undefined && query.parentCustomerEnabled !== "any") {
+    params.set("parentCustomerEnabled", query.parentCustomerEnabled);
+  }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
+    params.set("addressEnabled", query.addressEnabled);
   }
   // Customer-only stored-phone presence: carry only filtering values so
   // any/omitted continuations stay byte-identical.
