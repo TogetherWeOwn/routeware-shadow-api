@@ -6128,6 +6128,49 @@
             }
           },
           {
+            "description": "Exact child route_id equality on the SAME stored address as the other cohort scopes: one canonical unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, never nulls. No signs, whitespace, fractions, exponents or repeated keys. Send one value or omit it and retry.",
+            "in": "query",
+            "name": "addressRouteId",
+            "required": false,
+            "schema": {
+              "description": "Exact child route_id equality on the SAME stored address as the other cohort scopes: one canonical unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, never nulls. No signs, whitespace, fractions, exponents or repeated keys. Send one value or omit it and retry.",
+              "example": 7,
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Opaque case-sensitive exact child franchise_id equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points containing a non-whitespace character. Leading zeros and significant whitespace are preserved, never trimmed or normalized; quotes, % and _ are literal data. URL-encode one value or omit it and retry; repeated keys are invalid.",
+            "in": "query",
+            "name": "addressFranchiseId",
+            "required": false,
+            "schema": {
+              "description": "Opaque case-sensitive exact child franchise_id equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points containing a non-whitespace character. Leading zeros and significant whitespace are preserved, never trimmed or normalized; quotes, % and _ are literal data. URL-encode one value or omit it and retry; repeated keys are invalid.",
+              "example": "001",
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Child address enabled state on the SAME stored address as the other cohort scopes: \"true\" requires stored enabled = 1, \"false\" requires stored 0; \"any\" or omission adds no state scope. Customer enabled stays independent. All stored children, including disabled, remain eligible unless this scope explicitly filters them. Send one addressEnabled=true, false or any, or omit the selector and retry.",
+            "in": "query",
+            "name": "addressEnabled",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "description": "Child address enabled state on the SAME stored address as the other cohort scopes: \"true\" requires stored enabled = 1, \"false\" requires stored 0; \"any\" or omission adds no state scope. Customer enabled stays independent. All stored children, including disabled, remain eligible unless this scope explicitly filters them. Send one addressEnabled=true, false or any, or omit the selector and retry.",
+              "enum": [
+                "true",
+                "false",
+                "any"
+              ],
+              "example": "true",
+              "type": "string"
+            }
+          },
+          {
             "description": "Stored primary-phone presence: \"true\" selects rows where stored phone1 is present (IS NOT NULL AND <> ''), \"false\" selects the exact null-or-empty complement; \"any\" or omission adds no filter. Whitespace-only stored text counts as present: no trimming, normalization, number validation or digit-stripping. Stored presence is NOT a valid number, preferred channel, contact consent, deliverability or reachability. AND-composes with every other filter. Presence-only selections may scan; no phone index exists and none is added. Send one hasPhone1=true, false or any, or omit the selector and retry.",
             "in": "query",
             "name": "hasPhone1",
@@ -6481,7 +6524,7 @@
             }
           },
           "400": {
-            "description": "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+            "description": "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
           }
         },
         "summary": "List customer snapshot rows (D1)",
