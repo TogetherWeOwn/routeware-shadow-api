@@ -208,7 +208,7 @@ none is promised.
 To obtain a real spelling safely, read it from rows you are already
 authorized to read — a sparse `fields=` list read or a by-id read — copy
 the stored value byte-for-byte URL-encoded, and probe with `countOnly`
-before paging. All values below (`Exampleton`, `EX-000`) are fake:
+before paging. The value below (`Exampleton`) is fake:
 
 ```bash
 # 1. Read a real stored spelling from an authorized sparse read.
