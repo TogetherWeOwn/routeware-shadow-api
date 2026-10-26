@@ -14,7 +14,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
@@ -460,6 +460,46 @@ local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
 `npm run check:address-driver-note` for the immutable synthetic local-D1
 oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note).
+
+## Stored address last audit date
+
+Only the existing address list accepts `lastAuditDate` and
+`hasLastAuditDate`, selecting on stored `address_snapshot.last_audit_date`
+only. `lastAuditDate` is one optional opaque case-sensitive exact string of
+1..100 Unicode code points with at least one non-whitespace character;
+supplied text binds verbatim with `=`, never trimmed, parsed as a date,
+ranged or pattern-matched. `hasLastAuditDate` is one optional exact
+`true|false|any` (default `any`): true keeps stored text that is not null
+and not empty (whitespace-only counts as present), false keeps exactly the
+null-or-empty complement. Exact value and presence AND-compose with each
+other and with IDs, route/franchise, ZIP, city/state, `q`, `driverNote`,
+`enabled`, `extrasAllowed`, mirrored child presence and traversal bounds; an
+exact value plus false matches nothing. Null stored text never matches a
+supplied value, and a valid unknown value returns 200 empty. Stored text is
+mirrored data, not audit compliance, a schedule, overdue status or
+permission to act. Blank/whitespace-only, overlength, invalid-enum and
+repeated (including encoded duplicate) keys return the existing value-free
+bad-request problem before D1, after auth; [fixed correction
+guidance](PROBLEMS.md#stored-address-last-audit-date-bad-request) never
+echoes submitted values. Do not log audit values.
+
+One bound `last_audit_date = ?` predicate and the literal presence
+predicates share predicates/binds between COUNT and page;
+`includeTotal=false` still issues zero COUNTs and `countOnly` stays
+COUNT-only. Sparse fields and ETag/304 describe the same final envelope.
+Relative next Links retain the validated exact value verbatim and a
+filtering presence (omit any), with URLSearchParams encoding in either
+order and when moving offset-to-seek; unknown raw parameters and origins
+never travel.
+
+Audit-date-only reads may scan; no index/migration, date-range support or
+production performance/latency claim is added. This GET is idempotent,
+local-read, with no upstream/R2/write effects; CLI `--dry-run` is N/A. Run
+`npm run check:address-last-audit-date` for the immutable synthetic local-D1
+oracle and neighboring list/auth/link/conditional/OpenAPI contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#stored-address-last-audit-date)
+and [local query-plan
+evidence](SNAPSHOT-FILTER-EXPLAIN-AUDIT.md#stored-address-last-audit-date-predicate-audit).
 
 ## Address street or locality search
 

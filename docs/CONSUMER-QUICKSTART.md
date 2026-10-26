@@ -174,8 +174,10 @@ scopes ([synthetic scoped-page recipe](#address-route-and-franchise-scopes)),
 exact stored `zip` / `city` / `state` selectors ([synthetic ZIP-page recipe](#exact-stored-address-zip)),
 literal stored `driverNote` substring ([synthetic note recipe](#stored-address-driver-note)),
 the stored `extrasAllowed=true|false|any` selector ([synthetic selector recipe](#address-stored-extras-allowed-selector)),
-and mirrored-child `hasContainers=true|false|any` presence
-([synthetic present/absent recipe](#address-container-presence)). Every list response includes
+mirrored-child `hasContainers=true|false|any` presence
+([synthetic present/absent recipe](#address-container-presence)),
+and exact stored `lastAuditDate` / `hasLastAuditDate=true|false|any` audit selection
+([synthetic audit-cohort recipe](#stored-address-last-audit-date)). Every list response includes
 `nextCursor` (the last row's primary key on a full page, otherwise `null`);
 full terminal pages still return a cursor, followed by an empty page. Pass it
 back as `&cursor=` instead of `offset` to page deep result sets by primary-key
@@ -225,6 +227,59 @@ local-read, no upstream/R2/write effects; CLI `--dry-run` is N/A.
 Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
 neighboring regressions; no live credentials or network probe is required.
 See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
+
+### Stored address last audit date
+
+Use `listAddressSnapshot` with `lastAuditDate` when you know the exact stored
+audit text, or `hasLastAuditDate=false` to count never-audited sites, without
+downloading every row. Both select **only `last_audit_date`**: street,
+comments, city, ZIP, state, driver notes and coordinates cannot satisfy them.
+Combine with route/franchise, locality, `enabled`, `driverNote`, child
+presence and traversal bounds for an AND intersection. This finds stored
+mirror text, not audit compliance, a schedule, overdue status or permission
+to act. Never log audit values or continuation targets.
+
+Send one URL-encoded exact string of 1..100 Unicode code points, preserved
+verbatim: case, leading zeros and significant whitespace all matter, and the
+value is never parsed as a date, ranged or pattern-matched. Null stored text
+never matches; an unknown value returns 200 empty. `hasLastAuditDate=true`
+keeps stored text that is present (not null, not empty; whitespace-only
+counts), `false` keeps exactly the null-or-empty complement, `any` (default)
+adds no predicate; an exact value plus `false` matches nothing.
+Blank/whitespace-only, overlength, invalid-enum and repeated keys receive
+fixed value-free 400 correction before D1, after auth; see
+[recovery](PROBLEMS.md#stored-address-last-audit-date-bad-request).
+
+Synthetic local example: sites 11 and 23 carry
+`last_audit_date="2026-01-15"`; a street/comment-only decoy does not match.
+Count the audit cohort without returning rows:
+
+```text
+GET /api/v1/address-snapshot?lastAuditDate=2026-01-15&countOnly=true
+{"rows":[],"total":2,"nextCursor":null}
+```
+
+Page the cohort with sparse fields; the audit value need not be returned:
+
+```text
+GET /api/v1/address-snapshot?lastAuditDate=2026-01-15&fields=address&limit=1&includeTotal=false
+{"rows":[{"pickup_address_id":11,"address":"11 Example St"}],"total":null,"nextCursor":11}
+Link: </api/v1/address-snapshot?lastAuditDate=2026-01-15&fields=address&limit=1&includeTotal=false&cursor=11>; rel="next"
+```
+
+Follow the relative Link unchanged on the same origin: next comes site 23,
+then an empty terminal page. Explicit `order=desc`, `upperId`, a filtering
+presence and other filters survive next Links; offset becomes seek, and
+`any`/omitted presence stays out. COUNT/page share scope; count-free is zero
+COUNTs; ETag/304 and no-store remain unchanged. Audit-date-only reads may
+scan: no new index, date-range support or production performance/latency
+claim. GET is idempotent and local-read, no upstream/R2/write effects; CLI
+`--dry-run` is N/A.
+
+Run `npm run check:address-last-audit-date` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
 
 ### Opt-in query typo detection
 
