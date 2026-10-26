@@ -311,6 +311,26 @@ label, or omit the selector if no label scope is intended, then retry. Never
 log submitted labels. Valid unknown labels return an empty 200, not an error.
 See the [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels).
 
+## Exact stored container service dates (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `serviceDate` is a
+case-sensitive opaque exact stored date text: 1..100 Unicode code points
+containing a non-whitespace character. It selects `service_date` verbatim and
+is never parsed as a date, status, history or proof of service. Optional
+`hasServiceDate` is exact `true`, `false` or `any` (default `any`): `true`
+keeps stored non-null nonempty text including whitespace-only values, `false`
+keeps exactly the null-or-empty complement. Preserve significant whitespace,
+leading zeros and punctuation without trimming or normalization.
+
+Empty, whitespace-only, repeated and overlength keys return the existing
+value-free 400 after authentication and before D1:
+`Invalid request query (serviceDate). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `hasServiceDate` key). URL-encode one supported-length nonblank
+stored value and one `true`/`false`/`any` presence value, or omit the
+selectors if no date scope is intended, then retry. Never log submitted
+dates. Valid unknown dates return an empty 200, not an error.
+See the [service-date policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-service-dates).
+
 ## Exact stored address city and state (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, send each optional `city` or `state`

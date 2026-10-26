@@ -25,6 +25,8 @@ type SnapshotListQuery = {
   rfid?: string;
   materialStream?: string;
   color?: string;
+  serviceDate?: string;
+  hasServiceDate?: "true" | "false" | "any";
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;
@@ -57,7 +59,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "city", "state", "driverNote"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "zip", "locationAddress", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "materialStream", "color", "serviceDate", "zip", "locationAddress", "state"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -100,6 +102,11 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
+  }
+  // Container-only service-date presence (other lists never set it): carry
+  // only filtering values so any/omitted continuations stay byte-identical.
+  if (resource === "container" && query.hasServiceDate !== undefined && query.hasServiceDate !== "any") {
+    params.set("hasServiceDate", query.hasServiceDate);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive ceiling: the next target keeps the same cap so the

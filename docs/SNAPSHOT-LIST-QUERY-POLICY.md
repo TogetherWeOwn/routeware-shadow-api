@@ -15,7 +15,7 @@ name does not become a SQL filter or bind. This preserves the existing
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -649,6 +649,60 @@ literal labels, malformed/auth zero-work checks, both join paths, count-free
 pagination, sparse fields, ETags and followed links. Equality queries may scan;
 no new index/migration or performance claim is made. GET is an idempotent
 local-read with no upstream, R2, browser or write work; CLI `--dry-run` is N/A.
+
+## Exact stored container service dates
+
+Only the existing container list accepts optional `serviceDate` and
+`hasServiceDate`. `serviceDate` binds `c.service_date = ?`; it is a
+case-sensitive opaque exact string of 1..100 Unicode code points containing a
+non-whitespace character, preserved verbatim and never parsed as a date,
+status, history or proof of service. Leading zeros, significant whitespace,
+punctuation and Unicode composition are preserved exactly; quotes, `%` and `_`
+are literal data, not SQL or wildcards. Null never matches a supplied string.
+Valid unknown dates return an empty 200.
+
+`hasServiceDate` is exact `true|false|any` (default `any`). `true` keeps rows
+whose stored text is non-null and nonempty, including whitespace-only text;
+`false` keeps exactly the null-or-empty complement. Both selectors AND-compose
+with each other and all existing filters (`serviceDate` plus
+`hasServiceDate=false` yields an empty 200); omission or `any` adds no
+predicate. Stored service-date text is mirrored report data, not service
+history, dispatch state, proof of service or a schedule; missing text includes
+report-only unavailability (detail-full nulls and already-cleared values are
+never repaired), not only never-serviced equipment.
+
+URL-encode one supported-length nonblank stored value, or omit the selector
+and retry if no date scope is intended. Empty, whitespace-only, overlength
+and repeated keys fail with the existing value-free
+`application/problem+json` bad-request after authentication and before D1.
+See [correction guidance](PROBLEMS.md#exact-stored-container-service-dates-bad-request).
+
+COUNT and page queries share the same bound scope on the joined and unjoined
+paths; duplicates are retained and paginated. `includeTotal=false` executes
+zero COUNTs. IDs, sparse projection, `upperId`, asc/desc seeks and
+representation ETags retain their existing contracts. Response/`fields` uses
+the stored name `service_date`, not query name `serviceDate`.
+
+Synthetic local fixture example (IDs 101, 102 carry the date):
+
+```text
+GET /api/v1/container-snapshot?serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false
+
+{"rows":[{"container_id":101,"service_date":"2026-01-15"}],"total":null,"nextCursor":101}
+Link: </api/v1/container-snapshot?serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false&cursor=101>; rel="next"
+```
+
+Follow the returned same-origin Link unchanged through 102 and the empty
+terminal page. Validated selectors round-trip encoded, including reserved
+characters and significant whitespace; raw origins, credentials and unknown
+keys are never copied. Omission preserves the unfiltered behavior.
+
+Run `npm run check:container-service-date` for a hermetic local-D1 recipe
+including literal dates, the missing-date cohort, malformed/auth zero-work
+checks, both join paths, count-free pagination, sparse fields, ETags and
+followed links. Equality/presence selection may scan; no new index/migration
+or performance claim is made. GET is an idempotent local-read with no
+upstream, R2, browser or write work; CLI `--dry-run` is N/A.
 
 ## Container parent service-site scopes
 
