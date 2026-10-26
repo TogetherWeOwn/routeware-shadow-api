@@ -6,6 +6,7 @@ import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
+import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
 import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
 import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
@@ -131,6 +132,7 @@ const addressSnapshotListRoute = createRoute({
         .optional()
         .describe("Last pickup_address_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
         .openapi({ example: 9 }),
+      lowerId: snapshotLowerIdQuery,
       upperId: snapshotUpperIdQuery,
       includeTotal: z
         .enum(["true", "false"])
@@ -265,6 +267,13 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.cursor !== undefined) {
     where.push(`pickup_address_id ${order.seek} ?`);
     binds.push(p.cursor);
+  }
+  // Caller-held inclusive floor: a fixed primary-key bound shared with the
+  // COUNT below through the same where/binds. A descending cursor at or below
+  // the floor matches nothing; ascending seeks retain this same inclusive floor.
+  if (p.lowerId !== undefined) {
+    where.push("pickup_address_id >= ?");
+    binds.push(p.lowerId);
   }
   // Caller-held inclusive ceiling: a fixed primary-key bound shared with the
   // COUNT below through the same where/binds. An ascending cursor at or above
