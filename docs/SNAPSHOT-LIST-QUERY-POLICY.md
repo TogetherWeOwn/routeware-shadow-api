@@ -13,9 +13,9 @@ name does not become a SQL filter or bind. This preserves the existing
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCoordinates`, `limit`, `offset`, `cursor`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `hasPhone1`, `hasPhone2`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `materialStream`, `color`, `zip`, `locationAddress`, `state`, `q`, `enabled`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 Presence selectors (`hasAddresses` / `hasContainers`) count currently mirrored
@@ -1077,6 +1077,62 @@ GET /api/v1/customer-snapshot?upperId=6&cursor=4&limit=2
 ```
 
 Run `npm run check:snapshot-upper-id` for the focused synthetic-local-D1
+validation, resume, composition, discovery and header regressions. No live
+replay.
+
+## Caller-held lower bound (`lowerId=`)
+
+The three ordinary lists accept an optional `lowerId=` inclusive floor:
+only rows whose resource primary key (`customer_id`, `pickup_address_id`,
+`container_id`) is at or above the floor are listed and counted. The caller
+supplies the floor explicitly and retains it unchanged across pages, so
+lower-ID arrivals outside the window cannot extend the traversal beyond
+its chosen scope. A descending cursor at or below the floor yields an empty
+page, not a validation error; totals keep existing cursor-relative semantics.
+With `order=asc`, the same inclusive floor applies while the cursor seeks
+strictly above its ID: a cursor below the floor may still return floored rows,
+and a cursor equal to the floor excludes that ID but can return higher IDs.
+Next targets retain both the floor and the explicitly supplied direction.
+
+The floor composes with every existing singular/relationship filter, `q`,
+`enabled`, sparse `fields=`, offset or cursor pagination,
+`includeTotal=false`, and the `upperId=` ceiling: the bound `>= ?`
+predicate is in both the page `SELECT` and the `COUNT`, with no `MIN`
+query, migration or index. A crossed `lowerId` above `upperId` is an empty
+cohort (cursor-relative count `0` when computed), not a validation error.
+Unknown parameter names stay ignored, and omission preserves existing
+behavior. When the page is non-terminal, the `Link` next target preserves
+the same `lowerId=` floor verbatim, so following the server's link cannot
+escape the chosen scope; an unfloored page's next target carries no
+`lowerId`.
+
+Validation is strict and shared (`src/lib/snapshotLowerId.ts`): one
+canonical unpadded ASCII decimal integer from `1` to `9007199254740991` —
+no signs, whitespace, fractions, exponents or prefixes, and a single
+`lowerId` key. Anything else (including an empty value or a repeated key,
+even percent-encoded) is the existing value-free 400 naming `lowerId`
+before any D1 work, after read-role authentication. See
+[bad-request correction guidance](PROBLEMS.md#bad-request).
+
+Numeric IDs are not timestamps: inserts inside the window remain visible,
+and updates and deletions can change later pages, while deleted rows are
+omitted from the current snapshot lists. The bound promises neither
+snapshot isolation, exact-once delivery nor automatic watermark
+discovery. Synthetic resume with an explicitly supplied window:
+
+```text
+GET /api/v1/customer-snapshot?lowerId=4&upperId=10&limit=2
+
+{"rows":[{"customer_id":4,...},{"customer_id":6,...}],"total":4,"nextCursor":6}
+
+# customer_id=7 arrives here; the caller resumes with the same window:
+
+GET /api/v1/customer-snapshot?lowerId=4&upperId=10&cursor=6&limit=2
+
+{"rows":[{"customer_id":7,...},{"customer_id":8,...}],"total":3,"nextCursor":8}
+```
+
+Run `npm run check:snapshot-lower-id` for the focused synthetic-local-D1
 validation, resume, composition, discovery and header regressions. No live
 replay.
 
