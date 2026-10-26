@@ -5,6 +5,25 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #408: Optional `hasCostShare` / `hasEnclosureDoors` on the existing
+  container snapshot list: presence-only selectors over the stored
+  `ud_cost_share_ud` / `ud_enclosure_doors_ud` text, so equipment carrying
+  cost-share or enclosure-door metadata counts without downloading values.
+  Each is exact `true|false|any` (default `any`); present means the stored
+  column `IS NOT NULL AND <> ''`, `false` matches exactly null-or-empty,
+  and nonempty whitespace-only text counts as present. Both AND-compose
+  with every existing filter via shared literal no-bind `WHERE` in the page
+  `SELECT` and the `COUNT` on both the bare and customer-join paths;
+  omission or `any` adds no predicate and stored data is never altered.
+  Effective controls round-trip in relative next Links with `any`/default
+  omitted. Stored custom-field text is mirrored report metadata, never
+  parsed cost terms, door counts, compliance state or a controlled
+  taxonomy; missing text includes report-only unavailability. Blank,
+  invalid or repeated presence keys are value-free 400s before D1, after
+  read-role authentication. Presence-only selections may scan; no index,
+  migration or performance promise. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-cost-share-enclosure`.
 - #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
