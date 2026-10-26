@@ -76,6 +76,11 @@
         },
         {
           "in": "query",
+          "name": "lowerId",
+          "required": false
+        },
+        {
+          "in": "query",
           "name": "upperId",
           "required": false
         },
@@ -258,6 +263,11 @@
         {
           "in": "query",
           "name": "cursor",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "lowerId",
           "required": false
         },
         {
@@ -449,6 +459,11 @@
         {
           "in": "query",
           "name": "cursor",
+          "required": false
+        },
+        {
+          "in": "query",
+          "name": "lowerId",
           "required": false
         },
         {
