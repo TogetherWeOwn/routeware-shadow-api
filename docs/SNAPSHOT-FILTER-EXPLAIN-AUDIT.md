@@ -161,6 +161,41 @@ data, not query cost. No migration/index, remote D1 probe, latency measurement
 or production-performance claim. The small local plan observation does not
 predict deployed planner choices or performance.
 
+## Address extras-allowed predicate audit
+
+**Run date:** 2026-10-24. In-memory Node 24.22.1 `node:sqlite` SQLite 3.53.4
+with committed D1 migrations `0001`–`0003` and 6 synthetic addresses
+(extras 0/1 x enabled 0/1, no tenant data). Used the address route's SELECT
+column template and COUNT template with the literal extras predicates,
+`ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek without OFFSET).
+Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `extras_allowed = 1` | `SCAN address_snapshot` |
+| `extras_allowed = 0` | `SCAN address_snapshot` |
+| `customer_id = ? AND instr(lower(coalesce(address, '')), lower(?)) > 0 AND enabled = 1 AND extras_allowed = 0` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `extras_allowed = 1 AND pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+
+The extras predicate is a literal (`= 1` / `= 0`), never interpolation or a
+bind: COUNT binds stay `[]` for a bare selector and filter binds precede
+pagination binds on SELECT. No LIKE, join or deduplication step is added. The
+executable `test/addressExtrasAllowed.acceptance.test.ts` independently
+records every actual handler SELECT/bind against real local test D1, runs
+EXPLAIN on the emitted shapes, and asserts exact matches, read-only execution
+and denied network. Run `npm run check:address-extras-allowed` to repeat that
+bounded check.
+
+Selector-only reads scan; this feature bounds returned data, not query cost.
+No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+The street-only `q` expression above records the run-date template. The
+merged street-or-locality search now groups address/city/zip OR predicates
+with three identical bound needles; `extras_allowed` remains a literal AND
+predicate shared by COUNT and page reads.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.

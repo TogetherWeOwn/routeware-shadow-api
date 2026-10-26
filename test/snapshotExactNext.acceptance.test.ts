@@ -41,6 +41,12 @@ import { ensureD1TestTables } from "./d1TestMigrations";
 const TEST_ENV = env as unknown as Env;
 const READ_TOKEN = "test-read-token";
 const ORIGIN = "https://exact-next.test.invalid";
+const r2Calls: string[] = [];
+const deniedR2 = new Proxy({} as R2Bucket, {
+  get(_target, member) {
+    return () => { r2Calls.push(String(member)); throw new Error("List must not touch R2"); };
+  }
+});
 
 // Gapped fixture: same ids in all three tables. Address owners (and, through
 // the address join, container owners) are OWNERS; container N sits at address N.
@@ -117,6 +123,7 @@ async function request(
   if (Object.keys(query).length > 0) url.search = new URLSearchParams(query).toString();
   const response = await app.fetch(new Request(url, { headers }), {
     ...TEST_ENV,
+    SNAPSHOTS: deniedR2,
     CUSTOMER_DB: options.db ?? recorder.db
   });
   return { response, url, recorder };
@@ -238,6 +245,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  r2Calls.length = 0;
   vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("Unexpected outbound fetch in exactNext acceptance"); }));
   await clearTables();
   const db = TEST_ENV.CUSTOMER_DB;
@@ -257,6 +265,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   expect(globalThis.fetch).not.toHaveBeenCalled();
+  expect(r2Calls).toEqual([]);
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -472,6 +481,70 @@ describe.each(RESOURCES)("$name snapshot: exactNext traversal semantics", (resou
   });
 });
 
+describe.each(RESOURCES)("$name snapshot: exactNext merged controls", (resource) => {
+  // Catch a count-only shortcut placed after lookahead, or a strict allowlist
+  // that forgot the newly declared exactNext name.
+  it.each([
+    [{ limit: "1" }, 6],
+    [{ limit: "1", offset: "99", cursor: "23", fields: "enabled" }, 4],
+    [{ limit: "1", enabled: "true", strictQuery: "true", includeTotal: "true" }, 4]
+  ] as Array<[Query, number]>)("countOnly wins over exactNext without fetching any page: %j", async (query, total) => {
+    const baseline = await request(resource.path, { ...query, countOnly: "true" });
+    const exact = await request(resource.path, { ...query, countOnly: "true", exactNext: "true" });
+    expect(baseline.response.status).toBe(200);
+    expect(exact.response.status).toBe(200);
+    const bytes = await exact.response.text();
+    expect(JSON.parse(bytes)).toEqual({ rows: [], total, nextCursor: null });
+    expect(bytes).toBe(await baseline.response.text());
+    expect(exact.response.headers.get("cache-control")).toBe("no-store");
+    expect(exact.response.headers.get("etag")).toBe(baseline.response.headers.get("etag"));
+    expect(exact.response.headers.get("link")).toBeNull();
+    expect(exact.recorder.statements).toEqual(baseline.recorder.statements);
+    expect(exact.recorder.statements).toHaveLength(1);
+    expect(exact.recorder.statements[0].sql).toMatch(/^\s*SELECT\s+COUNT\s*\([^)]*\)\s*(?:AS\s+\w+)?\s+FROM\b/i);
+    expect(exact.recorder.statements[0].sql).not.toMatch(/\bLIMIT\b|\bOFFSET\b/i);
+    expect(exact.recorder.fetched).toEqual([]);
+    expect(exact.recorder.batch).not.toHaveBeenCalled();
+    expect(exact.recorder.exec).not.toHaveBeenCalled();
+  });
+
+  it("strictQuery allows exactNext and retains both controls through an exact terminal page", async () => {
+    await traverse(resource, {
+      strictQuery: "true", exactNext: "true", includeTotal: "false",
+      limit: "2", fields: `${resource.id},enabled`, enabled: "true"
+    }, [[11, 23], [37, 58]]);
+  });
+});
+
+describe("exactNext with merged selectors", () => {
+  // Each selector owns an independent fixture: silently dropping that predicate
+  // would expose [11,37,42,91] or continue beyond the two matching rows.
+  it.each([
+    ["customer", "customer_snapshot", "customer_id", "comments", "comments", "synthetic needle", "needle"],
+    ["address", "address_snapshot", "pickup_address_id", "driver_note", "driverNote", "synthetic needle", "needle"],
+    ["address", "address_snapshot", "pickup_address_id", "extras_allowed", "extrasAllowed", 1, "true"],
+    ["container", "container_snapshot", "container_id", "location_address", "locationAddress", "Synthetic exact depot", "Synthetic exact depot"],
+    ["container", "container_snapshot", "container_id", "state", "state", "ZZ", "ZZ"],
+    ["container", "container_snapshot", "container_id", "ud_material_stream_ud", "materialStream", "Synthetic stream", "Synthetic stream"],
+    ["container", "container_snapshot", "container_id", "color", "color", "Synthetic color", "Synthetic color"],
+    ["container", "address_snapshot", "pickup_address_id", "route_id", "parentRouteId", 7, "7"],
+    ["container", "address_snapshot", "pickup_address_id", "franchise_id", "parentFranchiseId", "001", "001"],
+    ["container", "address_snapshot", "pickup_address_id", "enabled", "parentEnabled", 1, "true"]
+  ] as const)("%s: %s.%s column %s via %s retains the selector in lookahead and Links", async (name, table, id, column, selector, stored, value) => {
+    const resource = RESOURCES.find((candidate) => candidate.name === name)!;
+    // Identifiers come solely from the literal table above, never request data.
+    await TEST_ENV.CUSTOMER_DB.prepare(
+      `UPDATE ${table} SET ${column} = CASE WHEN ${id} IN (23,58) THEN ? ELSE ? END`
+    ).bind(stored, typeof stored === "number" ? 0 : "synthetic-other").run();
+    const query = {
+      exactNext: "true", strictQuery: "true", includeTotal: "false",
+      fields: `${resource.id},enabled`, [selector]: value
+    };
+    await traverse(resource, { ...query, limit: "1" }, [[23], [58]]);
+    await traverse(resource, { ...query, limit: "2" }, [[23, 58]]);
+  });
+});
+
 describe.each(RESOURCES)("$name snapshot: exactNext statement contract", (resource) => {
   it("reuses the default page SQL with only a limit+1 bind (offset and seek), COUNT untouched", async () => {
     const dfltOffset = await page(resource, { limit: "2" });
@@ -588,7 +661,11 @@ describe.each(RESOURCES)("$name snapshot: exactNext validation and auth", (resou
     ["marker value", "exactNext=secret-exact-marker"],
     ["repeated differing", "exactNext=true&exactNext=false"],
     ["repeated identical", "exactNext=true&exactNext=true"],
-    ["repeated with empty first", "exactNext=&exactNext=true"]
+    ["repeated with empty first", "exactNext=&exactNext=true"],
+    ["invalid in count-only mode", "countOnly=true&exactNext=secret-exact-marker"],
+    ["repeated in count-only mode", "countOnly=true&exactNext=true&exactNext=false"],
+    ["invalid in strict mode", "strictQuery=true&exactNext=secret-exact-marker"],
+    ["repeated in strict mode", "strictQuery=true&exactNext=true&exactNext=true"]
   ] as const)("rejects %s with a value-free 400 before any D1 access", async (_label, search) => {
     const db = forbiddenDb();
     const logs = (["error", "warn", "info", "log", "debug"] as const).map((m) => vi.spyOn(console, m));

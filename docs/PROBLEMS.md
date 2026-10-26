@@ -33,6 +33,40 @@ after authentication and before any D1 read, including conditional requests.
 Correct the named key or omit it, then retry; never put credentials in queries.
 See the [query contract](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
 
+## Snapshot count-only (`bad-request`)
+
+On the three ordinary flat snapshot list GETs, send `countOnly` once as exact
+lowercase `true` or `false`, or omit it for normal pages. Blank, invalid and
+repeated values fail after auth with a value-free 400 before D1. All other
+known query parameters still validate; count-only does not forgive invalid
+fields/filters even with `If-None-Match: *`.
+
+`countOnly=true&includeTotal=false` is contradictory. **Omit
+`includeTotal=false` or set `countOnly=false` and retry.** Responses name
+fields, never submitted values; no row-payload query or COUNT runs on rejection.
+See the [mode comparison](SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection).
+
+## Opt-in list query keys (`bad-request`)
+
+Only the three ordinary flat snapshot lists accept `strictQuery=true|false`
+(default false). With `true`, any decoded query name outside the mounted
+resource's schema returns 400 after authentication and before D1 or 304.
+The problem has only type/title/status/detail, with fixed detail:
+
+```text
+Unknown query parameter. Use supported query names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. See docs/PROBLEMS.md#bad-request.
+```
+
+Use supported names from that operation's OpenAPI parameters, remove unknown
+keys, or deliberately set `strictQuery=false`. Submitted names/values never
+appear in this problem or app logs. Empty, invalid or repeated strictQuery
+(including encoded duplicates and mixed true/false) instead fails normal
+value-free query validation; send one exact lowercase true or false, or omit
+it. Known invalid controls remain invalid in either mode. Validated true is
+retained in relative continuation Links; false/default is omitted. Other
+operations retain their own existing query policies. See the
+[local synthetic recipe](CONSUMER-QUICKSTART.md#opt-in-query-typo-detection).
+
 ## Hydrated read IDs (`bad-request`)
 
 For `GET /api/v1/data/customer|address|container`, supply `id` or the route's
@@ -160,7 +194,10 @@ Each route names its own alias. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#hydrated-entity-reads-are-strict).
-GET lists keep ignoring unknown names; only entity reads are strict.
+The three ordinary flat snapshot lists ignore unknown names by default and
+reject them when `strictQuery=true` (see [Opt-in list query keys](#opt-in-list-query-keys-bad-request)).
+Changes-feed and other operations retain their existing query policies;
+hydrated entity reads remain strict.
 
 ## Customer changes cursor (`bad-request`)
 
@@ -195,6 +232,44 @@ The field may instead be `franchiseId` (or both). Correct the named field's
 format, send it once, then retry; omit it only if no scope is intended.
 Authentication still precedes validation. Valid scopes that match no rows
 return 200 with an empty list. See the [scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-route-and-franchise-scopes).
+
+## Container parent service-site scopes (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, send each optional parent key once:
+
+- `parentRouteId`: canonical unpadded ASCII decimal integer `0..9007199254740991`.
+  Zero is literal stored zero; no signs, whitespace, fractions or exponents.
+- `parentFranchiseId`: case-sensitive opaque exact string of 1..100 Unicode
+  code points containing a non-whitespace character. Preserve leading zeros
+  and significant whitespace; URL-encode without trimming or normalization.
+- `parentEnabled`: exactly `true`, `false` or `any` (default `any`). This is the
+  address state, independent of container `enabled` and customer state.
+
+Blank, repeated, invalid and overlength keys return a value-free 400 before
+D1 or conditional 304, after authentication:
+`Invalid request query (parentRouteId). See docs/PROBLEMS.md#bad-request.`
+The named field can instead be `parentFranchiseId` or `parentEnabled`, or
+multiple supported keys. Correct the named format, send it once and retry;
+omit only if no such parent scope is intended. Values are never logged or
+included in errors. Valid no-match returns 200 empty, not an error. See the
+[parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
+
+## Address stored extras-allowed selector (`bad-request`)
+
+For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,
+case-sensitive enum: `true`, `false` or `any` (default `any`), sent once.
+`true` matches stored `extras_allowed = 1`, `false` matches stored `0`, and
+`any`/omission adds no predicate. The flag is stored snapshot state, not
+permission to mutate service terms or proof of current upstream policy. No
+coercion is applied: `1`, `0`, padded or case-mismatched spellings are
+invalid, as are blank values and repeated keys.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (extrasAllowed). See docs/PROBLEMS.md#bad-request.`
+Correct the value to one exact enum spelling, send it once, then retry; omit
+it only if no selector is intended. Authentication still precedes validation.
+Valid selectors that match no rows return 200 with an empty list. See the
+[selector policy](SNAPSHOT-LIST-QUERY-POLICY.md#address-stored-extras-allowed-selector).
 
 ## Exact stored address ZIP (`bad-request`)
 
@@ -245,6 +320,39 @@ coerce numeric-looking strings. Omit a selector only if no such scope is
 intended. Valid no-match returns 200 empty, not an error; stored nulls never
 match supplied strings. See the
 [city/state policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-city-and-state).
+
+## Stored address driver note (`bad-request`)
+
+On `GET /api/v1/address-snapshot`, send one optional `driverNote` string of
+at most 100 Unicode code points **before trimming**. Repeated keys (including
+encoded aliases) and overlength strings fail before D1 or conditional 304;
+authentication stays first. Fixed detail for this field alone:
+
+`Invalid request query (driverNote). Send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
+
+URL-encode a corrected single value and retry, or omit the selector when no
+note filter is intended. Blank/whitespace-only values mean omitted, not an
+error. No submitted notes or unknown names are echoed or logged. Matching is
+literal, ASCII-case-insensitive and limited to stored `driver_note`, not
+address comments or locality. A valid fragment with no matches returns 200
+empty. See the [synthetic recipe](CONSUMER-QUICKSTART.md#stored-address-driver-note)
+and [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
+
+## Exact stored container installation (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, `locationAddress` permits 1..200 Unicode
+code points and `state` permits 1..100. Each optional key must occur once and
+contain a non-whitespace character. Empty/whitespace-only, repeated (including
+encoded duplicates) and overlength values fail after authentication but before
+D1 or conditional 304, with the existing value-free problem body. For example:
+`Invalid request query (locationAddress). See docs/PROBLEMS.md#bad-request.`
+The field may instead be `state`, or both. URL-encode one nonblank stored value
+within the named limit or omit the key, then retry. Do not trim significant
+whitespace, change case, normalize Unicode/abbreviations or coerce leading zeros.
+No submitted value is echoed or logged. Valid no-match returns 200 empty.
+These selectors match only the container's own columns, never parent-address
+values; stored nulls never match. See the
+[exact installation policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
 
 ## Snapshot list direction (`bad-request`)
 
@@ -373,7 +481,9 @@ The combined route names both keys. No submitted key or value is echoed.
 Sync-secret 401 precedence is preserved; invalid values and repeated known
 keys keep their existing validator 400s. Fix the spelling to the exact
 documented key and retry. See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#mutating-post-query-keys-are-strict).
-GET lists keep ignoring unknown names; only POSTs are strict.
+Ordinary flat snapshot lists ignore unknown names by default, with
+`strictQuery=true` for opt-in rejection; changes-feed and other operations
+retain their existing query policies. These mutating POSTs are always strict.
 
 ## Dangling snapshot references (`bad-request`)
 
