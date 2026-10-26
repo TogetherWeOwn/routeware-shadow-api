@@ -15,7 +15,7 @@ import type { AppEnv } from "./types";
  * `bad-request` problem+json, and the handler never runs.
  *
  * `detail` names the rejected target and fields, never values: query strings
- * here can carry customer PII (company-name/company substrings), so the zod
+ * here can carry customer PII (customer-name substrings), so the zod
  * messages (which echo received values) are deliberately not forwarded.
  */
 export function validationFailureHook(
