@@ -335,6 +335,23 @@ function withoutCustomerCommentsParameter(doc: OpenApiDocument): OpenApiDocument
 }
 
 /**
+ * Customer child-cohort schemas, examples, single-list scope and outcomes are
+ * independently owned by customerAddressCohorts.acceptance.test.ts. Remove only
+ * these three new query parameters; preserve every existing golden contract.
+ */
+function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
+      !["addressRouteId", "addressFranchiseId", "addressEnabled"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
+/**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
  * description guidance and absence from every other operation are pinned
@@ -731,7 +748,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())));
+    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
