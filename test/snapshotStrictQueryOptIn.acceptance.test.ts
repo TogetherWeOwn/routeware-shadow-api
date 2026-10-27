@@ -117,6 +117,7 @@ const SPECS: Spec[] = [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
+      "routeIdsExact", "frequencyIdsExact", "hasRouteIds", "hasFrequencyIds",
       "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "enabled", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
@@ -140,6 +141,7 @@ const SAMPLES: Record<string, string> = {
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
+  routeIdsExact: "1,2", frequencyIdsExact: "1,2", hasRouteIds: "any", hasFrequencyIds: "any",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
   locationAddress: "Synthetic location", serviceCode: "SVC-1",
   limit: "2", offset: "0", cursor: "101",
