@@ -19,8 +19,8 @@ and never authorizes deletion or reconciliation. The address-only
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `hasEnabledContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `hasEnabledContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -412,6 +412,37 @@ Run `npm run check:snapshot-exact-next`: the independent
 terminal signals, unchanged default behavior and bounded query work with local
 synthetic fixtures. See the [consumer recipe](CONSUMER-QUICKSTART.md#exact-next-page-signal).
 No production latency or stable-snapshot claim is made.
+
+## Stored coordinate-pair presence
+
+Only the ordinary address and container lists recognize
+`hasCoordinates=true|false|any` (default `any`). This is **NULL-only stored-pair
+presence**, not valid/complete geographic coordinates: true means both stored
+`latitude` AND `longitude` are SQL non-null; false means either is SQL NULL.
+These columns are TEXT: zero/negative-looking strings, empty strings,
+whitespace and non-numeric text all count as present when non-null. Disabled
+rows remain eligible unless independently excluded by `enabled`. The container
+predicate always uses `c.latitude`/`c.longitude` on both customer-join and
+no-join paths, never parent coordinates. No accuracy, GPS lock, live position
+or geographic validity is inferred.
+
+Send one exact lowercase supported value, or omit the selector and retry.
+Empty, unsupported and repeated values fail after auth and before D1 with
+the existing value-free `application/problem+json` 400 and fixed guidance.
+The parenthesized predicate adds no binds and shares the COUNT/page WHERE;
+it AND-composes with every existing selector, sparse fields, upperId and
+asc/desc offset/seek pagination. `includeTotal=false` still runs one SELECT
+and zero COUNTs. Stable IDs, envelopes and final-representation ETag/304
+semantics remain unchanged. True/false travel in relative next Links;
+any/default, unknown keys, request origins and credentials do not. Full
+terminal pages may link to an empty page; concurrent writes are not isolated.
+
+NULL checks may scan; no new index, migration or performance claim is made.
+GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is N/A.
+Run `npm run check:snapshot-coordinates` for the immutable synthetic local-D1
+oracle and list/auth/discovery regressions. See the
+[local present/absent recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence)
+and [fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
 
 ## Exact customer account numbers
 

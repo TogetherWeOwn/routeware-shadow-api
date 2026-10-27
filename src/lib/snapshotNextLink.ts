@@ -59,6 +59,7 @@ type SnapshotListQuery = {
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
@@ -140,6 +141,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
+    params.set("hasCoordinates", query.hasCoordinates);
   }
   if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
     params.set("addressEnabled", query.addressEnabled);
