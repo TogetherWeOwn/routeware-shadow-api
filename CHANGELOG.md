@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
+  optional `note` searches only stored `container_note` by bound literal
+  substring, independently AND-composed with `q` and all other scopes.
+  Trim boundaries before the maximum 100 Unicode code points; blank is omitted.
+  Repeated/overlength values fail value-free before D1; SQLite folding is
+  ASCII-only, without Unicode normalization or LIKE wildcards. Relative next
+  Links retain normalized note in asc/desc traversal; counted/count-free reads,
+  sparse IDs and ETag/304 semantics remain intact. No dedicated note index,
+  migration, upstream call or schedule inference; substring-only reads scan.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
+  focused local check: `npm run check:container-note-search`.
 - #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
   for case-sensitive exact stored service-site locality through the existing
   shared address join. Each is opaque nonblank text of 1..100 Unicode code

@@ -191,6 +191,35 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Stored container instruction fragment
+
+Use `note` for a known fragment of stored `container_note`; use `q` for
+location/serial/city/zip, never notes. Both together mean AND. In the synthetic
+local acceptance fixture, `note=gate` selects IDs 101, 103, 107, 109, 113 and
+119, whereas `q=gate` selects 123 and 127 (location/serial decoys). Their
+intersection is empty. A scoped, count-free first page is:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&note=%20gate%20&fields=enabled&limit=2&includeTotal=false
+{"rows":[{"container_id":101,"enabled":1},{"container_id":103,"enabled":1}],"total":null,"nextCursor":103}
+Link: </api/v1/container-snapshot?customerId=1&note=gate&fields=enabled&limit=2&includeTotal=false&cursor=103>; rel="next"
+```
+
+Follow the returned relative Link unchanged against the same origin, not by
+rebuilding filters. The next full page contains 107 and 109 and links to an
+empty terminal page. `order=desc` instead traverses the same scope downward;
+keep direction and `upperId` fixed. Notes trim boundaries before the maximum
+100 Unicode-code-point check; blank is omitted. Send one fragment or omit
+`note` after a value-free 400 (auth still runs first). Quotes, `%`, `_` and
+Unicode are literal URL-encoded data, not wildcards. SQLite folds ASCII only,
+with no Unicode normalization or relevance ranking; null notes act as empty.
+Do not log instructions or credentials. These idempotent local GETs do not
+contact upstream, infer schedules/work orders or execute instructions;
+`--dry-run` is N/A. Unscoped substring reads scan with no dedicated note index
+or measured performance claim. Run `npm run check:container-note-search` for
+the synthetic fixture, special-character asc/desc traversal, SQL, auth and
+conditional-read checks. See [note policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment).
+
 ### Stored address driver note
 
 Use `listAddressSnapshot` with `driverNote` when you know a fragment of the
