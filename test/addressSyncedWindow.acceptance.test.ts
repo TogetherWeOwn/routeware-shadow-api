@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import app from "../src/app";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
+import problemsDoc from "../docs/PROBLEMS.md?raw";
 import changelog from "../CHANGELOG.md?raw";
 import packageJson from "../package.json";
 import { ensureD1TestTables } from "./d1TestMigrations";
@@ -727,6 +728,25 @@ describe("synced window validation and value-free failures", () => {
     const first = await invalid(new URLSearchParams({ syncedSince: `${PRIVATE}-a` }).toString(), "syncedSince");
     const second = await invalid(new URLSearchParams({ syncedSince: `${PRIVATE}-b` }).toString(), "syncedSince");
     expect(first).toEqual(second);
+  });
+
+  it("returns the fixed synced correction guidance, without echoing supplied values, for each bound and inverted windows", async () => {
+    const GUIDANCE = "Send each synced bound once as a calendar-valid UTC Z datetime with seconds or 1–3 fractional digits, with syncedSince <= syncedUntil; omit unused bounds and retry.";
+    expect(problemsDoc).toContain(GUIDANCE);
+    const cases: Array<{ search: string; field: "syncedSince" | "syncedUntil"; supplied: string[] }> = [
+      { search: new URLSearchParams({ syncedSince: `${PRIVATE}-since` }).toString(), field: "syncedSince", supplied: [`${PRIVATE}-since`] },
+      { search: new URLSearchParams({ syncedUntil: `${PRIVATE}-until` }).toString(), field: "syncedUntil", supplied: [`${PRIVATE}-until`] },
+      {
+        search: new URLSearchParams({ syncedSince: "2027-01-02T03:04:05.678Z", syncedUntil: "2027-01-02T03:04:05.677Z" }).toString(),
+        field: "syncedUntil",
+        supplied: ["2027-01-02T03:04:05.678Z", "2027-01-02T03:04:05.677Z"]
+      }
+    ];
+    for (const { search, field, supplied } of cases) {
+      const body = await invalid(search, field);
+      expect(String(body.detail)).toContain(GUIDANCE);
+      for (const value of supplied) expect(String(body.detail)).not.toContain(value);
+    }
   });
 
   it.each([null, "incorrect-synthetic-token"])("auth precedes window validation and conditional handling: %s", async token => {
