@@ -589,8 +589,11 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
 // Keep the service-date insertion separate from independently maintained list rows.
 for (const response of REMAINING_RESPONSES) {
   if (response.method === "get" && response.path === "/api/v1/container-snapshot") {
-    response.parameterNames = response.parameterNames
-      .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name]);
+    response.parameters = response.parameters.flatMap((parameter) =>
+      parameter.in === "query" && parameter.name === "color"
+        ? [parameter, ...queryParams("serviceDate", "hasServiceDate")]
+        : [parameter]
+    );
   }
 }
 
