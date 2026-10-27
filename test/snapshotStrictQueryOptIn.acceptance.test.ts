@@ -99,7 +99,7 @@ const SPECS: Spec[] = [
     field: "address",
     allowed: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state",
-      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "hasCoordinates", "parentCustomerEnabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "hasCoordinates", "parentCustomerEnabled", "owningCustomerNumber", "owningSubCustomerNumber", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
