@@ -2,7 +2,7 @@ import { z } from "@hono/zod-openapi";
 
 /**
  * Lossless UTC-Z/millisecond timestamp chain shared by the customer changes
- * feed's `since` and `until` bounds.
+ * feed's `since` and `until` bounds and the container list's `syncedSince`.
  *
  * Stored synced_at uses toISOString(): lexical comparisons must use the same
  * milliseconds, never raw .1Z/seconds or rounded precision. `Date` rolls
@@ -11,7 +11,7 @@ import { z } from "@hono/zod-openapi";
  * instant it was given. The validation hook answers violations with the fixed
  * value-free 400; the handler never runs.
  */
-const changesTimestamp = z.string().datetime()
+export const changesTimestamp = z.string().datetime()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/)
   .refine((v) => {
     const date = new Date(v);
