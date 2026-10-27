@@ -5,6 +5,15 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #375: Container snapshot lists accept an optional `serviceCode` exact,
+  case-sensitive filter (1..100 Unicode code points) matching the stored
+  service code. Opaque values retain leading zeros and nonblank whitespace;
+  invalid/repeated selectors return value-free 400s before D1. The filter
+  composes with AND alongside every existing selector, preserves duplicate
+  matches and travels in encoded next-page links. Existing count-free,
+  sparse and conditional reads are preserved. Local read-only D1 only; no
+  schema/index, upstream or auth changes. Synthetic lookup recipe and
+  focused check: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
 - #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
   (stored `extras_allowed` = 1/0/no predicate) and opaque exact
   `addressLastAuditDate` (1..100 Unicode code points, nonblank,
@@ -423,6 +432,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   This is declaration-only: single projections/ETag/304 and missing-root 404
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+- #393: Address and container snapshot lists accept `hasCoordinates=true|false|any`
+  (default `any`) for NULL-only stored-pair presence: true requires both stored
+  latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
+  empty, whitespace and non-numeric TEXT counts as present when non-null.
+  Disabled rows remain eligible; containers never inherit parent coordinates.
+  This is not geographic validity, accuracy, GPS lock or live position. Shared
+  COUNT/page predicates AND-compose with existing scopes; sparse/conditional
+  reads, count-free mode and bidirectional traversal stay compatible. Relative
+  next Links retain true/false and omit any/default. Invalid/empty/repeated
+  values fail before D1 with fixed value-free retry guidance. May scan; no new
+  endpoint, index, migration, upstream/R2 request or performance claim.
+  Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
+  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  local-read; CLI `--dry-run` is N/A.
 
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
