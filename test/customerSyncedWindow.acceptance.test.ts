@@ -714,11 +714,15 @@ describe("customer synced window mounted discovery", () => {
 
   it("keeps the bounds off sibling lists, the changes feed and by-id reads", async () => {
     const doc = await openApi();
-    for (const path of ["/api/v1/address-snapshot", "/api/v1/container-snapshot", CHANGES_PATH, "/api/v1/customer-snapshot/{customerId}", "/api/v1/address-snapshot/{pickupAddressId}", "/api/v1/container-snapshot/{containerId}"]) {
+    for (const path of ["/api/v1/address-snapshot", CHANGES_PATH, "/api/v1/customer-snapshot/{customerId}", "/api/v1/address-snapshot/{pickupAddressId}", "/api/v1/container-snapshot/{containerId}"]) {
       const names = (doc.paths[path]?.get?.parameters ?? []).map((p) => p.name);
       expect(names, path).not.toContain("syncedSince");
       expect(names, path).not.toContain("syncedUntil");
     }
+    // The container list owns its own syncedSince selector; only the
+    // customer-only upper bound stays off it.
+    const containerNames = (doc.paths["/api/v1/container-snapshot"]?.get?.parameters ?? []).map((p) => p.name);
+    expect(containerNames).not.toContain("syncedUntil");
     // The changes feed keeps its own since/until names, untouched.
     const changesNames = (doc.paths[CHANGES_PATH]?.get?.parameters ?? []).map((p) => p.name);
     expect(changesNames).toEqual(expect.arrayContaining(["since", "until"]));

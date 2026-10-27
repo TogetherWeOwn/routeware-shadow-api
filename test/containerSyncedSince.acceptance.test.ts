@@ -759,10 +759,7 @@ describe("GREEN: omission and other lists are unchanged", () => {
     expect(ids(searched.body)).toEqual([2, 4, 6]);
   });
 
-  it("other snapshot lists keep ignoring the unknown name (container list only)", async () => {
-    const customers = await statusFor("/api/v1/customer-snapshot", { syncedSince: T0 });
-    expect(customers.status).toBe(200);
-    expect(customers.body.rows?.map((r) => r.customer_id)).toEqual([11, 22, 33, 44]);
+  it("the address list keeps ignoring the unknown name (customer list owns its own window)", async () => {
     const addresses = await statusFor("/api/v1/address-snapshot", { syncedSince: T0 });
     expect(addresses.status).toBe(200);
     expect(addresses.body.rows?.map((r) => r.pickup_address_id)).toEqual([101, 102, 103, 104, 105, 106, 107, 108]);
@@ -865,8 +862,9 @@ describe("RED: served OpenAPI declares the selector", () => {
 
   it("does not add the selector to other lists, the changes feed or single-row reads", async () => {
     const doc = await openApi();
+    // The customer list declares its own syncedSince/syncedUntil window,
+    // pinned in test/customerSyncedWindow.acceptance.test.ts.
     for (const path of [
-      "/api/v1/customer-snapshot",
       "/api/v1/address-snapshot",
       "/api/v1/customer-snapshot/changes",
       "/api/v1/customer-snapshot/{customerId}",
@@ -888,8 +886,8 @@ describe("RED: query-policy inventory lists the selector", () => {
     expect(row(PATH)).toMatch(/\| Ignore by default; reject when strictQuery=true \|/);
   });
 
-  it("leaves the customer/address/changes rows without the selector", () => {
-    for (const path of ["/api/v1/customer-snapshot", "/api/v1/address-snapshot", "/api/v1/customer-snapshot/changes"]) {
+  it("leaves the address/changes rows without the selector (customer row owns its window)", () => {
+    for (const path of ["/api/v1/address-snapshot", "/api/v1/customer-snapshot/changes"]) {
       expect(row(path), path).not.toContain("syncedSince");
     }
   });
