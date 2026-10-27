@@ -390,6 +390,24 @@ function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDo
 }
 
 /**
+ * Customer site-locality schemas, examples, single-list scope and outcomes are
+ * independently owned by customerAddressLocality.acceptance.test.ts. Remove
+ * only these three new query parameters; preserve every existing golden
+ * contract.
+ */
+function withoutCustomerAddressLocalityParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
+      !["addressCity", "addressState", "addressZip"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
+/**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
  * description guidance and absence from every other operation are pinned
@@ -943,7 +961,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
+    const doc = withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
