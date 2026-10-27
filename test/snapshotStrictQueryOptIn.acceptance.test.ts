@@ -117,7 +117,7 @@ const SPECS: Spec[] = [
       "containerTypeId",
       "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
-      "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "syncedSince", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ]
       .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name]),
@@ -135,7 +135,7 @@ const SPECS: Spec[] = [
 const SAMPLES: Record<string, string> = {
   customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
+  comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", syncedSince: "2026-08-31T00:00:00.000Z", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentCity: "Riverton", parentState: "ST", parentZip: "02139",
