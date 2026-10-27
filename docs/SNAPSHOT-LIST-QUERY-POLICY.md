@@ -19,8 +19,8 @@ stored address comment text (null-or-empty versus anything else), not child rows
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `comments`, `hasComments`, `q`, `enabled`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `comments`, `hasComments`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -367,6 +367,37 @@ Run `npm run check:snapshot-exact-next`: the independent
 terminal signals, unchanged default behavior and bounded query work with local
 synthetic fixtures. See the [consumer recipe](CONSUMER-QUICKSTART.md#exact-next-page-signal).
 No production latency or stable-snapshot claim is made.
+
+## Stored coordinate-pair presence
+
+Only the ordinary address and container lists recognize
+`hasCoordinates=true|false|any` (default `any`). This is **NULL-only stored-pair
+presence**, not valid/complete geographic coordinates: true means both stored
+`latitude` AND `longitude` are SQL non-null; false means either is SQL NULL.
+These columns are TEXT: zero/negative-looking strings, empty strings,
+whitespace and non-numeric text all count as present when non-null. Disabled
+rows remain eligible unless independently excluded by `enabled`. The container
+predicate always uses `c.latitude`/`c.longitude` on both customer-join and
+no-join paths, never parent coordinates. No accuracy, GPS lock, live position
+or geographic validity is inferred.
+
+Send one exact lowercase supported value, or omit the selector and retry.
+Empty, unsupported and repeated values fail after auth and before D1 with
+the existing value-free `application/problem+json` 400 and fixed guidance.
+The parenthesized predicate adds no binds and shares the COUNT/page WHERE;
+it AND-composes with every existing selector, sparse fields, upperId and
+asc/desc offset/seek pagination. `includeTotal=false` still runs one SELECT
+and zero COUNTs. Stable IDs, envelopes and final-representation ETag/304
+semantics remain unchanged. True/false travel in relative next Links;
+any/default, unknown keys, request origins and credentials do not. Full
+terminal pages may link to an empty page; concurrent writes are not isolated.
+
+NULL checks may scan; no new index, migration or performance claim is made.
+GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is N/A.
+Run `npm run check:snapshot-coordinates` for the immutable synthetic local-D1
+oracle and list/auth/discovery regressions. See the
+[local present/absent recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence)
+and [fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
 
 ## Exact customer account numbers
 
@@ -882,6 +913,38 @@ not applicable. Run `npm run check:container-locality` for independent fixtures,
 auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
 
+## Stored container instruction fragment
+
+Only the ordinary container list recognizes optional `note`: a bound literal
+substring of **`c.container_note`** using
+`instr(lower(coalesce(c.container_note, '')), lower(?)) > 0`.
+Trim query boundaries **before** the maximum 100 Unicode-code-point check;
+blank means omitted, including long whitespace-only input. Repeated keys and
+overlength fragments fail value-free after auth and before D1/cache/upstream
+work. Next action: send one fragment of at most 100 Unicode code points after
+trimming, or omit `note`, then retry. Never echo or log operational instructions
+or arbitrary query names. Null stored notes act as empty strings.
+
+SQLite `lower()` folds ASCII A-Z only: non-ASCII case distinctions and
+composed/decomposed Unicode remain distinct. Internal whitespace, quotes, `%`
+and `_` are literal, not SQL LIKE wildcards; no normalization, tokenization or
+full-text relevance is provided. `q` stays location/serial/city/zip search, not
+note search. Neither selector searches parent notes. All supplied filters,
+including exact ZIP/identifiers, customer/parent/primary IDs, `ids`, `enabled`
+and cursor/`upperId`, intersect with AND on both join paths. COUNT and page
+share predicates/binds; `includeTotal=false` issues zero COUNTs. Duplicates,
+canonical IDs, sparse fields, envelopes and representation ETag/304 semantics
+are unchanged. Relative next Links preserve normalized note with URL encoding,
+omit blank note and never copy unknown keys, origins or credentials; follow
+them unchanged in either direction.
+
+Substring-only reads scan; no dedicated note index or migration exists.
+Existing selective ID/enabled scopes may narrow candidates, not a measured
+latency promise. GET is idempotent/local-read; CLI `--dry-run` is N/A. No note
+mutation, upstream lookup, work-order/schedule inference or instruction execution
+occurs. Run `npm run check:container-note-search` against synthetic local D1;
+see the [note-versus-q recipe](CONSUMER-QUICKSTART.md#stored-container-instruction-fragment).
+
 ## Exact stored container installation
 
 Only the existing container list accepts `locationAddress` (1..200 Unicode code
@@ -1180,6 +1243,44 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Container parent service-site locality
+
+Only the ordinary container list accepts `parentCity`, `parentState` and
+`parentZip`. They compare the mirrored service site's stored `a.city`,
+`a.state` and `a.zip` by case-sensitive exact equality, reached through
+`c.pickup_address_id = a.pickup_address_id`. The lexical shape is identical
+to the address list's city/state/zip: one opaque string of 1..100 Unicode
+code points containing a non-whitespace character. Leading zeros,
+punctuation and nonblank whitespace survive unchanged: no trimming,
+normalization, abbreviation conversion or enum. This is not equipment GPS,
+live geolocation, postal verification or service territory eligibility.
+
+All three AND-compose with each other, the container's own `locationAddress`,
+`city`, `state`, `zip`, `customerId`, parent route/franchise/enabled and every
+other merged container selector. Parent and equipment locality may differ;
+contradictions and valid unknown values return empty 200 pages. Missing
+parents and null parent locality never match a supplied selector. One shared
+unique-key address join serves every effective parent scope and customerId,
+without multiplying rows or expanding parents/children. With all parent
+scopes omitted, the existing unjoined SQL and orphan visibility are unchanged.
+
+COUNT and page share predicates/binds. COUNT-only, zero-COUNT pages, sparse
+projection, canonical IDs, order/fences/seek, strictQuery and no-store ETag/304
+behavior are unchanged. Validated locality is retained verbatim in relative
+next Links, including descending and offset-to-seek continuations. Malformed,
+blank, whitespace-only, overlength or repeated keys (including encoded names)
+fail after auth before D1/304 with fixed value-free corrective guidance:
+URL-encode one nonblank value within the limit per named key, or omit it and
+retry. See [recovery](PROBLEMS.md#container-parent-service-site-locality-bad-request).
+
+Run `npm run check:container-parent-locality` for synthetic real local-D1
+selection, omission/orphan parity, full Link traversal and a nonempty EXPLAIN
+plan. Equality through the join may scan; the address zip index may or may not
+serve a joined query. No index, migration, production performance claim or
+snapshot isolation is added. GET is an idempotent local-read, with no upstream,
+R2 or writes; CLI dry-run is N/A. See the
+[cohort recipe](CONSUMER-QUICKSTART.md#container-parent-service-site-locality).
 
 ## Mutating POST query keys are strict
 
