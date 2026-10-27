@@ -176,6 +176,21 @@ is independent. No mirrored child is not proof of no upstream site and never
 authorizes deletion, reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
 
+## Stored coordinate-pair presence (`bad-request`)
+
+On `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, send
+one exact lowercase `hasCoordinates=true`, `false` or `any`, or omit the
+selector and retry. Empty, unsupported and repeated values fail after auth
+and before D1 with the existing value-free 400. Detail for this field alone:
+
+`Invalid request query (hasCoordinates). Send one hasCoordinates=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value or unknown key is echoed or logged. Zero matches is a
+successful empty collection. This checks only SQL NULL presence of each row's
+stored latitude/longitude TEXT, not valid/complete geographic coordinates,
+accuracy, GPS lock or live position; containers do not inherit parent pairs.
+See the [local recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence).
+
 ## Customer container presence (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, send one `hasContainers=true`, `false`
@@ -206,6 +221,11 @@ For `GET /api/v1/customer-snapshot`, send each optional cohort key once:
   Unicode code points containing a non-whitespace character; leading zeros
   and significant whitespace are preserved.
 - `addressEnabled`: exactly `true`, `false` or `any` (default `any`).
+- `addressCity`, `addressState`, `addressZip`: case-sensitive opaque exact
+  stored-locality strings of 1..100 Unicode code points containing a
+  non-whitespace character; leading zeros and significant whitespace are
+  preserved, with no trimming, normalization or abbreviation conversion.
+  Each must match the same stored address as the other scopes.
 - `addressExtrasAllowed`: exactly `true`, `false` or `any` (default `any`),
   requiring stored extras_allowed 1/0/no predicate on that same site.
 - `addressLastAuditDate`: one nonblank case-sensitive opaque string of
@@ -221,6 +241,8 @@ field (the named field can instead be either sibling scope):
 `Invalid request query (addressFranchiseId). Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.`
 
 `Invalid request query (addressEnabled). Send one addressEnabled=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (addressCity). Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. See docs/PROBLEMS.md#bad-request.` — the same fixed shape names `addressState` or `addressZip` when that locality key is the rejected field. Site locality is mirrored text, not a headquarters location, geocoding result or territory eligibility.
 
 `Invalid request query (addressExtrasAllowed). Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
 
@@ -394,6 +416,23 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Container parent service-site locality (`bad-request`)
+
+On the ordinary `GET /api/v1/container-snapshot`, send `parentCity`,
+`parentState` and `parentZip` each at most once as a nonblank opaque string of
+1..100 Unicode code points. URL-encode the stored value; preserve leading
+zeros and nonblank whitespace without trimming or normalization. These keys
+select stored parent address locality, independently of equipment locality.
+
+Blank, whitespace-only, overlength and repeated keys (including encoded
+duplicate names) return fixed value-free 400 guidance after authentication,
+before D1 or conditional 304. The detail names the rejected field and says:
+"URL-encode one nonblank stored parent locality value of 1..100 Unicode code
+points per named key, preserving significant whitespace, or omit the selector
+and retry." No submitted value is echoed. Correct the named key, or omit it
+only if no such scope is intended. A valid unknown value returns empty 200.
+See the [locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-locality).
+
 ## Address stored extras-allowed selector (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,
@@ -427,6 +466,21 @@ no ZIP scope is intended. Authentication still precedes validation. A valid
 ZIP that matches no rows returns 200 with an empty list. See the
 [address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
 [container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
+
+## Stored container instruction fragment (`bad-request`)
+
+Only `GET /api/v1/container-snapshot` accepts optional `note`, a literal
+substring of stored `container_note`, separate from `q`. Trim boundaries
+before counting the maximum 100 Unicode code points; blank means omitted.
+Repeated keys (even blank or identical values) and overlength fragments reject
+after authentication and before any D1/cache/upstream work, including with
+`If-None-Match: *`. The fixed value-free detail is:
+`Invalid request query (note). See docs/PROBLEMS.md#bad-request.`
+
+Next action: send one fragment of at most 100 Unicode code points after trimming,
+or omit `note`, then retry. Never log note values or arbitrary query keys;
+operational instructions may be sensitive. A valid no-match lookup returns an
+empty 200. See [note policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment).
 
 ## Exact stored street address (`bad-request`)
 

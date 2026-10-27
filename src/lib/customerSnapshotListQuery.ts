@@ -5,7 +5,7 @@ import { snapshotLowerIdQuery } from "./snapshotLowerId";
 import { snapshotOrderQuery } from "./snapshotListOrder";
 import { snapshotSearchQuery } from "./snapshotSearchQuery";
 import { snapshotFieldsQuery } from "./sparseFieldsets";
-import { customerAccountNumberQuery, customerAddressEnabledQuery, customerAddressExtrasAllowedQuery, customerAddressFranchiseIdQuery, customerAddressLastAuditDateQuery, customerAddressPresenceQuery, customerAddressRouteIdQuery, customerCommentsQuery, customerContainerPresenceQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
+import { customerAccountNumberQuery, customerAddressCityQuery, customerAddressEnabledQuery, customerAddressExtrasAllowedQuery, customerAddressFranchiseIdQuery, customerAddressLastAuditDateQuery, customerAddressPresenceQuery, customerAddressRouteIdQuery, customerAddressStateQuery, customerAddressZipQuery, customerCommentsQuery, customerContainerPresenceQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
 import { snapshotExactNextQuery } from "./snapshotNextLink";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible } from "./snapshotCountOnly";
 import { snapshotStrictQuery } from "./snapshotStrictQuery";
@@ -70,7 +70,7 @@ export const customerSnapshotListQuery = z.object({
   phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
   comments: customerCommentsQuery,
   hasAddresses: customerAddressPresenceQuery,
-  addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, addressExtrasAllowed: customerAddressExtrasAllowedQuery, addressLastAuditDate: customerAddressLastAuditDateQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery,
+  addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, addressCity: customerAddressCityQuery, addressState: customerAddressStateQuery, addressZip: customerAddressZipQuery, addressExtrasAllowed: customerAddressExtrasAllowedQuery, addressLastAuditDate: customerAddressLastAuditDateQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery,
   enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
   limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
   offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),

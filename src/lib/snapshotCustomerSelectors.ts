@@ -61,6 +61,33 @@ export const customerAddressEnabledQuery = z.enum(["true", "false", "any"]).opti
   .describe('Child address enabled state on the SAME stored address as the other cohort scopes: "true" requires stored enabled = 1, "false" requires stored 0; "any" or omission adds no state scope. Customer enabled stays independent. All stored children, including disabled, remain eligible unless this scope explicitly filters them. Send one addressEnabled=true, false or any, or omit the selector and retry.')
   .openapi({ example: "true" });
 
+/**
+ * Stored service-site locality scopes: `addressCity`, `addressState` and
+ * `addressZip`. The lexical refine mirrors the address list's stored
+ * city/state/zip contract exactly (1..100 Unicode code points including a
+ * non-whitespace character; trim only detects blank input, never transforms
+ * it), so the two lists cannot drift. Values stay opaque: no trimming,
+ * normalization, abbreviation conversion or enum, and a repeated key reaches
+ * zod as an array and fails the schema before any D1 work runs.
+ */
+export const customerAddressCityQuery = z.string()
+  .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+  .optional()
+  .describe("Opaque case-sensitive exact stored-city equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace and punctuation are preserved, not trimmed or normalized; a null stored city never matches and a valid unknown city returns an empty 200. Site locality is mirrored text on the service address, not a customer headquarters location, geocoding result, postal verification, service-territory eligibility or proof of service. Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "Killeen" });
+
+export const customerAddressStateQuery = z.string()
+  .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+  .optional()
+  .describe("Opaque case-sensitive exact stored-state equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points, including a non-whitespace character. Nonblank whitespace and punctuation are preserved, not trimmed or normalized; no abbreviation conversion or state enum; a null stored state never matches and a valid unknown state returns an empty 200. Site locality is mirrored text on the service address, not a customer headquarters location, geocoding result, postal verification, service-territory eligibility or proof of service. Send one addressState of 1..100 Unicode code points that is not blank, or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "TX" });
+
+export const customerAddressZipQuery = z.string()
+  .refine((value) => value.trim().length > 0 && [...value].length <= 100)
+  .optional()
+  .describe("Opaque case-sensitive exact stored-zip equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points, including a non-whitespace character. Leading zeros and nonblank whitespace are preserved, not trimmed or normalized; a null stored zip never matches and a valid unknown zip returns an empty 200. Site locality is mirrored text on the service address, not a customer headquarters location, geocoding result, postal verification, service-territory eligibility or proof of service. Send one addressZip of 1..100 Unicode code points that is not blank, or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "02139" });
+
 export const customerAddressExtrasAllowedQuery = z.enum(["true", "false", "any"]).optional().default("any")
   .describe('Child extras_allowed equality on the SAME stored address as every other cohort scope: "true" requires stored 1, "false" requires stored 0; "any" or omission adds no predicate. Mirrored service-policy marker only, not billing authorization or permission to change service terms. Send one addressExtrasAllowed=true, false or any, or omit the selector and retry.')
   .openapi({ example: "true" });
@@ -75,17 +102,21 @@ export type CustomerAddressCohortScope = {
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled: "true" | "false" | "any";
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
   addressExtrasAllowed: "true" | "false" | "any";
   addressLastAuditDate?: string;
 };
 
 /**
  * One customer-correlated EXISTS over the stored child addresses: route,
- * franchise, enabled-state, extras and audit scopes AND inside the same child, so split
- * scopes across different children never match and duplicate matching sites
- * never duplicate the customer. Null stored scalars never match equality.
- * Returns null when no scope is effective (omitted scalars, or
- * only `any` enums), leaving the caller's SQL/binds untouched.
+ * franchise, enabled-state, stored-locality (city/state/zip), extras and
+ * audit scopes AND inside the same child, so split scopes across different
+ * children never match and duplicate matching sites never duplicate the
+ * customer. Null stored scalars never match equality. Returns null when no
+ * scope is effective (omitted scalars, or only `any` enums), leaving the
+ * caller's SQL/binds untouched; any supplied scalar alone is effective.
  * The caller appends `binds` in order; COUNT and page share both.
  */
 export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope): { sql: string; binds: unknown[] } | null {
@@ -98,6 +129,18 @@ export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope
   if (scope.addressFranchiseId !== undefined) {
     predicates.push("franchise_id = ?");
     binds.push(scope.addressFranchiseId);
+  }
+  if (scope.addressCity !== undefined) {
+    predicates.push("city = ?");
+    binds.push(scope.addressCity);
+  }
+  if (scope.addressState !== undefined) {
+    predicates.push("state = ?");
+    binds.push(scope.addressState);
+  }
+  if (scope.addressZip !== undefined) {
+    predicates.push("zip = ?");
+    binds.push(scope.addressZip);
   }
   if (scope.addressEnabled !== "any") {
     predicates.push("enabled = ?");
