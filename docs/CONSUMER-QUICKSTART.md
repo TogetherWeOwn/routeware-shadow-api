@@ -1842,10 +1842,11 @@ curl -H "Authorization: Bearer $TOKEN" \
 This is a filtered finite-window read over current rows, not a delta feed:
 stored `synced_at` is mirror freshness, not upstream event time, deletions
 never appear, and a later re-sync can move a row out of the window. For
-complete delta traversal — every row touched after your cursor, resumable
-mid-run — use `/api/v1/customer-snapshot/changes` (step 2b) and follow its
-composite cursor/`Link` instead. Invalid, empty, offset, overprecise or
-repeated bounds return a value-free 400 before D1. These idempotent local
+resumable traversal of current upserts after your cursor, use
+`/api/v1/customer-snapshot/changes` (step 2b) and follow its composite
+cursor/`Link` instead. Rows deleted before polling are absent there too;
+it is not a complete history of changes. Invalid, empty, offset, overprecise
+or repeated bounds return a value-free 400 before D1. These idempotent local
 GETs do no upstream/R2/write work; CLI `--dry-run` is N/A. No
 index/migration or latency claim: unscoped window reads may scan. Run
 `npm run check:customer-synced-window` with synthetic local D1 only. See the
