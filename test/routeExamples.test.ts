@@ -360,7 +360,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers",
+      "addressRouteId", "addressFranchiseId", "addressEnabled", "addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
@@ -409,7 +409,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     method: "get",
     mediaType: "application/json",
     parameterNames: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers", "hasCoordinates",
       "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
@@ -458,14 +458,12 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     path: "/api/v1/container-snapshot",
     method: "get",
     mediaType: "application/json",
-    // Keep the date insertion separate from adjacent stored-type inventory edits.
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "serviceCode", "containerTypeId",
       "hasSerialNumber", "hasRfid",
-      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ]
-      .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name])
+      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "q", "note", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ].concat(["parentCity", "parentState", "parentZip"])
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",
@@ -574,6 +572,14 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: ["requestID", "_"]
   }
 ];
+
+// Keep the service-date insertion separate from independently maintained list rows.
+for (const response of REMAINING_RESPONSES) {
+  if (response.method === "get" && response.path === "/api/v1/container-snapshot") {
+    response.parameterNames = response.parameterNames
+      .flatMap((name) => name === "color" ? [name, "serviceDate", "hasServiceDate"] : [name]);
+  }
+}
 
 const REMAINING_REQUESTS = [
   ...["customer", "address", "container"].flatMap((entity) => [
