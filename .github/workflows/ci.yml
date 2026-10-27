@@ -72,8 +72,8 @@ jobs:
           files="$(git diff --name-only --no-renames "$base"...HEAD)"
           echo "Changed files:"
           echo "$files"
-          # code: gates `build` (src, tests, manifests, build config, migrations).
-          if echo "$files" | grep -qE '^(src/|test/|migrations/|tools/api-discovery/|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
+          # code: gates `build` (src, tests, manifests, build config, migrations, OpenAPI contract).
+          if echo "$files" | grep -qE '^(src/|test/|migrations/|tools/api-discovery/|docs/openapi\.json$|package\.json$|package-lock\.json$|tsconfig\.json$|tsconfig\.src\.json$|vitest(\.memory)?\.config\.ts$|wrangler\.toml$|worker-configuration\.d\.ts$)'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"

@@ -94,6 +94,9 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("customerEnabled")
+        ? "Send one customerEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("addressCity")
         ? "Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. "
         : "") +
