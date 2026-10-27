@@ -418,6 +418,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
       ...queryParams("customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip"),
       ...queryParams("streetAddress", "city", "state", "q", "driverNote", "enabled"),
       ...queryParams("extrasAllowed", "hasContainers", "hasCoordinates", "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled"),
+      ...queryParams("owningCustomerNumber", "owningSubCustomerNumber"),
       ...queryParams("limit", "offset", "cursor", "lowerId", "upperId", "includeTotal"),
       ...queryParams("exactNext", "countOnly", "order", "fields", "strictQuery")
     ]
@@ -471,7 +472,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
       ...queryParams("serviceCode", "containerTypeId", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked"),
       ...queryParams("materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates"),
       ...queryParams("locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"),
-      ...queryParams("q", "note", "enabled", "limit", "offset", "cursor"),
+      ...queryParams("q", "note", "enabled", "syncedSince", "limit", "offset", "cursor"),
       ...queryParams("lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order"),
       ...queryParams("fields", "strictQuery"),
       ...queryParams("parentCity", "parentState", "parentZip")

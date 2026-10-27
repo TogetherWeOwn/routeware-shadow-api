@@ -5,6 +5,30 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #433: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
+  existing address snapshot list only, selecting sites by the owning stored
+  customer's mirrored business numbers without resolving the numeric
+  customer ID first. Each is one exact case-sensitive opaque string of
+  1..100 Unicode code points preserving leading zeros, case and significant
+  whitespace; no trimming, normalization or hierarchy inference. Both
+  supplied numbers must match the SAME owning-customer row through one
+  conditional qualified JOIN on the customer primary key, so a repeated
+  number returns every owning account's sites exactly once each with no
+  fanout, no duplicate sites and no response-shape change. Stored NULLs
+  never match, a site whose owning customer is missing from the mirror
+  never matches an explicit number, and valid unknown numbers return an
+  empty 200. The scope AND-composes with every existing address selector in
+  the shared COUNT/page WHERE; `countOnly` stays COUNT-only,
+  `includeTotal=false` stays count-free, and each supplied number
+  round-trips in relative next Links in either order and across
+  offset-to-seek. Omission keeps the pre-existing join-free reads. Stored
+  numbers are mirrored report text, not a billing identity, account
+  hierarchy, service territory or proof of service. Empty/whitespace-only,
+  repeated (including encoded duplicates) and overlength values fail with
+  the existing value-free 400 after auth and before D1. No new index,
+  migration or latency claim. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#sites-by-owning-account-business-numbers`;
+  focused check: `npm run check:address-owning-account-numbers`.
 - #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
   optional `note` searches only stored `container_note` by bound literal
   substring, independently AND-composed with `q` and all other scopes.
@@ -40,6 +64,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   sparse and conditional reads are preserved. Local read-only D1 only; no
   schema/index, upstream or auth changes. Synthetic lookup recipe and
   focused check: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
   (stored `extras_allowed` = 1/0/no predicate) and opaque exact
   `addressLastAuditDate` (1..100 Unicode code points, nonblank,
@@ -76,6 +101,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic account-by-site-locality recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
   check: `npm run check:customer-address-locality`.
+- #426: Container snapshot lists accept optional `syncedSince`, selecting stored
+  `synced_at` strictly after a normalized UTC Z instant using the existing
+  customer-changes timestamp parser. Empty, offset, excess-precision,
+  calendar-invalid and repeated values fail value-free after auth before D1/304.
+  COUNT/page share the predicate; all existing selectors, count modes, sparse
+  fields, ETags and container_id pagination remain unchanged. Relative next
+  Links retain the normalized instant. This is mirror-freshness filtering,
+  not a changes feed or proof of upstream change; concurrent sync, deletions
+  and completeness are not covered. No index/migration or latency promise.
+  Recipe: `docs/CONSUMER-QUICKSTART.md#container-mirror-freshness`;
+  local check: `npm run check:container-synced-since`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
