@@ -519,6 +519,22 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// Only these address-list additions move to the independent
+// addressOwningAccountNumbers.acceptance.test.ts stored-number oracle.
+// Preserve every other operation/parameter and the historical golden.
+function withoutAddressOwningAccountNumbers(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(parameter =>
+      parameter.in !== "query" || !["owningCustomerNumber", "owningSubCustomerNumber"].includes(parameter.name ?? "")
+    );
+  }
+  return copy;
+}
+
 // Parent-customer enabled selection has semantic checks in the Test
 // Author-owned addressParentCustomerEnabled.acceptance.test.ts, not frozen
 // as a speculative parameter position. The address description and 400 prose
@@ -546,11 +562,12 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerMaterialColorFilters.acceptance.test.ts,
 // containerExactLocation.acceptance.test.ts,
 // containerCityFilter.acceptance.test.ts,
-// containerParentScopes.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts,
 // containerServiceCodeParts.acceptance.test.ts,
-// containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts and
-// containerNoteSearch.acceptance.test.ts, not frozen as speculative
+// containerSerialRfidPresence.acceptance.test.ts,
+// containerOnCallGpsLocked.acceptance.test.ts,
+// containerNoteSearch.acceptance.test.ts and
+// containerSyncedSince.acceptance.test.ts, not frozen as speculative
 // prose or parameter position. All legacy parameters and unrelated operations
 // remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
@@ -567,7 +584,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "syncedSince", "materialStream", "color", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
   }
@@ -986,7 +1003,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
+    const doc = withoutAddressOwningAccountNumbers(withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The

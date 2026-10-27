@@ -33,6 +33,7 @@ type SnapshotListQuery = {
   color?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
+  syncedSince?: string;
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;
@@ -62,6 +63,8 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
+  owningCustomerNumber?: string;
+  owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
@@ -88,8 +91,8 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerTypeId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note"] }
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
