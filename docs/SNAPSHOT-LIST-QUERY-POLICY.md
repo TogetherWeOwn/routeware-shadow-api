@@ -22,6 +22,28 @@ and never authorizes deletion or reconciliation.
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `customerEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `hasCompactorInspection`, `hasEnclosureInspection`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
+## Container inspection-text presence
+
+Only the ordinary container list accepts `hasCompactorInspection` and
+`hasEnclosureInspection`. Each accepts one exact `true`, `false` or `any`
+(default `any`). They select stored `c.ud_last_compactor_inspection_ud` and
+`c.ud_last_enclosure_inspection_ud`, respectively: `true` means `IS NOT NULL AND
+<> ''`; `false` is the exact null-or-empty complement. Nonempty whitespace-only
+text counts as present; omission or `any` adds no predicate.
+
+Both controls AND-compose with each other and every other effective filter.
+COUNT and page queries share the same predicates on joined and unjoined paths;
+no effective parent/customer scope preserves unjoined orphan visibility.
+Relative continuation links retain effective `true`/`false` values, URL-encoded,
+and omit `any`/defaults. Blank, invalid or repeated keys (including encoded
+duplicate names) fail with fixed value-free 400 guidance after authentication
+and before D1/304; send one exact supported value or omit the key and retry.
+
+Stored inspection text is mirrored report metadata, not inspection compliance,
+overdue status, never-inspected proof or a controlled taxonomy. Missing text
+includes report-only unavailability; these read-only selectors never repair it.
+Presence filtering may scan; no index, migration or performance promise.
+
 ## Container mirror freshness (`syncedSince`)
 
 Only the ordinary container list accepts `syncedSince`: stored `c.synced_at`
