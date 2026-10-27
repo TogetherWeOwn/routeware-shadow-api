@@ -365,9 +365,9 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameters: [
       ...queryParams("customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone"),
       ...queryParams("comments", "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled"),
-      ...queryParams("addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit"),
-      ...queryParams("offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext"),
-      ...queryParams("countOnly", "order", "fields", "strictQuery")
+      ...queryParams("addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1"),
+      ...queryParams("hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId"),
+      ...queryParams("upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery")
     ]
   },
   {
