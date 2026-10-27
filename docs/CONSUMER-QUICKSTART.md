@@ -1093,6 +1093,50 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container parent service-site locality
+
+Use `listContainerSnapshot` with `parentCity`, `parentState` and/or `parentZip`
+to select equipment by the mirrored service site's stored locality instead
+of its own `city`/`state`/`zip`. Each is case-sensitive opaque exact text of
+1..100 Unicode code points containing a non-whitespace character. Preserve
+leading zeros and nonblank whitespace; do not trim, normalize, convert
+abbreviations or infer a state enum. URL-encode each value and send each key
+once. Invalid, blank, overlength or repeated keys fail value-free after auth
+before D1/304; correct the named format or omit it and retry.
+
+Credential-free synthetic recipe (no server or real records required):
+
+```bash
+npm run check:container-parent-locality
+```
+
+The oracle has multiple sites in Riverton/TX/02139, with containers whose own
+locality is different, equal or null. This relative request selects equipment
+by the parent, not by equipment GPS:
+
+```http
+GET /api/v1/container-snapshot?parentCity=Riverton&parentState=TX&parentZip=02139&fields=container_id,pickup_address_id&limit=2&includeTotal=false&exactNext=true
+```
+
+Its fixture IDs are `[10,20]`, then `[30,120]`, then `[140]`. Follow the returned
+[same-origin Link](#follow-the-servers-next-page-target) unchanged until absent;
+it retains all three parent selectors across offset-to-seek and either order.
+Add `state=ZZ` to select only equipment with that own state at these sites;
+add `state=TX` instead for equipment with the same own state (fixture ID 30).
+Parent and own selectors AND-compose, as do customerId and parent
+route/franchise/enabled; contradictions return empty 200 pages.
+
+A supplied parent selector excludes missing parents and null parent locality.
+Omission adds no join, preserving unscoped orphan visibility. One shared
+unique-parent join never multiplies equipment rows. Count-only/count-free
+reads, sparse fields, fences and ETag/304 stay intact. This is mirrored stored
+site locality, **not** live geolocation, postal verification or service
+territory eligibility. Equality may scan; synthetic EXPLAIN proves no production
+latency or index guarantee. No migration, deployment, network/R2 or writes;
+GET is idempotent local-read and CLI dry-run is N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-locality)
+and [400 recovery](PROBLEMS.md#container-parent-service-site-locality-bad-request).
+
 ### Container serial and RFID presence
 
 Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or

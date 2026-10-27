@@ -556,6 +556,25 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
   return copy;
 }
 
+// The parent-site locality selectors' schemas, strict validation and
+// composition are asserted independently in
+// containerParentLocality.acceptance.test.ts, not frozen as parameter
+// position here. All legacy parameters stay frozen.
+function withoutContainerParentLocality(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["parentCity", "parentState", "parentZip"].includes(parameter.name ?? "")
+    );
+  }
+  return copy;
+}
+
 // The stored-type selector's facet, strict validation and composition are
 // asserted independently in containerTypeFilter.acceptance.test.ts, not frozen
 // as parameter position here. All legacy parameters stay frozen.
@@ -923,7 +942,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
+    const doc = withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
