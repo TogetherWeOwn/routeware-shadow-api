@@ -38,6 +38,9 @@ type SnapshotListQuery = {
   franchiseId?: string;
   parentRouteId?: number;
   parentFranchiseId?: string;
+  parentCity?: string;
+  parentState?: string;
+  parentZip?: string;
   parentEnabled?: "true" | "false" | "any";
   zip?: string;
   streetAddress?: string;
@@ -48,6 +51,7 @@ type SnapshotListQuery = {
   lastAuditDate?: string;
   q?: string;
   phone?: string;
+  note?: string;
   comments?: string;
   enabled: "true" | "false" | "any";
   // Container-only stored-flag selectors. Optional because the customer and
@@ -60,6 +64,7 @@ type SnapshotListQuery = {
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
+  hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
@@ -82,7 +87,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "compactorInspection", "enclosureInspection", "zip", "locationAddress", "city", "state"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "compactorInspection", "enclosureInspection", "zip", "locationAddress", "city", "state", "note"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -137,6 +142,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
+    params.set("hasCoordinates", query.hasCoordinates);
   }
   if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
     params.set("addressEnabled", query.addressEnabled);
