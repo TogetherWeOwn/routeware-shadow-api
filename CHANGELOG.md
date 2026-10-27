@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
+  for case-sensitive exact stored service-site locality through the existing
+  shared address join. Each is opaque nonblank text of 1..100 Unicode code
+  points, preserving leading zeros and nonblank whitespace without trimming,
+  normalization, abbreviation conversion or enum. Parent and equipment
+  locality AND-compose independently with all existing filters; missing/null
+  parents do not match, and omission keeps unscoped orphan visibility.
+  COUNT/page parity, count-only/count-free reads, sparse ETags/304, strict
+  validation and relative next Links remain intact. Invalid or repeated
+  values fail with value-free corrective guidance after auth before D1/304.
+  Stored service-site locality is not equipment GPS, live geolocation,
+  postal verification or territory eligibility. Equality may scan: no new
+  index, migration or performance promise. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality`;
+  local check: `npm run check:container-parent-locality`.
 - #375: Container snapshot lists accept an optional `serviceCode` exact,
   case-sensitive filter (1..100 Unicode code points) matching the stored
   service code. Opaque values retain leading zeros and nonblank whitespace;

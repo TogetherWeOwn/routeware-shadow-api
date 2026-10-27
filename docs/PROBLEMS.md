@@ -411,6 +411,23 @@ omit only if no such parent scope is intended. Values are never logged or
 included in errors. Valid no-match returns 200 empty, not an error. See the
 [parent scope policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes).
 
+## Container parent service-site locality (`bad-request`)
+
+On the ordinary `GET /api/v1/container-snapshot`, send `parentCity`,
+`parentState` and `parentZip` each at most once as a nonblank opaque string of
+1..100 Unicode code points. URL-encode the stored value; preserve leading
+zeros and nonblank whitespace without trimming or normalization. These keys
+select stored parent address locality, independently of equipment locality.
+
+Blank, whitespace-only, overlength and repeated keys (including encoded
+duplicate names) return fixed value-free 400 guidance after authentication,
+before D1 or conditional 304. The detail names the rejected field and says:
+"URL-encode one nonblank stored parent locality value of 1..100 Unicode code
+points per named key, preserving significant whitespace, or omit the selector
+and retry." No submitted value is echoed. Correct the named key, or omit it
+only if no such scope is intended. A valid unknown value returns empty 200.
+See the [locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-locality).
+
 ## Address stored extras-allowed selector (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `extrasAllowed` is an optional exact,

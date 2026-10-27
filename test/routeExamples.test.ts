@@ -464,7 +464,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
       "routeIdsExact", "frequencyIdsExact", "hasRouteIds", "hasFrequencyIds",
       "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
       "q", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ]
+    ].concat(["parentCity", "parentState", "parentZip"])
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",
