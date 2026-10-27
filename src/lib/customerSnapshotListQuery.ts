@@ -5,7 +5,7 @@ import { snapshotLowerIdQuery } from "./snapshotLowerId";
 import { snapshotOrderQuery } from "./snapshotListOrder";
 import { snapshotSearchQuery } from "./snapshotSearchQuery";
 import { snapshotFieldsQuery } from "./sparseFieldsets";
-import { customerAccountNumberQuery, customerAddressCityQuery, customerAddressEnabledQuery, customerAddressExtrasAllowedQuery, customerAddressFranchiseIdQuery, customerAddressLastAuditDateQuery, customerAddressPresenceQuery, customerAddressRouteIdQuery, customerAddressStateQuery, customerAddressZipQuery, customerCommentsQuery, customerContainerPresenceQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
+import { customerAccountNumberQuery, customerAddressCityQuery, customerAddressEnabledQuery, customerAddressExtrasAllowedQuery, customerAddressFranchiseIdQuery, customerAddressLastAuditDateQuery, customerAddressPresenceQuery, customerAddressRouteIdQuery, customerAddressStateQuery, customerAddressZipQuery, customerCommentsQuery, customerContainerPresenceQuery, customerEnabledAddressPresenceQuery, customerEnabledContainerPresenceQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentQuery } from "./snapshotCustomerSelectors";
 import { snapshotExactNextQuery } from "./snapshotNextLink";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible } from "./snapshotCountOnly";
 import { snapshotStrictQuery } from "./snapshotStrictQuery";
@@ -69,7 +69,7 @@ export const customerSnapshotListQuery = z.object({
   q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (ASCII case-insensitive; maximum 100 Unicode code points). SQLite lower() folds A-Z only; non-ASCII case variants match only on exact case. A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
   phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
   comments: customerCommentsQuery,
-  hasAddresses: customerAddressPresenceQuery,
+  hasAddresses: customerAddressPresenceQuery, hasEnabledAddresses: customerEnabledAddressPresenceQuery, hasEnabledContainers: customerEnabledContainerPresenceQuery,
   addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, addressCity: customerAddressCityQuery, addressState: customerAddressStateQuery, addressZip: customerAddressZipQuery, addressExtrasAllowed: customerAddressExtrasAllowedQuery, addressLastAuditDate: customerAddressLastAuditDateQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery,
   enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
   limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
