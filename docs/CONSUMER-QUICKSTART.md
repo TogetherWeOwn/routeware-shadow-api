@@ -599,6 +599,45 @@ ETags/304, auth/validation zero-work and denied upstream/R2/cache writes.
 See the [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-customer-comment-fragment)
 and [fixed error guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
 
+### Stored coordinate-pair presence
+
+On the existing address and container lists, `hasCoordinates=true|false|any`
+selects **NULL-only stored-pair presence**, not valid/complete geographic
+coordinates. `true` requires both `latitude` and `longitude` to be SQL non-null;
+`false` requires either to be null. Non-null TEXT such as `"0"`, `"-1"`, `""`,
+whitespace and non-numeric text counts as present. Disabled rows remain eligible.
+Containers always use their own columns, never their parent address's pair;
+this says nothing about accuracy, GPS lock or live position.
+
+For synthetic fixtures in a local Worker only (operator-supplied read token):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+```
+
+Follow each returned relative `Link` against the same origin unchanged; it
+retains true/false, other filters, fields, ceiling and direction while replacing
+the cursor. A full terminal page may link to an empty page; stop when Link is
+absent. `any`/omission adds no predicate or continuation key. Other selectors
+intersect by AND, including container customer-join scopes; count-free pages
+still run one SELECT and zero COUNTs. These idempotent local-read GETs make no
+upstream/R2 request; CLI `--dry-run` is N/A. The NULL predicates may scan; no
+new index or production performance claim is made.
+
+Invalid, empty or repeated values return value-free 400 before D1, after auth.
+Send one exact lowercase `true`, `false` or `any`, or omit `hasCoordinates` and
+retry. Run `npm run check:snapshot-coordinates` for the synthetic hermetic
+oracle and list/auth/discovery regressions. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-coordinate-pair-presence) and
+[fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
+
 ### Exact external account lookup
 
 Resolve an external account reference to canonical `customer_id` values on the
