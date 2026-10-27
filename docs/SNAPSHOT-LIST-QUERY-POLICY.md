@@ -18,9 +18,37 @@ and never authorizes deletion or reconciliation.
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `owningCustomerNumber`, `owningSubCustomerNumber`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
+
+## Container mirror freshness (`syncedSince`)
+
+Only the ordinary container list accepts `syncedSince`: stored `c.synced_at`
+strictly greater than a caller-held UTC Z instant, normalized to milliseconds
+by the same timestamp chain as customer-changes `since`. Seconds are required;
+one to three fractional digits are optional. Empty, offset, excess-precision,
+calendar-invalid and repeated values fail with fixed value-free guidance after
+authentication, before D1/304. Omission adds no predicate.
+
+This is a filter, not a changes feed: ordering and cursors remain `container_id`
+keyset, with no deletion history, isolation or completeness guarantee. Concurrent
+sync can move rows across the window. Stored sync time measures mirror freshness,
+not upstream event/service time or proof that content changed. A sync run stamps
+all its rows with the run's start time but writes them in later batches, so a
+poller must not use its own clock as the next instant; use an observed stored
+value minus an overlap margin longer than a sync run. The predicate
+AND-composes with every existing selector and shares COUNT/page binds; countOnly,
+count-free, sparse fields, strictQuery, ETags/304 and no-store remain unchanged.
+Next Links retain the normalized effective instant in both directions, including
+offset-to-seek. No synced_at index is added: unscoped queries may scan, and
+synthetic EXPLAIN evidence is not a performance promise.
+
+Run `npm run check:focused -- container-synced-since` for the independent
+`test/containerSyncedSince.acceptance.test.ts` plus timestamp, auth, pagination,
+conditional and mounted-contract regressions. All fixtures are synthetic local
+D1; no upstream/R2 access or product writes. See the
+[incremental polling recipe](CONSUMER-QUICKSTART.md#container-mirror-freshness).
 
 ## Opt-in typo detection (`strictQuery=`)
 
@@ -835,6 +863,51 @@ effects; CLI `--dry-run` is N/A. Run
 local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
 contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-parent-customer-enabled-state).
+
+## Sites by owning account business numbers
+
+Only the existing address list accepts `owningCustomerNumber` and
+`owningSubCustomerNumber`, selecting sites by the mirrored business numbers
+of their owning stored customer (`customer_snapshot.customer_number` and
+`sub_customer_number`, matched through one qualified join on
+`customer_snapshot.customer_id = address_snapshot.customer_id`). Each is an
+optional exact, case-sensitive opaque string: 1..100 Unicode code points,
+including at least one non-whitespace character, with a single occurrence
+of the key. Leading zeros and all supplied nonblank whitespace are
+preserved. No numeric coercion, case folding, trimming or Unicode
+normalization occurs; literal quotes, `%` and `_` are data, not SQL or
+wildcards. Stored numbers are mirrored report text: they may repeat across
+stored customers, so a repeated number returns every owning account's sites
+exactly once each. They are not a billing identity, account hierarchy,
+service territory or proof of service. Both supplied numbers must match the
+SAME owning-customer row; numbers that exist on different customers never
+combine. A site whose owning customer is missing from the mirror never
+matches an explicit number, while omission keeps the pre-existing
+join-free reads including orphan rows. Stored NULLs never match strings; a
+valid unknown number returns an HTTP 200 empty collection. Empty,
+whitespace-only, repeated (including encoded duplicate names) and
+overlength values return the existing value-free 400 before D1 or
+conditional 304 success; authentication remains first. See [fixed
+correction guidance](PROBLEMS.md#bad-request).
+
+One conditional `JOIN customer_snapshot` on the customer primary key (no
+fanout, no duplicate sites, no response-shape change) shares the WHERE
+between COUNT and page; `includeTotal=false` still issues zero COUNTs and
+`countOnly` stays COUNT-only. Sparse fields and ETag/304 describe the same
+final envelope. Relative next Links retain each supplied number in either
+order and when moving offset-to-seek; unknown raw parameters and origins
+never travel.
+
+The lookup uses the customer primary key; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/addressOwningAccountNumbers.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:focused -- address-owning-account-numbers` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#sites-by-owning-account-business-numbers).
 
 ## Address street or locality search
 

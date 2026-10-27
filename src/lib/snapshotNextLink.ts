@@ -32,6 +32,7 @@ type SnapshotListQuery = {
   color?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
+  syncedSince?: string;
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;
@@ -61,6 +62,8 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
+  owningCustomerNumber?: string;
+  owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
@@ -110,6 +113,8 @@ const LISTS = {
       "driverNote",
       "franchiseId",
       "lastAuditDate",
+      "owningCustomerNumber",
+      "owningSubCustomerNumber",
       "pickupAddressId",
       "routeId",
       "state",
@@ -140,6 +145,7 @@ const LISTS = {
       "serviceCodeInput",
       "serviceCodeType",
       "state",
+      "syncedSince",
       "zip"
     ]
   }
