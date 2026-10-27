@@ -538,6 +538,22 @@ function withoutAddressLastAuditDate(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// Only these address-list additions move to the independent
+// addressOwningAccountNumbers.acceptance.test.ts stored-number oracle.
+// Preserve every other operation/parameter and the historical golden.
+function withoutAddressOwningAccountNumbers(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(parameter =>
+      parameter.in !== "query" || !["owningCustomerNumber", "owningSubCustomerNumber"].includes(parameter.name ?? "")
+    );
+  }
+  return copy;
+}
+
 // Parent-customer enabled selection has semantic checks in the Test
 // Author-owned addressParentCustomerEnabled.acceptance.test.ts, not frozen
 // as a speculative parameter position. The address description and 400 prose
@@ -980,8 +996,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerEnabledDescendantParameters(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))))));
-
+    const doc = withoutAddressOwningAccountNumbers(withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerEnabledDescendantParameters(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))))));
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
     // wording of the includeTotal prose is pinned by hand-written assertions in
