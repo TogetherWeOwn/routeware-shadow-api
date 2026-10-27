@@ -32,7 +32,6 @@ type SnapshotListQuery = {
   color?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
-  syncedSince?: string;
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;

@@ -136,7 +136,7 @@ const SAMPLES: Record<string, string> = {
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
   comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", syncedSince: "2026-08-31T00:00:00.000Z", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
-  syncedSince: "2026-03-01T10:00:00.100Z", syncedUntil: "2026-03-01T10:00:00.500Z",
+  syncedUntil: "2026-03-01T10:00:00.500Z",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentCity: "Riverton", parentState: "ST", parentZip: "02139",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
