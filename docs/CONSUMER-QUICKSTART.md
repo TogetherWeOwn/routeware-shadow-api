@@ -809,6 +809,39 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Filter by stored classification
+
+Use the existing `listCustomerSnapshot` operation to fetch only customers of
+a known stored classification. Optional `customerTypeId` is exact equality
+over the stored nullable `customer_type_id` column: one unpadded ASCII
+decimal integer from `0` through `9007199254740991`, sent once. `0` is a
+literal stored value, never null or all rows; stored NULL classifications
+never match. The selector AND-composes with `customerId`, `q`, `enabled` and
+every other filter, and travels in follow-next Links. It filters the cached
+snapshot, not live Routeware state — there is no type-name catalog.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?customerTypeId=2&limit=2"
+# HTTP 200 — {"rows":[...],"total":N,"nextCursor":...}; follow Link rel="next"
+# with the selector intact until Link is absent; a full terminal page may
+# link to one empty page. A valid literal with no match is a 200 empty page.
+```
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:customer-type-filter
+```
+
+The fixture also pins strict lexical rejection (empty, padded, signed,
+fraction, exponent, unsafe and repeated-key values 400 before D1 with the
+fixed value-free detail), auth-before-validation, count-free zero-COUNT
+traversal, sparse fields and conditional ETags. For a 400, send the selector
+once in canonical form, or omit it, then retry. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
+
 ### Personal or company name search
 
 Find customer rows by personal name without downloading unrelated pages, on
@@ -1754,6 +1787,64 @@ true/false. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-container-presence)
 and [400 correction guidance](PROBLEMS.md#customer-container-presence-bad-request).
+
+### Customer enabled-descendant presence
+
+Use `listCustomerSnapshot` to inspect a mirrored active-footprint cohort,
+without fetching sites or equipment. Only this ordinary list accepts
+`hasEnabledAddresses=true|false|any` and `hasEnabledContainers=true|false|any`
+(default `any`). True means a stored descendant with `enabled` exactly 1;
+noncanonical stored values never count. Enabled equipment is reachable through
+**any** owned stored address, even a disabled site. Each false includes zero
+descendants at that level and descendants all non-1. Customer enabled remains
+independent. Presence is global, not same-site membership for a separate cohort.
+
+Synthetic local fixture: customer 11 has no sites, 12 one disabled site
+with only disabled equipment, 13 one enabled site without equipment, 14 one
+disabled site holding enabled equipment, 15 one enabled site with disabled
+equipment, and 16 an enabled site plus a separate disabled site holding enabled
+equipment. These examples assume only those six accounts; use a local fixture
+service and its `$TOKEN`. The focused suite creates its own synthetic test D1.
+
+```bash
+# Count accounts with BOTH an enabled site and enabled equipment: only 16.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasEnabledAddresses=true&hasEnabledContainers=true&countOnly=true&strictQuery=true"
+# {"rows":[],"total":1,"nextCursor":null}; one COUNT, zero page SELECTs, no next Link.
+# Equipment can be enabled on a disabled site: only 14.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasEnabledAddresses=false&hasEnabledContainers=true&fields=enabled&includeTotal=false"
+# Rows: customer_id 14 (canonical ID retained); total:null, zero COUNTs.
+# Stored sites but none enabled: 12 and 14; a customer with no sites is excluded.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=true&hasEnabledAddresses=false&countOnly=true"
+# {"rows":[],"total":2,"nextCursor":null}
+# Either positive enabled-presence selector contradicts hasAddresses=false.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=false&hasEnabledContainers=true"
+# {"rows":[],"total":0,"nextCursor":null}; empty 200, not a validation error.
+```
+
+The new selectors AND-compose with every existing customer filter. For example,
+`hasContainers=true&hasEnabledContainers=false` keeps stored equipment with
+none enabled; `hasContainers=false&hasEnabledContainers=true` is empty.
+Send each exact enum once, or omit it and retry malformed/blank/repeated
+selectors (fixed value-free 400 after auth, before D1/304). Keep
+`countOnly=true` separate from `includeTotal=false`; the combination is invalid.
+On paged reads follow relative next Links unchanged on the same local origin;
+they retain effective selectors across either direction and offset-to-seek,
+never any/default. Sparse fields, bounded IDs, strictQuery and exact-envelope
+ETag/304/no-store are unchanged. Counted totals are cursor-relative; no
+snapshot isolation or latency guarantee is promised. No descendant expansion,
+new indexes or migrations. GET is idempotent/local-read; CLI `--dry-run` is N/A.
+
+Mirrored report state is **not** current account eligibility, live service
+status, deployment proof or authorization. Absence is not upstream emptiness
+and never authorizes deletion, reconciliation or sync. This recipe is not a
+live probe or deployment. Run `npm run check:customer-enabled-descendants`
+for synthetic local-D1 checks without upstream/R2 access or writes. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-enabled-descendant-presence)
+and [400 correction guidance](PROBLEMS.md#customer-enabled-descendant-presence-bad-request).
 
 ### Address container presence
 

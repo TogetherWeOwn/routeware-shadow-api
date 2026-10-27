@@ -109,6 +109,22 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored customer classification (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, optional `customerTypeId` is an exact
+unpadded ASCII decimal integer from `0` through `9007199254740991`, sent
+once. No signs, padding, whitespace, fractions, exponent/hex notation or
+unsafe integers. Zero matches literal stored classification `0`, never null
+or all rows; stored NULL classifications never match. The value filters the
+cached snapshot, not live Routeware state.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (customerTypeId). See docs/PROBLEMS.md#bad-request.`
+Correct the named field's format, send it once, then retry; omit it only if
+no classification filter is intended. Authentication still precedes
+validation. A valid selector with no match returns 200 with an empty list.
+See the [classification policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
+
 ## Stored customer comment fragment (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, `comments` accepts one fragment of at
@@ -194,6 +210,29 @@ customer `enabled` is independent. No mirrored reachable container is not
 proof of no upstream equipment and never authorizes deletion,
 reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-container-presence).
+
+## Customer enabled-descendant presence (`bad-request`)
+
+Only `GET /api/v1/customer-snapshot` accepts `hasEnabledAddresses` and
+`hasEnabledContainers`. Send each once as exact case-sensitive `true`,
+`false` or `any` (default), or omit it and retry. Blank, malformed and
+repeated values (including encoded duplicate names) fail after auth and
+before D1/304 with fixed value-free guidance. No supplied values are echoed
+or logged. Detail for either field alone:
+
+`Invalid request query (hasEnabledAddresses). Send one hasEnabledAddresses=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (hasEnabledContainers). Send one hasEnabledContainers=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+True requires a stored descendant whose enabled is exactly 1. Enabled
+containers may sit on any owned address regardless of that address's state.
+Each false includes zero descendants at that level and descendants all non-1;
+noncanonical stored values never count as enabled. Customer enabled remains
+independent. Contradictions with `hasAddresses` or `hasContainers` are empty
+200s, not validation errors. Mirrored report state is not account eligibility,
+live service status, deployment proof or authorization and never authorizes
+upstream sync, deletion or reconciliation. See the
+[local active-footprint recipe](CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence).
 
 ## Customer service-site cohorts (`bad-request`)
 

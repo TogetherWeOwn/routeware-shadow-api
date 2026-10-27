@@ -16,6 +16,7 @@ type SnapshotListResource = "customer" | "address" | "container";
 
 type SnapshotListQuery = {
   customerId?: number;
+  customerTypeId?: number;
   customerNumber?: string;
   subCustomerNumber?: string;
   pickupAddressId?: number;
@@ -68,6 +69,8 @@ type SnapshotListQuery = {
   owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
   hasEventCode?: "true" | "false" | "any";
+  hasEnabledAddresses?: "true" | "false" | "any";
+  hasEnabledContainers?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -92,7 +95,7 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerTypeId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "eventCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
 } as const;
@@ -149,6 +152,13 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  // Customer-only exact-enabled descendant presence; omit any/default.
+  if (resource === "customer" && query.hasEnabledAddresses !== undefined && query.hasEnabledAddresses !== "any") {
+    params.set("hasEnabledAddresses", query.hasEnabledAddresses);
+  }
+  if (resource === "customer" && query.hasEnabledContainers !== undefined && query.hasEnabledContainers !== "any") {
+    params.set("hasEnabledContainers", query.hasEnabledContainers);
   }
   if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
     params.set("hasCoordinates", query.hasCoordinates);
