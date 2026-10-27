@@ -406,7 +406,7 @@ const invalid = KEYS.flatMap(key => [
   [key, `${key}=Riverton&${key}=Riverton`, "Riverton"],
   [key, `${key}=Riverton&${key}=Elsewhere`, "Elsewhere"],
   [key, `${key}=&${key}=Riverton`, "Riverton"],
-  [key, `${key}=Riverton&${key.replace("C", "%43").replace("S", "%53").replace("Z", "%5A")}=Riverton`, "Riverton"],
+  [key, `${key}=Riverton&${key.replaceAll("C", "%43").replaceAll("S", "%53").replaceAll("Z", "%5A")}=Riverton`, "Riverton"],
 ]);
 describe("container parent locality: value-free validation before D1, after authentication", () => {
   it.each(invalid)("rejects %s query %s even on conditional GET", async (key, query, submitted) => {
