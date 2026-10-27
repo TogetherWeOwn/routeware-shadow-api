@@ -390,6 +390,24 @@ function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDo
 }
 
 /**
+ * Customer site-locality schemas, examples, single-list scope and outcomes are
+ * independently owned by customerAddressLocality.acceptance.test.ts. Remove
+ * only these three new query parameters; preserve every existing golden
+ * contract.
+ */
+function withoutCustomerAddressLocalityParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
+      !["addressCity", "addressState", "addressZip"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
+/**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
  * description guidance and absence from every other operation are pinned
@@ -529,11 +547,12 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerExactLocation.acceptance.test.ts,
 // containerCityFilter.acceptance.test.ts,
 // containerOwningAccountNumbers.acceptance.test.ts,
-// containerParentScopes.acceptance.test.ts and
+// containerParentScopes.acceptance.test.ts,
 // containerServiceCodeParts.acceptance.test.ts,
-// containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts and
-// containerNoteSearch.acceptance.test.ts, not frozen as speculative
+// containerSerialRfidPresence.acceptance.test.ts,
+// containerOnCallGpsLocked.acceptance.test.ts,
+// containerNoteSearch.acceptance.test.ts and
+// containerSyncedSince.acceptance.test.ts, not frozen as speculative
 // prose or parameter position. All legacy parameters and unrelated operations
 // remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
@@ -550,7 +569,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "owningCustomerNumber", "owningSubCustomerNumber"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "syncedSince", "materialStream", "color", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "owningCustomerNumber", "owningSubCustomerNumber"].includes(parameter.name ?? "")
       );
     }
   }
@@ -943,7 +962,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
+    const doc = withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The

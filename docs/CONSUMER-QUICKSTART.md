@@ -191,6 +191,94 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Exact-selector examples are synthetic
+
+Every example value shown for an opaque exact selector — in these docs and
+in the mounted OpenAPI — is invented for illustration. It is not taken from
+any dataset, and the examples together are not a vocabulary or allowlist of
+stored values. Sending an example verbatim may legitimately return an
+empty 200.
+
+That empty 200 is ambiguous by design: it cannot distinguish an absent
+cohort from a spelling, case or whitespace miss, because exact selectors
+match stored text byte-for-byte with no trimming or normalization. No
+dedicated endpoint enumerates the stored values of these columns — none
+exists and none is promised. Authorized full-snapshot exports stream whole
+rows, so they contain the selector columns, but they are bulk reads, not a
+vocabulary surface.
+
+To obtain a real spelling safely, read it from rows you are already
+authorized to read — a sparse `fields=` list read or a by-id read — copy
+the stored value byte-for-byte URL-encoded, and probe with `countOnly`
+before paging. The value below (`Exampleton`) is fake:
+
+```bash
+# 1. Read a real stored spelling from an authorized sparse read.
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?fields=city&limit=1"
+# 2. Copy the returned city spelling byte-for-byte, URL-encoded
+#    (illustrated with the fake value Exampleton), and probe first:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?city=Exampleton&countOnly=true"
+# {"rows":[],"total":0,"nextCursor":null} — absent cohort OR spelling miss;
+# total > 0 confirms the spelling exists before you page it.
+```
+
+The opaque exact selectors are, per snapshot list (parameter → stored
+column; this inventory was re-derived from the mounted list query schemas,
+and the mounted OpenAPI stays authoritative if they ever disagree):
+
+| `GET /api/v1/customer-snapshot` | Stored column |
+| --- | --- |
+| `customerNumber` | `customer_number` |
+| `subCustomerNumber` | `sub_customer_number` |
+| `addressRouteId` | child address `route_id` |
+| `addressFranchiseId` | child address `franchise_id` |
+| `addressCity` | child address `city` |
+| `addressState` | child address `state` |
+| `addressZip` | child address `zip` |
+| `addressLastAuditDate` | child address `last_audit_date` |
+
+| `GET /api/v1/address-snapshot` | Stored column |
+| --- | --- |
+| `routeId` | `route_id` |
+| `franchiseId` | `franchise_id` |
+| `zip` | `zip` |
+| `streetAddress` | `address` |
+| `city` | `city` |
+| `state` | `state` |
+| `lastAuditDate` | `last_audit_date` |
+
+| `GET /api/v1/container-snapshot` | Stored column |
+| --- | --- |
+| `parentRouteId` | parent address `route_id` |
+| `parentFranchiseId` | parent address `franchise_id` |
+| `parentCity` | parent address `city` |
+| `parentState` | parent address `state` |
+| `parentZip` | parent address `zip` |
+| `containerTypeId` | `container_type_id` |
+| `serialNumber` | `serial_number` |
+| `rfid` | `rfid` |
+| `serviceCode` | `service_code` |
+| `materialStream` | `ud_material_stream_ud` |
+| `color` | `color` |
+| `serviceCodeType` | `service_code_type` |
+| `serviceCodeInput` | `service_code_input` |
+| `zip` | `zip` |
+| `locationAddress` | `location_address` |
+| `city` | `city` |
+| `state` | `state` |
+
+Finite enums (`enabled`, `extrasAllowed`, `onCall`, `gpsLocked`,
+`parentEnabled` and the other `true|false|any` selectors) and presence
+selectors (`hasAddresses`, `hasContainers`, `hasPhone1`, `hasPhone2`,
+`hasSerialNumber`, `hasRfid`, `hasLastAuditDate`, `hasCoordinates`) are excluded from this
+inventory: they are not vocabularies either — their full domains are the
+published `true`/`false`/`any` spellings. Substring searches (`q`,
+`phone`, `comments`, `driverNote`) and primary-key selectors (`customerId`,
+`pickupAddressId`, `containerId`, `ids`) are likewise outside the exact
+stored-value contract above.
+
 ### Stored container instruction fragment
 
 Use `note` for a known fragment of stored `container_note`; use `q` for
@@ -1433,6 +1521,39 @@ Run `npm run check:customer-address-service-policy` for local synthetic-D1
 selection, decoys, full traversal, auth/validation and conditional regressions.
 No live access, writes, new index or production latency claim.
 
+### Customer service-site locality
+
+Use the same operation to select accounts that have a service site in a
+stored city, state or zip, without downloading every site.
+`addressCity`, `addressState` and `addressZip` are opaque case-sensitive
+exact equalities on the stored child address (1..100 Unicode code
+points, never blank; leading zeros and significant whitespace preserved;
+no abbreviation conversion). They AND inside the same stored address as
+the cohort scopes above: a city on one site plus a state on another site
+of the same account never matches the combined request, and multiple
+matching sites still return the account once. Disabled sites count
+unless `addressEnabled` scopes them out. A valid unknown locality is an
+empty 200. Site locality is mirrored text on the service address — not a
+customer headquarters location, geocoding result, postal verification,
+service-territory eligibility or proof of service.
+
+Synthetic local account-by-site-locality recipe (fixture service and its
+`$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressCity=Riverton&addressState=TX&addressZip=02139&limit=2&includeTotal=false"
+# {"rows":[{"customer_id":11,...},{"customer_id":13,...}],"total":null,"nextCursor":13}
+# Follow the returned relative Link unchanged on this same localhost origin;
+# it retains the locality selectors. Stop when Link is absent.
+```
+
+Run `npm run check:customer-address-locality` for synthetic local-D1
+selection, split-site decoys, full Link traversal and conditional-read
+regressions plus child-index EXPLAIN evidence. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-locality)
+and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
 ### Customer stored-phone presence
 
 Use the existing read-token-compatible `listCustomerSnapshot` operation to
@@ -2122,6 +2243,53 @@ never boolean); text carries no format/enum/minimum promises. `total` is the
 returned page length (never a COUNT); `nextCursor` is the composite resume
 pair, or `null` at the tail. Focused check:
 `npm run check:customer-changes-delta`.
+
+## Container mirror freshness
+
+Use the existing container list's `syncedSince` to poll for recently mirrored
+equipment, not upstream events. For a local synthetic fixture with stored
+`(container_id, synced_at)` pairs `(1, 2026-09-01T00:00:00.500Z)` and
+`(2, 2026-09-01T00:00:00.501Z)`:
+
+```bash
+curl --get 'http://localhost:8787/api/v1/container-snapshot' \
+  -H "Authorization: Bearer $SHADOW_API_READ_TOKEN" \
+  --data-urlencode 'syncedSince=2026-09-01T00:00:00.5Z' \
+  --data-urlencode 'includeTotal=false' \
+  --data-urlencode 'fields=synced_at' \
+  --data-urlencode 'limit=1'
+# rows: [{container_id: 2, synced_at: "2026-09-01T00:00:00.501Z"}]
+# total: null; the equal-stamp row is excluded.
+```
+
+Hold the chosen instant fixed while following each relative `Link: rel="next"`
+unchanged on the same origin. Links carry `2026-09-01T00:00:00.500Z`, not the
+short fractional spelling. IDs/cursors stay in `container_id` order (asc/desc),
+not sync-time order. Do not promote a page's last timestamp into a cursor or
+assume the greatest timestamp is on the last ID page. Without `exactNext=true`,
+a full terminal page can link to an empty page; stop when Link is absent.
+
+For later polling, never use your own clock time as the next instant: a sync
+run stamps every row it writes with the run's start time, then writes the rows
+in batches over the following minutes, so a row written late carries a stamp
+older than your clock and would be skipped until the next run restamps it.
+Instead persist a stored `synced_at` you observed (for example the newest one)
+and subtract an overlap margin longer than a full sync run, then
+deduplicate/re-upsert by `container_id`.
+Overlap permits safe replay, not an exact-once or complete feed: concurrent
+sync can move rows across the window, deletions are not recorded, and there is
+no snapshot isolation. Stored `synced_at` is mirror freshness, not upstream
+event/service time or proof of changed content. Do not use absence to delete.
+
+Send one calendar-valid UTC Z value with seconds and optional 1–3 fractional
+digits; empty, offsets, excess precision and repeated values return a fixed
+value-free [400](PROBLEMS.md#bad-request) after auth and before D1/304. Correct
+the format or omit the selector and retry. All existing selectors AND-compose;
+COUNT-only, count-free, sparse and conditional reads retain their contracts.
+No new index is added; the predicate may scan, with no latency promise. This
+GET is idempotent/local-read and touches neither upstream nor R2.
+
+Credential-free local check: `npm run check:container-synced-since`.
 
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
