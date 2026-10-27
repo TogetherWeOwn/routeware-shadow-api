@@ -6,7 +6,7 @@ import app from "../src/app";
 import { ensureD1TestTables } from "./d1TestMigrations";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
-import packageJson from "../package.json";
+import { focusedCheckEntries } from "./focusedChecks";
 
 /**
  * Independent test-author oracle; consume unchanged in the paired implementation.
@@ -470,7 +470,7 @@ describe("coordinate-presence agent discovery", () => {
   });
 
   it("provides a named agent-runnable check for this independent oracle", () => {
-    const checks = Object.entries(packageJson.scripts).filter(([name, command]) =>
+    const checks = focusedCheckEntries.filter(([name, command]) =>
       name.startsWith("check:") && command.includes("test/snapshotCoordinatePresence.acceptance.test.ts"));
     expect(checks.length).toBeGreaterThan(0);
   });

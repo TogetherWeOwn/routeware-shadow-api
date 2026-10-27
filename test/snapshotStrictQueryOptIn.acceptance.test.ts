@@ -7,7 +7,7 @@ import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import problemsDoc from "../docs/PROBLEMS.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -746,8 +746,7 @@ describe("strictQuery agent guidance", () => {
   });
 
   it("exposes a named local-only focused check that includes this acceptance suite", () => {
-    const scripts = packageJson.scripts as Record<string, string>;
-    const command = scripts["check:snapshot-strict-query"];
+    const command = focusedChecks["snapshot-strict-query"];
     expect(command).toEqual(expect.any(String));
     expect(command).toMatch(/vitest\s+run/);
     expect(command).toContain("test/snapshotStrictQueryOptIn.acceptance.test.ts");

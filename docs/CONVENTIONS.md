@@ -156,6 +156,7 @@ collaborator, which a transfer to an organization invalidates — see [`HANDOVER
 | `npm run test:coverage` | Vitest + coverage; the CI build job runs it when Actions is enabled. |
 | `npm run check:ci-workflow` | Verifies credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates. |
 | `npm run check:docs-links` | Rule: every relative link in tracked `*.md` files must resolve — the target must be a tracked file (or tracked directory) and any `#anchor` must match a heading slug (GitHub rules) or `<a name>` anchor. External URLs, `/TOG/…` paths and gitignored targets are skipped. Exit 0 when clean, 1 listing `file: link (reason)` findings. |
+| `npm run check:focused -- <name>` | Runs a per-feature focused check defined one file each in `checks/<name>.cmd` (adding a check adds a file, no shared line); no name lists them (`scripts/run-check.mjs`). |
 | `npm run types` | `wrangler types` → `worker-configuration.d.ts` (gitignored). Run after changing bindings; `npm run typecheck` also runs it automatically. |
 | `npm run db:migrate:local` | Apply `migrations/d1/*.sql` to the local D1. |
 | `npm run discovery:record` | Playwright harvester (`tools/api-discovery`). |

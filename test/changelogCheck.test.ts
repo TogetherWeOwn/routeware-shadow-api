@@ -109,6 +109,31 @@ describe("unreleasedCardIds", () => {
   });
 });
 
+describe("evaluateChangelogGate fragments", () => {
+  const empty = "# Changelog\n\n## [Unreleased]\n\n## [1.0.0]\n";
+
+  it("counts a changelog/unreleased fragment like an Unreleased bullet", () => {
+    const outcome = evaluateChangelogGate(["src/routes/customers.ts"], empty, ["#456"], ["- #456: a contract change.\n"]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.cards).toEqual(["#456"]);
+  });
+
+  it("still fails when neither the section nor any fragment names the claimed card", () => {
+    const outcome = evaluateChangelogGate(["src/routes/customers.ts"], empty, ["#456"], ["- #7: other.\n"]);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.cards).toEqual(["#7"]);
+  });
+
+  it("accepts fragments when CHANGELOG.md has no Unreleased heading", () => {
+    const outcome = evaluateChangelogGate(["src/app.ts"], "# Changelog\n", [], ["- #9: x.\n"]);
+    expect(outcome.ok).toBe(true);
+  });
+
+  it("fails with no Unreleased heading and no fragments", () => {
+    expect(evaluateChangelogGate(["src/app.ts"], "# Changelog\n", [], []).ok).toBe(false);
+  });
+});
+
 describe("evaluateChangelogGate", () => {
   const entry = (card: string) =>
     `# Changelog\n\n## [Unreleased]\n\n- ${card}: a contract change.\n\n## [1.0.0]\n`;

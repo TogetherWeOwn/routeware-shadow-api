@@ -1533,13 +1533,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
             "in": "query",
             "name": "order",
             "required": false,
             "schema": {
               "default": "asc",
-              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
               "enum": [
                 "asc",
                 "desc",
@@ -2044,13 +2044,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
             "in": "query",
             "name": "order",
             "required": false,
             "schema": {
               "default": "asc",
-              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
               "enum": [
                 "asc",
                 "desc",
@@ -2598,13 +2598,13 @@ exports[`published OpenAPI document > matches the recorded document byte for byt
             },
           },
           {
-            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+            "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
             "in": "query",
             "name": "order",
             "required": false,
             "schema": {
               "default": "asc",
-              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:snapshot-order.",
+              "description": "Primary-ID order: exact case-sensitive asc (default) or desc (highest IDs first, not chronological recency). Keep order with nextCursor; changing direction starts a new traversal. Check locally with npm run check:focused -- snapshot-order.",
               "enum": [
                 "asc",
                 "desc",

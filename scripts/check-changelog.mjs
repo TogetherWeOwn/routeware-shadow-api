@@ -2,7 +2,8 @@
 /**
  * CHANGELOG gate (PR #171). Fails when consumer-visible contract
  * paths changed without a referencing bullet (`#123`, or a legacy
- * `TOG-1234`) under `## [Unreleased]`.
+ * `TOG-1234`) under `## [Unreleased]` or in a `changelog/unreleased/*.md`
+ * fragment (one bullet per file; adding one edits no shared line).
  *
  * Contract-visible: `src/routes/**`, `src/app.ts`, `src/worker.ts`,
  * top-level `src/lib/*.ts` response shapes, `wrangler.toml` routes/vars,
@@ -17,7 +18,7 @@
  *   npm run check:changelog [-- --base=<ref> --card=<#123|TOG-1234> --files=<a,b>]
  */
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { argv, exit } from "node:process";
 
@@ -50,7 +51,7 @@ function usage() {
   return [
     "Usage: node scripts/check-changelog.mjs [--base=<ref> --card=<#123|TOG-1234> --files=<a,b>]",
     "",
-    "CHANGELOG gate: fails when consumer-visible contract paths changed without a referencing bullet under ## [Unreleased].",
+    "CHANGELOG gate: fails when consumer-visible contract paths changed without a referencing bullet under ## [Unreleased] or in changelog/unreleased/*.md.",
     "",
     "  --base=<ref>    Diff base for changed paths (default origin/main).",
     "  --card=<ref>    Reference claimed for this change, e.g. #123 (repeatable).",
@@ -109,7 +110,17 @@ try {
   exit(2);
 }
 
-const outcome = evaluateChangelogGate(changedPaths, changelogText, cards);
+// Fragments (changelog/unreleased/*.md, one bullet each) count like bullets
+// under ## [Unreleased]; adding one never edits a shared line.
+const fragmentDir = path.join(root, "changelog", "unreleased");
+const fragments = existsSync(fragmentDir)
+  ? readdirSync(fragmentDir)
+      .filter((name) => name.endsWith(".md") && name !== "README.md")
+      .sort()
+      .map((name) => readFileSync(path.join(fragmentDir, name), "utf8"))
+  : [];
+
+const outcome = evaluateChangelogGate(changedPaths, changelogText, cards, fragments);
 
 if (outcome.ok) {
   console.log(formatPassLog(outcome.contractPaths, outcome.cards));

@@ -1,0 +1,1 @@
+vitest run --maxWorkers=2 test/hydratedFieldsetDiscoverySafety.acceptance.test.ts test/sparseFieldsetDiscovery.acceptance.test.ts test/hydratedBundleFields.acceptance.test.ts test/hydratedReadStrictQuery.acceptance.test.ts test/openapiContract.test.ts test/openapiDriftCheck.test.ts test/routeExamples.test.ts test/payloadExamples.test.ts && npm run check:openapi-drift

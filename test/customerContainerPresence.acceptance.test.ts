@@ -7,7 +7,7 @@ import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import snapshotDoc from "../CUSTOMER_SNAPSHOT.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -691,7 +691,7 @@ describe("customer container presence agent guidance", () => {
     expect(guidance).toMatch(/any|global/i);
     const customerRow = snapshotDoc.split("\n").find((line) => line.includes("`/api/v1/customer-snapshot`") && line.includes("List rows")) ?? "";
     expect(customerRow).toContain("hasContainers");
-    expect(snapshotDoc).toContain("check:customer-container-presence");
+    expect(snapshotDoc).toContain("check:focused -- customer-container-presence");
   });
 
   it("publishes local synthetic present/absent recipes that can be traversed", () => {
@@ -711,8 +711,7 @@ describe("customer container presence agent guidance", () => {
   });
 
   it("exposes a named local-only focused check that includes this acceptance suite", () => {
-    const scripts = packageJson.scripts as Record<string, string>;
-    const command = scripts["check:customer-container-presence"];
+    const command = focusedChecks["customer-container-presence"];
     expect(command).toEqual(expect.any(String));
     expect(command).toMatch(/vitest\s+run/);
     expect(command).toContain("test/customerContainerPresence.acceptance.test.ts");

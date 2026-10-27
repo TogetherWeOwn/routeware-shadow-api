@@ -40,7 +40,7 @@ function usage() {
     "Exit codes: 0 = verification PASS or valid dry-run; 1 = verification/credential failure; 2 = invalid arguments.",
     "Example (full-chain local audit):",
     "  node scripts/verify-r2-manifest.mjs --date=2026-09-28 --persist-to=fixture-state --expect=customer,address,container --json",
-    "Hermetic acceptance check: npm run check:r2-manifest",
+    "Hermetic acceptance check: npm run check:focused -- r2-manifest",
   ].join("\n");
 }
 handleHelpFlag(rawArgs, usage());

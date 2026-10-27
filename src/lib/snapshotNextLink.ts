@@ -83,9 +83,60 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressLastAuditDate"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note"] }
+  customer: {
+    path: "/api/v1/customer-snapshot",
+    selectors: [
+      "addressFranchiseId",
+      "addressLastAuditDate",
+      "addressRouteId",
+      "comments",
+      "customerId",
+      "customerNumber",
+      "phone",
+      "subCustomerNumber"
+    ]
+  },
+  address: {
+    path: "/api/v1/address-snapshot",
+    selectors: [
+      "city",
+      "customerId",
+      "driverNote",
+      "franchiseId",
+      "lastAuditDate",
+      "pickupAddressId",
+      "routeId",
+      "state",
+      "streetAddress",
+      "zip"
+    ]
+  },
+  container: {
+    path: "/api/v1/container-snapshot",
+    selectors: [
+      "city",
+      "color",
+      "containerId",
+      "containerTypeId",
+      "customerId",
+      "locationAddress",
+      "materialStream",
+      "note",
+      "parentCity",
+      "parentFranchiseId",
+      "parentRouteId",
+      "parentState",
+      "parentZip",
+      "pickupAddressId",
+      "rfid",
+      "serialNumber",
+      "serviceCode",
+      "serviceCodeInput",
+      "serviceCodeType",
+      "state",
+      "zip"
+    ]
+  }
 } as const;
 
 export const snapshotNextLinkHeader = {

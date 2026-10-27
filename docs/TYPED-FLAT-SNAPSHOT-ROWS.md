@@ -54,7 +54,7 @@ quickstart](CONSUMER-QUICKSTART.md) for those flows.
 
 ## Focused check
 
-Run `npm run check:typed-flat-snapshot-rows` for the mounted-contract
+Run `npm run check:focused -- typed-flat-snapshot-rows` for the mounted-contract
 acceptance plus the envelope/example oracles, with synthetic fixtures on real
 local D1 and forbidden outbound fetch. Pinned by
 `test/typedFlatSnapshotRows.acceptance.test.ts`.

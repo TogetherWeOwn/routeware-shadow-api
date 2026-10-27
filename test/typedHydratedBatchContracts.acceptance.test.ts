@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import packageJson from "../package.json";
+import { focusedCheckEntries } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -335,7 +335,7 @@ describe.each(specs)("$kind existing-behavior controls", spec => {
 
 describe("served single-or-batch declarations", () => {
   it("makes this oracle discoverable through a named agent check", () => {
-    const checks = Object.entries(packageJson.scripts).filter(([name, command]) =>
+    const checks = focusedCheckEntries.filter(([name, command]) =>
       name.startsWith("check:") && command.includes("test/typedHydratedBatchContracts.acceptance.test.ts"));
     expect(checks.length, "publish an npm check that runs the single-or-batch oracle").toBeGreaterThan(0);
   });

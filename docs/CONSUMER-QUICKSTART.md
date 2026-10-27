@@ -93,7 +93,7 @@ credential, endpoint or execution authority is created by these annotations.
 Credential-free check (no running Worker, live tenant or `.dev.vars` needed):
 
 ```bash
-npm run check:openapi-agent-metadata
+npm run check:focused -- openapi-agent-metadata
 ```
 
 This validates completeness/uniqueness against the **actual mounted router
@@ -145,7 +145,7 @@ D1 after auth. Relative links retain true, never false/default or unknown keys.
 `countOnly=true` wins over `exactNext=true`: one COUNT, no page SELECT or
 lookahead, empty rows, null cursor and no Link. `strictQuery=true` accepts
 `exactNext` and remains enabled in continuation links.
-Run `npm run check:snapshot-exact-next` for the credential-free local contract;
+Run `npm run check:focused -- snapshot-exact-next` for the credential-free local contract;
 see the [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-next-page-signal-opt-in).
 No staging/production probes or performance claims are part of this recipe.
 
@@ -216,7 +216,7 @@ with no Unicode normalization or relevance ranking; null notes act as empty.
 Do not log instructions or credentials. These idempotent local GETs do not
 contact upstream, infer schedules/work orders or execute instructions;
 `--dry-run` is N/A. Unscoped substring reads scan with no dedicated note index
-or measured performance claim. Run `npm run check:container-note-search` for
+or measured performance claim. Run `npm run check:focused -- container-note-search` for
 the synthetic fixture, special-character asc/desc traversal, SQL, auth and
 conditional-read checks. See [note policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment).
 
@@ -254,7 +254,7 @@ zero COUNTs; ETag/304 and no-store remain unchanged. Note-only queries may
 scan: no new index or production performance claim. GET is idempotent and
 local-read, no upstream/R2/write effects; CLI `--dry-run` is N/A.
 
-Run `npm run check:address-driver-note` for synthetic local-D1 acceptance and
+Run `npm run check:focused -- address-driver-note` for synthetic local-D1 acceptance and
 neighboring regressions; no live credentials or network probe is required.
 See [full policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-driver-note).
 
@@ -307,7 +307,7 @@ scan: no new index, date-range support or production performance/latency
 claim. GET is idempotent and local-read, no upstream/R2/write effects; CLI
 `--dry-run` is N/A.
 
-Run `npm run check:address-last-audit-date` for synthetic local-D1
+Run `npm run check:focused -- address-last-audit-date` for synthetic local-D1
 acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-address-last-audit-date).
@@ -359,7 +359,7 @@ existing customer primary key: no new index or production latency claim.
 GET is idempotent and local-read, no upstream/R2/write effects; CLI
 `--dry-run` is N/A.
 
-Run `npm run check:address-parent-customer-enabled` for synthetic local-D1
+Run `npm run check:focused -- address-parent-customer-enabled` for synthetic local-D1
 acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
@@ -396,7 +396,7 @@ empty page. Counts, ETags/304, no-store and read-token access are unchanged.
 This option is not added to changes, by-ID, hydrated, archive, export or POST
 operations. GET is an idempotent local read; CLI `--dry-run` is N/A.
 
-Credential-free verification: `npm run check:snapshot-strict-query`.
+Credential-free verification: `npm run check:focused -- snapshot-strict-query`.
 See [policy and no-echo problem](SNAPSHOT-LIST-QUERY-POLICY.md#opt-in-typo-detection-strictquery)
 and [correction guidance](PROBLEMS.md#opt-in-list-query-keys-bad-request).
 
@@ -426,7 +426,7 @@ CLI `--dry-run` is N/A. Unscoped locality reads scan; there is no dedicated
 container ZIP index or production performance claim. Invalid/repeated values
 return value-free 400 before D1: correct the named field and retry, never log
 raw locality selectors. See [policy and focused check](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality);
-run `npm run check:container-locality` using synthetic local D1 only.
+run `npm run check:focused -- container-locality` using synthetic local D1 only.
 
 Scanning pages without needing an exact count? Pass `includeTotal=false` to
 skip the `COUNT(*)` query: the response keeps the same `rows` and
@@ -470,7 +470,7 @@ validates even when no rows are fetched. Existing auth and no-store remain;
 ETag/304 hashes the count envelope but still executes a fresh COUNT.
 
 This is local-read only, not an upstream refresh. Run
-`npm run check:snapshot-count-only` against synthetic local D1, not live data.
+`npm run check:focused -- snapshot-count-only` against synthetic local D1, not live data.
 See the [mode comparison and query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection).
 
 ### Exact stored container installation
@@ -507,7 +507,7 @@ values. Invalid/repeated/overlength selectors return value-free 400 before D1.
 URL-encode one nonblank stored value within the named limit or omit the key,
 then retry. These idempotent local GETs do no upstream/R2/write work; CLI
 `--dry-run` is N/A. No index/migration, live-location or latency claim: unscoped
-location/state equality scans. Run `npm run check:container-exact-location`
+location/state equality scans. Run `npm run check:focused -- container-exact-location`
 with synthetic local D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-installation).
 
 ### Exact stored container city
@@ -545,7 +545,7 @@ Invalid/repeated/overlength selectors return value-free 400 before D1.
 URL-encode one nonblank stored value within the limit or omit the key, then
 retry. These idempotent local GETs do no upstream/R2/write work; CLI
 `--dry-run` is N/A. No index/migration or latency claim: unscoped city
-equality scans. Run `npm run check:container-exact-city` with synthetic local
+equality scans. Run `npm run check:focused -- container-exact-city` with synthetic local
 D1 only. See the [policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-city).
 
 ### Stored customer comment fragment
@@ -582,7 +582,7 @@ fragment, upperId and direction, never origin/credentials or unknown keys.
 Use `order=desc` for descending traversal; an initial offset becomes a seek
 cursor in the returned Link. Concurrent writes are not snapshot-isolated.
 No dedicated comments index is added; substring-only reads may scan, with no
-latency promise. Run `npm run check:customer-comments-search` for the hermetic
+latency promise. Run `npm run check:focused -- customer-comments-search` for the hermetic
 local-D1 oracle, including Unicode boundaries, both orders, literal punctuation,
 ETags/304, auth/validation zero-work and denied upstream/R2/cache writes.
 See the [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-customer-comment-fragment)
@@ -622,7 +622,7 @@ new index or production performance claim is made.
 
 Invalid, empty or repeated values return value-free 400 before D1, after auth.
 Send one exact lowercase `true`, `false` or `any`, or omit `hasCoordinates` and
-retry. Run `npm run check:snapshot-coordinates` for the synthetic hermetic
+retry. Run `npm run check:focused -- snapshot-coordinates` for the synthetic hermetic
 oracle and list/auth/discovery regressions. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-coordinate-pair-presence) and
 [fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
@@ -661,7 +661,7 @@ Omit `includeTotal=false` for the unchanged exact cursor-relative count.
 Credential-free verification (no running Worker or live requests):
 
 ```bash
-npm run check:customer-account-filters
+npm run check:focused -- customer-account-filters
 npx vitest run --maxWorkers=2 --disableConsoleIntercept test/customerAccountFilters.acceptance.test.ts -t 'is idempotent, read-only'
 ```
 
@@ -691,7 +691,7 @@ and follow-next Links retain `q` verbatim.
 Synthetic multi-page recipe, with no running service or real credentials:
 
 ```bash
-npm run check:customer-name-search
+npm run check:focused -- customer-name-search
 ```
 
 The fixture seeds local test D1, then reads
@@ -744,7 +744,7 @@ cursor-relative count.
 Credential-free verification (no running Worker or live requests):
 
 ```bash
-npm run check:customer-phone-search
+npm run check:focused -- customer-phone-search
 ```
 
 The focused command walks encoded continuations to terminal and empty pages,
@@ -773,7 +773,7 @@ returns 200 empty. Null scope columns never match supplied values.
 Synthetic scoped-page recipe, with no running service or real credentials:
 
 ```bash
-npm run check:address-scope
+npm run check:focused -- address-scope
 ```
 
 The fixture seeds local test D1, then reads
@@ -832,7 +832,7 @@ omit the key to keep today's unfiltered matches.
 Credential-free verification (no running Worker or live requests):
 
 ```bash
-npm run check:container-type-filter
+npm run check:focused -- container-type-filter
 ```
 
 The fixture seeds local test D1, traverses real next links in both
@@ -886,7 +886,7 @@ omit the key to keep today's unfiltered matches.
 Credential-free verification (no running Worker or live requests):
 
 ```bash
-npm run check:container-service-code-parts
+npm run check:focused -- container-service-code-parts
 ```
 
 The fixture seeds local test D1, traverses real next links in both
@@ -912,7 +912,7 @@ returns 200 empty.
 Synthetic follow-next recipe, with no running service or real credentials:
 
 ```bash
-npm run check:address-extras-allowed
+npm run check:focused -- address-extras-allowed
 ```
 
 The fixture seeds local test D1, then reads
@@ -946,7 +946,7 @@ returns 200 empty. Stored nulls never match a supplied value.
 Synthetic ZIP-page recipe, with no running service or real credentials:
 
 ```bash
-npm run check:address-zip
+npm run check:focused -- address-zip
 ```
 
 The fixture seeds local test D1, then reads
@@ -991,7 +991,7 @@ Link: </api/v1/address-snapshot?streetAddress=001+Cedar+St&fields=address&limit=
 Run the credential-free synthetic local-D1 recipe:
 
 ```bash
-npm run check:address-street-exact
+npm run check:focused -- address-street-exact
 ```
 
 The exact-street fixture follows IDs `10,20`, then `30,50`, then `120,130`,
@@ -1031,7 +1031,7 @@ return an empty 200. Null never matches a supplied label.
 Agent-runnable synthetic recipe, no service/credentials needed:
 
 ```bash
-npm run check:container-labels
+npm run check:focused -- container-labels
 ```
 
 The fixture's `materialStream=001&color=Blue&fields=color&limit=1&includeTotal=false`
@@ -1073,7 +1073,7 @@ named format and retry. Valid no-match is an empty 200.
 Run the credential-free synthetic recipe (no server or real records needed):
 
 ```bash
-npm run check:container-parent-scopes
+npm run check:focused -- container-parent-scopes
 ```
 
 The oracle's `parentRouteId=7&parentFranchiseId=001&parentEnabled=true&fields=enabled&limit=2&includeTotal=false`
@@ -1107,7 +1107,7 @@ before D1/304; correct the named format or omit it and retry.
 Credential-free synthetic recipe (no server or real records required):
 
 ```bash
-npm run check:container-parent-locality
+npm run check:focused -- container-parent-locality
 ```
 
 The oracle has multiple sites in Riverton/TX/02139, with containers whose own
@@ -1193,7 +1193,7 @@ The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#container-serial-and-
 pins the AND-composition with parent scopes, IDs, material/color, locality,
 `q` and equipment state, byte-identical `any`/omitted behavior, count-free
 zero-COUNT mode and sparse/conditional reads. Run
-`npm run check:container-serial-rfid-presence` for the hermetic local-D1
+`npm run check:focused -- container-serial-rfid-presence` for the hermetic local-D1
 contract: real D1 fixtures pin NULL/empty/whitespace semantics, exact-plus-
 presence intersection and contradiction, both seek directions and Link
 round-trips through terminal and empty pages. These checks are not deployed
@@ -1221,7 +1221,7 @@ geographic inference. This GET is idempotent/local-read; CLI `--dry-run` is N/A.
 Hermetic synthetic test recipe (no running service or real credentials):
 
 ```bash
-npm run check:address-city-state
+npm run check:focused -- address-city-state
 ```
 
 For a custom synthetic local service, encode one value per key. This example
@@ -1289,7 +1289,7 @@ The selector composes with existing filters, either paging direction,
 are cursor-relative; `includeTotal=false` runs zero COUNTs. No snapshot
 isolation is promised across concurrent writes.
 
-Run `npm run check:customer-address-presence` for synthetic local-D1 selection,
+Run `npm run check:focused -- customer-address-presence` for synthetic local-D1 selection,
 validation/auth, full Link traversal and conditional-read regressions. The
 acceptance suite executes EXPLAIN on both emitted COUNT/page statements and
 checks the existing child `idx_address_snapshot_customer_id` SEARCH, for both
@@ -1345,7 +1345,7 @@ and promises no snapshot isolation. GET is an idempotent local D1 read;
 CLI `--dry-run` is N/A. The scope composes with every merged selector,
 either paging direction, `upperId`, sparse fields, count modes and
 representation-correct ETag/304. Run
-`npm run check:customer-address-cohorts` for synthetic local-D1 selection,
+`npm run check:focused -- customer-address-cohorts` for synthetic local-D1 selection,
 contradiction, full Link traversal and conditional-read regressions plus
 child-index EXPLAIN evidence. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-cohorts)
@@ -1382,7 +1382,7 @@ inclusive ID bounds and sparse projection. `includeTotal=false` skips COUNT;
 `countOnly=true` performs only COUNT and cannot combine with
 `includeTotal=false`. ETag/304/no-store remain representation-correct.
 Global `hasContainers` stays independent of the matched site's equipment.
-Run `npm run check:customer-address-service-policy` for local synthetic-D1
+Run `npm run check:focused -- customer-address-service-policy` for local synthetic-D1
 selection, decoys, full traversal, auth/validation and conditional regressions.
 No live access, writes, new index or production latency claim.
 
@@ -1433,7 +1433,7 @@ representation-correct ETag/304. No snapshot isolation is promised across
 concurrent writes. Presence-only selections may scan; no phone index exists
 and none is added.
 
-Run `npm run check:customer-phone-presence` for synthetic local-D1
+Run `npm run check:focused -- customer-phone-presence` for synthetic local-D1
 selection, validation/auth, full Link traversal and conditional-read
 regressions. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
@@ -1491,7 +1491,7 @@ composes with either paging direction, `upperId`, sparse fields and
 representation-correct ETag/304. No snapshot isolation is promised across
 concurrent writes.
 
-Run `npm run check:customer-container-presence` for synthetic local-D1
+Run `npm run check:focused -- customer-container-presence` for synthetic local-D1
 selection, validation/auth, full Link traversal and conditional-read
 regressions. The acceptance suite executes EXPLAIN on both emitted
 COUNT/page statements and checks the existing
@@ -1537,7 +1537,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 The [query-policy inventory](SNAPSHOT-LIST-QUERY-POLICY.md#address-container-presence)
 pins the AND-composition with every other filter, byte-identical `any`/omitted
 behavior, count-free zero-COUNT mode and sparse/conditional reads. Run
-`npm run check:address-container-presence` for the hermetic local-D1 contract:
+`npm run check:focused -- address-container-presence` for the hermetic local-D1 contract:
 real D1 fixtures with zero, one, multiple and disabled-only children prove
 exact membership, cursor-relative totals, both seek directions and Link
 round-trips through terminal and empty pages. These checks are not deployed
@@ -1565,7 +1565,7 @@ use the exact scopes above rather than `q`.
 Synthetic follow-next recipe, with no running service or real credentials:
 
 ```bash
-npm run check:address-locality
+npm run check:focused -- address-locality
 ```
 
 The fixture seeds local test D1, then reads
@@ -1609,7 +1609,7 @@ See [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
 The focused check needs no credentials, running Worker or live tenant:
 
 ```bash
-npm run check:snapshot-order
+npm run check:focused -- snapshot-order
 ```
 
 ### Conditional JSON page reads (bandwidth only)
@@ -1796,7 +1796,7 @@ Discovery itself needs no bearer, data bindings or upstream work;
 `OPENAPI_DOCS_ENABLED` still gates the document. Data reads still require the
 bearer from step 1. No separately published static spec is required. Run the
 credential-free, synthetic, network-denying discovery oracle plus existing
-projection/OpenAPI checks with `npm run check:snapshot-fieldset-discovery`.
+projection/OpenAPI checks with `npm run check:focused -- snapshot-fieldset-discovery`.
 
 #### Typed hydrated-fieldset discovery
 
@@ -1854,7 +1854,7 @@ console.log(JSON.stringify({ query: query.toString(), identities }));
 ' < openapi.json
 ```
 
-Run `npm run check:hydrated-fieldset-discovery` for mounted catalogs, legal-mode
+Run `npm run check:focused -- hydrated-fieldset-discovery` for mounted catalogs, legal-mode
 request parity, synthetic examples, strict rejection/auth/no-work controls and
 full/projected/cache/ETag preservation. GET remains idempotent; `--dry-run` is
 not applicable. Discovery and source checks are not deployment or adoption proof.
@@ -2011,7 +2011,7 @@ for (;;) {
 Focused command (no Worker, credentials or network needed):
 
 ```bash
-npm run check:customer-changes-next-links
+npm run check:focused -- customer-changes-next-links
 # Or run the oracles separately:
 npx vitest run test/customerChangesNextLinks.acceptance.test.ts --maxWorkers=2
 node --test test/customerChangesNextLinksRecipe.acceptance.test.mjs
@@ -2059,7 +2059,7 @@ historical versions, snapshot isolation or completeness promise. Focused
 command (no Worker, credentials or network needed):
 
 ```bash
-npm run check:customer-changes-until
+npm run check:focused -- customer-changes-until
 ```
 
 ### Typed changes rows
@@ -2074,7 +2074,7 @@ against the projection. Flags stay integers (`enabled` is `0`/`1`,
 never boolean); text carries no format/enum/minimum promises. `total` is the
 returned page length (never a COUNT); `nextCursor` is the composite resume
 pair, or `null` at the tail. Focused check:
-`npm run check:customer-changes-delta`.
+`npm run check:focused -- customer-changes-delta`.
 
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
@@ -2164,7 +2164,7 @@ curl -H "Authorization: Bearer $SYNC" \
 ```
 
 Credential-free synthetic budget/error/parity regression check (no tenant probes):
-`npm run check:hydrated-batch-budget`.
+`npm run check:focused -- hydrated-batch-budget`.
 
 Synthetic consumer examples (the acceptance fixture, not customer records):
 `/api/v1/data/customer?id=42` and `?customerId=42` return the same row and ETag;
@@ -2175,8 +2175,8 @@ Run the credential-free, network-denying local check instead of querying a tenan
 
 ```bash
 npx vitest run test/hydratedReadIds.acceptance.test.ts test/batchHydratedReadIds.acceptance.test.ts test/dataRoutes.test.ts
-npm run check:typed-hydrated-batch-contracts  # served schemas/examples + synthetic local-D1 responses and malformed-envelope mutations
-npm run check:typed-hydrated-bundles         # batch + existing single/projection/auth/cache/OpenAPI regression checks
+npm run check:focused -- typed-hydrated-batch-contracts  # served schemas/examples + synthetic local-D1 responses and malformed-envelope mutations
+npm run check:focused -- typed-hydrated-bundles         # batch + existing single/projection/auth/cache/OpenAPI regression checks
 ```
 
 ### Root-only sparse fields on hydrated reads
@@ -2469,7 +2469,7 @@ Without a usable session the dry-run fails closed with 503
 anything else is a value-free 400. Missing or invalid authentication retains
 precedence over unknown-key rejection.
 `routewareStatus` is unknowable without posting and is never predicted.
-Run the hermetic proof: `npm run check:save-dry-run`.
+Run the hermetic proof: `npm run check:focused -- save-dry-run`.
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 

@@ -107,9 +107,9 @@ Hard rules (enforced by tests or CI — see `docs/CONVENTIONS.md` §§ 3–4):
 - No hand-written source file over 800 lines — split the module instead.
 - Route modules must be `OpenAPIHono` via `createRouteModule()`, never plain `Hono`.
 - Consumer-visible contract changes (routes, response shapes, wrangler
-  routes/vars, D1 schema) need a bullet under `CHANGELOG.md`
-  `## [Unreleased]` referencing the GitHub issue (e.g. `- #123: …`) —
-  enforced by `npm run check:changelog`. When no issue exists, cite the
+  routes/vars, D1 schema) need a bullet referencing the GitHub issue
+  (e.g. `- #123: …`) in a new `changelog/unreleased/<number>-<slug>.md`
+  fragment (see its README) — enforced by `npm run check:changelog`. When no issue exists, cite the
   PR number instead (`- #<PR>: …`). Docs-only,
   test-only, script-only and CI-only changes skip the gate.
 - Never run `npm run deploy` / `wrangler deploy` / remote migrations as ordinary
