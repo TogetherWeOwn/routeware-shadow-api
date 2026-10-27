@@ -101,6 +101,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic account-by-site-locality recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
   check: `npm run check:customer-address-locality`.
+- #426: Container snapshot lists accept optional `syncedSince`, selecting stored
+  `synced_at` strictly after a normalized UTC Z instant using the existing
+  customer-changes timestamp parser. Empty, offset, excess-precision,
+  calendar-invalid and repeated values fail value-free after auth before D1/304.
+  COUNT/page share the predicate; all existing selectors, count modes, sparse
+  fields, ETags and container_id pagination remain unchanged. Relative next
+  Links retain the normalized instant. This is mirror-freshness filtering,
+  not a changes feed or proof of upstream change; concurrent sync, deletions
+  and completeness are not covered. No index/migration or latency promise.
+  Recipe: `docs/CONSUMER-QUICKSTART.md#container-mirror-freshness`;
+  local check: `npm run check:container-synced-since`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
