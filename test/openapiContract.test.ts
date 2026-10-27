@@ -690,6 +690,24 @@ function withoutCustomerNameSearchContract(doc: OpenApiDocument): OpenApiDocumen
   return copy;
 }
 
+// The three mounted save descriptions carry the truthful dry-run guarantee,
+// asserted semantically in saveDryRunGuaranteeClarity.acceptance.test.ts
+// (scope, stored-cookie distinction, conditional preparation and every
+// non-proof), not frozen as exact prose here. Their parameters, schemas,
+// responses and every other operation remain in the legacy golden.
+function withoutSaveDryRunDescriptions(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const entity of ["customer", "address", "container"]) {
+    const operation = copy.paths[`/api/v1/data/${entity}`]?.post as
+      | { description?: string }
+      | undefined;
+    if (operation) {
+      delete operation.description;
+    }
+  }
+  return copy;
+}
+
 function operationIds(doc: OpenApiDocument): string[] {
   const ops: string[] = [];
   for (const [path, item] of Object.entries(doc.paths ?? {})) {
@@ -941,7 +959,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
+    const doc = withoutSaveDryRunDescriptions(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -986,6 +1004,8 @@ describe("published OpenAPI document", () => {
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to
     // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
+    // Only the three mounted save operation descriptions additionally move to
+    // saveDryRunGuaranteeClarity ownership; their structure stays pinned.
     expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutCoordinatePresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
   });
 });
