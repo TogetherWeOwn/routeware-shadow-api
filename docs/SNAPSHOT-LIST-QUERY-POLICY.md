@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `owningCustomerNumber`, `owningSubCustomerNumber`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `customerEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Container mirror freshness (`syncedSince`)
@@ -1275,8 +1275,9 @@ local-read with no upstream, R2, browser or write work; CLI `--dry-run` is N/A.
 The existing container list accepts `parentRouteId`, `parentFranchiseId` and
 `parentEnabled=true|false|any` (default `any`). These select only the mirrored
 parent address's scalar `a.route_id`, opaque `a.franchise_id` and `a.enabled`.
-They never parse equipment `route_ids`/`frequency_ids`, infer paired assignments
-or select by customer enabled. Equipment `enabled` remains independent.
+They never parse equipment `route_ids`/`frequency_ids` or infer paired
+assignments; owning-customer state is the separate `customerEnabled`
+selector in the next section. Equipment `enabled` remains independent.
 
 `parentRouteId` is one canonical unpadded ASCII decimal safe integer
 `0..9007199254740991`; zero matches literal stored zero, not all routes.
@@ -1307,6 +1308,47 @@ Parent route/franchise equality and state can require scans; no new index or
 migration is added, and neither production latency nor assignment accuracy is
 claimed. Synthetic EXPLAIN observations are recorded with the PR verification.
 GET is idempotent local-read; a CLI dry-run flag is not applicable.
+
+## Equipment by owning customer enabled state
+
+Only the existing container list accepts `customerEnabled`, selecting
+equipment by the stored `enabled` of its owning mirrored customer
+(container -> `a.pickup_address_id = c.pickup_address_id` ->
+`cu.customer_id = a.customer_id`, qualified columns). It is one optional
+exact `true|false|any` (default `any`): true keeps only equipment whose
+owning stored customer row has `enabled = 1`, false keeps only
+`enabled = 0`. Omission or `any` adds no customer predicate or join, so
+unconstrained reads still include orphan containers and customers with
+noncanonical stored values; explicit true/false never matches a missing
+address, a missing customer or a noncanonical stored value. Equipment
+`enabled` and parent-address `parentEnabled` stay independent: all three
+states intersect by AND with each other and with `customerId` (a
+contradiction returns empty 200), parent route/franchise scopes, IDs,
+identifiers, labels, locality, `q` and traversal bounds. Mirrored stored
+customer enabled is not current account eligibility, billing status,
+service permission or authorization. Invalid, blank or repeated
+(including encoded duplicate) values return the existing value-free
+bad-request problem before D1, after auth; submitted values are never
+echoed or logged.
+
+One shared address join plus one customer primary-key join (unique keys,
+no fanout, no parent/child expansion) carries the literal predicate in
+the shared WHERE between COUNT and page; `includeTotal=false` still
+issues zero COUNTs and `countOnly` stays COUNT-only. Sparse fields and
+ETag/304 describe the same final envelope. Relative next Links retain a
+filtering customer value (omit `any`) in either order and when moving
+offset-to-seek; unknown raw parameters and origins never travel.
+
+The joins use existing primary keys; the synthetic local
+`EXPLAIN QUERY PLAN` recorded in
+`test/containerCustomerEnabled.acceptance.test.ts` is shape evidence
+only — no index/migration is added and no production latency claim is
+made. This GET is idempotent, local-read, with no upstream/R2/write
+effects; CLI `--dry-run` is N/A. Run
+`npm run check:container-customer-enabled` for the immutable synthetic
+local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
+contracts. See the
+[compact consumer recipe](CONSUMER-QUICKSTART.md#equipment-by-owning-customer-enabled-state).
 
 ## Container parent service-site locality
 
