@@ -14,6 +14,31 @@ statically and credential-free so it can run in CI hygiene and on a nightly
 schedule with no Worker runtime, no secrets, and no network access
 (CONVENTIONS.md §3).
 
+## Published contract: `docs/openapi.json`
+
+[`openapi.json`](./openapi.json) is the contract of record: the complete document
+served by the app when documentation is enabled, formatted as sorted,
+two-space-indented JSON with a trailing newline. The deployed Worker keeps
+`OPENAPI_DOCS_ENABLED=false`, so `/openapi.json` and `/docs` return 404 there;
+the checked-in file can be read without enabling those endpoints.
+
+The Workers-pool test in `test/openapiContract.test.ts` compares the live document
+with this file using `toMatchFileSnapshot`. No fields are projected out of the
+published record; dedicated semantic acceptance tests still run independently.
+There is no second full-document `.snap` record. Contract-only JSON edits trigger
+the CI build/test job, not just documentation hygiene.
+
+After an intentional contract change or version bump, regenerate with:
+
+```bash
+npx vitest run test/openapiContract.test.ts -u
+```
+
+Review and commit the JSON diff with the change. Without `-u`, drift fails the
+test and names this command. Do not regenerate to hide an unintended change.
+The hand-written `EXPECTED_OPERATIONS` list, router-surface assertions and static
+check below still fail when a plain-`Hono` module drops published operations.
+
 ## 0. The command
 
 ```bash
