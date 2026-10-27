@@ -46,6 +46,9 @@ export function validationFailureHook(
     title: "Bad Request",
     status: 400,
     detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
+      (result.target === "query" && unique.includes("syncedSince")
+        ? "Send one syncedSince as a calendar-valid UTC Z datetime with seconds and at most 3 fractional digits, or omit it and retry. "
+        : "") +
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
         : "") +
@@ -90,6 +93,15 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressCity")
+        ? "Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressState")
+        ? "Send one addressState of 1..100 Unicode code points that is not blank, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressZip")
+        ? "Send one addressZip of 1..100 Unicode code points that is not blank, or omit it and retry. "
         : "") +
       (result.target === "query" && unique.includes("addressExtrasAllowed")
         ? "Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. "

@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
+  optional `note` searches only stored `container_note` by bound literal
+  substring, independently AND-composed with `q` and all other scopes.
+  Trim boundaries before the maximum 100 Unicode code points; blank is omitted.
+  Repeated/overlength values fail value-free before D1; SQLite folding is
+  ASCII-only, without Unicode normalization or LIKE wildcards. Relative next
+  Links retain normalized note in asc/desc traversal; counted/count-free reads,
+  sparse IDs and ETag/304 semantics remain intact. No dedicated note index,
+  migration, upstream call or schedule inference; substring-only reads scan.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
+  focused local check: `npm run check:container-note-search`.
 - #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
   for case-sensitive exact stored service-site locality through the existing
   shared address join. Each is opaque nonblank text of 1..100 Unicode code
@@ -57,7 +68,38 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   windows and overlap do not promise completeness or snapshot isolation. No new
   index or migration; scans remain possible. See the finite-window recipe in
   `docs/CONSUMER-QUICKSTART.md` and `npm run check:address-synced-window`.
-
+- #431: Customer snapshot lists accept optional `addressCity`, `addressState`
+  and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
+  code points including a non-whitespace character; leading zeros and
+  significant whitespace preserved; no trimming, normalization or
+  abbreviation conversion) on a stored child service address's
+  `city`/`state`/`zip`. They AND inside the SAME stored address as
+  `addressRouteId`, `addressFranchiseId` and `addressEnabled` in one
+  correlated EXISTS, so a city on one site plus a state or route on
+  another site never matches and multiple matching sites return the
+  account once; a locality alone creates the scope, disabled sites count
+  unless `addressEnabled` scopes them out, and null stored locality never
+  matches. COUNT/page share predicates and binds with `countOnly`,
+  zero-COUNT `includeTotal=false`, sparse fields, ETag/304 and
+  locality-retaining relative next Links in both directions. Invalid,
+  blank, overlength or repeated values fail with the fixed value-free 400
+  after auth and before D1. Site locality is mirrored text on the service
+  address, not a customer headquarters location, geocoding result, postal
+  verification, service-territory eligibility or proof of service.
+  Synthetic account-by-site-locality recipe:
+  `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
+  check: `npm run check:customer-address-locality`.
+- #426: Container snapshot lists accept optional `syncedSince`, selecting stored
+  `synced_at` strictly after a normalized UTC Z instant using the existing
+  customer-changes timestamp parser. Empty, offset, excess-precision,
+  calendar-invalid and repeated values fail value-free after auth before D1/304.
+  COUNT/page share the predicate; all existing selectors, count modes, sparse
+  fields, ETags and container_id pagination remain unchanged. Relative next
+  Links retain the normalized instant. This is mirror-freshness filtering,
+  not a changes feed or proof of upstream change; concurrent sync, deletions
+  and completeness are not covered. No index/migration or latency promise.
+  Recipe: `docs/CONSUMER-QUICKSTART.md#container-mirror-freshness`;
+  local check: `npm run check:container-synced-since`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address

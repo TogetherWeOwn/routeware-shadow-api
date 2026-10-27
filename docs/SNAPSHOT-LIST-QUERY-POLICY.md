@@ -17,9 +17,9 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `syncedSince`, `syncedUntil`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Address mirror-freshness window
@@ -52,6 +52,34 @@ The synthetic local D1 EXPLAIN in
 not production performance. Run `npm run check:address-synced-window`; see the
 [finite-window recipe](CONSUMER-QUICKSTART.md#finite-address-mirror-freshness-window)
 and [correction guidance](PROBLEMS.md#address-mirror-freshness-window-bad-request).
+
+## Container mirror freshness (`syncedSince`)
+
+Only the ordinary container list accepts `syncedSince`: stored `c.synced_at`
+strictly greater than a caller-held UTC Z instant, normalized to milliseconds
+by the same timestamp chain as customer-changes `since`. Seconds are required;
+one to three fractional digits are optional. Empty, offset, excess-precision,
+calendar-invalid and repeated values fail with fixed value-free guidance after
+authentication, before D1/304. Omission adds no predicate.
+
+This is a filter, not a changes feed: ordering and cursors remain `container_id`
+keyset, with no deletion history, isolation or completeness guarantee. Concurrent
+sync can move rows across the window. Stored sync time measures mirror freshness,
+not upstream event/service time or proof that content changed. A sync run stamps
+all its rows with the run's start time but writes them in later batches, so a
+poller must not use its own clock as the next instant; use an observed stored
+value minus an overlap margin longer than a sync run. The predicate
+AND-composes with every existing selector and shares COUNT/page binds; countOnly,
+count-free, sparse fields, strictQuery, ETags/304 and no-store remain unchanged.
+Next Links retain the normalized effective instant in both directions, including
+offset-to-seek. No synced_at index is added: unscoped queries may scan, and
+synthetic EXPLAIN evidence is not a performance promise.
+
+Run `npm run check:container-synced-since` for the independent
+`test/containerSyncedSince.acceptance.test.ts` plus timestamp, auth, pagination,
+conditional and mounted-contract regressions. All fixtures are synthetic local
+D1; no upstream/R2 access or product writes. See the
+[incremental polling recipe](CONSUMER-QUICKSTART.md#container-mirror-freshness).
 
 ## Opt-in typo detection (`strictQuery=`)
 
@@ -213,6 +241,48 @@ child-index SEARCH plans for both COUNT and rows. This is local planner
 evidence, not a production latency claim. No migration/index change. GET
 is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts) and
+[correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
+## Customer service-site locality
+
+Only the ordinary customer list recognizes `addressCity`, `addressState`
+and `addressZip`. Each is one opaque case-sensitive exact stored-string
+equality on the child address's `city`/`state`/`zip`, with the address
+list's lexical contract: 1..100 Unicode code points including a
+non-whitespace character, leading zeros and nonblank whitespace preserved,
+never trimmed or normalized, and no abbreviation conversion or enum. A
+valid unknown value returns an empty 200; a null stored locality and a
+customer with no stored addresses never match a supplied locality.
+
+The locality scopes AND inside the same stored address as
+`addressRouteId`, `addressFranchiseId` and `addressEnabled` — one
+customer-correlated `EXISTS` — so a city on one site plus a state or route
+on a different site of the same account never matches the combined
+request, and multiple matching sites never duplicate the customer. A
+locality supplied alone creates that same-site scope. Disabled sites
+count unless `addressEnabled` scopes them out; customer `enabled` stays
+fully independent. COUNT and page share predicates and binds; effective
+locality selectors travel in relative next Links in both directions and
+across offset-to-seek conversion. Invalid, blank, whitespace-only,
+overlength or repeated values (including encoded duplicate names) fail
+with the fixed value-free 400 after authentication and before D1/304;
+send one supported value per named key, or omit it, and retry.
+
+Site locality is mirrored text on the service address, not a customer
+headquarters location, not a geocoding result, not postal verification,
+not service-territory eligibility and not proof of service. It provides
+no snapshot isolation: concurrent writes can change later pages,
+and mirrored membership never authorizes deletion, reconciliation or
+sync.
+
+Run `npm run check:customer-address-locality`; the independent
+`test/customerAddressLocality.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2/writes and verifies split-site decoys, count-mode
+parity, complete bidirectional traversal and child-index SEARCH plans
+for both COUNT and rows. This is local planner evidence, not a
+production latency claim. No migration/index change. GET is an
+idempotent local-read operation; CLI `--dry-run` is N/A. See the
+[local recipe](CONSUMER-QUICKSTART.md#customer-service-site-locality) and
 [correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
 ## Customer stored-phone presence
@@ -892,6 +962,38 @@ GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is
 not applicable. Run `npm run check:container-locality` for independent fixtures,
 auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
+
+## Stored container instruction fragment
+
+Only the ordinary container list recognizes optional `note`: a bound literal
+substring of **`c.container_note`** using
+`instr(lower(coalesce(c.container_note, '')), lower(?)) > 0`.
+Trim query boundaries **before** the maximum 100 Unicode-code-point check;
+blank means omitted, including long whitespace-only input. Repeated keys and
+overlength fragments fail value-free after auth and before D1/cache/upstream
+work. Next action: send one fragment of at most 100 Unicode code points after
+trimming, or omit `note`, then retry. Never echo or log operational instructions
+or arbitrary query names. Null stored notes act as empty strings.
+
+SQLite `lower()` folds ASCII A-Z only: non-ASCII case distinctions and
+composed/decomposed Unicode remain distinct. Internal whitespace, quotes, `%`
+and `_` are literal, not SQL LIKE wildcards; no normalization, tokenization or
+full-text relevance is provided. `q` stays location/serial/city/zip search, not
+note search. Neither selector searches parent notes. All supplied filters,
+including exact ZIP/identifiers, customer/parent/primary IDs, `ids`, `enabled`
+and cursor/`upperId`, intersect with AND on both join paths. COUNT and page
+share predicates/binds; `includeTotal=false` issues zero COUNTs. Duplicates,
+canonical IDs, sparse fields, envelopes and representation ETag/304 semantics
+are unchanged. Relative next Links preserve normalized note with URL encoding,
+omit blank note and never copy unknown keys, origins or credentials; follow
+them unchanged in either direction.
+
+Substring-only reads scan; no dedicated note index or migration exists.
+Existing selective ID/enabled scopes may narrow candidates, not a measured
+latency promise. GET is idempotent/local-read; CLI `--dry-run` is N/A. No note
+mutation, upstream lookup, work-order/schedule inference or instruction execution
+occurs. Run `npm run check:container-note-search` against synthetic local D1;
+see the [note-versus-q recipe](CONSUMER-QUICKSTART.md#stored-container-instruction-fragment).
 
 ## Exact stored container installation
 
