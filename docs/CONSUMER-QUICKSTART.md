@@ -1989,8 +1989,13 @@ not sync-time order. Do not promote a page's last timestamp into a cursor or
 assume the greatest timestamp is on the last ID page. Without `exactNext=true`,
 a full terminal page can link to an empty page; stop when Link is absent.
 
-For later polling, persist a caller-held UTC instant chosen before the prior
-traversal, use an overlap window, and deduplicate/re-upsert by `container_id`.
+For later polling, never use your own clock time as the next instant: a sync
+run stamps every row it writes with the run's start time, then writes the rows
+in batches over the following minutes, so a row written late carries a stamp
+older than your clock and would be skipped until the next run restamps it.
+Instead persist a stored `synced_at` you observed (for example the newest one)
+and subtract an overlap margin longer than a full sync run, then
+deduplicate/re-upsert by `container_id`.
 Overlap permits safe replay, not an exact-once or complete feed: concurrent
 sync can move rows across the window, deletions are not recorded, and there is
 no snapshot isolation. Stored `synced_at` is mirror freshness, not upstream

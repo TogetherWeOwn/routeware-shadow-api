@@ -34,7 +34,10 @@ authentication, before D1/304. Omission adds no predicate.
 This is a filter, not a changes feed: ordering and cursors remain `container_id`
 keyset, with no deletion history, isolation or completeness guarantee. Concurrent
 sync can move rows across the window. Stored sync time measures mirror freshness,
-not upstream event/service time or proof that content changed. The predicate
+not upstream event/service time or proof that content changed. A sync run stamps
+all its rows with the run's start time but writes them in later batches, so a
+poller must not use its own clock as the next instant; use an observed stored
+value minus an overlap margin longer than a sync run. The predicate
 AND-composes with every existing selector and shares COUNT/page binds; countOnly,
 count-free, sparse fields, strictQuery, ETags/304 and no-store remain unchanged.
 Next Links retain the normalized effective instant in both directions, including
