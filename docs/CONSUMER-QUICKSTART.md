@@ -1227,7 +1227,8 @@ adoption or performance evidence. See the
 Use `listContainerSnapshot` with `parentRouteId`, `parentFranchiseId` and/or
 `parentEnabled=true|false|any` to retrieve equipment for a known mirrored
 service-site cohort without fetching all addresses. These select the parent
-address only, never equipment `route_ids`/`frequency_ids` or customer enabled.
+address only, never equipment `route_ids`/`frequency_ids`; owning-customer
+state is the separate selector in the next section.
 Container `enabled` is independent: `parentEnabled=true&enabled=false` means
 disabled equipment at enabled sites, not an assignment change.
 
@@ -1261,6 +1262,45 @@ Equality can scan; no new index, deployment, production latency or assignment
 accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
+### Equipment by owning customer enabled state
+
+Use `listContainerSnapshot` with `customerEnabled=true` to list only
+equipment whose owning stored customer is enabled, or
+`customerEnabled=false` for equipment of disabled stored customers,
+without enumerating accounts and sites first. Three stored states stay
+independent — owning customer (`customerEnabled`), parent site
+(`parentEnabled`) and equipment (`enabled`) — so combine them for the
+exact three-level cohort, e.g. disabled equipment at enabled sites of
+enabled customers is
+`customerEnabled=true&parentEnabled=true&enabled=false`. Mirrored stored
+customer enabled is not current account eligibility, billing status,
+service permission or authorization. Omission or `any` adds no customer
+predicate; a missing address/customer or noncanonical stored value
+never matches `true` or `false`, and a `customerId` whose stored state
+contradicts the selector returns an empty 200. Invalid, blank or
+repeated values receive the fixed value-free 400 before D1, after auth.
+
+Equipment of enabled stored customers, counted first:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?customerEnabled=true&countOnly=true"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?customerEnabled=true&parentEnabled=true&enabled=false&limit=2"
+```
+
+Follow the relative next Link (or pass its `cursor`) on the same origin;
+the filtering `customerEnabled` value round-trips while `any` is
+omitted. Run the credential-free synthetic recipe (no server or real
+records needed):
+
+```bash
+npm run check:container-customer-enabled
+```
+
+See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#equipment-by-owning-customer-enabled-state).
 
 ### Container parent service-site locality
 
