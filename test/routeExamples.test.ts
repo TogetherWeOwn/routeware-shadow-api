@@ -470,7 +470,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameters: [
       ...queryParams("customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid"),
       ...queryParams("serviceCode", "containerTypeId", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked"),
-      ...queryParams("materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates"),
+      ...queryParams("materialStream", "color", "eventCode", "hasEventCode", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates"),
       ...queryParams("locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled"),
       ...queryParams("q", "note", "enabled", "syncedSince", "limit", "offset", "cursor"),
       ...queryParams("lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order"),
