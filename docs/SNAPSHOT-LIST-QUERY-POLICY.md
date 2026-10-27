@@ -17,7 +17,7 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `owningCustomerNumber`, `owningSubCustomerNumber`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `customerEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
@@ -496,6 +496,42 @@ walks an exact lookup to its empty terminal page. Synthetic equality-query
 `EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for both COUNT and page
 reads on the 23-row fixture; no account-number index or production latency claim
 is made. No new index, migration or binding is introduced.
+
+## Stored classification filter
+
+Only the ordinary customer list recognizes `customerTypeId`: an optional
+exact equality filter over the stored nullable `customer_type_id` column.
+The selector is one canonical unpadded ASCII decimal integer from `0` through
+`9007199254740991` — no signs, padding, whitespace, fractions, exponents,
+hex notation or unsafe values, and a single key. `0` is a literal stored
+value, never a null/all sentinel; stored NULL classifications never match.
+Anything else (including an empty value, a bare key, or a repeated key, even
+percent-encoded) is the existing value-free 400 naming `customerTypeId`
+before any D1 work, after read-role authentication. See
+[fixed correction guidance](PROBLEMS.md#bad-request).
+
+The selector binds one `customer_type_id = ?` predicate, AND-composed with
+every existing filter and cursor clause in both the page `SELECT` and the
+`COUNT`. Omission preserves previous matches byte for byte. A valid literal
+with no match is an HTTP 200 empty page, not an error. Sparse fields,
+offset/keyset conventions, cursor-relative totals, count-free zero-COUNT
+behavior, ETags and no-store remain unchanged. Continuation Links retain the
+validated selector and still replace cursor/drop offset. Unknown unrelated
+keys remain ignored. Other lists, the changes feed and by-id reads do not
+gain this selector. The value filters the cached snapshot, not live
+Routeware state: no type-name catalog or classification inference exists.
+
+Run `npm run check:customer-type-filter` for the focused acceptance and list
+regressions, with real local test D1, synthetic fixtures and forbidden
+outbound fetch/R2 access. The [consumer recipe](CONSUMER-QUICKSTART.md#filter-by-stored-classification)
+walks a filtered multi-page traversal to its empty terminal page. Synthetic
+equality-query `EXPLAIN QUERY PLAN` reports `SCAN customer_snapshot` for both
+COUNT and page reads on the local fixture (recorded with Node `node:sqlite`
+against the committed migrations; the oracle also explains the actually
+executed filtered `SELECT` on real D1); no classification index or production
+latency claim is made. Pinned by
+`test/customerTypeFilter.acceptance.test.ts`. No new index, migration or
+binding is introduced.
 
 ## Customer personal or company name search
 

@@ -9,8 +9,12 @@ use). Keep the deliberate error recipes in step 6 local-only.
 Operator setup (secrets, D1 migrations, report sync) is out of scope here:
 see [`README.md`](../README.md) and [`CUSTOMER_SNAPSHOT.md`](../CUSTOMER_SNAPSHOT.md).
 Error catalog: [`PROBLEMS.md`](./PROBLEMS.md).
-Full machine-readable spec: `GET /openapi.json` (interactive UI at `/docs`;
-both gated by `OPENAPI_DOCS_ENABLED`).
+Contract of record: [`openapi.json`](./openapi.json), the same OpenAPI document
+the app serves (pretty-printed with sorted keys; the endpoint returns minified
+JSON). The live machine-readable endpoint `GET /openapi.json` and interactive
+UI at `/docs` are gated by
+`OPENAPI_DOCS_ENABLED`; production sets it to `false`, so `/openapi.json`
+returns 404 there by design.
 
 ## 0. Check the service is up (no token needed)
 
@@ -804,6 +808,39 @@ upstream calls are involved. For a 400, correct or omit the named account field
 and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
+
+### Filter by stored classification
+
+Use the existing `listCustomerSnapshot` operation to fetch only customers of
+a known stored classification. Optional `customerTypeId` is exact equality
+over the stored nullable `customer_type_id` column: one unpadded ASCII
+decimal integer from `0` through `9007199254740991`, sent once. `0` is a
+literal stored value, never null or all rows; stored NULL classifications
+never match. The selector AND-composes with `customerId`, `q`, `enabled` and
+every other filter, and travels in follow-next Links. It filters the cached
+snapshot, not live Routeware state — there is no type-name catalog.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?customerTypeId=2&limit=2"
+# HTTP 200 — {"rows":[...],"total":N,"nextCursor":...}; follow Link rel="next"
+# with the selector intact until Link is absent; a full terminal page may
+# link to one empty page. A valid literal with no match is a 200 empty page.
+```
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:customer-type-filter
+```
+
+The fixture also pins strict lexical rejection (empty, padded, signed,
+fraction, exponent, unsafe and repeated-key values 400 before D1 with the
+fixed value-free detail), auth-before-validation, count-free zero-COUNT
+traversal, sparse fields and conditional ETags. For a 400, send the selector
+once in canonical form, or omit it, then retry. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
 
 ### Personal or company name search
 

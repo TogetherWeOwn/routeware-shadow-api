@@ -363,7 +363,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     method: "get",
     mediaType: "application/json",
     parameters: [
-      ...queryParams("customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone"),
+      ...queryParams("customerId", "ids", "customerTypeId", "customerNumber", "subCustomerNumber", "q", "phone"),
       ...queryParams("comments", "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled"),
       ...queryParams("addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1"),
       ...queryParams("hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId"),

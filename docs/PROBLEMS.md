@@ -109,6 +109,22 @@ supplied account value is echoed or logged. A valid lookup with zero matches
 is a successful empty collection, not a validation error. See the
 [synthetic lookup recipe](CONSUMER-QUICKSTART.md#exact-external-account-lookup).
 
+## Stored customer classification (`bad-request`)
+
+For `GET /api/v1/customer-snapshot`, optional `customerTypeId` is an exact
+unpadded ASCII decimal integer from `0` through `9007199254740991`, sent
+once. No signs, padding, whitespace, fractions, exponent/hex notation or
+unsafe integers. Zero matches literal stored classification `0`, never null
+or all rows; stored NULL classifications never match. The value filters the
+cached snapshot, not live Routeware state.
+
+Invalid or repeated keys return fixed, value-free 400 guidance before D1:
+`Invalid request query (customerTypeId). See docs/PROBLEMS.md#bad-request.`
+Correct the named field's format, send it once, then retry; omit it only if
+no classification filter is intended. Authentication still precedes
+validation. A valid selector with no match returns 200 with an empty list.
+See the [classification policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
+
 ## Stored customer comment fragment (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, `comments` accepts one fragment of at

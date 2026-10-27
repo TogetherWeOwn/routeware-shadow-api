@@ -82,7 +82,7 @@ const SPECS: Spec[] = [
     id: "customer_id",
     field: "company_name",
     allowed: [
-      "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
+      "customerId", "ids", "customerTypeId", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
       "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
@@ -133,7 +133,7 @@ const SPECS: Spec[] = [
  *  on all three resources). A sample may filter to an empty page; the probe
  *  only proves the name is not rejected as unknown under strict mode. */
 const SAMPLES: Record<string, string> = {
-  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
+  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102", customerTypeId: "2",
   customerNumber: "N-1", subCustomerNumber: "S-1", owningCustomerNumber: "N-1", owningSubCustomerNumber: "S-1", q: "synthetic", phone: "555",
   comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", syncedSince: "2026-08-31T00:00:00.000Z", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
