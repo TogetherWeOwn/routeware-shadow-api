@@ -41,6 +41,7 @@ type SnapshotListQuery = {
   parentState?: string;
   parentZip?: string;
   parentEnabled?: "true" | "false" | "any";
+  customerEnabled?: "true" | "false" | "any";
   zip?: string;
   streetAddress?: string;
   locationAddress?: string;
@@ -175,6 +176,11 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
+  }
+  // Owning stored-customer state (container only): carry only filtering
+  // values so any/omitted continuations stay byte-identical.
+  if (resource === "container" && query.customerEnabled !== undefined && query.customerEnabled !== "any") {
+    params.set("customerEnabled", query.customerEnabled);
   }
   // Container-only stored-text presence selectors: carry only filtering
   // values so any/omitted continuations stay byte-identical.
