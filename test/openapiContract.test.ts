@@ -467,6 +467,25 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
+// Enabled mirrored-child presence selection (`hasEnabledContainers`) has
+// semantic checks in the Test Author-owned
+// addressEnabledContainerPresence.acceptance.test.ts, not frozen as a
+// speculative parameter position. The address description and 400 prose are
+// already projected out above; only the new selector moves to behavioral
+// ownership here. All legacy parameters stay frozen.
+function withoutAddressEnabledContainerPresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/address-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || parameter.name !== "hasEnabledContainers"
+    );
+  }
+  return copy;
+}
+
 // The independent coordinate-presence oracle owns only this new query enum on
 // the two list GETs. All unrelated parameters remain in the legacy golden.
 function withoutCoordinatePresence(doc: OpenApiDocument): OpenApiDocument {
@@ -966,8 +985,9 @@ describe("published OpenAPI document", () => {
     // Only the address stored-extras selector additionally moves to
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to
-    // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutCoordinatePresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
+    // addressParentCustomerEnabled ownership; enabled-container presence moves to
+    // addressEnabledContainerPresence ownership; all other golden contracts stay pinned.
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressEnabledContainerPresence(withoutAddressContainerPresence(withoutCoordinatePresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))))).toMatchSnapshot();
   });
 });
 
