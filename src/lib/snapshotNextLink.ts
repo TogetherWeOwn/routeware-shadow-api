@@ -68,6 +68,9 @@ type SnapshotListQuery = {
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
   addressExtrasAllowed?: "true" | "false" | "any";
   addressLastAuditDate?: string;
   hasPhone1?: "true" | "false" | "any";
@@ -85,7 +88,7 @@ type SnapshotListQuery = {
 };
 
 const LISTS = {
-  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressLastAuditDate"] },
+  customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "comments", "lastAuditDate"] },
   container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note"] }
 } as const;
