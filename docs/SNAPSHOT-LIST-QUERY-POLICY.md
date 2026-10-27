@@ -20,8 +20,36 @@ stored address comment text (null-or-empty versus anything else), not child rows
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `comments`, `hasComments`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
+
+## Container mirror freshness (`syncedSince`)
+
+Only the ordinary container list accepts `syncedSince`: stored `c.synced_at`
+strictly greater than a caller-held UTC Z instant, normalized to milliseconds
+by the same timestamp chain as customer-changes `since`. Seconds are required;
+one to three fractional digits are optional. Empty, offset, excess-precision,
+calendar-invalid and repeated values fail with fixed value-free guidance after
+authentication, before D1/304. Omission adds no predicate.
+
+This is a filter, not a changes feed: ordering and cursors remain `container_id`
+keyset, with no deletion history, isolation or completeness guarantee. Concurrent
+sync can move rows across the window. Stored sync time measures mirror freshness,
+not upstream event/service time or proof that content changed. A sync run stamps
+all its rows with the run's start time but writes them in later batches, so a
+poller must not use its own clock as the next instant; use an observed stored
+value minus an overlap margin longer than a sync run. The predicate
+AND-composes with every existing selector and shares COUNT/page binds; countOnly,
+count-free, sparse fields, strictQuery, ETags/304 and no-store remain unchanged.
+Next Links retain the normalized effective instant in both directions, including
+offset-to-seek. No synced_at index is added: unscoped queries may scan, and
+synthetic EXPLAIN evidence is not a performance promise.
+
+Run `npm run check:container-synced-since` for the independent
+`test/containerSyncedSince.acceptance.test.ts` plus timestamp, auth, pagination,
+conditional and mounted-contract regressions. All fixtures are synthetic local
+D1; no upstream/R2 access or product writes. See the
+[incremental polling recipe](CONSUMER-QUICKSTART.md#container-mirror-freshness).
 
 ## Opt-in typo detection (`strictQuery=`)
 
