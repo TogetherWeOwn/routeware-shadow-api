@@ -452,6 +452,48 @@ acceptance and neighboring regressions; no live credentials or network probe
 is required. See [full
 policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-parent-customer-enabled-state).
 
+### Sites by owning account business numbers
+
+List every site of an account addressed by the stored business numbers the
+caller's own system already knows — no separate customer read to resolve
+the numeric ID first. `owningCustomerNumber` matches the owning stored
+customer's `customer_number` and `owningSubCustomerNumber` its
+`sub_customer_number`: each is one exact case-sensitive opaque string of
+1..100 Unicode code points, with leading zeros, case and significant
+whitespace preserved. Both supplied numbers must match the SAME
+owning-customer row; a repeated number returns every owning account's
+sites. Stored numbers are mirrored report text, not a billing identity,
+account hierarchy, service territory or proof of service. Stored NULLs
+never match and valid unknown numbers return an empty 200. Invalid, blank
+or repeated values receive the fixed value-free 400 before D1, after auth.
+
+Sites of matching stored accounts, both numbers together:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?owningCustomerNumber=00042&owningSubCustomerNumber=North&limit=2"
+```
+
+Either number alone, then follow the relative next Link; each supplied
+number is retained and the unrequested companion is never invented:
+
+```bash
+curl -sS -D - -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?owningCustomerNumber=00042&limit=1"
+# Link: </api/v1/address-snapshot?owningCustomerNumber=00042&limit=1&cursor=11>; rel="next"
+```
+
+COUNT/page share scope; `countOnly` stays COUNT-only and count-free is zero
+COUNTs; ETag/304 and no-store are unchanged. The owning-customer lookup
+uses the customer primary key through one conditional join: no new index
+or production latency claim. GET is idempotent and local-read, no
+upstream/R2/write effects; CLI `--dry-run` is N/A.
+
+Run `npm run check:address-owning-account-numbers` for synthetic local-D1
+acceptance and neighboring regressions; no live credentials or network probe
+is required. See [full
+policy](SNAPSHOT-LIST-QUERY-POLICY.md#sites-by-owning-account-business-numbers).
+
 ### Opt-in query typo detection
 
 On the three ordinary flat lists, add `strictQuery=true` to reject unknown
