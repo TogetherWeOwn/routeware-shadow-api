@@ -49,6 +49,9 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("hasCoordinates")
+        ? "Send one hasCoordinates=true, false or any, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("hasContainers") && (c?.req as { path?: string } | undefined)?.path === "/api/v1/customer-snapshot"
         ? "Send one hasContainers=true, false or any, or omit the selector and retry. "
         : "") +

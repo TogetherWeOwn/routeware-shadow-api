@@ -60,6 +60,7 @@ type SnapshotListQuery = {
   hasAddresses?: "true" | "false" | "any";
   hasEnabledAddresses?: "true" | "false" | "any";
   hasEnabledContainers?: "true" | "false" | "any";
+  hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
@@ -144,6 +145,9 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasEnabledContainers !== undefined && query.hasEnabledContainers !== "any") {
     params.set("hasEnabledContainers", query.hasEnabledContainers);
+  }
+  if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
+    params.set("hasCoordinates", query.hasCoordinates);
   }
   if (resource === "customer" && query.addressEnabled !== undefined && query.addressEnabled !== "any") {
     params.set("addressEnabled", query.addressEnabled);
