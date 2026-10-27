@@ -96,7 +96,8 @@ describe("sessionExpiryMs wiring", () => {
 describe("APP_VERSION", () => {
   it("is wired to package.json#version (single source of truth)", () => {
     // Act / Assert — compares against the file, not a hardcoded string, so a
-    // version bump moves the spec version with no test edit.
+    // version bump updates the live spec without a test edit. The checked-in
+    // document is regenerated separately by the contract snapshot test.
     expect(APP_VERSION).toBe(packageJson.version);
   });
 

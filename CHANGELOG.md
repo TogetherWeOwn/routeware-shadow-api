@@ -224,6 +224,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   fixed value-free 400 after auth and before D1. No new index, migration or
   latency claim; focused check:
   `npm run check:address-parent-customer-enabled`.
+- #417: Publish the complete OpenAPI contract as readable `docs/openapi.json`
+  and fail tests on drift from the live document. Runtime routes and schemas
+  are unchanged; production documentation endpoints remain disabled.
 - #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
   stored-state selectors (`true`|`false`|`any`, default `any`). Exact
   case-sensitive enums match stored `1`/`0` via integer-literal predicates;

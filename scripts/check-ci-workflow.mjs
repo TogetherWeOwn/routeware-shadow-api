@@ -70,6 +70,14 @@ assert.match(
   /^          if echo "\$files" \| grep -qE '\^\(src\/\|test\/\|migrations\/\|tools\/api-discovery\/\|/m,
   "discovery tooling changes must run the build and vitest pins",
 );
+const codeFilter = changesJob.split("\n").find(
+  (line) => line.includes('if echo "$files" | grep -qE') && line.includes("grep -qE '^(src/")
+);
+assert.match(
+  codeFilter ?? "",
+  /\|docs\/openapi\\\.json\$\|/,
+  "the checked-in OpenAPI contract must trigger the build test"
+);
 assert.match(changesJob, /probe:/, "changes must output a probe boolean");
 assert.match(changesJob, /infra:/, "changes must output an infra boolean");
 assert.match(changesJob, /full:/, "changes must output a full boolean for push/schedule/infra/dep full runs");
