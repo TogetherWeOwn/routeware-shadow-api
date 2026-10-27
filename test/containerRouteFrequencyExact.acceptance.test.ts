@@ -547,6 +547,14 @@ describe("COUNT/page parity, traversal and continuation", () => {
     await traverse({ frequencyIdsExact: "3, 4", limit: "3", includeTotal: "false" }, FREQ_34);
     await traverse({ frequencyIdsExact: "3, 4", limit: "3", includeTotal: "false", order: "desc" }, [...FREQ_34].reverse());
   });
+  it.each([
+    ["hasRouteIds", "asc", [1010, 1020, 2030, 2050]],
+    ["hasRouteIds", "desc", [2050, 2030, 1020, 1010]],
+    ["hasFrequencyIds", "asc", [1010, 1020, 2040, 2050]],
+    ["hasFrequencyIds", "desc", [2050, 2040, 1020, 1010]],
+  ] as const)("retains %s=false through every %s next link", async (param, order, want) => {
+    await traverse({ [param]: "false", limit: "1", order }, [...want]);
+  });
   it("survives comma and space values through link encoding without leaking unknowns or credentials", async () => {
     let result = await page({ routeIdsExact: "7,12", frequencyIdsExact: "3, 4", limit: "1", bogus_param: "private-marker", authorization: "private-token" });
     for (const id of COHORT) {
