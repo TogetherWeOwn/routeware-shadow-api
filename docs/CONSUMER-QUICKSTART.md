@@ -191,6 +191,35 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Stored container instruction fragment
+
+Use `note` for a known fragment of stored `container_note`; use `q` for
+location/serial/city/zip, never notes. Both together mean AND. In the synthetic
+local acceptance fixture, `note=gate` selects IDs 101, 103, 107, 109, 113 and
+119, whereas `q=gate` selects 123 and 127 (location/serial decoys). Their
+intersection is empty. A scoped, count-free first page is:
+
+```text
+GET /api/v1/container-snapshot?customerId=1&note=%20gate%20&fields=enabled&limit=2&includeTotal=false
+{"rows":[{"container_id":101,"enabled":1},{"container_id":103,"enabled":1}],"total":null,"nextCursor":103}
+Link: </api/v1/container-snapshot?customerId=1&note=gate&fields=enabled&limit=2&includeTotal=false&cursor=103>; rel="next"
+```
+
+Follow the returned relative Link unchanged against the same origin, not by
+rebuilding filters. The next full page contains 107 and 109 and links to an
+empty terminal page. `order=desc` instead traverses the same scope downward;
+keep direction and `upperId` fixed. Notes trim boundaries before the maximum
+100 Unicode-code-point check; blank is omitted. Send one fragment or omit
+`note` after a value-free 400 (auth still runs first). Quotes, `%`, `_` and
+Unicode are literal URL-encoded data, not wildcards. SQLite folds ASCII only,
+with no Unicode normalization or relevance ranking; null notes act as empty.
+Do not log instructions or credentials. These idempotent local GETs do not
+contact upstream, infer schedules/work orders or execute instructions;
+`--dry-run` is N/A. Unscoped substring reads scan with no dedicated note index
+or measured performance claim. Run `npm run check:container-note-search` for
+the synthetic fixture, special-character asc/desc traversal, SQL, auth and
+conditional-read checks. See [note policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment).
+
 ### Stored address driver note
 
 Use `listAddressSnapshot` with `driverNote` when you know a fragment of the
@@ -558,6 +587,45 @@ local-D1 oracle, including Unicode boundaries, both orders, literal punctuation,
 ETags/304, auth/validation zero-work and denied upstream/R2/cache writes.
 See the [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-customer-comment-fragment)
 and [fixed error guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
+
+### Stored coordinate-pair presence
+
+On the existing address and container lists, `hasCoordinates=true|false|any`
+selects **NULL-only stored-pair presence**, not valid/complete geographic
+coordinates. `true` requires both `latitude` and `longitude` to be SQL non-null;
+`false` requires either to be null. Non-null TEXT such as `"0"`, `"-1"`, `""`,
+whitespace and non-numeric text counts as present. Disabled rows remain eligible.
+Containers always use their own columns, never their parent address's pair;
+this says nothing about accuracy, GPS lock or live position.
+
+For synthetic fixtures in a local Worker only (operator-supplied read token):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+```
+
+Follow each returned relative `Link` against the same origin unchanged; it
+retains true/false, other filters, fields, ceiling and direction while replacing
+the cursor. A full terminal page may link to an empty page; stop when Link is
+absent. `any`/omission adds no predicate or continuation key. Other selectors
+intersect by AND, including container customer-join scopes; count-free pages
+still run one SELECT and zero COUNTs. These idempotent local-read GETs make no
+upstream/R2 request; CLI `--dry-run` is N/A. The NULL predicates may scan; no
+new index or production performance claim is made.
+
+Invalid, empty or repeated values return value-free 400 before D1, after auth.
+Send one exact lowercase `true`, `false` or `any`, or omit `hasCoordinates` and
+retry. Run `npm run check:snapshot-coordinates` for the synthetic hermetic
+oracle and list/auth/discovery regressions. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-coordinate-pair-presence) and
+[fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
 
 ### Exact external account lookup
 
@@ -1069,6 +1137,50 @@ accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
 
+### Container parent service-site locality
+
+Use `listContainerSnapshot` with `parentCity`, `parentState` and/or `parentZip`
+to select equipment by the mirrored service site's stored locality instead
+of its own `city`/`state`/`zip`. Each is case-sensitive opaque exact text of
+1..100 Unicode code points containing a non-whitespace character. Preserve
+leading zeros and nonblank whitespace; do not trim, normalize, convert
+abbreviations or infer a state enum. URL-encode each value and send each key
+once. Invalid, blank, overlength or repeated keys fail value-free after auth
+before D1/304; correct the named format or omit it and retry.
+
+Credential-free synthetic recipe (no server or real records required):
+
+```bash
+npm run check:container-parent-locality
+```
+
+The oracle has multiple sites in Riverton/TX/02139, with containers whose own
+locality is different, equal or null. This relative request selects equipment
+by the parent, not by equipment GPS:
+
+```http
+GET /api/v1/container-snapshot?parentCity=Riverton&parentState=TX&parentZip=02139&fields=container_id,pickup_address_id&limit=2&includeTotal=false&exactNext=true
+```
+
+Its fixture IDs are `[10,20]`, then `[30,120]`, then `[140]`. Follow the returned
+[same-origin Link](#follow-the-servers-next-page-target) unchanged until absent;
+it retains all three parent selectors across offset-to-seek and either order.
+Add `state=ZZ` to select only equipment with that own state at these sites;
+add `state=TX` instead for equipment with the same own state (fixture ID 30).
+Parent and own selectors AND-compose, as do customerId and parent
+route/franchise/enabled; contradictions return empty 200 pages.
+
+A supplied parent selector excludes missing parents and null parent locality.
+Omission adds no join, preserving unscoped orphan visibility. One shared
+unique-parent join never multiplies equipment rows. Count-only/count-free
+reads, sparse fields, fences and ETag/304 stay intact. This is mirrored stored
+site locality, **not** live geolocation, postal verification or service
+territory eligibility. Equality may scan; synthetic EXPLAIN proves no production
+latency or index guarantee. No migration, deployment, network/R2 or writes;
+GET is idempotent local-read and CLI dry-run is N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-locality)
+and [400 recovery](PROBLEMS.md#container-parent-service-site-locality-bad-request).
+
 ### Container serial and RFID presence
 
 Use `listContainerSnapshot` with `hasSerialNumber=true|false|any` and/or
@@ -1317,6 +1429,39 @@ Global `hasContainers` stays independent of the matched site's equipment.
 Run `npm run check:customer-address-service-policy` for local synthetic-D1
 selection, decoys, full traversal, auth/validation and conditional regressions.
 No live access, writes, new index or production latency claim.
+
+### Customer service-site locality
+
+Use the same operation to select accounts that have a service site in a
+stored city, state or zip, without downloading every site.
+`addressCity`, `addressState` and `addressZip` are opaque case-sensitive
+exact equalities on the stored child address (1..100 Unicode code
+points, never blank; leading zeros and significant whitespace preserved;
+no abbreviation conversion). They AND inside the same stored address as
+the cohort scopes above: a city on one site plus a state on another site
+of the same account never matches the combined request, and multiple
+matching sites still return the account once. Disabled sites count
+unless `addressEnabled` scopes them out. A valid unknown locality is an
+empty 200. Site locality is mirrored text on the service address — not a
+customer headquarters location, geocoding result, postal verification,
+service-territory eligibility or proof of service.
+
+Synthetic local account-by-site-locality recipe (fixture service and its
+`$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressCity=Riverton&addressState=TX&addressZip=02139&limit=2&includeTotal=false"
+# {"rows":[{"customer_id":11,...},{"customer_id":13,...}],"total":null,"nextCursor":13}
+# Follow the returned relative Link unchanged on this same localhost origin;
+# it retains the locality selectors. Stop when Link is absent.
+```
+
+Run `npm run check:customer-address-locality` for synthetic local-D1
+selection, split-site decoys, full Link traversal and conditional-read
+regressions plus child-index EXPLAIN evidence. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-locality)
+and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
 ### Customer stored-phone presence
 
