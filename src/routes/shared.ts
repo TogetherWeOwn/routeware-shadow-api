@@ -26,10 +26,13 @@ export function validationFailureHook(
   },
   // The framework calls hooks as `hook(result, context)` (zod-validator): the
   // second arg carries `env`, so schema rejections honor the
-  // `PROBLEM_TYPE_BASE` override. Optional so direct unit-test calls
+  // `PROBLEM_TYPE_BASE` override, and `req.path`, so the customer-list
+  // `hasContainers` remedy below can tell the two lists sharing that key
+  // apart (the address list keeps its previously fixed detail). Optional so
+  // direct unit-test calls
   // (`validationFailureHook({success, target, error})`) keep working and fall
   // back to the committed default.
-  c?: { env?: Env }
+  c?: { env?: Env; req?: object }
 ): Response | undefined {
   if (result.success || !result.error) {
     return undefined;
@@ -45,6 +48,12 @@ export function validationFailureHook(
     detail: `Invalid request ${result.target} (${unique.join(", ")}). ` +
       (result.target === "query" && unique.includes("hasAddresses")
         ? "Send one hasAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasCoordinates")
+        ? "Send one hasCoordinates=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasContainers") && (c?.req as { path?: string } | undefined)?.path === "/api/v1/customer-snapshot"
+        ? "Send one hasContainers=true, false or any, or omit the selector and retry. "
         : "") +
       (result.target === "query" && unique.includes("hasPhone1")
         ? "Send one hasPhone1=true, false or any, or omit the selector and retry. "
@@ -64,11 +73,29 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasLastAuditDate")
         ? "Send one hasLastAuditDate=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.some((field) => ["parentCity", "parentState", "parentZip"].includes(field))
+        ? "URL-encode one nonblank stored parent locality value of 1..100 Unicode code points per named key, preserving significant whitespace, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("countOnly")
         ? "Send one countOnly=true or countOnly=false, or omit countOnly. For count-only reads, omit includeTotal=false or set countOnly=false and retry. "
         : "") +
       (result.target === "query" && unique.includes("comments")
         ? "Send one comments fragment of at most 100 Unicode code points, or omit comments and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressRouteId")
+        ? "Send one addressRouteId as a canonical unpadded nonnegative ASCII safe integer, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressFranchiseId")
+        ? "Send one addressFranchiseId of 1..100 Unicode code points that is not blank, or omit it and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressEnabled")
+        ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressExtrasAllowed")
+        ? "Send one addressExtrasAllowed=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("addressLastAuditDate")
+        ? "Send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry. "
         : "") + "See docs/PROBLEMS.md#bad-request."
   });
 }
