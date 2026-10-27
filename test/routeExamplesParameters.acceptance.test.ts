@@ -18,21 +18,24 @@ import { describe, expect, it } from "vitest";
  * It never substitutes a second implementation of the parameter checker.
  *
  * Test-module seam for the Builder: keep REMAINING_RESPONSES as the single
- * inventory, with `parameterNames: string[]` on each expanded operation
- * (including [] for parameterless operations), and retain the two named test
- * callbacks below. Neither a runtime export nor a source change is needed.
+ * inventory, with `parameters: Array<{name: string; in: "query" | "path"}>`
+ * on each expanded operation (including [] for parameterless operations), and
+ * retain the two named test callbacks below. Totals derive from these records.
  * The harness exposes the inventory only in its in-memory evaluated copy.
+ * ROUTE_EXAMPLES_CHECKER_FILE optionally selects a pinned checker for RED
+ * verification; the default is the neighboring routeExamples.test.ts.
  */
 const PARAMETER_TEST = "publishes schema-compatible examples for every query and path parameter";
 const INVENTORY_TEST = "pins the complete operation inventory of the remaining route modules";
 const LIST = "/api/v1/customer-snapshot";
 const DETAIL = "/api/v1/customer-snapshot/{customerId}";
 
+type ParameterRecord = { name: string; in: "query" | "path" };
 type InventoryEntry = {
   path: string;
   method: string;
   mediaType: string;
-  parameterNames?: string[];
+  parameters: ParameterRecord[];
 };
 type Parameter = {
   name: string;
@@ -48,8 +51,14 @@ type Callback = () => unknown | Promise<unknown>;
 function fixture(extraNames = 0) {
   // These expectations are literal and independent of the mounted schema.
   const inventory: InventoryEntry[] = [
-    { method: "get", path: LIST, mediaType: "application/json", parameterNames: ["limit", "fields", "includeTotal"] },
-    { method: "get", path: DETAIL, mediaType: "application/json", parameterNames: ["customerId", "fields"] },
+    {
+      method: "get", path: LIST, mediaType: "application/json",
+      parameters: [{ name: "limit", in: "query" }, { name: "fields", in: "query" }, { name: "includeTotal", in: "query" }],
+    },
+    {
+      method: "get", path: DETAIL, mediaType: "application/json",
+      parameters: [{ name: "customerId", in: "path" }, { name: "fields", in: "query" }],
+    },
   ];
   const doc: FixtureDoc = {
     paths: {
@@ -76,7 +85,7 @@ function fixture(extraNames = 0) {
   };
   for (let index = 0; index < extraNames; index++) {
     const name = `fixtureSelector${index}`;
-    inventory[0].parameterNames!.push(name);
+    inventory[0].parameters.push({ name, in: "query" });
     doc.paths[LIST].get.parameters.push({ name, in: "query", schema: { type: "integer" }, example: index });
   }
   return { inventory, doc };
@@ -97,7 +106,9 @@ function loadChecker(doc: FixtureDoc, replacement?: InventoryEntry[]) {
       },
     },
   };
-  const subject = readFileSync(new URL("./routeExamples.test.ts", import.meta.url), "utf8");
+  const subject = readFileSync(
+    process.env.ROUTE_EXAMPLES_CHECKER_FILE ?? new URL("./routeExamples.test.ts", import.meta.url), "utf8",
+  );
   const compiled = ts.transpileModule(subject, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -124,7 +135,18 @@ function loadChecker(doc: FixtureDoc, replacement?: InventoryEntry[]) {
     { timeout: 5_000, filename: "routeExamples.checker-under-test.cjs" },
   );
   const inventory = module.exports.inventory;
-  if (replacement) inventory.splice(0, inventory.length, ...structuredClone(replacement));
+  if (replacement) {
+    // Project records to names ONLY for an unfixed, names-only checker so old
+    // controls still run and location mutations fail behaviorally, not because
+    // of an undefined property. The real-inventory test below rejects that
+    // legacy seam; corrected checkers receive only the new parameter records.
+    const namesOnly = inventory.some((entry) => "parameterNames" in entry && !("parameters" in entry));
+    const entries = structuredClone(replacement);
+    if (namesOnly) for (const entry of entries) Object.defineProperty(entry, "parameterNames", {
+      get: () => entry.parameters.map(({ name }) => name),
+    });
+    inventory.splice(0, inventory.length, ...entries);
+  }
   function run(name: string) {
     const callback = callbacks.get(name);
     expect(callback, `retain checker callback: ${name}`).toBeTypeOf("function");
@@ -137,34 +159,80 @@ function loadChecker(doc: FixtureDoc, replacement?: InventoryEntry[]) {
   };
 }
 
-async function rejectsWithParameter(callback: Callback, path: string, name: string) {
+async function rejectsWithParameter(callback: Callback, path: string, name: string, location?: ParameterRecord["in"]) {
   let failure: unknown;
   try {
     await callback();
   } catch (error) {
     failure = error;
   }
-  expect(failure, `checker must reject get ${path} ${name}`).toBeDefined();
+  expect(failure, `checker must reject get ${path} ${location ?? ""} ${name}`).toBeDefined();
   const message = String(failure).toLowerCase();
   expect(message, "failure identifies operation").toContain(`get ${path}`.toLowerCase());
   expect(message, "failure identifies parameter").toContain(name.toLowerCase());
+  if (location) expect(message, "failure identifies parameter location").toContain(location);
+}
+
+function sameNameFixture() {
+  const { inventory, doc } = fixture();
+  // OpenAPI identifies a parameter by (name, in), not name alone. Both are
+  // legal here; the query location must NOT be inferred from the URL template.
+  inventory[1].parameters.push({ name: "customerId", in: "query" });
+  doc.paths[DETAIL].get.parameters.push({ name: "customerId", in: "query", schema: { type: "integer" }, example: 8 });
+  return { inventory, doc };
 }
 
 describe("routeExamples per-operation parameter acceptance", () => {
-  it("keeps explicit name records beside every real operation, including empty records", () => {
+  it("keeps explicit name/location records beside every real operation, including empty records", () => {
     const { doc } = fixture();
     const { inventory } = loadChecker(doc);
     expect(inventory.length).toBeGreaterThan(0);
     for (const entry of inventory) {
-      expect(Array.isArray(entry.parameterNames), `${entry.method} ${entry.path} parameterNames`).toBe(true);
-      for (const name of entry.parameterNames!) expect(typeof name).toBe("string");
-      expect(new Set(entry.parameterNames).size).toBe(entry.parameterNames!.length);
+      expect(Array.isArray(entry.parameters), `${entry.method} ${entry.path} parameters`).toBe(true);
+      for (const parameter of entry.parameters) {
+        expect(typeof parameter.name).toBe("string");
+        expect(parameter.name.length).toBeGreaterThan(0);
+        expect(["query", "path"]).toContain(parameter.in);
+      }
+      const identities = entry.parameters.map(({ name, in: location }) => JSON.stringify([name, location]));
+      expect(new Set(identities).size).toBe(entry.parameters.length);
     }
   });
 
   it("accepts a matching five-parameter fixture, including false and schema-level examples", async () => {
     const { inventory, doc } = fixture();
     await loadChecker(doc, inventory).parameters();
+  });
+
+  it.each([
+    [LIST, "limit", "query", "path"],
+    [DETAIL, "customerId", "path", "query"],
+  ] as const)("rejects a location-only remount: %s %s %s -> %s", async (path, name, from, to) => {
+    const { inventory, doc } = fixture();
+    doc.paths[path].get.parameters.find((p) => p.name === name && p.in === from)!.in = to;
+    await rejectsWithParameter(loadChecker(doc, inventory).parameters, path, name, from);
+  });
+
+  it("accepts a valid same-name query and path pair", async () => {
+    const { inventory, doc } = sameNameFixture();
+    await loadChecker(doc, inventory).parameters();
+  });
+
+  it.each(["query", "path"] as const)("rejects removing the %s member of a same-name pair", async (location) => {
+    const { inventory, doc } = sameNameFixture();
+    // Prove the fixture is valid before removing exactly one identity.
+    await loadChecker(doc, inventory).parameters();
+    doc.paths[DETAIL].get.parameters = doc.paths[DETAIL].get.parameters.filter(
+      (p) => !(p.name === "customerId" && p.in === location),
+    );
+    await rejectsWithParameter(loadChecker(doc, inventory).parameters, DETAIL, "customerId", location);
+  });
+
+  it("rejects swapping locations between distinct names at constant count", async () => {
+    const { inventory, doc } = fixture();
+    doc.paths[DETAIL].get.parameters.find((p) => p.name === "customerId")!.in = "query";
+    doc.paths[DETAIL].get.parameters.find((p) => p.name === "fields")!.in = "path";
+    await rejectsWithParameter(loadChecker(doc, inventory).parameters, DETAIL, "customerId", "path");
   });
 
   it.each([
@@ -243,7 +311,7 @@ describe("routeExamples per-operation parameter acceptance", () => {
       else if (selection === "detail only") inventory.splice(0, 1);
       else {
         inventory.splice(1, 1);
-        inventory[0].parameterNames = [];
+        inventory[0].parameters = [];
         doc.paths[LIST].get.parameters = [];
       }
       // Respectively 3, 2 and 0. No shared total or historical count ledger
@@ -256,7 +324,7 @@ describe("routeExamples per-operation parameter acceptance", () => {
     const { inventory, doc } = fixture();
     const checker = loadChecker(doc, inventory);
     const otherOperation = structuredClone(checker.inventory[1]);
-    checker.inventory[0].parameterNames!.push("regionId");
+    checker.inventory[0].parameters.push({ name: "regionId", in: "query" });
     doc.paths[LIST].get.parameters.push({ name: "regionId", in: "query", schema: { type: "integer" }, example: 9 });
     await checker.parameters();
     expect(checker.inventory[1]).toEqual(otherOperation);

@@ -408,10 +408,12 @@ a route is dropped).
 ### `test/routeExamples.test.ts` — per-operation parameter pins (no shared count)
 
 `REMAINING_RESPONSES` is the single operation inventory, and every entry carries
-its own `parameterNames: string[]` record (including `[]` for parameterless
-operations). The parameter walker pins each operation's mounted query/path
-names against exactly that operation's record — a missing, extra or renamed
-parameter fails naming the operation and the name — then walks every mounted
+its own `parameters: Array<{ name; in: "query" | "path" }>` record (including
+`[]` for parameterless operations; `queryParams()`/`pathParams()` build them).
+The parameter walker pins each operation's mounted query/path parameters —
+name and location, since OpenAPI identifies a parameter by both — against
+exactly that operation's record. A missing, extra, renamed or relocated
+parameter fails naming the operation, the location and the name. It then walks every mounted
 parameter for a schema-compatible example. The checked total is derived as the
 sum of the records, so adding a selector edits only its own operation's array:
 there is no shared integer for unrelated PRs to collide on, and the old
@@ -420,7 +422,7 @@ hand-counted ledger is retired.
 The seam is load-bearing for `test/routeExamplesParameters.acceptance.test.ts`
 (the Node-pool oracle): it transpiles this module, swaps the inventory for
 tiny synthetic fixtures, and runs the two real callbacks, so keep the
-`REMAINING_RESPONSES` name, the `parameterNames` field, and the exact test
+`REMAINING_RESPONSES` name, the `parameters` field, and the exact test
 names `pins the complete operation inventory of the remaining route modules`
 and `publishes schema-compatible examples for every query and path parameter`.
 Focused checks: `npx vitest run test/routeExamples.test.ts` for the mounted
