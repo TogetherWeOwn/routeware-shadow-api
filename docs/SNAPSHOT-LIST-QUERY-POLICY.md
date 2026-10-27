@@ -17,7 +17,7 @@ and never authorizes deletion or reconciliation.
 
 | GET route | Recognized query keys | Unknown-name policy |
 | --- | --- | --- |
-| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
@@ -182,6 +182,48 @@ child-index SEARCH plans for both COUNT and rows. This is local planner
 evidence, not a production latency claim. No migration/index change. GET
 is an idempotent local-read operation; CLI `--dry-run` is N/A. See the
 [local recipes](CONSUMER-QUICKSTART.md#customer-service-site-cohorts) and
+[correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
+## Customer service-site locality
+
+Only the ordinary customer list recognizes `addressCity`, `addressState`
+and `addressZip`. Each is one opaque case-sensitive exact stored-string
+equality on the child address's `city`/`state`/`zip`, with the address
+list's lexical contract: 1..100 Unicode code points including a
+non-whitespace character, leading zeros and nonblank whitespace preserved,
+never trimmed or normalized, and no abbreviation conversion or enum. A
+valid unknown value returns an empty 200; a null stored locality and a
+customer with no stored addresses never match a supplied locality.
+
+The locality scopes AND inside the same stored address as
+`addressRouteId`, `addressFranchiseId` and `addressEnabled` — one
+customer-correlated `EXISTS` — so a city on one site plus a state or route
+on a different site of the same account never matches the combined
+request, and multiple matching sites never duplicate the customer. A
+locality supplied alone creates that same-site scope. Disabled sites
+count unless `addressEnabled` scopes them out; customer `enabled` stays
+fully independent. COUNT and page share predicates and binds; effective
+locality selectors travel in relative next Links in both directions and
+across offset-to-seek conversion. Invalid, blank, whitespace-only,
+overlength or repeated values (including encoded duplicate names) fail
+with the fixed value-free 400 after authentication and before D1/304;
+send one supported value per named key, or omit it, and retry.
+
+Site locality is mirrored text on the service address, not a customer
+headquarters location, not a geocoding result, not postal verification,
+not service-territory eligibility and not proof of service. It provides
+no snapshot isolation: concurrent writes can change later pages,
+and mirrored membership never authorizes deletion, reconciliation or
+sync.
+
+Run `npm run check:focused -- customer-address-locality`; the independent
+`test/customerAddressLocality.acceptance.test.ts` uses synthetic local D1,
+forbids fetch/R2/writes and verifies split-site decoys, count-mode
+parity, complete bidirectional traversal and child-index SEARCH plans
+for both COUNT and rows. This is local planner evidence, not a
+production latency claim. No migration/index change. GET is an
+idempotent local-read operation; CLI `--dry-run` is N/A. See the
+[local recipe](CONSUMER-QUICKSTART.md#customer-service-site-locality) and
 [correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
 
 ## Customer stored-phone presence

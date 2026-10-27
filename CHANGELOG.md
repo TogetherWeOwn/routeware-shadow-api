@@ -55,6 +55,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   before D1/304. No writes, new index/migration or latency promise. Local
   recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
   check: `npm run check:focused -- customer-address-service-policy`.
+- #431: Customer snapshot lists accept optional `addressCity`, `addressState`
+  and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
+  code points including a non-whitespace character; leading zeros and
+  significant whitespace preserved; no trimming, normalization or
+  abbreviation conversion) on a stored child service address's
+  `city`/`state`/`zip`. They AND inside the SAME stored address as
+  `addressRouteId`, `addressFranchiseId` and `addressEnabled` in one
+  correlated EXISTS, so a city on one site plus a state or route on
+  another site never matches and multiple matching sites return the
+  account once; a locality alone creates the scope, disabled sites count
+  unless `addressEnabled` scopes them out, and null stored locality never
+  matches. COUNT/page share predicates and binds with `countOnly`,
+  zero-COUNT `includeTotal=false`, sparse fields, ETag/304 and
+  locality-retaining relative next Links in both directions. Invalid,
+  blank, overlength or repeated values fail with the fixed value-free 400
+  after auth and before D1. Site locality is mirrored text on the service
+  address, not a customer headquarters location, geocoding result, postal
+  verification, service-territory eligibility or proof of service.
+  Synthetic account-by-site-locality recipe:
+  `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
+  check: `npm run check:focused -- customer-address-locality`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address

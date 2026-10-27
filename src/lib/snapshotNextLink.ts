@@ -66,6 +66,9 @@ type SnapshotListQuery = {
   addressRouteId?: number;
   addressFranchiseId?: string;
   addressEnabled?: "true" | "false" | "any";
+  addressCity?: string;
+  addressState?: string;
+  addressZip?: string;
   addressExtrasAllowed?: "true" | "false" | "any";
   addressLastAuditDate?: string;
   hasPhone1?: "true" | "false" | "any";
@@ -86,9 +89,12 @@ const LISTS = {
   customer: {
     path: "/api/v1/customer-snapshot",
     selectors: [
+      "addressCity",
       "addressFranchiseId",
       "addressLastAuditDate",
       "addressRouteId",
+      "addressState",
+      "addressZip",
       "comments",
       "customerId",
       "customerNumber",
