@@ -74,9 +74,9 @@ type SnapshotListQuery = {
   addressLastAuditDate?: string;
   hasPhone1?: "true" | "false" | "any";
   hasPhone2?: "true" | "false" | "any";
-  // Customer list only: validated, millisecond-normalized synced-window
-  // bounds; sibling lists omit these keys and keep unfiltered links.
-  syncedSince?: string;
+  // Customer list synced window (syncedSince is shared with the container
+  // list above): validated, millisecond-normalized bounds; lists that omit
+  // the keys keep unfiltered links.
   syncedUntil?: string;
   fields?: string[];
   lowerId?: number;
