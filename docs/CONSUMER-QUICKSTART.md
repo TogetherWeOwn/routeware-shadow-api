@@ -379,7 +379,7 @@ account hierarchy, service territory or proof of service. Stored NULLs
 never match and valid unknown numbers return an empty 200. Invalid, blank
 or repeated values receive the fixed value-free 400 before D1, after auth.
 
-Sites of one stored account, both numbers together:
+Sites of matching stored accounts, both numbers together:
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -390,7 +390,7 @@ Either number alone, then follow the relative next Link; each supplied
 number is retained and the unrequested companion is never invented:
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
+curl -sS -D - -H "Authorization: Bearer $TOKEN" \
   "http://localhost:8787/api/v1/address-snapshot?owningCustomerNumber=00042&limit=1"
 # Link: </api/v1/address-snapshot?owningCustomerNumber=00042&limit=1&cursor=11>; rel="next"
 ```
