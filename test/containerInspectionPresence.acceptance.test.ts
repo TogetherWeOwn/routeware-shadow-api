@@ -37,7 +37,7 @@ const COMPACTOR: Record<number, string | null> = {
 const ENCLOSURE: Record<number, string | null> = {
   101: "2026-02-06", 102: null, 103: "2026-02-06", 104: null, 105: "", 106: null,
   107: "", 108: null, 109: "\t\n ", 110: " x ", 111: "2026-04-02",
-  112: null, 113: null, 114: "",
+  112: null, 113: null, 114: "   ",
 };
 const CONTAINERS = [
   [101, 11, 1], [102, 11, 0], [103, 11, 1], [104, 11, 1], [105, 11, 1],
@@ -49,8 +49,8 @@ const ALL = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 11
 // stored text counts as present. False is the exact null-or-empty complement.
 const COMPACTOR_TRUE = [101, 102, 108, 110, 111, 113];
 const COMPACTOR_FALSE = [103, 104, 105, 106, 107, 109, 112, 114];
-const ENCLOSURE_TRUE = [101, 103, 109, 110, 111];
-const ENCLOSURE_FALSE = [102, 104, 105, 106, 107, 108, 112, 113, 114];
+const ENCLOSURE_TRUE = [101, 103, 109, 110, 111, 114];
+const ENCLOSURE_FALSE = [102, 104, 105, 106, 107, 108, 112, 113];
 const ids = (body: Body) => body.rows.map(row => row.container_id);
 const isCount = (s: Statement) => /\bCOUNT\s*\(/i.test(s.sql);
 let denied: string[];
@@ -210,8 +210,8 @@ describe("container inspection presence: stored text is countable without readin
     ["enclosure absent", { hasEnclosureInspection: "false" }, ENCLOSURE_FALSE],
     ["both present", { hasCompactorInspection: "true", hasEnclosureInspection: "true" }, [101, 110, 111]],
     ["compactor only", { hasCompactorInspection: "true", hasEnclosureInspection: "false" }, [102, 108, 113]],
-    ["enclosure only", { hasCompactorInspection: "false", hasEnclosureInspection: "true" }, [103, 109]],
-    ["neither", { hasCompactorInspection: "false", hasEnclosureInspection: "false" }, [104, 105, 106, 107, 112, 114]],
+    ["enclosure only", { hasCompactorInspection: "false", hasEnclosureInspection: "true" }, [103, 109, 114]],
+    ["neither", { hasCompactorInspection: "false", hasEnclosureInspection: "false" }, [104, 105, 106, 107, 112]],
   ] as const)("%s", async (_name, filters, want) => {
     for (const includeTotal of ["true", "false"]) {
       const result = await page({ ...filters, includeTotal });
@@ -223,11 +223,12 @@ describe("container inspection presence: stored text is countable without readin
   });
   it("counts whitespace-only stored text as present and empty string as absent", async () => {
     expect(ids((await page({ hasCompactorInspection: "true" })).body)).toContain(108);
-    expect(ids((await page({ hasEnclosureInspection: "true" })).body)).toContain(109);
+    expect(ids((await page({ hasEnclosureInspection: "true" })).body)).toEqual(expect.arrayContaining([109, 114]));
     expect(ids((await page({ hasCompactorInspection: "false" })).body)).toEqual(expect.arrayContaining([105, 106]));
-    expect(ids((await page({ hasEnclosureInspection: "false" })).body)).toEqual(expect.arrayContaining([105, 107, 114]));
+    expect(ids((await page({ hasEnclosureInspection: "false" })).body)).toEqual(expect.arrayContaining([105, 107]));
     expect(ids((await page({ hasCompactorInspection: "false" })).body)).not.toContain(108);
     expect(ids((await page({ hasEnclosureInspection: "false" })).body)).not.toContain(109);
+    expect(ids((await page({ hasEnclosureInspection: "false" })).body)).not.toContain(114);
   });
   it("omission and any preserve the same old no-join list and full stored row", async () => {
     const plain = await page();
@@ -303,9 +304,9 @@ describe.each(["true", "false"])("container inspection presence: intersection in
   it.each([
     [{}, ENCLOSURE_TRUE],
     [{ hasCompactorInspection: "true" }, [101, 110, 111]],
-    [{ hasCompactorInspection: "false" }, [103, 109]],
+    [{ hasCompactorInspection: "false" }, [103, 109, 114]],
     [{ customerId: "1" }, [101, 103, 109, 110, 111]],
-    [{ customerId: "2" }, []],
+    [{ customerId: "2" }, [114]],
     [{ pickupAddressId: "12" }, [111]],
     [{ ids: "101,103,105,108,113" }, [101, 103]],
     [{ materialStream: "MSW", color: "Blue" }, [111]],
@@ -313,14 +314,14 @@ describe.each(["true", "false"])("container inspection presence: intersection in
     [{ state: "TX" }, [111]],
     [{ zip: "99999" }, [101, 103, 109, 110]],
     [{ locationAddress: "Depot 111" }, [111]],
-    [{ q: "depot" }, [111]],
+    [{ q: "depot" }, [111, 114]],
     [{ q: "core" }, [101, 103, 109, 110]],
     [{ serialNumber: "SN-CORE", rfid: "TAG-CORE" }, [101, 103, 109, 110]],
     [{ enabled: "false" }, []],
-    [{ parentRouteId: "7", parentFranchiseId: "001", parentEnabled: "true" }, [101, 103, 109, 110]],
+    [{ parentRouteId: "7", parentFranchiseId: "001", parentEnabled: "true" }, [101, 103, 109, 110, 114]],
     [{ parentEnabled: "false" }, [111]],
     [{ upperId: "103" }, [101, 103]],
-    [{ cursor: "103" }, [109, 110, 111]],
+    [{ cursor: "103" }, [109, 110, 111, 114]],
     [{ order: "desc", cursor: "109" }, [103, 101]],
   ] as const)("enclosure=true AND-composes %j", async (filters, want) => {
     const result = await page({ hasEnclosureInspection: "true", ...filters, includeTotal });
@@ -330,10 +331,10 @@ describe.each(["true", "false"])("container inspection presence: intersection in
   it.each([
     [{ hasCompactorInspection: "false", customerId: "2" }, [114]],
     [{ hasCompactorInspection: "false", hasEnclosureInspection: "false", parentRouteId: "8" }, [112]],
-    [{ hasCompactorInspection: "false", hasEnclosureInspection: "false", parentEnabled: "true" }, [104, 105, 106, 107, 114]],
+    [{ hasCompactorInspection: "false", hasEnclosureInspection: "false", parentEnabled: "true" }, [104, 105, 106, 107]],
     [{ hasCompactorInspection: "false", q: "core" }, [103, 104, 105, 106, 107, 109]],
     [{ hasEnclosureInspection: "false", rfid: "TAG-CORE" }, [102, 104, 105, 106, 107, 108]],
-    [{ hasEnclosureInspection: "false", state: "CA" }, [113, 114]],
+    [{ hasEnclosureInspection: "false", state: "CA" }, [113]],
   ] as const)("absent cohorts AND-compose %j", async (filters, want) => {
     const result = await page({ ...filters, includeTotal });
     expect(ids(result.body)).toEqual([...want]);
@@ -355,9 +356,9 @@ describe("container inspection presence: shared COUNT/page predicates and count 
   });
   it.each([
     [{ hasCompactorInspection: "true" }, 6], [{ hasCompactorInspection: "false" }, 8],
-    [{ hasEnclosureInspection: "true" }, 5], [{ hasEnclosureInspection: "false" }, 9],
+    [{ hasEnclosureInspection: "true" }, 6], [{ hasEnclosureInspection: "false" }, 8],
     [{ hasCompactorInspection: "true", hasEnclosureInspection: "true" }, 3],
-    [{ hasCompactorInspection: "false", hasEnclosureInspection: "false" }, 6],
+    [{ hasCompactorInspection: "false", hasEnclosureInspection: "false" }, 5],
     [{ hasCompactorInspection: "true", customerId: "2" }, 1],
     [{ hasEnclosureInspection: "true", parentRouteId: "8" }, 1],
   ] as const)("countOnly counts %j with one COUNT, no rows and no Link", async (filters, total) => {
@@ -401,7 +402,6 @@ describe("container inspection presence: shared COUNT/page predicates and count 
       { container_id: 105, city: "Core City" }, { container_id: 106, city: "Core City" },
       { container_id: 107, city: "Core City" }, { container_id: 108, city: "Core City" },
       { container_id: 112, city: "Depot City" }, { container_id: 113, city: "Harbor City" },
-      { container_id: 114, city: "Harbor City" },
     ]);
   });
 });
@@ -425,9 +425,9 @@ describe.each(["true", "false"])("container inspection presence: followed links 
     expect(new Set(seen).size).toBe(4);
   });
   it.each([
-    ["asc", { offset: "1" }, [103, 109], 5, 109, [110, 111]],
-    ["desc", { offset: "1" }, [110, 109], 5, 109, [103, 101]],
-    ["asc", { cursor: "103", offset: "999" }, [109, 110], 3, 110, [111]],
+    ["asc", { offset: "1" }, [103, 109], 6, 109, [110, 111]],
+    ["desc", { offset: "1" }, [111, 110], 6, 110, [109, 103]],
+    ["asc", { cursor: "103", offset: "999" }, [109, 110], 4, 110, [111, 114]],
     ["desc", { cursor: "109", offset: "999" }, [103, 101], 2, 101, []],
   ] as const)("%s offset/seek %j", async (order, paging, want, total, cursor, following) => {
     const result = await page({ hasEnclosureInspection: "true", order, ...paging, limit: "2", includeTotal });
