@@ -2,8 +2,9 @@
 
 `package.json#version` is the single source of truth for the release
 version. The OpenAPI document (`GET /openapi.json`, `info.version`) reads it
-via `src/lib/version.ts` — bumping `package.json` moves the spec version with
-no other edit.
+via `src/lib/version.ts` — bumping `package.json` updates the live spec version.
+The checked-in [`openapi.json`](./openapi.json) must also be regenerated with
+`npx vitest run test/openapiContract.test.ts -u`.
 
 ## Bump policy (semver)
 
@@ -74,10 +75,11 @@ date.
    a new `## [x.y.z]` heading (dated), leaving an empty `## [Unreleased]`
    section at the top.
 3. The OpenAPI contract test (`test/openapiContract.test.ts`) asserts
-   `info.version` equals `package.json#version`, and the full-document
-   snapshot records the new version — run `npm test` and update the snapshot
-   with `vitest run test/openapiContract.test.ts -u` only after confirming
-   the version change is the sole diff.
+   `info.version` equals `package.json#version`, and `docs/openapi.json` records
+   the published contract. Run `npm test`; for a version-only release, run
+   `npx vitest run test/openapiContract.test.ts -u`, then confirm the generated
+   diff is limited to version values (including the `/api/v1/health` example).
+   Review any other contract diff as an intentional API change.
 4. Merge to `main` through the standard gates (CI green, review 5/5),
    then cut the release from green `main` per the tag convention below.
 
