@@ -5,6 +5,21 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
+  for case-sensitive exact stored service-site locality through the existing
+  shared address join. Each is opaque nonblank text of 1..100 Unicode code
+  points, preserving leading zeros and nonblank whitespace without trimming,
+  normalization, abbreviation conversion or enum. Parent and equipment
+  locality AND-compose independently with all existing filters; missing/null
+  parents do not match, and omission keeps unscoped orphan visibility.
+  COUNT/page parity, count-only/count-free reads, sparse ETags/304, strict
+  validation and relative next Links remain intact. Invalid or repeated
+  values fail with value-free corrective guidance after auth before D1/304.
+  Stored service-site locality is not equipment GPS, live geolocation,
+  postal verification or territory eligibility. Equality may scan: no new
+  index, migration or performance promise. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality`;
+  local check: `npm run check:container-parent-locality`.
 - #375: Container snapshot lists accept an optional `serviceCode` exact,
   case-sensitive filter (1..100 Unicode code points) matching the stored
   service code. Opaque values retain leading zeros and nonblank whitespace;
@@ -46,8 +61,8 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   directions (omitted bounds stay omitted). Stored sync time is mirror
   freshness, not upstream event time or proof of change content: this is a
   filter over current mirrored rows, not a changes feed, deletion history
-  or completeness claim — complete delta traversal stays on
-  `/api/v1/customer-snapshot/changes`. Unscoped window reads may scan; no
+  or completeness claim — resumable traversal of current upserts stays on
+  `/api/v1/customer-snapshot/changes` (also no deletion log or complete history). Unscoped window reads may scan; no
   index, migration or latency promise. Synthetic finite-window recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-synced-window`; local check:
   `npm run check:customer-synced-window`.
@@ -429,6 +444,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   This is declaration-only: single projections/ETag/304 and missing-root 404
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+- #393: Address and container snapshot lists accept `hasCoordinates=true|false|any`
+  (default `any`) for NULL-only stored-pair presence: true requires both stored
+  latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
+  empty, whitespace and non-numeric TEXT counts as present when non-null.
+  Disabled rows remain eligible; containers never inherit parent coordinates.
+  This is not geographic validity, accuracy, GPS lock or live position. Shared
+  COUNT/page predicates AND-compose with existing scopes; sparse/conditional
+  reads, count-free mode and bidirectional traversal stay compatible. Relative
+  next Links retain true/false and omit any/default. Invalid/empty/repeated
+  values fail before D1 with fixed value-free retry guidance. May scan; no new
+  endpoint, index, migration, upstream/R2 request or performance claim.
+  Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
+  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  local-read; CLI `--dry-run` is N/A.
 
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100

@@ -51,7 +51,7 @@ export const customerChangesUntilQuery = changesTimestamp
  */
 export const customerSyncedSinceQuery = changesTimestamp
   .optional()
-  .describe("Strict lower synced_at bound on the ordinary list: only rows stored after the instant qualify (synced_at > value; a row synced at the instant itself is excluded). UTC Z datetime with seconds or 1–3 fractional digits, normalized to milliseconds before comparison; more than 3 digits is rejected, never rounded/truncated. Empty, offset and repeated values are invalid — unlike the changes feed's since, an empty value here is a 400. Stored synced_at is mirror freshness, not upstream event time; for complete delta traversal use the changes feed. Omit for no lower bound.")
+  .describe("Strict lower synced_at bound on the ordinary list: only rows stored after the instant qualify (synced_at > value; a row synced at the instant itself is excluded). UTC Z datetime with seconds or 1–3 fractional digits, normalized to milliseconds before comparison; more than 3 digits is rejected, never rounded/truncated. Empty, offset and repeated values are invalid — unlike the changes feed's since, an empty value here is a 400. Stored synced_at is mirror freshness, not upstream event time; for resumable traversal of current upserts use the changes feed (not a deletion log or complete history). Omit for no lower bound.")
   .openapi({ example: "2025-12-31T00:00:00.000Z" });
 
 export const customerSyncedUntilQuery = changesTimestamp

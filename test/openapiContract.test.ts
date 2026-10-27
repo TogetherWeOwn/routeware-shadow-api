@@ -482,6 +482,22 @@ function withoutAddressContainerPresence(doc: OpenApiDocument): OpenApiDocument 
   return copy;
 }
 
+// The independent coordinate-presence oracle owns only this new query enum on
+// the two list GETs. All unrelated parameters remain in the legacy golden.
+function withoutCoordinatePresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || parameter.name !== "hasCoordinates");
+    }
+  }
+  return copy;
+}
+
 // Stored last-audit-date exact and presence selection has semantic checks in
 // the Test Author-owned addressLastAuditDate.acceptance.test.ts, not frozen
 // as speculative parameter positions. The address description and 400 prose
@@ -550,6 +566,25 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
         parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
+  }
+  return copy;
+}
+
+// The parent-site locality selectors' schemas, strict validation and
+// composition are asserted independently in
+// containerParentLocality.acceptance.test.ts, not frozen as parameter
+// position here. All legacy parameters stay frozen.
+function withoutContainerParentLocality(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["parentCity", "parentState", "parentZip"].includes(parameter.name ?? "")
+    );
   }
   return copy;
 }
@@ -921,7 +956,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerSyncedWindowParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument())))))));
+    const doc = withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerSyncedWindowParameters(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -970,7 +1005,7 @@ describe("published OpenAPI document", () => {
     // addressExtrasAllowed ownership; last-audit-date exact/presence moves to
     // addressLastAuditDate ownership; parent-customer enabled moves to
     // addressParentCustomerEnabled ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutCoordinatePresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
   });
 });
 
