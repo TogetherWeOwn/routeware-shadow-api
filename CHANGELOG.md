@@ -642,6 +642,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   a shared integer. No route, runtime, docs-rendering, workflow or migration
   change. Focused checks: `npx vitest run test/routeExamples.test.ts` and
   `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
+- #368 follow-up: Test-only: the `test/routeExamples.test.ts` per-operation
+  records now pin each parameter's location as well as its name
+  (`{ name, in: "query" | "path" }`), so remounting a parameter between query
+  and path with an unchanged name fails naming the operation, the location and
+  the name. No route, runtime, docs-rendering, workflow or migration change.
+  Focused checks: `npx vitest run test/routeExamples.test.ts` and
+  `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`
   caller-held inclusive ceiling: only rows whose resource primary key is at or
