@@ -1,22 +1,28 @@
 import { createRoute, z } from "@hono/zod-openapi";
-import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snapshotStrictQuery";
+import { rejectUnknownSnapshotListQuery } from "../lib/snapshotStrictQuery";
 import { customerRowExample, customerExportExample } from "./payloadExamples";
 import { customerSnapshotListResponse, customerSnapshotRowSchema } from "./snapshotRowSchemas";
-import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
-import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
-import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
-import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
-import { snapshotLowerIdQuery } from "../lib/snapshotLowerId";
-import { snapshotUpperIdQuery } from "../lib/snapshotUpperId";
+import { snapshotOrderSql } from "../lib/snapshotListOrder";
+import { snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
 import { customerChangesNextLink, customerChangesNextLinkHeader } from "../lib/customerChangesNextLink";
 import { customerChangesSinceQuery, customerChangesUntilQuery } from "../lib/customerChangesTimestamp";
 import { customerSnapshotChangesRow } from "../lib/customerChangesRow";
 import { projectSnapshotRow, snapshotFieldsQuery } from "../lib/sparseFieldsets";
-import { snapshotIdSelectionPredicate, snapshotIdSelectionQuery } from "../lib/snapshotIdSelection";
-import { customerAccountNumberQuery, customerAddressCityQuery, customerAddressCohortPredicate, customerAddressEnabledQuery, customerAddressExtrasAllowedQuery, customerAddressFranchiseIdQuery, customerAddressLastAuditDateQuery, customerAddressPresencePredicate, customerAddressPresenceQuery, customerAddressRouteIdQuery, customerAddressStateQuery, customerAddressZipQuery, customerCommentsQuery, customerContainerPresencePredicate, customerContainerPresenceQuery, customerEnabledAddressPresencePredicate, customerEnabledAddressPresenceQuery, customerEnabledContainerPresencePredicate, customerEnabledContainerPresenceQuery, customerPhone1PresenceQuery, customerPhone2PresenceQuery, customerPhoneFragmentPredicate, customerPhoneFragmentQuery, customerPhonePresencePredicate } from "../lib/snapshotCustomerSelectors";
-import { snapshotListConditionalHeaders, snapshotListEtagHeaders, snapshotListNotModifiedResponse, snapshotListJsonResponse } from "../lib/snapshotListConditional";
+import { snapshotIdSelectionPredicate } from "../lib/snapshotIdSelection";
+import { customerSnapshotListQuery } from "../lib/customerSnapshotListQuery";
+import { customerAddressCohortPredicate, customerAddressPresencePredicate, customerContainerPresencePredicate, customerEnabledAddressPresencePredicate, customerEnabledContainerPresencePredicate, customerPhoneFragmentPredicate, customerPhonePresencePredicate } from "../lib/snapshotCustomerSelectors";
+import { snapshotListModeExamples } from "../lib/snapshotCountOnly";
+import {
+  snapshotListConditionalHeaders,
+  snapshotListEtagHeaders,
+  snapshotListNotModifiedResponse,
+  snapshotListJsonResponse
+} from "../lib/snapshotListConditional";
 import { snapshotByIdConditional } from "../lib/snapshotByIdConditional";
-import { runCustomerSnapshotSync, syncCustomerSnapshotFromStream } from "../lib/d1SnapshotSync";
+import {
+  runCustomerSnapshotSync,
+  syncCustomerSnapshotFromStream
+} from "../lib/d1SnapshotSync";
 import { parseRunIdHeader } from "../lib/snapshot/orchestration";
 // Guard values come from the deep module, not the facade: `test/snapshotRoutes.test.ts`
 // mocks `../lib/d1SnapshotSync` with only the six sync functions, so any other
@@ -57,43 +63,13 @@ const customerSnapshotListRoute = createRoute({
   tags: ["customer-snapshot"],
   summary: "List customer snapshot rows (D1)",
   description:
-    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, exact `customerNumber` and/or `subCustomerNumber`, customer-name substring `q` (a match in any one of `company_name`, `first_name` or `last_name`), stored-phone substring `phone`, `enabled`, or mirrored presence `hasAddresses` / `hasContainers` / `hasEnabledAddresses` / `hasEnabledContainers`; all supplied filters are AND-composed. Enabled-descendant presence requires stored enabled exactly 1; container reachability uses any owned address regardless of its enabled state. False includes zero descendants and descendants all non-1. Customer enabled stays independent; mirrored report state is not account eligibility, live service status, deployment proof or authorization. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. `phone` is an ASCII case-insensitive substring over the stored `phone1`/`phone2` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (`q` or `phone` without a selective predicate) scan the table: no phone index exists and none is added. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
+    "Reads the cached Routeware customer CSV (see `CUSTOMER_SNAPSHOT.md`). Filter by `customerId`, stored-classification `customerTypeId`, exact `customerNumber` and/or `subCustomerNumber`, customer-name substring `q` (a match in any one of `company_name`, `first_name` or `last_name`), stored-phone substring `phone`, `enabled`, or mirrored presence `hasAddresses` / `hasContainers` / `hasEnabledAddresses` / `hasEnabledContainers`; all supplied filters are AND-composed. Enabled-descendant presence requires stored enabled exactly 1; container reachability uses any owned address regardless of its enabled state. False includes zero descendants and descendants all non-1. Customer enabled stays independent; mirrored report state is not account eligibility, live service status, deployment proof or authorization. Business numbers are case-sensitive opaque strings, not unique keys: return every matching customer_id, including duplicate business references. Null stored numbers do not match strings. `phone` is an ASCII case-insensitive substring over the stored `phone1`/`phone2` text (SQLite lower() folds A-Z only, so non-ASCII case variants match only on exact case; no normalization or digit-stripping), so a last-seven-digits fragment resolves its owner without downloading every customer. Substring-only selections (`q` or `phone` without a selective predicate) scan the table: no phone index exists and none is added. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET. **Try it:** authorize with `SHADOW_API_TOKEN` (or `SHADOW_API_READ_TOKEN` for GET-only access), select Test Request, and Send with `limit=10` and `enabled=true`. This only reads local D1; it does not import, sync, or contact Routeware.",
   request: {
     headers: snapshotListConditionalHeaders,
-    query: z.object({
-      customerId: z.coerce.number().int().optional().openapi({ example: 345734 }),
-      ids: snapshotIdSelectionQuery(),
-      customerNumber: customerAccountNumberQuery.optional()
-        .describe("Exact case-sensitive customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
-        .openapi({ example: "00042" }),
-      subCustomerNumber: customerAccountNumberQuery.optional()
-        .describe("Exact case-sensitive sub_customer_number; opaque string of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Supply this key once; AND-composes with every other filter.")
-        .openapi({ example: "North" }),
-      q: snapshotSearchQuery.optional().describe("Customer name substring matched against any one of company_name, first_name or last_name (ASCII case-insensitive; maximum 100 Unicode code points). SQLite lower() folds A-Z only; non-ASCII case variants match only on exact case. A match in one column qualifies; substring search, not an exact identity lookup.").openapi({ example: "ExampleCo" }),
-      phone: customerPhoneFragmentQuery.optional().openapi({ example: "5550107" }),
-      comments: customerCommentsQuery,
-      hasAddresses: customerAddressPresenceQuery, hasEnabledAddresses: customerEnabledAddressPresenceQuery, hasEnabledContainers: customerEnabledContainerPresenceQuery,
-      addressRouteId: customerAddressRouteIdQuery, addressFranchiseId: customerAddressFranchiseIdQuery, addressEnabled: customerAddressEnabledQuery, addressCity: customerAddressCityQuery, addressState: customerAddressStateQuery, addressZip: customerAddressZipQuery, addressExtrasAllowed: customerAddressExtrasAllowedQuery, addressLastAuditDate: customerAddressLastAuditDateQuery, hasPhone1: customerPhone1PresenceQuery, hasPhone2: customerPhone2PresenceQuery, hasContainers: customerContainerPresenceQuery,
-      enabled: z.enum(["true", "false", "any"]).optional().default("any").openapi({ example: "true" }),
-      limit: z.coerce.number().int().min(1).max(500).default(50).openapi({ example: 10 }),
-      offset: z.coerce.number().int().min(0).default(0).openapi({ example: 0 }),
-      cursor: z.coerce
-        .number()
-        .int()
-        .optional()
-        .describe("Last customer_id from the previous page's nextCursor in the same order; takes precedence over offset. Changing direction starts a new traversal.")
-        .openapi({ example: 345733 }),
-      lowerId: snapshotLowerIdQuery,
-      upperId: snapshotUpperIdQuery,
-      includeTotal: z.enum(["true", "false"]).optional().default("true")
-        .describe(
-          "Count opt-out: \"false\" skips the COUNT query and returns total null (deliberately not computed) with the same rows and nextCursor"
-        )
-        .openapi({ example: "false" }),
-      exactNext: snapshotExactNextQuery,
-      order: snapshotOrderQuery,
-      fields: snapshotFieldsQuery("customer"), countOnly: snapshotCountOnlyQuery, strictQuery: snapshotStrictQuery
-    }).refine(snapshotCountModeCompatible, { path: ["countOnly"] })
+    // Query contract lives in `src/lib/customerSnapshotListQuery.ts` so this
+    // file stays under the 800-line source guard; the object is referenced,
+    // not copied, so validation and OpenAPI stay identical.
+    query: customerSnapshotListQuery
   },
   responses: {
     200: {
@@ -109,7 +85,7 @@ const customerSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasContainers` (send one hasContainers=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasEnabledAddresses` or `hasEnabledContainers` (send one hasEnabledAddresses=true, false or any and one hasEnabledContainers=true, false or any, or omit the selectors and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/blank/overlength/repeated `addressCity` (send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/blank/overlength/repeated `addressState` (send one addressState of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/blank/overlength/repeated `addressZip` (send one addressZip of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/empty/repeated `addressExtrasAllowed` (send one addressExtrasAllowed=true, false or any, or omit the selector and retry), invalid/blank/overlength/repeated `addressLastAuditDate` (send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json). strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. The zod validator rejects empty, whitespace-only, repeated or over-100-Unicode-code-point `customerNumber`/`subCustomerNumber`, a non-canonical `customerTypeId` (anything but one unpadded ASCII nonnegative safe integer), blank, repeated or over-100-Unicode-code-point `phone` (1..100 Unicode code points, never whitespace-only), `q` longer than 100 Unicode code points, repeated or overlength `comments` (send one comments fragment of at most 100 Unicode code points before trimming, or omit comments and retry; blank is omitted), an out-of-range `limit`/`offset`, an unknown `enabled` value, invalid/empty/repeated `hasAddresses` (send one hasAddresses=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasContainers` (send one hasContainers=true, false or any, or omit the selector and retry), invalid/empty/repeated `hasEnabledAddresses` or `hasEnabledContainers` (send one hasEnabledAddresses=true, false or any and one hasEnabledContainers=true, false or any, or omit the selectors and retry), invalid/empty/repeated `addressRouteId` (send one canonical unpadded nonnegative ASCII safe integer, or omit it and retry), invalid/blank/overlength/repeated `addressFranchiseId` (send one nonblank opaque string of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `addressEnabled` (send one addressEnabled=true, false or any, or omit the selector and retry), invalid/blank/overlength/repeated `addressCity` (send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/blank/overlength/repeated `addressState` (send one addressState of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/blank/overlength/repeated `addressZip` (send one addressZip of 1..100 Unicode code points that is not blank, or omit it and retry), invalid/empty/repeated `addressExtrasAllowed` (send one addressExtrasAllowed=true, false or any, or omit the selector and retry), invalid/blank/overlength/repeated `addressLastAuditDate` (send one nonblank addressLastAuditDate of 1..100 Unicode code points, or omit it and retry), invalid/empty/repeated `hasPhone1`/`hasPhone2` (send one hasPhone1=true, false or any and one hasPhone2=true, false or any, or omit the selectors and retry), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member) before any D1 query runs. Supply each account-number key once with 1..100 Unicode code points including a non-whitespace character, or omit it, then retry. Send customerTypeId once as unpadded ASCII digits from 0 to 9007199254740991, or omit it. Send a single nonblank `phone` of 1..100 Unicode code points, or omit it. Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values; see docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -129,6 +105,13 @@ customerSnapshotRoutes.openapi(customerSnapshotListRoute, async (c) => {
   if (p.ids !== undefined) {
     where.push(snapshotIdSelectionPredicate("customer", p.ids.length));
     binds.push(...p.ids);
+  }
+  // Stored classification equality: one bound predicate shared with the
+  // COUNT below. SQL NULL never equals the literal, so null rows simply do
+  // not match; omission adds no predicate and preserves previous matches.
+  if (p.customerTypeId !== undefined) {
+    where.push("customer_type_id = ?");
+    binds.push(p.customerTypeId);
   }
   if (p.customerNumber !== undefined) {
     where.push("customer_number = ?");
