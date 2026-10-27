@@ -191,6 +191,94 @@ curl -H "Authorization: Bearer $TOKEN" \
 # Stop on null from a partial page or the empty page after a full terminal page.
 ```
 
+### Exact-selector examples are synthetic
+
+Every example value shown for an opaque exact selector — in these docs and
+in the mounted OpenAPI — is invented for illustration. It is not taken from
+any dataset, and the examples together are not a vocabulary or allowlist of
+stored values. Sending an example verbatim may legitimately return an
+empty 200.
+
+That empty 200 is ambiguous by design: it cannot distinguish an absent
+cohort from a spelling, case or whitespace miss, because exact selectors
+match stored text byte-for-byte with no trimming or normalization. No
+dedicated endpoint enumerates the stored values of these columns — none
+exists and none is promised. Authorized full-snapshot exports stream whole
+rows, so they contain the selector columns, but they are bulk reads, not a
+vocabulary surface.
+
+To obtain a real spelling safely, read it from rows you are already
+authorized to read — a sparse `fields=` list read or a by-id read — copy
+the stored value byte-for-byte URL-encoded, and probe with `countOnly`
+before paging. The value below (`Exampleton`) is fake:
+
+```bash
+# 1. Read a real stored spelling from an authorized sparse read.
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?fields=city&limit=1"
+# 2. Copy the returned city spelling byte-for-byte, URL-encoded
+#    (illustrated with the fake value Exampleton), and probe first:
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?city=Exampleton&countOnly=true"
+# {"rows":[],"total":0,"nextCursor":null} — absent cohort OR spelling miss;
+# total > 0 confirms the spelling exists before you page it.
+```
+
+The opaque exact selectors are, per snapshot list (parameter → stored
+column; this inventory was re-derived from the mounted list query schemas,
+and the mounted OpenAPI stays authoritative if they ever disagree):
+
+| `GET /api/v1/customer-snapshot` | Stored column |
+| --- | --- |
+| `customerNumber` | `customer_number` |
+| `subCustomerNumber` | `sub_customer_number` |
+| `addressRouteId` | child address `route_id` |
+| `addressFranchiseId` | child address `franchise_id` |
+| `addressCity` | child address `city` |
+| `addressState` | child address `state` |
+| `addressZip` | child address `zip` |
+| `addressLastAuditDate` | child address `last_audit_date` |
+
+| `GET /api/v1/address-snapshot` | Stored column |
+| --- | --- |
+| `routeId` | `route_id` |
+| `franchiseId` | `franchise_id` |
+| `zip` | `zip` |
+| `streetAddress` | `address` |
+| `city` | `city` |
+| `state` | `state` |
+| `lastAuditDate` | `last_audit_date` |
+
+| `GET /api/v1/container-snapshot` | Stored column |
+| --- | --- |
+| `parentRouteId` | parent address `route_id` |
+| `parentFranchiseId` | parent address `franchise_id` |
+| `parentCity` | parent address `city` |
+| `parentState` | parent address `state` |
+| `parentZip` | parent address `zip` |
+| `containerTypeId` | `container_type_id` |
+| `serialNumber` | `serial_number` |
+| `rfid` | `rfid` |
+| `serviceCode` | `service_code` |
+| `materialStream` | `ud_material_stream_ud` |
+| `color` | `color` |
+| `serviceCodeType` | `service_code_type` |
+| `serviceCodeInput` | `service_code_input` |
+| `zip` | `zip` |
+| `locationAddress` | `location_address` |
+| `city` | `city` |
+| `state` | `state` |
+
+Finite enums (`enabled`, `extrasAllowed`, `onCall`, `gpsLocked`,
+`parentEnabled` and the other `true|false|any` selectors) and presence
+selectors (`hasAddresses`, `hasContainers`, `hasPhone1`, `hasPhone2`,
+`hasSerialNumber`, `hasRfid`, `hasLastAuditDate`, `hasCoordinates`) are excluded from this
+inventory: they are not vocabularies either — their full domains are the
+published `true`/`false`/`any` spellings. Substring searches (`q`,
+`phone`, `comments`, `driverNote`) and primary-key selectors (`customerId`,
+`pickupAddressId`, `containerId`, `ids`) are likewise outside the exact
+stored-value contract above.
+
 ### Stored container instruction fragment
 
 Use `note` for a known fragment of stored `container_note`; use `q` for
