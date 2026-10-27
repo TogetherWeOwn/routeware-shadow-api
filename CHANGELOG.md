@@ -5,6 +5,32 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
+  optional `note` searches only stored `container_note` by bound literal
+  substring, independently AND-composed with `q` and all other scopes.
+  Trim boundaries before the maximum 100 Unicode code points; blank is omitted.
+  Repeated/overlength values fail value-free before D1; SQLite folding is
+  ASCII-only, without Unicode normalization or LIKE wildcards. Relative next
+  Links retain normalized note in asc/desc traversal; counted/count-free reads,
+  sparse IDs and ETag/304 semantics remain intact. No dedicated note index,
+  migration, upstream call or schedule inference; substring-only reads scan.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
+  focused local check: `npm run check:container-note-search`.
+- #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
+  for case-sensitive exact stored service-site locality through the existing
+  shared address join. Each is opaque nonblank text of 1..100 Unicode code
+  points, preserving leading zeros and nonblank whitespace without trimming,
+  normalization, abbreviation conversion or enum. Parent and equipment
+  locality AND-compose independently with all existing filters; missing/null
+  parents do not match, and omission keeps unscoped orphan visibility.
+  COUNT/page parity, count-only/count-free reads, sparse ETags/304, strict
+  validation and relative next Links remain intact. Invalid or repeated
+  values fail with value-free corrective guidance after auth before D1/304.
+  Stored service-site locality is not equipment GPS, live geolocation,
+  postal verification or territory eligibility. Equality may scan: no new
+  index, migration or performance promise. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality`;
+  local check: `npm run check:container-parent-locality`.
 - #408: Optional `hasCostShare` / `hasEnclosureDoors` on the existing
   container snapshot list: presence-only selectors over the stored
   `ud_cost_share_ud` / `ud_enclosure_doors_ud` text, so equipment carrying
@@ -48,7 +74,6 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   before D1/304. No writes, new index/migration or latency promise. Local
   recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
   check: `npm run check:customer-address-service-policy`.
-
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
@@ -426,6 +451,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   This is declaration-only: single projections/ETag/304 and missing-root 404
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+- #393: Address and container snapshot lists accept `hasCoordinates=true|false|any`
+  (default `any`) for NULL-only stored-pair presence: true requires both stored
+  latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
+  empty, whitespace and non-numeric TEXT counts as present when non-null.
+  Disabled rows remain eligible; containers never inherit parent coordinates.
+  This is not geographic validity, accuracy, GPS lock or live position. Shared
+  COUNT/page predicates AND-compose with existing scopes; sparse/conditional
+  reads, count-free mode and bidirectional traversal stay compatible. Relative
+  next Links retain true/false and omit any/default. Invalid/empty/repeated
+  values fail before D1 with fixed value-free retry guidance. May scan; no new
+  endpoint, index, migration, upstream/R2 request or performance claim.
+  Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
+  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  local-read; CLI `--dry-run` is N/A.
 
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100
