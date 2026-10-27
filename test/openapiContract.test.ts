@@ -390,6 +390,24 @@ function withoutCustomerAddressCohortParameters(doc: OpenApiDocument): OpenApiDo
 }
 
 /**
+ * Customer site-locality schemas, examples, single-list scope and outcomes are
+ * independently owned by customerAddressLocality.acceptance.test.ts. Remove
+ * only these three new query parameters; preserve every existing golden
+ * contract.
+ */
+function withoutCustomerAddressLocalityParameters(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/customer-snapshot"]?.get as
+    | { parameters?: Array<{ name?: string; in?: string }> }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter(p => p.in !== "query" ||
+      !["addressCity", "addressState", "addressZip"].includes(p.name ?? ""));
+  }
+  return copy;
+}
+
+/**
  * The opt-in exact next-page signal (`exactNext`) is owned by
  * snapshotExactNext.acceptance.test.ts: its schema, mounted position,
  * description guidance and absence from every other operation are pinned
@@ -485,6 +503,22 @@ function withoutAddressStreetPresence(doc: OpenApiDocument): OpenApiDocument {
   return copy;
 }
 
+// The independent coordinate-presence oracle owns only this new query enum on
+// the two list GETs. All unrelated parameters remain in the legacy golden.
+function withoutCoordinatePresence(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  for (const resource of ["address", "container"]) {
+    const operation = copy.paths[`/api/v1/${resource}-snapshot`]?.get as
+      | { parameters?: Array<{ name?: string; in?: string }> }
+      | undefined;
+    if (operation?.parameters) {
+      operation.parameters = operation.parameters.filter((parameter) =>
+        parameter.in !== "query" || parameter.name !== "hasCoordinates");
+    }
+  }
+  return copy;
+}
+
 // Stored last-audit-date exact and presence selection has semantic checks in
 // the Test Author-owned addressLastAuditDate.acceptance.test.ts, not frozen
 // as speculative parameter positions. The address description and 400 prose
@@ -533,7 +567,8 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerParentScopes.acceptance.test.ts and
 // containerServiceCodeParts.acceptance.test.ts,
 // containerSerialRfidPresence.acceptance.test.ts and
-// containerOnCallGpsLocked.acceptance.test.ts, not frozen as speculative
+// containerOnCallGpsLocked.acceptance.test.ts and
+// containerNoteSearch.acceptance.test.ts, not frozen as speculative
 // prose or parameter position. All legacy parameters and unrelated operations
 // remain frozen.
 function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocument {
@@ -550,9 +585,28 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "materialStream", "color", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
       );
     }
+  }
+  return copy;
+}
+
+// The parent-site locality selectors' schemas, strict validation and
+// composition are asserted independently in
+// containerParentLocality.acceptance.test.ts, not frozen as parameter
+// position here. All legacy parameters stay frozen.
+function withoutContainerParentLocality(doc: OpenApiDocument): OpenApiDocument {
+  const copy = structuredClone(doc);
+  const operation = copy.paths["/api/v1/container-snapshot"]?.get as
+    | {
+      parameters?: Array<{ name?: string; in?: string }>;
+    }
+    | undefined;
+  if (operation?.parameters) {
+    operation.parameters = operation.parameters.filter((parameter) =>
+      parameter.in !== "query" || !["parentCity", "parentState", "parentZip"].includes(parameter.name ?? "")
+    );
   }
   return copy;
 }
@@ -924,7 +978,7 @@ describe("published OpenAPI document", () => {
 
   it("matches the recorded document byte for byte", async () => {
     // Arrange / Act
-    const doc = withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))));
+    const doc = withoutCustomerAddressLocalityParameters(withoutContainerParentLocality(withoutCustomerAddressCohortParameters(withoutExactNextParameter(withoutCustomerPhonePresenceParameters(withoutCustomerContainerPresence(withoutCustomerCommentsParameter(withoutDedicatedSyncFailureMetadata(await fetchOpenApiDocument()))))))));
 
     // Assert — full-document freeze: descriptions, parameters, response
     // schemas and per-operation tags all have to survive the refactor. The
@@ -970,7 +1024,7 @@ describe("published OpenAPI document", () => {
     // addressLastAuditDate ownership; parent-customer enabled moves to
     // addressParentCustomerEnabled ownership; stored street-text presence moves to
     // addressStreetPresence ownership; all other golden contracts stay pinned.
-    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressStreetPresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc))))))))))))))).toMatchSnapshot();
+    expect(withoutIdSelectionExtension(withoutDedicatedListMetadata(withoutAgentMetadata(withoutAddressScopeContract(withoutAddressExtrasAllowedContract(withoutContainerTypeFilter(withoutContainerIdentifierAdditions(withoutAddressContainerPresence(withoutAddressStreetPresence(withoutCoordinatePresence(withoutAddressLastAuditDate(withoutAddressParentCustomerEnabled(withoutHydratedBundleDeclarations(withoutCustomerNameSearchContract(withoutDedicatedChangesIntervalMetadata(doc)))))))))))))))).toMatchSnapshot();
   });
 });
 
