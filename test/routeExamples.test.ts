@@ -360,7 +360,8 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+      "addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers",
+      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -408,8 +409,9 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     method: "get",
     mediaType: "application/json",
     parameterNames: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers",
-      "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers", "hasCoordinates",
+      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled",
+      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
   {
@@ -457,10 +459,11 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     method: "get",
     mediaType: "application/json",
     parameterNames: [
-      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "hasCompactorInspection", "hasEnclosureInspection",
-      "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ]
+      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "serviceCode", "containerTypeId",
+      "hasSerialNumber", "hasRfid", "hasCompactorInspection", "hasEnclosureInspection",
+      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
+      "q", "note", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    ].concat(["parentCity", "parentState", "parentZip"])
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",

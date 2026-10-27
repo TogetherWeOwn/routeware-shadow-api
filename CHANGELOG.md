@@ -5,6 +5,268 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
+  optional `note` searches only stored `container_note` by bound literal
+  substring, independently AND-composed with `q` and all other scopes.
+  Trim boundaries before the maximum 100 Unicode code points; blank is omitted.
+  Repeated/overlength values fail value-free before D1; SQLite folding is
+  ASCII-only, without Unicode normalization or LIKE wildcards. Relative next
+  Links retain normalized note in asc/desc traversal; counted/count-free reads,
+  sparse IDs and ETag/304 semantics remain intact. No dedicated note index,
+  migration, upstream call or schedule inference; substring-only reads scan.
+  Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
+  focused local check: `npm run check:container-note-search`.
+- #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
+  for case-sensitive exact stored service-site locality through the existing
+  shared address join. Each is opaque nonblank text of 1..100 Unicode code
+  points, preserving leading zeros and nonblank whitespace without trimming,
+  normalization, abbreviation conversion or enum. Parent and equipment
+  locality AND-compose independently with all existing filters; missing/null
+  parents do not match, and omission keeps unscoped orphan visibility.
+  COUNT/page parity, count-only/count-free reads, sparse ETags/304, strict
+  validation and relative next Links remain intact. Invalid or repeated
+  values fail with value-free corrective guidance after auth before D1/304.
+  Stored service-site locality is not equipment GPS, live geolocation,
+  postal verification or territory eligibility. Equality may scan: no new
+  index, migration or performance promise. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality`;
+  local check: `npm run check:container-parent-locality`.
+- #375: Container snapshot lists accept an optional `serviceCode` exact,
+  case-sensitive filter (1..100 Unicode code points) matching the stored
+  service code. Opaque values retain leading zeros and nonblank whitespace;
+  invalid/repeated selectors return value-free 400s before D1. The filter
+  composes with AND alongside every existing selector, preserves duplicate
+  matches and travels in encoded next-page links. Existing count-free,
+  sparse and conditional reads are preserved. Local read-only D1 only; no
+  schema/index, upstream or auth changes. Synthetic lookup recipe and
+  focused check: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+- #432: Customer snapshot lists accept `addressExtrasAllowed=true|false|any`
+  (stored `extras_allowed` = 1/0/no predicate) and opaque exact
+  `addressLastAuditDate` (1..100 Unicode code points, nonblank,
+  case-sensitive and verbatim, never date-parsed). Both AND with existing
+  route/franchise/site-state scopes inside one same-address EXISTS:
+  split-site matches are excluded and multiple matching sites never duplicate
+  accounts. Null audit text never matches; valid unknown text is an empty
+  200. Extras is a mirrored service-policy marker, not billing authorization;
+  audit is report data, not compliance, certification or proof an audit occurred.
+  Shared COUNT/page predicates, COUNT-only/count-free modes, sparse fields,
+  ETags/304 and bidirectional relative next Links are preserved. Malformed,
+  blank, overlength or repeated decoded keys fail value-free after auth and
+  before D1/304. No writes, new index/migration or latency promise. Local
+  recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
+  check: `npm run check:customer-address-service-policy`.
+- #419: Container snapshot lists accept an optional exact stored `city`:
+  one nonblank case-sensitive opaque string of 1..100 Unicode code points
+  bound as `c.city = ?` on the container row only, never the parent address
+  city. Leading zeros, case, punctuation and significant whitespace are
+  preserved; stored nulls never match and valid unknown cities return an
+  empty 200. The selector AND-composes with every existing container filter
+  with shared COUNT/page scope, COUNT-only `countOnly`, zero-COUNT
+  `includeTotal=false`, sparse fields, ETags/304 and city-retaining relative
+  next Links in asc/desc, including offset-to-seek. Unlike `city`, `q` stays
+  a trimmed substring over location/serial/city/zip; supplying both
+  intersects. Empty/whitespace-only, repeated and overlength values fail with
+  the existing value-free 400 after auth and before D1. Stored city is
+  mirrored text, not geolocation; unscoped equality scans with no
+  index/migration or latency claim. Synthetic city-vs-`q` recipe:
+  `docs/CONSUMER-QUICKSTART.md#exact-stored-container-city`; local check:
+  `npm run check:container-exact-city`.
+- #415: Optional `hasContainers=true|false|any` (default `any`) on the
+  existing customer snapshot list: `true` keeps accounts with at least one
+  stored container reachable through any stored address they own, `false`
+  the exact NOT EXISTS complement — disabled addresses and containers count
+  as stored, orphan containers never qualify, and a customer row is never
+  duplicated. Presence is global to the customer: it AND-composes with
+  `hasAddresses` and every existing selector in the shared COUNT/page WHERE
+  without claiming the equipment sits on any site a separate cohort
+  selector matched; `hasAddresses=false&hasContainers=true` is a 200 empty
+  page. `countOnly=true` keeps the existing COUNT-only path and
+  `includeTotal=false` stays count-free; effective values round-trip in
+  relative next Links while `any`/default stays out. Absence means no
+  currently mirrored reachable equipment — not upstream emptiness, active
+  service, authorization, reconciliation or deletion authority. Invalid,
+  blank, repeated or encoded-duplicate values fail with the fixed
+  value-free 400 after auth and before D1. Uses the existing foreign-key
+  lookup indexes; no new index, migration or latency promise. Synthetic
+  present/absent and contradiction recipes: `docs/CONSUMER-QUICKSTART.md`;
+  focused check: `npm run check:customer-container-presence`.
+- #412: Optional `addressRouteId`, `addressFranchiseId` and
+  `addressEnabled=true|false|any` (default `any`) on the ordinary customer
+  snapshot list only, selecting accounts in a mirrored
+  route/franchise/site-state cohort without downloading sites. Effective
+  scopes AND inside one customer-correlated `EXISTS`, so all three must
+  match the same stored address: split-child scopes never match, duplicate
+  matching sites never duplicate the customer, and null stored scalars
+  never match equality. Route is one canonical unpadded ASCII safe integer
+  `0..9007199254740991` (zero is literal); franchise is one case-sensitive
+  opaque string of 1..100 Unicode code points preserving leading zeros and
+  significant whitespace. All stored children, including disabled, remain
+  eligible unless `addressEnabled` explicitly filters them; customer
+  `enabled` stays independent. The scope AND-composes with `hasAddresses`
+  and every merged selector in both COUNT and page SQL with identical
+  predicates/binds; `hasAddresses=false` plus an effective scope returns
+  an empty 200 contradiction. Effective scopes round-trip in relative next
+  Links; invalid/blank/overlength/repeated keys fail with the existing
+  fixed value-free 400 after read-role authentication and before D1.
+  Mirrored membership is not current upstream assignment, not a permission,
+  and not snapshot isolation. No migration or index; synthetic local
+  EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
+  `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
+  check: `npm run check:customer-address-cohorts`.
+- Optional `parentCustomerEnabled=true|false|any` (default `any`) on the
+  existing address snapshot list (`GET /api/v1/address-snapshot`): selects
+  sites by the related stored customer's `enabled` — `true` keeps only
+  stored `1`, `false` only stored `0` — via one correlated `EXISTS` with
+  qualified columns and no row multiplication, so enabled/disabled account
+  cohorts read without enumerating customers. Omission/`any` adds no parent
+  predicate and keeps orphan and noncanonical rows visible; explicit values
+  never match a missing parent. The site's own `enabled` stays independent
+  and both AND-compose with every existing selector in the shared COUNT/page
+  WHERE; `countOnly` stays COUNT-only, `includeTotal=false` count-free, and
+  relative next Links retain a filtering value. Mirrored stored customer
+  enabled is not current account eligibility, service permission, billing
+  status or authorization. Invalid, blank or repeated values fail with the
+  fixed value-free 400 after auth and before D1. No new index, migration or
+  latency claim; focused check:
+  `npm run check:address-parent-customer-enabled`.
+- #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
+  stored-state selectors (`true`|`false`|`any`, default `any`). Exact
+  case-sensitive enums match stored `1`/`0` via integer-literal predicates;
+  malformed, blank and repeated selectors return value-free 400s before D1.
+  Both predicates AND with every existing filter on the bare and
+  customer-join shapes, add no binds, and travel in `Link` continuations
+  (`any` omits canonically). Existing counted/count-free, sparse, seek and
+  conditional reads are preserved. Flags are stored snapshot values, not
+  equipment-mutation permission or proof of fresh GPS. Local read-only D1
+  only; no schema/index, upstream or auth changes. Synthetic follow-next
+  recipe: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
+  `npm run check:container-oncall-gps-locked`.
+
+- #409: Three ordinary snapshot lists (`GET
+  /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
+  caller-held inclusive floor: only rows whose resource primary key is at or
+  above the floor are listed and counted, alone or windowed with the `upperId`
+  ceiling. The caller retains its window unchanged across pages in either
+  direction, so out-of-window arrivals cannot extend the traversal; a
+  descending cursor at or below the floor yields an empty page with
+  cursor-relative totals, and crossed `lowerId` above `upperId` reads as an
+  empty cohort rather than a validation error. The floor composes with all
+  filters, `ids`, `q`, sparse `fields`, offset/cursor paging,
+  `includeTotal=false`, `countOnly` and `exactNext`, is preserved verbatim in
+  `Link` next targets, needs no migration or index, and omission preserves
+  existing behavior with no `MIN` query. Values are one canonical unpadded
+  ASCII decimal integer from `1` to `9007199254740991`; anything else is a
+  value-free 400 before D1, after read-role authentication. Numeric IDs are
+  not timestamps: in-window arrivals, updates and deletions remain visible,
+  with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
+  Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
+  check: `npm run check:snapshot-lower-id`.
+
+- #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
+  list: each selects rows by stored `phone1`/`phone2` text as stored —
+  `true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
+  exact null-or-empty complement — so missing-phone cohorts read without
+  downloading every customer's phone values. Both flags AND-compose with
+  each other and every existing selector in the shared COUNT/page WHERE;
+  `any`/omission adds no predicate, `countOnly=true` keeps the existing
+  COUNT-only path, and `includeTotal=false` stays count-free. Whitespace-only
+  stored text counts as present: no trimming, normalization, digit-stripping
+  or number validation. Stored presence is not a valid number, preferred
+  channel, contact consent, deliverability or reachability. Invalid, blank,
+  repeated or case-variant values fail with the fixed value-free 400 after
+  auth and before D1; effective values round-trip in relative next Links
+  while `any`/default stays out. Presence-only selections may scan; no phone
+  index or migration, no upstream hydration, no latency promise. Synthetic
+  neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-phone-presence`.
+
+- #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
+  dated and latest downloads (404 not-found, 409 replacement conflict),
+  the unreadable latest-pointer 500, the date-listing 500, and the
+  unbound-store 503 all resolve their problem `type` from the request
+  environment. Status, title, detail, instance,
+  headers, auth, request-id behavior and success/conditional bytes are
+  unchanged; absent, empty or whitespace-only overrides keep the exact
+  existing default. See
+  `docs/CONSUMER-QUICKSTART.md#problem-type-base-override`.
+- #405: Address snapshot lists accept optional `lastAuditDate` exact and
+  `hasLastAuditDate=true|false|any` (default `any`) selectors on stored
+  `last_audit_date` only. The exact value binds verbatim (1..100 Unicode
+  code points, case-sensitive, never parsed as a date, range or schedule);
+  null never matches and unknown values return 200 empty. Presence true
+  keeps stored text that is not null and not empty (whitespace-only counts
+  as present); false keeps exactly the null-or-empty complement; exact plus
+  false matches nothing. Both AND-compose with every merged scope with
+  identical COUNT/page predicates, countOnly COUNT-only and count-free
+  zero-COUNT behavior, and relative next Links retaining the validated
+  exact value and filtering presence. Malformed/overlength/repeated input
+  fails value-free before D1, after auth. Stored text is mirrored data, not
+  audit compliance, a schedule, overdue status or permission to act. No
+  index, migration, date-range support or latency guarantee. Synthetic
+  recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
+  local check: `npm run check:address-last-audit-date`.
+- #411: Optional `serviceCodeType` and `serviceCodeInput` on the existing container
+  snapshot list: exact case-sensitive equalities on the stored snapshot columns
+  `service_code_type` and `service_code_input` (mirrored CSV entry text, not service
+  history, dispatch state, proof of service or a controlled taxonomy), so equipment
+  carrying one known entry reads without downloading the whole inventory or guessing
+  from the composed `service_code`. Each is a single opaque string of 1..100 Unicode
+  code points with a non-whitespace character; leading zeros and significant
+  whitespace are preserved, null stored parts never match, and valid unknown values
+  return an empty 200. The two selectors AND-compose with each other and every
+  existing filter, `q`, `upperId`, sparse `fields`, offset/cursor paging and
+  `includeTotal=false` via one bound predicate per key in both the page `SELECT`
+  and the `COUNT`, on the container alias on both the bare and customer-join paths;
+  validated selectors round-trip in `Link` next targets. No composition, parsing,
+  migration, index or join; equality may scan with no latency claim; omission
+  preserves existing matches. Blank, overlength and repeated values are value-free
+  400s before D1, after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-service-code-parts`.
+- #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
+  `streetAddress` binds case-sensitive equality on the stored `address`,
+  returning all matching site IDs rather than partial-street/city/ZIP matches.
+  One nonblank opaque value of 1..200 Unicode code points preserves whitespace,
+  punctuation and leading zeros. Invalid/repeated values fail value-free
+  before D1 with a fixed retry action. AND composition, counted/count-free
+  pagination, sparse fields and ETags/304 remain compatible; relative next
+  links retain the encoded street. No normalization, postal verification,
+  geocoding, uniqueness, index/migration or upstream lookup is added; equality
+  may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
+  `npm run check:address-street-exact`.
+- #380: Optional `containerTypeId` on the existing container snapshot list:
+  exact equality on the stored snapshot column `container_type_id` (mirrored
+  CSV state, not a live lookup), so one equipment type reads without
+  downloading the whole inventory. One unpadded ASCII decimal safe integer
+  `0..9007199254740991`; `0` is literal stored zero while null stored types
+  never match. AND-composes with every existing filter, `upperId`, sparse
+  `fields`, offset/cursor paging and `includeTotal=false` via one bound
+  `c.container_type_id = ?` predicate in both the page `SELECT` and the
+  `COUNT`, on the container alias on both the bare and customer-join paths;
+  the validated selector round-trips in `Link` next targets. No type-name
+  catalog, migration, index or join; omission preserves existing matches.
+  Non-canonical spellings and repeated keys are value-free 400s before D1,
+  after read-role authentication. Synthetic recipe:
+  `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:container-type-filter`.
+
+- #407: The ordinary container snapshot list accepts optional `hasSerialNumber`
+  and `hasRfid`: exact `true|false|any` (default `any`) over stored identity
+  text, where present means `IS NOT NULL AND <> ''` and nonempty
+  whitespace-only text counts as present. The two controls AND-compose with
+  each other and with exact `serialNumber`/`rfid`; an exact value plus its
+  presence=`false` yields an empty 200, while omission/`any` adds no predicate.
+  Predicates share the COUNT/page WHERE and binds on joined and unjoined
+  paths; unscoped reads stay join-free so null-parent rows keep orphan
+  visibility. Filtering values round-trip in relative next links; invalid,
+  blank or repeated keys fail value-free before D1 after auth. Stored identity
+  text is mirrored report data, never a live tag scan, deployment proof or
+  uniqueness guarantee; missing text includes report gaps, not only untagged
+  equipment. Presence may scan; no index, migration or performance promise.
+  Synthetic tagged-vs-untagged count-only recipe:
+  `docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence`; focused
+  check: `npm run check:container-serial-rfid-presence`.
+
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
   endpoints share one lossless UTC `Z`/millisecond contract: seconds or 1–3
@@ -21,6 +283,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   completeness promise. No index or migration. See the synthetic bounded
   two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
+
 - #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
   (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
   fields/ETag, and emits a cursor/relative next Link only if another matching row
@@ -31,6 +294,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   concurrent inserts/deletes can change later pages. No new endpoint/index,
   upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
   see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
+
+- #381: The existing customer snapshot list `q` filter now matches a literal,
+  trimmed substring in any one of `company_name`, `first_name` or `last_name`
+  (previously company name only), so residential records without a company
+  name can be found. Matching stays bound `instr`/`lower` substring search with
+  existing SQLite ASCII case behavior: no full-name or cross-column matching, no
+  `LIKE` wildcards, no Unicode folding. The whole OR group ANDs with every other
+  selector and cursor predicate, omitted or blank `q` is unchanged, and `Link`
+  next targets keep `q`. No new query, index or migration. Synthetic multi-page
+  recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
+  `npm run check:customer-name-search`.
 
 - #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
   of stored `driver_note` only, not comments or locality. Raw input is limited
@@ -159,6 +433,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   This is declaration-only: single projections/ETag/304 and missing-root 404
   stay unchanged; batches remain no-store/no ETag/no 304 and reject all
   fieldsets with a value-free 400. No handler, SQL, auth or runtime-byte change.
+- #393: Address and container snapshot lists accept `hasCoordinates=true|false|any`
+  (default `any`) for NULL-only stored-pair presence: true requires both stored
+  latitude/longitude non-null; false requires either SQL NULL. Zero, negative,
+  empty, whitespace and non-numeric TEXT counts as present when non-null.
+  Disabled rows remain eligible; containers never inherit parent coordinates.
+  This is not geographic validity, accuracy, GPS lock or live position. Shared
+  COUNT/page predicates AND-compose with existing scopes; sparse/conditional
+  reads, count-free mode and bidirectional traversal stay compatible. Relative
+  next Links retain true/false and omit any/default. Invalid/empty/repeated
+  values fail before D1 with fixed value-free retry guidance. May scan; no new
+  endpoint, index, migration, upstream/R2 request or performance claim.
+  Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
+  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  local-read; CLI `--dry-run` is N/A.
 
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
   `state` equality selectors. Each case-sensitive opaque string is 1..100

@@ -36,6 +36,7 @@ import { ensureD1TestTables } from "./d1TestMigrations";
  * in every snapshot table, row 102 disabled, the rest enabled; every label
  * carries the "synthetic" needle so `enabled=true&q=synthetic` selects
  * [101, 103, 104] on each list. Address/container parent ids line up 1:1.
+ * Container service codes: 101/103 = SVC-1, 102 = SVC-10, 104 = NULL.
  *
  * Mutations caught: strict mode ignored or made default; allowlist copied
  * from a sibling resource or missing a merged selector; raw (undecoded)
@@ -82,13 +83,13 @@ const SPECS: Spec[] = [
     field: "company_name",
     allowed: [
       "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "pickupAddressId=101", "containerId=101", "routeId=7", "franchiseId=F-1", "zip=02139",
-      "city=Riverton", "state=ST", "hasContainers=true", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1"
+      "city=Riverton", "state=ST", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
   {
@@ -97,14 +98,14 @@ const SPECS: Spec[] = [
     id: "pickup_address_id",
     field: "address",
     allowed: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "city", "state",
-      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "limit", "offset", "cursor", "upperId", "includeTotal",
+      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state",
+      "driverNote", "q", "enabled", "extrasAllowed", "hasContainers", "lastAuditDate", "hasLastAuditDate", "hasCoordinates", "parentCustomerEnabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "serialNumber=SN-1", "rfid=RF-1",
-      "locationAddress=Loc-1"
+      "comments=note", "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
+      "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
   {
@@ -113,14 +114,16 @@ const SPECS: Spec[] = [
     id: "container_id",
     field: "location_address",
     allowed: [
-      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "hasCompactorInspection", "hasEnclosureInspection", "serialNumber", "rfid",
-      "materialStream", "color", "zip", "locationAddress", "state", "q", "enabled", "limit", "offset", "cursor", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "containerTypeId",
+      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
+      "hasSerialNumber", "hasRfid", "hasCompactorInspection", "hasEnclosureInspection",
+      "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "routeId=7", "franchiseId=F-1", "city=Riverton",
-      "hasContainers=true"
+      "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
+      "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
     ]
   }
 ];
@@ -129,16 +132,19 @@ const SPECS: Spec[] = [
  *  on all three resources). A sample may filter to an empty page; the probe
  *  only proves the name is not rejected as unknown under strict mode. */
 const SAMPLES: Record<string, string> = {
-  customerId: "101", pickupAddressId: "101", containerId: "101", ids: "101,102",
+  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
   customerNumber: "N-1", subCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", enabled: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any",
-  routeId: "7", franchiseId: "F-1", zip: "02139", city: "Riverton", state: "ST",
+  comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
+  lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
+  routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
+  parentCity: "Riverton", parentState: "ST", parentZip: "02139",
   parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
-  hasCompactorInspection: "true", hasEnclosureInspection: "true",
-  serialNumber: "SN-1", rfid: "RF-1", materialStream: "Synthetic stream", color: "Synthetic color",
-  locationAddress: "Synthetic location",
+  addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
+  serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", hasCompactorInspection: "true", hasEnclosureInspection: "true", materialStream: "Synthetic stream", color: "Synthetic color",
+  serviceCodeType: "T-001", serviceCodeInput: "IN-01",
+  locationAddress: "Synthetic location", serviceCode: "SVC-1",
   limit: "2", offset: "0", cursor: "101",
-  upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
+  lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",
   strictQuery: "true"
 };
 
@@ -266,8 +272,8 @@ beforeEach(async () => {
         "INSERT INTO address_snapshot (pickup_address_id, customer_id, address, city, state, zip, route_id, franchise_id, enabled, synced_at) VALUES (?, ?, ?, 'Riverton', 'ST', '02139', 7, 'F-1', ?, ?)"
       ).bind(id, id, `Synthetic site ${id}`, enabled, STAMP),
       db.prepare(
-        "INSERT INTO container_snapshot (container_id, pickup_address_id, location_address, serial_number, rfid, city, zip, enabled, synced_at) VALUES (?, ?, ?, 'SN-1', 'RF-1', 'Riverton', '02139', ?, ?)"
-      ).bind(id, id, `Synthetic site ${id}`, enabled, STAMP)
+        "INSERT INTO container_snapshot (container_id, pickup_address_id, location_address, serial_number, rfid, city, zip, service_code, enabled, synced_at) VALUES (?, ?, ?, 'SN-1', 'RF-1', 'Riverton', '02139', ?, ?, ?)"
+      ).bind(id, id, `Synthetic site ${id}`, id === 104 ? null : id === 102 ? "SVC-10" : "SVC-1", enabled, STAMP)
     ]);
   }
 });
@@ -358,6 +364,23 @@ describe.each(SPECS)("$name list: strict mode accepts its own declared names", (
   });
 });
 
+describe("container list: serviceCode under strict mode", () => {
+  it("filters exact stored codes identically with strict mode omitted, false or true", async () => {
+    const spec = SPECS.find((s) => s.name === "container")!;
+    const search = "serviceCode=SVC-1&fields=location_address";
+    const omitted = await page(spec, search);
+    // SVC-10 (102) and NULL (104) do not match the exact stored SVC-1.
+    expect(idsOf(spec, omitted.body)).toEqual([101, 103]);
+    expect(omitted.body.total).toBe(2);
+    expect(omitted.body.nextCursor).toBeNull();
+    for (const strictQuery of ["false", "true"]) {
+      const result = await page(spec, `${search}&strictQuery=${strictQuery}`);
+      expect(result.bytes).toBe(omitted.bytes);
+      expect(result.recorder.statements).toEqual(omitted.recorder.statements);
+    }
+  });
+});
+
 describe("address list: strictQuery and driverNote compose", () => {
   it("filters both a strict page and count-only by the recognized stored note", async () => {
     await TEST_ENV.CUSTOMER_DB.prepare(
@@ -443,6 +466,34 @@ describe.each(SPECS)("$name list: strict mode rejects unknown names value-free",
   });
 });
 
+describe("container list: strict containerTypeId validation", () => {
+  const spec = SPECS.find((s) => s.name === "container")!;
+
+  it.each(["0", "7", "9007199254740991"])(
+    "accepts exact safe-integer %s under strict mode without matching null stored types", async (value) => {
+      const result = await page(spec, `strictQuery=true&containerTypeId=${value}`);
+      // All four fixture rows have a NULL container_type_id, never literal zero.
+      expect(result.body).toEqual({ rows: [], total: 0, nextCursor: null });
+      expect(result.response.headers.get("link")).toBeNull();
+    }
+  );
+
+  it.each([
+    "containerTypeId=", "containerTypeId=00", "containerTypeId=-1",
+    "containerTypeId=1.0", "containerTypeId=1e0", "containerTypeId=%2B7",
+    "containerTypeId=%207", "containerTypeId=7%20", "containerTypeId=%D9%A7",
+    "containerTypeId=9007199254740992", `containerTypeId=${MARKER}`,
+    "containerTypeId=7&containerTypeId=7", "containerTypeId=7&%63ontainerTypeId=7"
+  ])("rejects malformed or repeated %s value-free before D1 in strict mode", async (fragment) => {
+    const denied = forbiddenDb();
+    const logs = silence();
+    const { response } = await request(`${spec.path}?strictQuery=true&${fragment}`, { db: denied.db });
+    await expectBadQuery(response, ["%2B7", "%207", "7%20", "%D9%A7"]);
+    expect(denied.calls).toEqual([]);
+    for (const log of logs) expect(log).not.toHaveBeenCalled();
+  });
+});
+
 describe.each(SPECS)("$name list: strictQuery value validation", (spec) => {
   const invalid = [
     "strictQuery", "strictQuery=", "strictQuery=TRUE", "strictQuery=True",
@@ -479,7 +530,8 @@ describe.each(SPECS)("$name list: strictQuery value validation", (spec) => {
 
 describe.each(SPECS)("$name list: auth and conditional precedence", (spec) => {
   it.each([
-    "strictQuery=true&bogus_param=1", `strictQuery=${MARKER}`, "strictQuery=true"
+    "strictQuery=true&bogus_param=1", `strictQuery=${MARKER}`, "strictQuery=true",
+    "strictQuery=true&containerTypeId=0", `strictQuery=true&containerTypeId=${MARKER}`
   ])("auth precedes strict validation for %s", async (search) => {
     for (const token of [null, "synthetic-wrong-token"]) {
       const denied = forbiddenDb();

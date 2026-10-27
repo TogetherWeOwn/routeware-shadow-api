@@ -196,6 +196,70 @@ merged street-or-locality search now groups address/city/zip OR predicates
 with three identical bound needles; `extras_allowed` remains a literal AND
 predicate shared by COUNT and page reads.
 
+## Customer service-site cohort predicate audit
+
+**Run date:** 2026-10-26. In-memory Node 24.22.1 `node:sqlite` with all
+committed D1 migrations and 4 synthetic customers / 5 synthetic addresses
+(matching, split-child and disabled decoys; no tenant data). Used the
+customer route's COUNT template and SELECT template with the cohort
+`EXISTS`, bound route/franchise/enabled scopes, `ORDER BY customer_id`
+with both seek and OFFSET pagination. The child side used the existing
+index in every shape:
+
+| Statement shape | Local plan |
+| --- | --- |
+| `COUNT` with full cohort scope | `SCAN customer_snapshot`, then `SEARCH address_snapshot EXISTS USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `SELECT` seek (`customer_id > ?`) | `SEARCH customer_snapshot USING INTEGER PRIMARY KEY (rowid>?)`, then the same child `SEARCH ... EXISTS` |
+| `SELECT` OFFSET | `SCAN customer_snapshot`, then the same child `SEARCH ... EXISTS` |
+
+The cohort scope is one customer-correlated `EXISTS` with bound equality
+placeholders, never interpolation, LIKE, a join or a deduplication step.
+COUNT and page share identical predicates/binds; pagination binds follow
+only on SELECT. The executable
+`test/customerAddressCohorts.acceptance.test.ts` independently records
+every actual handler SELECT/bind against real local test D1, runs EXPLAIN
+on both emitted statements, and asserts same-child membership,
+contradictions, read-only execution and denied network. Run
+`npm run check:customer-address-cohorts` to repeat that bounded check.
+
+Unscoped outer reads scan; this feature bounds returned data, not query
+cost. No migration/index, remote D1 probe, latency measurement or
+production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
+## Stored address last-audit-date predicate audit
+
+**Run date:** 2026-10-26. In-memory Node 24.22.1 `node:sqlite` SQLite 3.53.4
+with committed D1 migrations `0001`–`0003` and 8 synthetic addresses (3
+sharing one audit value, 1 other value, 1 uppercase value, 1 NULL, 1 empty,
+1 whitespace-only; no tenant data). Used the address route's SELECT column
+template and COUNT template with the bound exact predicate and the literal
+presence predicates, `ORDER BY pickup_address_id LIMIT ? OFFSET ?` (or seek
+without OFFSET). Both SELECT and COUNT produced these plans:
+
+| WHERE additions after `1 = 1` | Local plan (both statements) |
+| --- | --- |
+| `last_audit_date = ?` | `SCAN address_snapshot` |
+| `last_audit_date IS NOT NULL AND last_audit_date <> ''` | `SCAN address_snapshot` |
+| `(last_audit_date IS NULL OR last_audit_date = '')` | `SCAN address_snapshot` |
+| `last_audit_date = ? AND (last_audit_date IS NULL OR last_audit_date = '')` | `SCAN address_snapshot` |
+| `customer_id = ? AND last_audit_date = ?` | `SEARCH address_snapshot USING INDEX idx_address_snapshot_customer_id (customer_id=?)` |
+| `(last_audit_date IS NULL OR last_audit_date = '') AND pickup_address_id > ?` | `SEARCH address_snapshot USING INTEGER PRIMARY KEY (rowid>?)` |
+
+The exact value is one bound placeholder, never interpolation, LIKE or date
+parsing; presence predicates are literals with no binds. Filter binds precede
+pagination binds on SELECT, and COUNT carries the same predicate binds. No
+join or deduplication step is added. The executable
+`test/addressLastAuditDate.acceptance.test.ts` independently records every
+actual handler SELECT/bind against real local test D1 and asserts exact
+matches, read-only execution and denied network. Run
+`npm run check:address-last-audit-date` to repeat that bounded check.
+
+Selector-only reads scan; this feature bounds returned data, not query cost.
+No migration/index, date-range support, remote D1 probe, latency measurement
+or production-performance claim. The small local plan observation does not
+predict deployed planner choices or performance.
+
 ## Decision
 
 No missing index was found, so no new index or migration was added. The ID filters compose with existing primary-key/customer/pickup-address indexes; adding another index without a D1-side measured benefit would add write cost without evidence. The `q`-alone full scans are an expected substring-search limitation, not a missing B-tree index. If deployed D1 plans for customer-filtered container lists remain enabled-first, validate its statistics/query insights separately before considering a code or index change.

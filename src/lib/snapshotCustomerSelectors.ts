@@ -4,7 +4,7 @@ import { snapshotSearchQuery } from "./snapshotSearchQuery";
 /** Validate raw length before trimming; blank means no comments predicate. */
 export const customerCommentsQuery = snapshotSearchQuery
   .transform((value) => value.trim() || undefined).optional()
-  .describe("Literal substring of stored customer comments only; q remains company-only. Maximum 100 Unicode code points before trimming boundary whitespace; blank means omitted. Send a single comments key; repeated or overlength values fail before D1. SQLite lower() folds ASCII A-Z only: non-ASCII case and Unicode spelling remain exact; quotes, % and _ are literal, never LIKE wildcards. Null stored comments never match a nonblank fragment. AND-composes with all other filters. Substring-only reads may scan; no dedicated comments index or latency guarantee. GET is an idempotent local-read; --dry-run is not applicable.")
+  .describe("Literal substring of stored customer comments only; q searches company_name, first_name or last_name. Maximum 100 Unicode code points before trimming boundary whitespace; blank means omitted. Send a single comments key; repeated or overlength values fail before D1. SQLite lower() folds ASCII A-Z only: non-ASCII case and Unicode spelling remain exact; quotes, % and _ are literal, never LIKE wildcards. Null stored comments never match a nonblank fragment. AND-composes with all other filters. Substring-only reads may scan; no dedicated comments index or latency guarantee. GET is an idempotent local-read; --dry-run is not applicable.")
   .openapi({ type: "string", maxLength: 100, example: "handoff" });
 
 /** Exact enum: repeated query keys arrive as arrays and fail before D1. */
@@ -15,6 +15,141 @@ export const customerAddressPresenceQuery = z.enum(["true", "false", "any"]).opt
 /** Indexed child lookup, no binds or join expansion; disabled addresses count. */
 export function customerAddressPresencePredicate(value: "true" | "false"): string {
   return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id)`;
+}
+
+/** Exact enum: repeated query keys arrive as arrays and fail before D1. */
+export const customerContainerPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Mirrored container presence: "true" selects customers with at least one stored container reachable through any stored address they own, "false" selects those with none; "any" or omission adds no filter. Counts all stored addresses and containers including disabled rows; customer enabled stays independent. Presence is global to the customer across all owned addresses, never same-site membership for any separate site cohort. Absence is not proof of no upstream equipment or active service and never authorizes deletion, reconciliation or sync. Send one hasContainers=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+/** Nested correlated grandchild lookup, no binds or join expansion; disabled rows count. */
+export function customerContainerPresencePredicate(value: "true" | "false"): string {
+  return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id))`;
+}
+
+/**
+ * Ordinary customer-list child-cohort scopes: `addressRouteId`,
+ * `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed` and
+ * `addressLastAuditDate`.
+ *
+ * Single source of truth for the lexical contracts, so the shape cannot
+ * drift between the route schema, the served OpenAPI and the SQL below.
+ * The route-id policy mirrors the address `routeId` contract (canonical
+ * unpadded ASCII safe integer, literal zero); the franchise policy mirrors
+ * the customer opaque-string contract (trim only detects blank input, never
+ * transforms it; the UTF-16 guard bounds allocation before counting code
+ * points). Validation lives in the query zod schema so the module
+ * `defaultHook` (`validationFailureHook`) answers rejections with the
+ * existing anchored 400 before the handler — and therefore before any D1
+ * work — runs. A repeated key reaches zod as an array and fails the schema.
+ */
+export const customerAddressRouteIdQuery = z.string()
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .refine((value) => Number.isSafeInteger(Number(value)) && String(Number(value)) === value)
+  .transform(Number)
+  .optional()
+  .describe("Exact child route_id equality on the SAME stored address as the other cohort scopes: one canonical unpadded ASCII decimal safe integer, 0..9007199254740991. Zero matches literal stored 0, never nulls. No signs, whitespace, fractions, exponents or repeated keys. Send one value or omit it and retry.")
+  .openapi({ type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER, example: 7 });
+
+export const customerAddressFranchiseIdQuery = z.string()
+  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
+  .optional()
+  .describe("Opaque case-sensitive exact child franchise_id equality on the SAME stored address as the other cohort scopes: 1..100 Unicode code points containing a non-whitespace character. Leading zeros and significant whitespace are preserved, never trimmed or normalized; quotes, % and _ are literal data. URL-encode one value or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "001" });
+
+export const customerAddressEnabledQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Child address enabled state on the SAME stored address as the other cohort scopes: "true" requires stored enabled = 1, "false" requires stored 0; "any" or omission adds no state scope. Customer enabled stays independent. All stored children, including disabled, remain eligible unless this scope explicitly filters them. Send one addressEnabled=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+export const customerAddressExtrasAllowedQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Child extras_allowed equality on the SAME stored address as every other cohort scope: "true" requires stored 1, "false" requires stored 0; "any" or omission adds no predicate. Mirrored service-policy marker only, not billing authorization or permission to change service terms. Send one addressExtrasAllowed=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+export const customerAddressLastAuditDateQuery = z.string()
+  .refine((value) => value.length <= 200 && [...value].length <= 100 && value.trim() !== "")
+  .optional()
+  .describe("Opaque case-sensitive exact last_audit_date equality on the SAME stored address as every other cohort scope: 1..100 Unicode code points including a non-whitespace character. Supplied text is preserved verbatim, never parsed as a date, range or schedule. Null never matches; unknown text returns an empty 200. Mirrored report data only, not audit compliance, certification or proof an audit occurred. URL-encode one nonblank addressLastAuditDate or omit it and retry; repeated keys are invalid.")
+  .openapi({ type: "string", minLength: 1, maxLength: 100, example: "2026-01-05" });
+
+export type CustomerAddressCohortScope = {
+  addressRouteId?: number;
+  addressFranchiseId?: string;
+  addressEnabled: "true" | "false" | "any";
+  addressExtrasAllowed: "true" | "false" | "any";
+  addressLastAuditDate?: string;
+};
+
+/**
+ * One customer-correlated EXISTS over the stored child addresses: route,
+ * franchise, enabled-state, extras and audit scopes AND inside the same child, so split
+ * scopes across different children never match and duplicate matching sites
+ * never duplicate the customer. Null stored scalars never match equality.
+ * Returns null when no scope is effective (omitted scalars, or
+ * only `any` enums), leaving the caller's SQL/binds untouched.
+ * The caller appends `binds` in order; COUNT and page share both.
+ */
+export function customerAddressCohortPredicate(scope: CustomerAddressCohortScope): { sql: string; binds: unknown[] } | null {
+  const predicates: string[] = [];
+  const binds: unknown[] = [];
+  if (scope.addressRouteId !== undefined) {
+    predicates.push("route_id = ?");
+    binds.push(scope.addressRouteId);
+  }
+  if (scope.addressFranchiseId !== undefined) {
+    predicates.push("franchise_id = ?");
+    binds.push(scope.addressFranchiseId);
+  }
+  if (scope.addressEnabled !== "any") {
+    predicates.push("enabled = ?");
+    binds.push(scope.addressEnabled === "true" ? 1 : 0);
+  }
+  if (scope.addressExtrasAllowed !== "any") {
+    predicates.push("extras_allowed = ?");
+    binds.push(scope.addressExtrasAllowed === "true" ? 1 : 0);
+  }
+  if (scope.addressLastAuditDate !== undefined) {
+    predicates.push("last_audit_date = ?");
+    binds.push(scope.addressLastAuditDate);
+  }
+  if (predicates.length === 0) return null;
+  return {
+    sql: `EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND ${predicates.join(" AND ")})`,
+    binds
+  };
+}
+
+/**
+ * Stored phone-slot presence selectors for the ordinary customer list.
+ *
+ * One shared enum shape so the two slots cannot drift; per-slot aliases
+ * below name their stored column and carry the fixed remedy. Present means
+ * stored `phoneN IS NOT NULL AND phoneN <> ''`; absent is the exact
+ * null-or-empty complement — whitespace-only stored text counts as present.
+ * No trimming, normalization, digit-stripping, number validation, consent or
+ * reachability is inferred. Validation lives in the query zod schema so the
+ * module `defaultHook` answers rejections before any D1 work runs; a
+ * repeated key reaches zod as an array and fails the enum schema.
+ */
+const customerPhonePresenceQuery = z.enum(["true", "false", "any"]).optional().default("any");
+
+/** Primary stored-phone (phone1) presence; see the shared contract above. */
+export const customerPhone1PresenceQuery = customerPhonePresenceQuery
+  .describe('Stored primary-phone presence: "true" selects rows where stored phone1 is present (IS NOT NULL AND <> \'\'), "false" selects the exact null-or-empty complement; "any" or omission adds no filter. Whitespace-only stored text counts as present: no trimming, normalization, number validation or digit-stripping. Stored presence is NOT a valid number, preferred channel, contact consent, deliverability or reachability. AND-composes with every other filter. Presence-only selections may scan; no phone index exists and none is added. Send one hasPhone1=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "false" });
+
+/** Secondary stored-phone (phone2) presence; see the shared contract above. */
+export const customerPhone2PresenceQuery = customerPhonePresenceQuery
+  .describe('Stored secondary-phone presence: "true" selects rows where stored phone2 is present (IS NOT NULL AND <> \'\'), "false" selects the exact null-or-empty complement; "any" or omission adds no filter. Whitespace-only stored text counts as present: no trimming, normalization, number validation or digit-stripping. Stored presence is NOT a valid number, preferred channel, contact consent, deliverability or reachability. AND-composes with every other filter. Presence-only selections may scan; no phone index exists and none is added. Send one hasPhone2=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "false" });
+
+/**
+ * Stored phone-slot presence predicate (no binds): the caller supplies the
+ * slot column. Present is stored `phoneN IS NOT NULL AND phoneN <> ''`;
+ * absent is the exact null-or-empty complement, parenthesized so it ANDs
+ * safely with sibling predicates. Whitespace-only text stays present.
+ */
+export function customerPhonePresencePredicate(slot: "phone1" | "phone2", value: "true" | "false"): string {
+  return value === "true" ? `${slot} IS NOT NULL AND ${slot} <> ''` : `(${slot} IS NULL OR ${slot} = '')`;
 }
 
 /**
