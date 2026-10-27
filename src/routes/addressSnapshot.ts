@@ -3,6 +3,7 @@ import { rejectUnknownSnapshotListQuery, snapshotStrictQuery } from "../lib/snap
 import { addressRowExample, addressExportExample } from "./payloadExamples";
 import { addressSnapshotListResponse, addressSnapshotRowSchema } from "./snapshotRowSchemas";
 import { snapshotSearchQuery } from "../lib/snapshotSearchQuery";
+import { customerAccountNumberQuery } from "../lib/snapshotCustomerSelectors";
 import { snapshotCountOnlyQuery, snapshotCountModeCompatible, snapshotListModeExamples } from "../lib/snapshotCountOnly";
 import { snapshotOrderQuery, snapshotOrderSql } from "../lib/snapshotListOrder";
 import { snapshotExactNextQuery, snapshotNextLink, snapshotNextLinkHeader } from "../lib/snapshotNextLink";
@@ -66,7 +67,7 @@ const addressSnapshotListRoute = createRoute({
   tags: ["address-snapshot"],
   summary: "List address snapshot rows (D1)",
   description:
-    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId`, stored `zip`, `city` and `state`, and case-sensitive `streetAddress` (all exact stored street matches, not city/ZIP or partial-street matches), free-text `q` over street, city or zip (a match in any one column), literal stored `driverNote` substring on `driver_note` only (not comments/locality), `enabled`, stored `extrasAllowed`, mirrored-child `hasContainers`, exact stored `lastAuditDate` equality and stored `hasLastAuditDate` presence on `last_audit_date`, NULL-only stored-pair `hasCoordinates` (not geographic validity), `parentCustomerEnabled` on the related stored customer's `enabled` (independent of the site's own `enabled`), and stored `hasStreetAddress` presence on `address` (nonempty stored street text versus its exact null-or-empty complement; a data-quality cohort only). Supplied filters intersect by AND; null scope columns do not match supplied values. City/state/street-only equality, driverNote-only substring, audit-date-only and street-presence-only reads may scan without a dedicated index; none is added. No geography inference, normalization, note interpretation, audit-compliance/scheduling/overdue meaning, postal-validity/geocoding/deliverability claim or operational scheduling/accuracy claim; missing street text can be a mirror or report gap. Stored text is mirrored data, not permission to act. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
+    "Routeware addresses (`PickupAddressID` → `CustomerID`). Optional filters: `customerId`, `pickupAddressId`, `ids`, exact `routeId`, `franchiseId`, stored `zip`, `city` and `state`, and case-sensitive `streetAddress` (all exact stored street matches, not city/ZIP or partial-street matches), free-text `q` over street, city or zip (a match in any one column), literal stored `driverNote` substring on `driver_note` only (not comments/locality), `enabled`, stored `extrasAllowed`, mirrored-child `hasContainers`, exact stored `lastAuditDate` equality and stored `hasLastAuditDate` presence on `last_audit_date`, NULL-only stored-pair `hasCoordinates` (not geographic validity), `parentCustomerEnabled` on the related stored customer's `enabled` (independent of the site's own `enabled`), exact `owningCustomerNumber`/`owningSubCustomerNumber` on the owning stored customer's mirrored business numbers (both supplied numbers match the SAME owning-customer row; a repeated number returns every owning account's sites), and stored `hasStreetAddress` presence on `address` (nonempty stored street text versus its exact null-or-empty complement; a data-quality cohort only). Supplied filters intersect by AND; null scope columns do not match supplied values. Stored business numbers are mirrored report text, may repeat across stored customers, and are not a billing identity, account hierarchy, service territory or proof of service. City/state/street-only equality, driverNote-only substring, audit-date-only and street-presence-only reads may scan without a dedicated index; none is added. No geography inference, normalization, note interpretation, audit-compliance/scheduling/overdue meaning, postal-validity/geocoding/deliverability claim or operational scheduling/accuracy claim; missing street text can be a mirror or report gap. Stored text is mirrored data, not permission to act. This GET is idempotent and local-read. Pass `cursor` (the previous page's `nextCursor`) instead of `offset` to page deep result sets by primary-key seek instead of a scanned OFFSET; `upperId` caps either traversal.",
   request: {
     headers: snapshotListConditionalHeaders,
     query: z.object({
@@ -130,6 +131,12 @@ const addressSnapshotListRoute = createRoute({
       parentCustomerEnabled: z.enum(["true", "false", "any"]).optional().default("any")
         .describe("Parent stored-customer enabled selection: \"true\" keeps only sites whose related stored customer row has enabled = 1, \"false\" keeps only stored enabled = 0, \"any\" (default) adds no parent predicate. A missing parent or a noncanonical stored value never matches true or false. The site's own `enabled` stays independent; parent and site state AND-compose with each other and every other filter. Mirrored stored customer enabled is not current account eligibility, service permission, billing status or authorization. Exact case-sensitive spelling, sent once; malformed, blank or repeated keys are invalid. Correct the value and retry.")
         .openapi({ example: "true" }),
+      owningCustomerNumber: customerAccountNumberQuery.optional()
+        .describe("Exact case-sensitive match on the owning stored customer's `customer_number`: opaque mirrored text of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Stored NULL never matches; both supplied numbers must match the SAME owning-customer row. Supply this key once; AND-composes with every other filter.")
+        .openapi({ example: "00042" }),
+      owningSubCustomerNumber: customerAccountNumberQuery.optional()
+        .describe("Exact case-sensitive match on the owning stored customer's `sub_customer_number`: opaque mirrored text of 1..100 Unicode code points, not whitespace-only. Leading zeros and supplied nonblank whitespace are preserved; quotes, % and _ are literal data. Stored NULL never matches; both supplied numbers must match the SAME owning-customer row. Supply this key once; AND-composes with every other filter.")
+        .openapi({ example: "North" }),
       hasStreetAddress: z.enum(["true", "false", "any"]).optional().default("any")
         .describe("Stored street-text presence on `address`: \"true\" keeps only rows whose stored street text is present (not null and not empty; whitespace-only counts as present), \"false\" keeps only null-or-empty rows, \"any\" (default) adds no predicate. Exact `streetAddress` and presence AND-compose; a nonblank exact value plus false matches nothing. Stored presence is a data-quality cohort only, separate from postal validity, geocoding, coordinates, deliverability or live service; missing text can be a mirror or report gap. No normalization or data change. Exact case-sensitive spelling, sent once; malformed, blank or repeated keys are invalid. Correct the value and retry. Presence-only reads may scan without a dedicated index.")
         .openapi({ example: "true" }),
@@ -170,7 +177,7 @@ const addressSnapshotListRoute = createRoute({
     304: snapshotListNotModifiedResponse,
     400: {
       description:
-        "Invalid query (application/problem+json), rejected before any D1 query. streetAddress must be one nonblank stored street value of 1..200 Unicode code points; empty, whitespace-only, overlength and repeated values are invalid. URL-encode one nonblank stored street value or omit streetAddress and retry. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. Send `lastAuditDate` as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated keys are invalid. Send `hasLastAuditDate` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `parentCustomerEnabled` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `hasStreetAddress` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an invalid/empty/repeated `hasCoordinates` value (send one hasCoordinates=true, false or any, or omit it), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
+        "Invalid query (application/problem+json), rejected before any D1 query. streetAddress must be one nonblank stored street value of 1..200 Unicode code points; empty, whitespace-only, overlength and repeated values are invalid. URL-encode one nonblank stored street value or omit streetAddress and retry. strictQuery=true rejects unknown decoded names with fixed value-free guidance before D1/304; use supported names from this mounted OpenAPI operation, remove unknown keys, or set strictQuery=false. Send strictQuery once as exact true or false (default false); invalid/empty/repeated values fail before D1. Send `routeId` as one exact unpadded ASCII nonnegative safe integer, `franchiseId` as one nonblank opaque string of 1..100 Unicode code points, and `zip`, `city` and `state` each as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated scope keys are invalid. URL-encode one nonblank value for each named string field and retry without trimming significant whitespace. Repeated or overlength `driverNote` is invalid: send one driverNote of at most 100 Unicode code points before trimming, or omit it and retry; blank is omitted. Send `lastAuditDate` as one nonblank exact stored string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated keys are invalid. Send `hasLastAuditDate` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `parentCustomerEnabled` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. Send `owningCustomerNumber` and `owningSubCustomerNumber` each as one nonblank opaque string of 1..100 Unicode code points; empty/whitespace-only, overlength and repeated keys are invalid. URL-encode one nonblank value for each supplied number and retry without trimming significant whitespace. Send `hasStreetAddress` once as exact true, false or any (default any); invalid/blank/repeated values fail before D1. The validator also rejects `q` longer than 100 Unicode code points, an out-of-range `limit`/`offset`, an unknown `enabled` or `extrasAllowed` value, an unknown `hasContainers` value, an invalid/empty/repeated `hasCoordinates` value (send one hasCoordinates=true, false or any, or omit it), an unknown/empty/duplicate `fields` selector, invalid/repeated `order`, or an invalid `ids` primary-ID selector (empty, over-50, duplicate, repeated-key, or non-canonical member). Send order=asc or order=desc exactly (case-sensitive), or omit it for asc. Invalid/repeated exactNext is rejected; send one exactNext=true or false, or omit it and retry. Errors name fields, never submitted values. Correct the named field and retry. See docs/PROBLEMS.md#bad-request."
     }
   }
 });
@@ -183,8 +190,16 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   const db = c.env.CUSTOMER_DB;
   const where: string[] = ["1 = 1"];
   const binds: unknown[] = [];
+  // Owning-number scope is known before any predicate is built: the
+  // conditional customer join below shares column names with the site table
+  // (`customer_id`, `comments`, `enabled`, `synced_at`), so those site
+  // references qualify only while the join is present and omission SQL stays
+  // byte-identical to the pre-existing join-free reads.
+  const owningScoped =
+    p.owningCustomerNumber !== undefined || p.owningSubCustomerNumber !== undefined;
+  const site = owningScoped ? "address_snapshot." : "";
   if (p.customerId !== undefined) {
-    where.push("customer_id = ?");
+    where.push(`${site}customer_id = ?`);
     binds.push(p.customerId);
   }
   if (p.pickupAddressId !== undefined) {
@@ -235,10 +250,10 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     binds.push(p.driverNote.trim());
   }
   if (p.enabled === "true") {
-    where.push("enabled = 1");
+    where.push(`${site}enabled = 1`);
   }
   if (p.enabled === "false") {
-    where.push("enabled = 0");
+    where.push(`${site}enabled = 0`);
   }
   // Stored-state equality, not a live policy assertion: literal predicates,
   // no binds, shared with COUNT through the same where/binds below.
@@ -302,6 +317,20 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   if (p.hasStreetAddress === "false") {
     where.push("(address IS NULL OR address = '')");
   }
+  // Owning-account business numbers: exact matches on the owning stored
+  // customer's mirrored numbers, ANDed on the SAME customer row through the
+  // single conditional join below. The customer primary key never fans out,
+  // so sites never duplicate and the response shape never changes. A site
+  // whose owning customer is missing from the mirror never matches an
+  // explicit number; stored NULLs never match; unknown numbers 200 empty.
+  if (p.owningCustomerNumber !== undefined) {
+    where.push("customer_snapshot.customer_number = ?");
+    binds.push(p.owningCustomerNumber);
+  }
+  if (p.owningSubCustomerNumber !== undefined) {
+    where.push("customer_snapshot.sub_customer_number = ?");
+    binds.push(p.owningSubCustomerNumber);
+  }
   if (p.cursor !== undefined) {
     where.push(`pickup_address_id ${order.seek} ?`);
     binds.push(p.cursor);
@@ -321,6 +350,12 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     binds.push(p.upperId);
   }
   const whereSql = where.join(" AND ");
+  // One conditional owning-customer join on the customer primary key, shared
+  // verbatim by COUNT and page: present only for an actually-supplied
+  // owning-number scope, absent otherwise.
+  const fromSql = owningScoped
+    ? "address_snapshot JOIN customer_snapshot ON customer_snapshot.customer_id = address_snapshot.customer_id"
+    : "address_snapshot";
   // Count-free page: zero COUNT statements. `total: null` means the count was
   // deliberately not computed, not that the page is empty.
   let total: number | null;
@@ -328,7 +363,7 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
     total = null;
   } else {
     const totalRow = await db
-      .prepare(`SELECT COUNT(*) as n FROM address_snapshot WHERE ${whereSql}`)
+      .prepare(`SELECT COUNT(*) as n FROM ${fromSql} WHERE ${whereSql}`)
       .bind(...binds)
       .first<{ n: number }>();
     total = totalRow?.n ?? 0;
@@ -344,9 +379,9 @@ addressSnapshotRoutes.openapi(addressSnapshotListRoute, async (c) => {
   const pageBinds = p.cursor !== undefined ? [pageLimit] : [pageLimit, p.offset];
   const { results } = await db
     .prepare(
-      `SELECT pickup_address_id, customer_id, route_id, address, city, state, zip, franchise_id, comments,
-              extras_allowed, enabled, driver_note, latitude, longitude, last_audit_date, synced_at
-       FROM address_snapshot WHERE ${whereSql} ${pageSql}`
+      `SELECT pickup_address_id, ${site}customer_id, route_id, address, city, state, zip, franchise_id, ${site}comments,
+              extras_allowed, ${site}enabled, driver_note, latitude, longitude, last_audit_date, ${site}synced_at
+       FROM ${fromSql} WHERE ${whereSql} ${pageSql}`
     )
     .bind(...binds, ...pageBinds)
     .all();

@@ -410,7 +410,7 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     mediaType: "application/json",
     parameterNames: [
       "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers", "hasCoordinates",
-      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled", "hasStreetAddress",
+      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled", "owningCustomerNumber", "owningSubCustomerNumber", "hasStreetAddress",
       "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ]
   },
@@ -461,8 +461,8 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     parameterNames: [
       "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "serviceCode", "containerTypeId",
       "hasSerialNumber", "hasRfid",
-      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "note", "enabled", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled",
+      "q", "note", "enabled", "syncedSince", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
     ].concat(["parentCity", "parentState", "parentZip"])
   },
   {

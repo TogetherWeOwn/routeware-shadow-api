@@ -32,6 +32,7 @@ type SnapshotListQuery = {
   color?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
+  syncedSince?: string;
   routeId?: number;
   franchiseId?: string;
   parentRouteId?: number;
@@ -40,6 +41,7 @@ type SnapshotListQuery = {
   parentState?: string;
   parentZip?: string;
   parentEnabled?: "true" | "false" | "any";
+  customerEnabled?: "true" | "false" | "any";
   zip?: string;
   streetAddress?: string;
   locationAddress?: string;
@@ -61,6 +63,8 @@ type SnapshotListQuery = {
   hasContainers?: "true" | "false" | "any";
   hasLastAuditDate?: "true" | "false" | "any";
   parentCustomerEnabled?: "true" | "false" | "any";
+  owningCustomerNumber?: string;
+  owningSubCustomerNumber?: string;
   hasStreetAddress?: "true" | "false" | "any";
   hasAddresses?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
@@ -88,8 +92,8 @@ type SnapshotListQuery = {
 
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
-  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note"] }
+  address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -169,6 +173,11 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
+  }
+  // Owning stored-customer state (container only): carry only filtering
+  // values so any/omitted continuations stay byte-identical.
+  if (resource === "container" && query.customerEnabled !== undefined && query.customerEnabled !== "any") {
+    params.set("customerEnabled", query.customerEnabled);
   }
   // Container-only stored-text presence selectors: carry only filtering
   // values so any/omitted continuations stay byte-identical.
