@@ -559,6 +559,45 @@ ETags/304, auth/validation zero-work and denied upstream/R2/cache writes.
 See the [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-customer-comment-fragment)
 and [fixed error guidance](PROBLEMS.md#stored-customer-comment-fragment-bad-request).
 
+### Stored coordinate-pair presence
+
+On the existing address and container lists, `hasCoordinates=true|false|any`
+selects **NULL-only stored-pair presence**, not valid/complete geographic
+coordinates. `true` requires both `latitude` and `longitude` to be SQL non-null;
+`false` requires either to be null. Non-null TEXT such as `"0"`, `"-1"`, `""`,
+whitespace and non-numeric text counts as present. Disabled rows remain eligible.
+Containers always use their own columns, never their parent address's pair;
+this says nothing about accuracy, GPS lock or live position.
+
+For synthetic fixtures in a local Worker only (operator-supplied read token):
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/address-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=true&fields=latitude,longitude&limit=2&includeTotal=false"
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?hasCoordinates=false&fields=latitude,longitude&limit=2&includeTotal=false"
+```
+
+Follow each returned relative `Link` against the same origin unchanged; it
+retains true/false, other filters, fields, ceiling and direction while replacing
+the cursor. A full terminal page may link to an empty page; stop when Link is
+absent. `any`/omission adds no predicate or continuation key. Other selectors
+intersect by AND, including container customer-join scopes; count-free pages
+still run one SELECT and zero COUNTs. These idempotent local-read GETs make no
+upstream/R2 request; CLI `--dry-run` is N/A. The NULL predicates may scan; no
+new index or production performance claim is made.
+
+Invalid, empty or repeated values return value-free 400 before D1, after auth.
+Send one exact lowercase `true`, `false` or `any`, or omit `hasCoordinates` and
+retry. Run `npm run check:snapshot-coordinates` for the synthetic hermetic
+oracle and list/auth/discovery regressions. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-coordinate-pair-presence) and
+[fixed correction guidance](PROBLEMS.md#stored-coordinate-pair-presence-bad-request).
+
 ### Exact external account lookup
 
 Resolve an external account reference to canonical `customer_id` values on the
@@ -1282,6 +1321,41 @@ contradiction, full Link traversal and conditional-read regressions plus
 child-index EXPLAIN evidence. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-cohorts)
 and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
+Service-policy scopes extend that **same-site** cohort:
+`addressExtrasAllowed=true|false|any` (default `any`) selects stored
+`extras_allowed` 1/0/no predicate; false does not mean no site. Optional
+`addressLastAuditDate` is one nonblank, case-sensitive opaque string of
+1..100 Unicode code points, preserved verbatim, never parsed as a date,
+range or schedule (`2026-1-5` differs from `2026-01-05`). Stored NULL never
+matches; valid unknown text returns an empty 200. Extras on site A and audit
+text on site B do not qualify together; all route/franchise/enabled scopes
+must match that same child too. Multiple matching sites return the account
+once, with no site expansion. Extras is a mirrored service-policy marker,
+not billing authorization; audit text is mirrored report data, not audit
+compliance, certification or proof an audit occurred.
+
+Synthetic local combined recipe (fixture service and its `$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressExtrasAllowed=true&addressLastAuditDate=2026-01-05&limit=2&includeTotal=false"
+# Service-policy fixture: customer_ids 11,13; total null; nextCursor 13.
+# Follow the server's relative Link rel=next unchanged on the same origin.
+# Stop when Link is absent; without exactNext=true a full tail may link to [].
+```
+
+URL-encode audit text; send each key once. Invalid/blank/overlength or
+repeated decoded names fail value-free after auth before D1/304; correct the
+named field or omit it and retry. Either scope works alone; `any` alone is
+unfiltered. Effective scopes survive either paging direction, offset-to-seek,
+inclusive ID bounds and sparse projection. `includeTotal=false` skips COUNT;
+`countOnly=true` performs only COUNT and cannot combine with
+`includeTotal=false`. ETag/304/no-store remain representation-correct.
+Global `hasContainers` stays independent of the matched site's equipment.
+Run `npm run check:customer-address-service-policy` for local synthetic-D1
+selection, decoys, full traversal, auth/validation and conditional regressions.
+No live access, writes, new index or production latency claim.
 
 ### Customer stored-phone presence
 
