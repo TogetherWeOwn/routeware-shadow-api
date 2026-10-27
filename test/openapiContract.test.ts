@@ -566,6 +566,7 @@ function withoutAddressParentCustomerEnabled(doc: OpenApiDocument): OpenApiDocum
 // containerServiceCodeParts.acceptance.test.ts,
 // containerSerialRfidPresence.acceptance.test.ts,
 // containerOnCallGpsLocked.acceptance.test.ts,
+// containerCustomerEnabled.acceptance.test.ts,
 // containerNoteSearch.acceptance.test.ts,
 // containerSyncedSince.acceptance.test.ts and
 // containerEventCodeFilters.acceptance.test.ts, not frozen as speculative
@@ -585,7 +586,7 @@ function withoutContainerIdentifierAdditions(doc: OpenApiDocument): OpenApiDocum
     if (operation.responses?.["400"]) delete operation.responses["400"].description;
     if (operation.parameters) {
       operation.parameters = operation.parameters.filter((parameter) =>
-        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "syncedSince", "materialStream", "color", "eventCode", "hasEventCode", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled"].includes(parameter.name ?? "")
+        parameter.in !== "query" || !["serialNumber", "rfid", "serviceCode", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked", "syncedSince", "materialStream", "color", "eventCode", "hasEventCode", "note", "serviceCodeType", "serviceCodeInput", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled"].includes(parameter.name ?? "")
       );
     }
   }
