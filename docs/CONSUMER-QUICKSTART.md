@@ -2236,6 +2236,53 @@ returned page length (never a COUNT); `nextCursor` is the composite resume
 pair, or `null` at the tail. Focused check:
 `npm run check:customer-changes-delta`.
 
+## Container mirror freshness
+
+Use the existing container list's `syncedSince` to poll for recently mirrored
+equipment, not upstream events. For a local synthetic fixture with stored
+`(container_id, synced_at)` pairs `(1, 2026-09-01T00:00:00.500Z)` and
+`(2, 2026-09-01T00:00:00.501Z)`:
+
+```bash
+curl --get 'http://localhost:8787/api/v1/container-snapshot' \
+  -H "Authorization: Bearer $SHADOW_API_READ_TOKEN" \
+  --data-urlencode 'syncedSince=2026-09-01T00:00:00.5Z' \
+  --data-urlencode 'includeTotal=false' \
+  --data-urlencode 'fields=synced_at' \
+  --data-urlencode 'limit=1'
+# rows: [{container_id: 2, synced_at: "2026-09-01T00:00:00.501Z"}]
+# total: null; the equal-stamp row is excluded.
+```
+
+Hold the chosen instant fixed while following each relative `Link: rel="next"`
+unchanged on the same origin. Links carry `2026-09-01T00:00:00.500Z`, not the
+short fractional spelling. IDs/cursors stay in `container_id` order (asc/desc),
+not sync-time order. Do not promote a page's last timestamp into a cursor or
+assume the greatest timestamp is on the last ID page. Without `exactNext=true`,
+a full terminal page can link to an empty page; stop when Link is absent.
+
+For later polling, never use your own clock time as the next instant: a sync
+run stamps every row it writes with the run's start time, then writes the rows
+in batches over the following minutes, so a row written late carries a stamp
+older than your clock and would be skipped until the next run restamps it.
+Instead persist a stored `synced_at` you observed (for example the newest one)
+and subtract an overlap margin longer than a full sync run, then
+deduplicate/re-upsert by `container_id`.
+Overlap permits safe replay, not an exact-once or complete feed: concurrent
+sync can move rows across the window, deletions are not recorded, and there is
+no snapshot isolation. Stored `synced_at` is mirror freshness, not upstream
+event/service time or proof of changed content. Do not use absence to delete.
+
+Send one calendar-valid UTC Z value with seconds and optional 1–3 fractional
+digits; empty, offsets, excess precision and repeated values return a fixed
+value-free [400](PROBLEMS.md#bad-request) after auth and before D1/304. Correct
+the format or omit the selector and retry. All existing selectors AND-compose;
+COUNT-only, count-free, sparse and conditional reads retain their contracts.
+No new index is added; the predicate may scan, with no latency promise. This
+GET is idempotent/local-read and touches neither upstream nor R2.
+
+Credential-free local check: `npm run check:container-synced-since`.
+
 ## 3. Nested reads: `/api/v1/data/*` (sync secret only)
 
 One call returns the customer + addresses + containers graph from D1, with
