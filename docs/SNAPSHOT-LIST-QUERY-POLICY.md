@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `hasEnabledAddresses`, `hasEnabledContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Opt-in typo detection (`strictQuery=`)
@@ -913,6 +913,38 @@ GET is idempotent/local-read with no upstream/R2 access; CLI `--dry-run` is
 not applicable. Run `npm run check:container-locality` for independent fixtures,
 auth/validation, SQL/binds/EXPLAIN, links, conditional reads and discovery.
 See the [synthetic follow-next recipe](CONSUMER-QUICKSTART.md#stored-container-locality).
+
+## Stored container instruction fragment
+
+Only the ordinary container list recognizes optional `note`: a bound literal
+substring of **`c.container_note`** using
+`instr(lower(coalesce(c.container_note, '')), lower(?)) > 0`.
+Trim query boundaries **before** the maximum 100 Unicode-code-point check;
+blank means omitted, including long whitespace-only input. Repeated keys and
+overlength fragments fail value-free after auth and before D1/cache/upstream
+work. Next action: send one fragment of at most 100 Unicode code points after
+trimming, or omit `note`, then retry. Never echo or log operational instructions
+or arbitrary query names. Null stored notes act as empty strings.
+
+SQLite `lower()` folds ASCII A-Z only: non-ASCII case distinctions and
+composed/decomposed Unicode remain distinct. Internal whitespace, quotes, `%`
+and `_` are literal, not SQL LIKE wildcards; no normalization, tokenization or
+full-text relevance is provided. `q` stays location/serial/city/zip search, not
+note search. Neither selector searches parent notes. All supplied filters,
+including exact ZIP/identifiers, customer/parent/primary IDs, `ids`, `enabled`
+and cursor/`upperId`, intersect with AND on both join paths. COUNT and page
+share predicates/binds; `includeTotal=false` issues zero COUNTs. Duplicates,
+canonical IDs, sparse fields, envelopes and representation ETag/304 semantics
+are unchanged. Relative next Links preserve normalized note with URL encoding,
+omit blank note and never copy unknown keys, origins or credentials; follow
+them unchanged in either direction.
+
+Substring-only reads scan; no dedicated note index or migration exists.
+Existing selective ID/enabled scopes may narrow candidates, not a measured
+latency promise. GET is idempotent/local-read; CLI `--dry-run` is N/A. No note
+mutation, upstream lookup, work-order/schedule inference or instruction execution
+occurs. Run `npm run check:container-note-search` against synthetic local D1;
+see the [note-versus-q recipe](CONSUMER-QUICKSTART.md#stored-container-instruction-fragment).
 
 ## Exact stored container installation
 
