@@ -5,6 +5,17 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #437: Stored inspection-text presence on `GET /api/v1/container-snapshot`:
+  optional `hasCompactorInspection` and `hasEnclosureInspection` (exact
+  `true|false|any`, default `any`) count equipment by whether the stored
+  `ud_last_compactor_inspection_ud` / `ud_last_enclosure_inspection_ud` text
+  is not null and not empty; nonempty whitespace-only text counts as present
+  and `false` is the exact null-or-empty complement. The controls AND-compose
+  with every other filter, share COUNT and page predicates, and are retained
+  in relative next Links (`any` omitted). Invalid, blank or repeated values
+  fail value-free before D1. Stored text is mirrored report metadata, not
+  inspection compliance, overdue status or never-inspected proof; presence
+  filters may scan with no index or performance promise.
 - #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
   optional `note` searches only stored `container_note` by bound literal
   substring, independently AND-composed with `q` and all other scopes.
