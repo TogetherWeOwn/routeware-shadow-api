@@ -115,7 +115,7 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "containerTypeId",
-      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
+      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
       "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "syncedSince", "hasCostShare", "hasEnclosureDoors", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
@@ -138,7 +138,7 @@ const SAMPLES: Record<string, string> = {
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentCity: "Riverton", parentState: "ST", parentZip: "02139",
-  parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
+  parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true", customerEnabled: "true",
   hasCostShare: "true", hasEnclosureDoors: "true",
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true",
   addressCity: "Riverton", addressState: "ST", addressZip: "02139", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
