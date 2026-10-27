@@ -160,6 +160,21 @@ is independent. No mirrored child is not proof of no upstream site and never
 authorizes deletion, reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-address-presence).
 
+## Stored coordinate-pair presence (`bad-request`)
+
+On `GET /api/v1/address-snapshot` and `GET /api/v1/container-snapshot`, send
+one exact lowercase `hasCoordinates=true`, `false` or `any`, or omit the
+selector and retry. Empty, unsupported and repeated values fail after auth
+and before D1 with the existing value-free 400. Detail for this field alone:
+
+`Invalid request query (hasCoordinates). Send one hasCoordinates=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+No supplied value or unknown key is echoed or logged. Zero matches is a
+successful empty collection. This checks only SQL NULL presence of each row's
+stored latitude/longitude TEXT, not valid/complete geographic coordinates,
+accuracy, GPS lock or live position; containers do not inherit parent pairs.
+See the [local recipes](CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence).
+
 ## Customer container presence (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, send one `hasContainers=true`, `false`
