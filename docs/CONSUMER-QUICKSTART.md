@@ -234,6 +234,9 @@ and the mounted OpenAPI stays authoritative if they ever disagree):
 | `subCustomerNumber` | `sub_customer_number` |
 | `addressRouteId` | child address `route_id` |
 | `addressFranchiseId` | child address `franchise_id` |
+| `addressCity` | child address `city` |
+| `addressState` | child address `state` |
+| `addressZip` | child address `zip` |
 | `addressLastAuditDate` | child address `last_audit_date` |
 
 | `GET /api/v1/address-snapshot` | Stored column |
