@@ -1390,6 +1390,39 @@ Run `npm run check:customer-address-service-policy` for local synthetic-D1
 selection, decoys, full traversal, auth/validation and conditional regressions.
 No live access, writes, new index or production latency claim.
 
+### Customer service-site locality
+
+Use the same operation to select accounts that have a service site in a
+stored city, state or zip, without downloading every site.
+`addressCity`, `addressState` and `addressZip` are opaque case-sensitive
+exact equalities on the stored child address (1..100 Unicode code
+points, never blank; leading zeros and significant whitespace preserved;
+no abbreviation conversion). They AND inside the same stored address as
+the cohort scopes above: a city on one site plus a state on another site
+of the same account never matches the combined request, and multiple
+matching sites still return the account once. Disabled sites count
+unless `addressEnabled` scopes them out. A valid unknown locality is an
+empty 200. Site locality is mirrored text on the service address — not a
+customer headquarters location, geocoding result, postal verification,
+service-territory eligibility or proof of service.
+
+Synthetic local account-by-site-locality recipe (fixture service and its
+`$TOKEN` only):
+
+```bash
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?addressCity=Riverton&addressState=TX&addressZip=02139&limit=2&includeTotal=false"
+# {"rows":[{"customer_id":11,...},{"customer_id":13,...}],"total":null,"nextCursor":13}
+# Follow the returned relative Link unchanged on this same localhost origin;
+# it retains the locality selectors. Stop when Link is absent.
+```
+
+Run `npm run check:customer-address-locality` for synthetic local-D1
+selection, split-site decoys, full Link traversal and conditional-read
+regressions plus child-index EXPLAIN evidence. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-service-site-locality)
+and [400 correction guidance](PROBLEMS.md#customer-service-site-cohorts-bad-request).
+
 ### Customer stored-phone presence
 
 Use the existing read-token-compatible `listCustomerSnapshot` operation to
