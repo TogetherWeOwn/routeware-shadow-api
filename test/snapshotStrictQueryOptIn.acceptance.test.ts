@@ -104,7 +104,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
+      "comments=note", "hasAddresses=true", "hasEnabledAddresses=true", "hasEnabledContainers=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
@@ -122,7 +122,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
+      "hasAddresses=true", "hasEnabledAddresses=true", "hasEnabledContainers=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
       "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
     ]
   }
