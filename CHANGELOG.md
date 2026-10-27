@@ -5,6 +5,16 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- Clarify the save dry-run guarantee in all three mounted operations and the
+  [consumer recipe](./docs/CONSUMER-QUICKSTART.md#dry-run-recipe-validate-fix-save):
+  success covers only applicable local preparation, not upstream business
+  acceptance, complete required-field validation, a currently authenticated
+  session, future save success, idempotency or refreshed local state. Explicit
+  tokens/disabled auto-token can skip modal GETs. Missing cookies still fail
+  closed without login; recovery uses an authorized upstream read, never an
+  arbitrary mutation or automatic replay of an ambiguous create. No wire or
+  runtime behavior changed; hermetic check: `npm run check:save-dry-run`.
+
 - #433: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
   existing address snapshot list only, selecting sites by the owning stored
   customer's mirrored business numbers without resolving the numeric

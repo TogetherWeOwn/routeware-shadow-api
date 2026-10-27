@@ -62,6 +62,12 @@ shadow/health → readiness — see
 [`docs/CONSUMER-QUICKSTART.md`](./docs/CONSUMER-QUICKSTART.md#smoke-ladder-five-copy-paste-commands-fresh-clone--green)
 (it runs verbatim on a fresh clone).
 
+Before an authorized customer/address/container save, read the
+[dry-run guarantee and recovery recipe](./docs/CONSUMER-QUICKSTART.md#dry-run-recipe-validate-fix-save):
+a dry-run 200 proves only applicable local preparation, not upstream business
+acceptance or a currently authenticated session. The three mounted save operations
+publish the same limits in [`docs/openapi.json`](./docs/openapi.json).
+
 `npm run dev` runs `check:devvars` first and fails fast if `.dev.vars` is missing a
 required key. Local dev uses the browser-free HTTP login, so **no `--remote` is needed**;
 use `npm run dev:remote` only to exercise the Browser Rendering fallback.

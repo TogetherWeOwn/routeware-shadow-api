@@ -2733,30 +2733,51 @@ Inspect the media type and payload, not only the status. See the
 
 ### Dry-run recipe: validate, fix, save
 
-Append `?dryRun=true` to any of the three saves to validate — form fields
-plus session health — without risking a non-idempotent create landing
-upstream. Nothing is persisted: no upstream POST, no D1 write, no cache
-invalidation, no login.
+Append `?dryRun=true` to any of the three saves for local preparation only.
+Dry-run success means only the applicable local preparation checks passed:
+body presence, stored cookie presence, and applicable anti-forgery token
+preparation. It does not prove upstream form/business acceptance, complete
+required-field validation, a currently authenticated upstream session,
+future save success, idempotency, or refreshed local state.
+
+Token preparation may make a modal GET; an explicit non-placeholder token or
+disabled auto-token skips it. Customer preparation may also reuse a cached
+token; address/container preparation has no token cache. With auto-token
+enabled and no explicit token, creating an address requires `CustomerID`
+and creating a container requires `PickupAddressID` for their respective
+modal GETs. None of these branches submits the form for upstream validation.
+Nothing is persisted: no upstream save POST, no D1 write, no R2 write, no
+cache invalidation, no login. The response has `localSync.code=not_attempted`.
 
 ```bash
-# 1. Validate (HTTP 200: dryRun: true, routewareStatus: null, upstreamBytes: 0)
+# 1. Prepare only (HTTP 200: dryRun: true, routewareStatus: null, upstreamBytes: 0)
 curl -X POST "http://localhost:8787/api/v1/data/customer?dryRun=true" \
   -H "Authorization: Bearer $SYNC" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   --data-urlencode "CustomerID=0" \
   --data-urlencode "CustomerTypeID=1" \
   --data-urlencode "CompanyName=ExampleCo"
-# 2. Fix whatever 400/502 the dry-run reports (identical shapes to the live path)
-# 3. Save for real: drop the flag — or pass ?dryRun=false — and re-POST the body
+# 2. Fix any reported local/preparation errors; success is not business validation
+# 3. Only for an independently authorized save, drop the flag (or use ?dryRun=false)
+#    and submit once. Never auto-replay an ambiguous create.
 ```
 
-Without a usable session the dry-run fails closed with 503
-`failed-precondition` and never logs in — run a live request first. Only
-`dryRun` is an allowed query key; after sync-secret authentication succeeds,
+Without a stored cookie the dry-run fails closed with 503
+`failed-precondition` and never logs in. For recovery, use an authorized existing
+[upstream read/session-establishment workflow](#2a-upstream-customer-pagination-skiptake-or-startlimit),
+then retry the dry-run; never use an arbitrary live mutation merely to establish
+a session. A stale cookie challenged during modal preparation can fail with
+502 without login, while a skipped modal cannot detect that challenge. Never
+auto-replay an ambiguous create: reconcile existing IDs before considering
+another save.
+
+Only `dryRun` is an allowed query key; after sync-secret authentication succeeds,
 anything else is a value-free 400. Missing or invalid authentication retains
-precedence over unknown-key rejection.
-`routewareStatus` is unknowable without posting and is never predicted.
-Run the hermetic proof: `npm run check:save-dry-run`.
+precedence over unknown-key rejection. `routewareStatus` is unknowable without
+posting and is never predicted. Existing problem type/action guidance is
+unchanged; this recipe narrows session recovery to an authorized read, not a save.
+Run the hermetic proof: `npm run check:save-dry-run` and
+`npx vitest run test/saveDryRunGuaranteeClarity.acceptance.test.ts --maxWorkers=2`.
 
 ## 5. There is no DELETE: disable instead (HTTP 405)
 
