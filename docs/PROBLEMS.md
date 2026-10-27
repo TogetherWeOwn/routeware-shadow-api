@@ -462,6 +462,21 @@ ZIP that matches no rows returns 200 with an empty list. See the
 [address ZIP policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-address-zip) and
 [container locality policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-locality).
 
+## Stored container instruction fragment (`bad-request`)
+
+Only `GET /api/v1/container-snapshot` accepts optional `note`, a literal
+substring of stored `container_note`, separate from `q`. Trim boundaries
+before counting the maximum 100 Unicode code points; blank means omitted.
+Repeated keys (even blank or identical values) and overlength fragments reject
+after authentication and before any D1/cache/upstream work, including with
+`If-None-Match: *`. The fixed value-free detail is:
+`Invalid request query (note). See docs/PROBLEMS.md#bad-request.`
+
+Next action: send one fragment of at most 100 Unicode code points after trimming,
+or omit `note`, then retry. Never log note values or arbitrary query keys;
+operational instructions may be sensitive. A valid no-match lookup returns an
+empty 200. See [note policy](SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment).
+
 ## Exact stored street address (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, `streetAddress` is one optional opaque
