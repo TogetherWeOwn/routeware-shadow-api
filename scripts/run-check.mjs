@@ -11,10 +11,18 @@ import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { argv, exit } from "node:process";
+import { fileURLToPath } from "node:url";
 
 import { handleHelpFlag } from "./lib/usage.mjs";
 
-const root = path.join(path.dirname(new URL(import.meta.url).pathname), "..");
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const pathKey = process.platform === "win32"
+  ? Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH"
+  : "PATH";
+const env = {
+  ...process.env,
+  [pathKey]: [path.join(root, "node_modules", ".bin"), process.env[pathKey] ?? ""].join(path.delimiter),
+};
 const dir = path.join(root, "checks");
 const names = readdirSync(dir)
   .filter((f) => f.endsWith(".cmd"))
@@ -54,6 +62,6 @@ for (const name of wanted) {
 for (const name of wanted) {
   const command = readFileSync(path.join(dir, `${name}.cmd`), "utf8").trim();
   console.log(`> check:focused ${name}\n> ${command}`);
-  const { status } = spawnSync(command, { cwd: root, shell: true, stdio: "inherit" });
+  const { status } = spawnSync(command, { cwd: root, env, shell: true, stdio: "inherit" });
   if (status !== 0) exit(status ?? 1);
 }

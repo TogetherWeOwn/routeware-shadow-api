@@ -16,6 +16,7 @@ type SnapshotListResource = "customer" | "address" | "container";
 
 type SnapshotListQuery = {
   customerId?: number;
+  customerTypeId?: number;
   customerNumber?: string;
   subCustomerNumber?: string;
   pickupAddressId?: number;
@@ -30,6 +31,7 @@ type SnapshotListQuery = {
   hasRfid?: "true" | "false" | "any";
   materialStream?: string;
   color?: string;
+  eventCode?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
   syncedSince?: string;
@@ -41,6 +43,7 @@ type SnapshotListQuery = {
   parentState?: string;
   parentZip?: string;
   parentEnabled?: "true" | "false" | "any";
+  customerEnabled?: "true" | "false" | "any";
   zip?: string;
   streetAddress?: string;
   locationAddress?: string;
@@ -65,6 +68,9 @@ type SnapshotListQuery = {
   owningCustomerNumber?: string;
   owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
+  hasEventCode?: "true" | "false" | "any";
+  hasEnabledAddresses?: "true" | "false" | "any";
+  hasEnabledContainers?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -101,6 +107,7 @@ const LISTS = {
       "comments",
       "customerId",
       "customerNumber",
+      "customerTypeId",
       "phone",
       "subCustomerNumber"
     ]
@@ -130,6 +137,7 @@ const LISTS = {
       "containerId",
       "containerTypeId",
       "customerId",
+      "eventCode",
       "locationAddress",
       "materialStream",
       "note",
@@ -204,6 +212,13 @@ export function snapshotNextLink(
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
   }
+  // Customer-only exact-enabled descendant presence; omit any/default.
+  if (resource === "customer" && query.hasEnabledAddresses !== undefined && query.hasEnabledAddresses !== "any") {
+    params.set("hasEnabledAddresses", query.hasEnabledAddresses);
+  }
+  if (resource === "customer" && query.hasEnabledContainers !== undefined && query.hasEnabledContainers !== "any") {
+    params.set("hasEnabledContainers", query.hasEnabledContainers);
+  }
   if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
     params.set("hasCoordinates", query.hasCoordinates);
   }
@@ -224,6 +239,11 @@ export function snapshotNextLink(
   if (resource === "container" && query.parentEnabled !== undefined && query.parentEnabled !== "any") {
     params.set("parentEnabled", query.parentEnabled);
   }
+  // Owning stored-customer state (container only): carry only filtering
+  // values so any/omitted continuations stay byte-identical.
+  if (resource === "container" && query.customerEnabled !== undefined && query.customerEnabled !== "any") {
+    params.set("customerEnabled", query.customerEnabled);
+  }
   // Container-only stored-text presence selectors: carry only filtering
   // values so any/omitted continuations stay byte-identical.
   if (resource === "container" && query.hasSerialNumber !== undefined && query.hasSerialNumber !== "any") {
@@ -231,6 +251,9 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.hasRfid !== undefined && query.hasRfid !== "any") {
     params.set("hasRfid", query.hasRfid);
+  }
+  if (resource === "container" && query.hasEventCode !== undefined && query.hasEventCode !== "any") {
+    params.set("hasEventCode", query.hasEventCode);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive window: the next target keeps the same floor and cap

@@ -338,18 +338,22 @@ describe("OpenAPI example payloads", () => {
   });
 });
 
+type ParameterRecord = { name: string; in: "query" | "path" };
+const queryParams = (...names: string[]): ParameterRecord[] => names.map((name) => ({ name, in: "query" }));
+const pathParams = (...names: string[]): ParameterRecord[] => names.map((name) => ({ name, in: "path" }));
+
 type RemainingResponse = {
   path: string;
   method: string;
   mediaType: string;
   /**
-   * Expected query + path parameter names for exactly this operation, in
-   * mounted order; `[]` when the operation mounts none. Adding a selector
-   * edits only its own operation's array — the checked total below is
-   * derived as the sum of these records, so unrelated PRs never share an
-   * integer to collide on.
+   * Expected query + path parameters (name and location, since OpenAPI
+   * identifies a parameter by both) for exactly this operation; `[]` when
+   * the operation mounts none. Adding a selector edits only its own
+   * operation's array — the checked total below is derived as the sum of
+   * these records, so unrelated PRs never share an integer to collide on.
    */
-  parameterNames: string[];
+  parameters: ParameterRecord[];
 };
 
 const REMAINING_RESPONSES: RemainingResponse[] = [
@@ -358,218 +362,228 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
     path: "/api/v1/customer-snapshot",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments", "enabled", "hasAddresses",
-      "addressRouteId", "addressFranchiseId", "addressEnabled", "addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers",
-      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    parameters: [
+      ...queryParams("customerId", "ids", "customerTypeId", "customerNumber", "subCustomerNumber", "q", "phone"),
+      ...queryParams("comments", "enabled", "hasAddresses", "hasEnabledAddresses", "hasEnabledContainers"),
+      ...queryParams("addressRouteId", "addressFranchiseId", "addressEnabled"),
+      ...queryParams("addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1"),
+      ...queryParams("hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId"),
+      ...queryParams("upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery")
     ]
   },
   {
     path: "/api/v1/customer-snapshot/{customerId}",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["customerId", "fields"]
+    parameters: [...pathParams("customerId"), ...queryParams("fields")]
   },
   {
     path: "/api/v1/customer-snapshot/export",
     method: "get",
     mediaType: "text/csv",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/customer-snapshot/import",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/customer-snapshot/sync",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/data/customer",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "id", "customerId", "ids", "fields",
-      "fields[customer]", "fields[address]", "fields[container]"
+    parameters: [
+      ...queryParams("id", "customerId", "ids", "fields", "fields[customer]", "fields[address]"),
+      ...queryParams("fields[container]")
     ]
   },
   {
     path: "/api/v1/data/customer",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   // Address snapshot block.
   {
     path: "/api/v1/address-snapshot",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "q", "driverNote", "enabled", "extrasAllowed", "hasContainers", "hasCoordinates",
-      "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled", "owningCustomerNumber", "owningSubCustomerNumber",
-      "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
+    parameters: [
+      ...queryParams("customerId", "pickupAddressId", "ids", "routeId", "franchiseId", "zip"),
+      ...queryParams("streetAddress", "city", "state", "q", "driverNote", "enabled"),
+      ...queryParams("extrasAllowed", "hasContainers", "hasCoordinates", "lastAuditDate", "hasLastAuditDate", "parentCustomerEnabled"),
+      ...queryParams("owningCustomerNumber", "owningSubCustomerNumber"),
+      ...queryParams("limit", "offset", "cursor", "lowerId", "upperId", "includeTotal"),
+      ...queryParams("exactNext", "countOnly", "order", "fields", "strictQuery")
     ]
   },
   {
     path: "/api/v1/address-snapshot/{pickupAddressId}",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["pickupAddressId", "fields"]
+    parameters: [...pathParams("pickupAddressId"), ...queryParams("fields")]
   },
   {
     path: "/api/v1/address-snapshot/export",
     method: "get",
     mediaType: "text/csv",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/address-snapshot/import",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/address-snapshot/sync",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/data/address",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "id", "pickupAddressId", "ids", "fields",
-      "fields[customer]", "fields[address]", "fields[container]"
+    parameters: [
+      ...queryParams("id", "pickupAddressId", "ids", "fields", "fields[customer]", "fields[address]"),
+      ...queryParams("fields[container]")
     ]
   },
   {
     path: "/api/v1/data/address",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   // Container snapshot block.
   {
     path: "/api/v1/container-snapshot",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid", "serviceCode", "containerTypeId",
-      "hasSerialNumber", "hasRfid",
-      "onCall", "gpsLocked", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates", "locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled",
-      "q", "note", "enabled", "syncedSince", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order", "fields", "strictQuery"
-    ].concat(["parentCity", "parentState", "parentZip"])
+    parameters: [
+      ...queryParams("customerId", "pickupAddressId", "containerId", "ids", "serialNumber", "rfid"),
+      ...queryParams("serviceCode", "containerTypeId", "hasSerialNumber", "hasRfid", "onCall", "gpsLocked"),
+      ...queryParams("materialStream", "color", "eventCode", "hasEventCode", "serviceCodeType", "serviceCodeInput", "zip", "hasCoordinates"),
+      ...queryParams("locationAddress", "city", "state", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled"),
+      ...queryParams("q", "note", "enabled", "syncedSince", "limit", "offset", "cursor"),
+      ...queryParams("lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order"),
+      ...queryParams("fields", "strictQuery"),
+      ...queryParams("parentCity", "parentState", "parentZip")
+    ]
   },
   {
     path: "/api/v1/container-snapshot/{containerId}",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["containerId", "fields"]
+    parameters: [...pathParams("containerId"), ...queryParams("fields")]
   },
   {
     path: "/api/v1/container-snapshot/export",
     method: "get",
     mediaType: "text/csv",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/container-snapshot/import",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/container-snapshot/sync",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   {
     path: "/api/v1/data/container",
     method: "get",
     mediaType: "application/json",
-    parameterNames: [
-      "id", "containerId", "ids", "fields",
-      "fields[customer]", "fields[address]", "fields[container]"
+    parameters: [
+      ...queryParams("id", "containerId", "ids", "fields", "fields[customer]", "fields[address]"),
+      ...queryParams("fields[container]")
     ]
   },
   {
     path: "/api/v1/data/container",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun"]
+    parameters: [...queryParams("dryRun")]
   },
   // Archive, changes, data-snapshot and Routeware operations.
   {
     path: "/api/v1/snapshots/{table}/{date}",
     method: "get",
     mediaType: "text/csv",
-    parameterNames: ["table", "date"]
+    parameters: [...pathParams("table", "date")]
   },
   {
     path: "/api/v1/snapshots/{table}",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["table", "limit"]
+    parameters: [...pathParams("table"), ...queryParams("limit")]
   },
   {
     path: "/api/v1/snapshots/{table}/latest",
     method: "get",
     mediaType: "text/csv",
-    parameterNames: ["table"]
+    parameters: [...pathParams("table")]
   },
   {
     path: "/api/v1/customer-snapshot/changes",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["since", "since_id", "until", "limit", "fields"]
+    parameters: [...queryParams("since", "since_id", "until", "limit", "fields")]
   },
   {
     path: "/api/v1/customer-snapshot/{customerId}",
     method: "delete",
     mediaType: "application/json",
-    parameterNames: ["customerId"]
+    parameters: [...pathParams("customerId")]
   },
   {
     path: "/api/v1/data-snapshot/sync",
     method: "post",
     mediaType: "application/json",
-    parameterNames: ["dryRun", "partialProgress"]
+    parameters: [...queryParams("dryRun", "partialProgress")]
   },
   {
     path: "/api/v1/data-snapshot/orphans",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["sampleLimit"]
+    parameters: [...queryParams("sampleLimit")]
   },
   {
     path: "/api/v1/routeware/home/index",
     method: "get",
     mediaType: "text/html",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/routeware/account/login-page",
     method: "get",
     mediaType: "text/html",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/routeware/data/app-settings-get",
     method: "post",
     mediaType: "application/json",
-    parameterNames: []
+    parameters: []
   },
   {
     path: "/api/v1/routeware/reports/query-request-is-complete",
     method: "get",
     mediaType: "application/json",
-    parameterNames: ["requestID", "_"]
+    parameters: [...queryParams("requestID", "_")]
   }
 ];
 
@@ -610,16 +624,18 @@ describe("snapshot, data-entity and Routeware examples", () => {
   it("publishes schema-compatible examples for every query and path parameter", async () => {
     const doc = await fetchDoc();
     let checked = 0;
-    for (const { method, path, parameterNames } of REMAINING_RESPONSES) {
+    for (const { method, path, parameters } of REMAINING_RESPONSES) {
       const mounted = (op(doc, path, method).parameters ?? []).filter(
         (parameter) => parameter.in === "query" || parameter.in === "path"
       );
-      const mountedNames = mounted.map((parameter) => parameter.name);
-      for (const name of parameterNames) {
-        expect(mountedNames, `${method} ${path} ${name}`).toContain(name);
+      const mountedKeys = mounted.map((parameter) => `${parameter.in} ${parameter.name}`);
+      const expectedKeys = parameters.map((parameter) => `${parameter.in} ${parameter.name}`);
+      for (const key of expectedKeys) {
+        expect(mountedKeys, `${method} ${path} ${key}`).toContain(key);
       }
       for (const parameter of mounted) {
-        expect(parameterNames, `${method} ${path} ${parameter.name}`).toContain(parameter.name);
+        const key = `${parameter.in} ${parameter.name}`;
+        expect(expectedKeys, `${method} ${path} ${key}`).toContain(key);
         const example = parameter.example ?? parameter.schema?.example;
         expect(example, `${method} ${path} ${parameter.name}`).toBeDefined();
         assertValueMatchesSchema(parameter.schema!, example, `${path} ${parameter.name}`);
@@ -629,7 +645,7 @@ describe("snapshot, data-entity and Routeware examples", () => {
     // Derived from the per-operation records above: adding a selector edits
     // only its own operation's array, never a shared integer.
     const expected = REMAINING_RESPONSES.reduce(
-      (total, entry) => total + entry.parameterNames.length,
+      (total, entry) => total + entry.parameters.length,
       0
     );
     expect(checked).toBe(expected);

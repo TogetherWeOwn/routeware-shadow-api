@@ -58,6 +58,12 @@ export function validationFailureHook(
       (result.target === "query" && unique.includes("hasContainers") && (c?.req as { path?: string } | undefined)?.path === "/api/v1/customer-snapshot"
         ? "Send one hasContainers=true, false or any, or omit the selector and retry. "
         : "") +
+      (result.target === "query" && unique.includes("hasEnabledAddresses")
+        ? "Send one hasEnabledAddresses=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("hasEnabledContainers")
+        ? "Send one hasEnabledContainers=true, false or any, or omit the selector and retry. "
+        : "") +
       (result.target === "query" && unique.includes("hasPhone1")
         ? "Send one hasPhone1=true, false or any, or omit the selector and retry. "
         : "") +
@@ -93,6 +99,9 @@ export function validationFailureHook(
         : "") +
       (result.target === "query" && unique.includes("addressEnabled")
         ? "Send one addressEnabled=true, false or any, or omit the selector and retry. "
+        : "") +
+      (result.target === "query" && unique.includes("customerEnabled")
+        ? "Send one customerEnabled=true, false or any, or omit the selector and retry. "
         : "") +
       (result.target === "query" && unique.includes("addressCity")
         ? "Send one addressCity of 1..100 Unicode code points that is not blank, or omit it and retry. "

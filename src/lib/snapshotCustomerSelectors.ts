@@ -27,6 +27,25 @@ export function customerContainerPresencePredicate(value: "true" | "false"): str
   return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id))`;
 }
 
+/** Exact stored enabled state, independent of the customer's own enabled flag. */
+export const customerEnabledAddressPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Mirrored enabled-address presence: "true" selects customers with at least one stored address whose enabled is exactly 1; "false" is the exact NOT EXISTS complement, including zero stored addresses and addresses all non-1. Noncanonical stored enabled values never count as enabled. "any" or omission adds no predicate. Customer enabled stays independent. Global across owned sites, not same-site membership for a separate cohort. Mirrored report state is not current account eligibility, live service status, deployment proof or authorization. Send one hasEnabledAddresses=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+export const customerEnabledContainerPresenceQuery = z.enum(["true", "false", "any"]).optional().default("any")
+  .describe('Mirrored enabled-container presence: "true" selects customers with at least one stored container whose enabled is exactly 1 reachable through any stored address they own; the intermediate address enabled state is irrelevant. "false" is the exact NOT EXISTS complement, including zero reachable containers and reachable containers all non-1. Noncanonical stored enabled values never count as enabled. "any" or omission adds no predicate. Customer enabled stays independent. Global across owned sites, not same-site membership for a separate cohort. Mirrored report state is not current account eligibility, live service status, deployment proof or authorization. Send one hasEnabledContainers=true, false or any, or omit the selector and retry.')
+  .openapi({ example: "true" });
+
+/** Indexed correlated child lookup; false includes zero children and all-non-1 children. */
+export function customerEnabledAddressPresencePredicate(value: "true" | "false"): string {
+  return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND address_snapshot.enabled = 1)`;
+}
+
+/** Indexed grandchild reachability: the intermediate address need not be enabled. */
+export function customerEnabledContainerPresencePredicate(value: "true" | "false"): string {
+  return `${value === "false" ? "NOT " : ""}EXISTS (SELECT 1 FROM address_snapshot WHERE address_snapshot.customer_id = customer_snapshot.customer_id AND EXISTS (SELECT 1 FROM container_snapshot WHERE container_snapshot.pickup_address_id = address_snapshot.pickup_address_id AND container_snapshot.enabled = 1))`;
+}
+
 /**
  * Ordinary customer-list child-cohort scopes: `addressRouteId`,
  * `addressFranchiseId`, `addressEnabled`, `addressExtrasAllowed` and

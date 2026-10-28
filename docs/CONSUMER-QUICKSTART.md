@@ -9,8 +9,12 @@ use). Keep the deliberate error recipes in step 6 local-only.
 Operator setup (secrets, D1 migrations, report sync) is out of scope here:
 see [`README.md`](../README.md) and [`CUSTOMER_SNAPSHOT.md`](../CUSTOMER_SNAPSHOT.md).
 Error catalog: [`PROBLEMS.md`](./PROBLEMS.md).
-Full machine-readable spec: `GET /openapi.json` (interactive UI at `/docs`;
-both gated by `OPENAPI_DOCS_ENABLED`).
+Contract of record: [`openapi.json`](./openapi.json), the same OpenAPI document
+the app serves (pretty-printed with sorted keys; the endpoint returns minified
+JSON). The live machine-readable endpoint `GET /openapi.json` and interactive
+UI at `/docs` are gated by
+`OPENAPI_DOCS_ENABLED`; production sets it to `false`, so `/openapi.json`
+returns 404 there by design.
 
 ## 0. Check the service is up (no token needed)
 
@@ -805,6 +809,39 @@ and retry; errors are fixed and value-free even with If-None-Match. See
 [correction guidance](PROBLEMS.md#bad-request) and the
 [query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#exact-customer-account-numbers).
 
+### Filter by stored classification
+
+Use the existing `listCustomerSnapshot` operation to fetch only customers of
+a known stored classification. Optional `customerTypeId` is exact equality
+over the stored nullable `customer_type_id` column: one unpadded ASCII
+decimal integer from `0` through `9007199254740991`, sent once. `0` is a
+literal stored value, never null or all rows; stored NULL classifications
+never match. The selector AND-composes with `customerId`, `q`, `enabled` and
+every other filter, and travels in follow-next Links. It filters the cached
+snapshot, not live Routeware state — there is no type-name catalog.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?customerTypeId=2&limit=2"
+# HTTP 200 — {"rows":[...],"total":N,"nextCursor":...}; follow Link rel="next"
+# with the selector intact until Link is absent; a full terminal page may
+# link to one empty page. A valid literal with no match is a 200 empty page.
+```
+
+Credential-free verification (no running Worker or live requests):
+
+```bash
+npm run check:focused -- customer-type-filter
+```
+
+The fixture also pins strict lexical rejection (empty, padded, signed,
+fraction, exponent, unsafe and repeated-key values 400 before D1 with the
+fixed value-free detail), auth-before-validation, count-free zero-COUNT
+traversal, sparse fields and conditional ETags. For a 400, send the selector
+once in canonical form, or omit it, then retry. See
+[correction guidance](PROBLEMS.md#bad-request) and the
+[query inventory](SNAPSHOT-LIST-QUERY-POLICY.md#stored-classification-filter).
+
 ### Personal or company name search
 
 Find customer rows by personal name without downloading unrelated pages, on
@@ -1188,7 +1225,8 @@ adoption or performance evidence. See the
 Use `listContainerSnapshot` with `parentRouteId`, `parentFranchiseId` and/or
 `parentEnabled=true|false|any` to retrieve equipment for a known mirrored
 service-site cohort without fetching all addresses. These select the parent
-address only, never equipment `route_ids`/`frequency_ids` or customer enabled.
+address only, never equipment `route_ids`/`frequency_ids`; owning-customer
+state is the separate selector in the next section.
 Container `enabled` is independent: `parentEnabled=true&enabled=false` means
 disabled equipment at enabled sites, not an assignment change.
 
@@ -1222,6 +1260,91 @@ Equality can scan; no new index, deployment, production latency or assignment
 accuracy is claimed. GET is idempotent local-read, CLI dry-run N/A. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#container-parent-service-site-scopes)
 and [400 recovery](PROBLEMS.md#container-parent-service-site-scopes-bad-request).
+
+### Equipment by owning customer enabled state
+
+Use `listContainerSnapshot` with `customerEnabled=true` to list only
+equipment whose owning stored customer is enabled, or
+`customerEnabled=false` for equipment of disabled stored customers,
+without enumerating accounts and sites first. Three stored states stay
+independent — owning customer (`customerEnabled`), parent site
+(`parentEnabled`) and equipment (`enabled`) — so combine them for the
+exact three-level cohort, e.g. disabled equipment at enabled sites of
+enabled customers is
+`customerEnabled=true&parentEnabled=true&enabled=false`. Mirrored stored
+customer enabled is not current account eligibility, billing status,
+service permission or authorization. Omission or `any` adds no customer
+predicate; a missing address/customer or noncanonical stored value
+never matches `true` or `false`, and a `customerId` whose stored state
+contradicts the selector returns an empty 200. Invalid, blank or
+repeated values receive the fixed value-free 400 before D1, after auth.
+
+Equipment of enabled stored customers, counted first:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?customerEnabled=true&countOnly=true"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/container-snapshot?customerEnabled=true&parentEnabled=true&enabled=false&limit=2"
+```
+
+Follow the relative next Link (or pass its `cursor`) on the same origin;
+the filtering `customerEnabled` value round-trips while `any` is
+omitted. Run the credential-free synthetic recipe (no server or real
+records needed):
+
+```bash
+npm run check:focused -- container-customer-enabled
+```
+
+See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#equipment-by-owning-customer-enabled-state).
+
+### Stored container event-code cohorts
+
+Use `listContainerSnapshot` with optional `eventCode` (stored `event_code`)
+and/or `hasEventCode=true|false|any` to retrieve equipment with a known
+stored code, or to count equipment without code text, without downloading
+the full inventory. The code is an opaque, case-sensitive exact string of
+1..100 Unicode code points containing a non-whitespace character: leading
+zeros, significant whitespace and punctuation are preserved, and the value
+is never parsed as a number, enum or status. Stored code text is mirrored
+import text, not current dispatch state, event history, proof of service or
+a controlled taxonomy. `hasEventCode=false` keeps exactly the null-or-empty
+complement; whitespace-only stored text counts as present.
+
+Send each key once. Encode with `new URLSearchParams({ eventCode: "E-001",
+hasEventCode: "true" })`. Empty, whitespace-only, overlength or repeated
+keys fail value-free before D1 after auth; correct the named format and
+retry. Valid unknown codes return an empty 200, as does the contradictory
+`eventCode` plus `hasEventCode=false`. For a cohort size without rows, add
+`countOnly=true` and read `total` only.
+
+Run the credential-free synthetic recipe (no server or real records needed):
+
+```bash
+npm run check:focused -- container-event-code
+```
+
+The fixture's `eventCode=E-001&fields=event_code&limit=2&includeTotal=false`
+request returns IDs `[101,102]`, then `[104,105]`, then the partial final
+page `[125]` by following the returned
+[same-origin Link](#follow-the-servers-next-page-target) unchanged. Stop when
+Link is absent; a full terminal page may still link to an empty page.
+`hasEventCode=false` returns the `[108,112,126]` null-or-empty cohort.
+Validated selectors stay encoded, `hasEventCode=any` is omitted, and neither
+raw origins nor unknown query keys are copied.
+
+Both selectors AND-compose with existing IDs, identifiers, labels, locality,
+parent scopes, equipment state and cursor/upper bounds on both customer-join
+paths; omission preserves the unjoined list and orphan visibility. Sparse
+fields, container-ID order, count-free reads and representation ETags/304
+stay intact. The recipe denies outbound fetch/R2/writes and checks both
+traversal directions. Equality/presence can scan; no new index, migration,
+deployment or production latency is claimed. GET is idempotent local-read,
+CLI dry-run N/A. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-event-codes)
+and [400 recovery](PROBLEMS.md#container-stored-event-code-selectors-bad-request).
 
 ### Container parent service-site locality
 
@@ -1664,6 +1787,64 @@ true/false. This is local planner evidence only, not a production latency
 claim. No migration, new index, deployment or live probe. See the
 [query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-container-presence)
 and [400 correction guidance](PROBLEMS.md#customer-container-presence-bad-request).
+
+### Customer enabled-descendant presence
+
+Use `listCustomerSnapshot` to inspect a mirrored active-footprint cohort,
+without fetching sites or equipment. Only this ordinary list accepts
+`hasEnabledAddresses=true|false|any` and `hasEnabledContainers=true|false|any`
+(default `any`). True means a stored descendant with `enabled` exactly 1;
+noncanonical stored values never count. Enabled equipment is reachable through
+**any** owned stored address, even a disabled site. Each false includes zero
+descendants at that level and descendants all non-1. Customer enabled remains
+independent. Presence is global, not same-site membership for a separate cohort.
+
+Synthetic local fixture: customer 11 has no sites, 12 one disabled site
+with only disabled equipment, 13 one enabled site without equipment, 14 one
+disabled site holding enabled equipment, 15 one enabled site with disabled
+equipment, and 16 an enabled site plus a separate disabled site holding enabled
+equipment. These examples assume only those six accounts; use a local fixture
+service and its `$TOKEN`. The focused suite creates its own synthetic test D1.
+
+```bash
+# Count accounts with BOTH an enabled site and enabled equipment: only 16.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasEnabledAddresses=true&hasEnabledContainers=true&countOnly=true&strictQuery=true"
+# {"rows":[],"total":1,"nextCursor":null}; one COUNT, zero page SELECTs, no next Link.
+# Equipment can be enabled on a disabled site: only 14.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasEnabledAddresses=false&hasEnabledContainers=true&fields=enabled&includeTotal=false"
+# Rows: customer_id 14 (canonical ID retained); total:null, zero COUNTs.
+# Stored sites but none enabled: 12 and 14; a customer with no sites is excluded.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=true&hasEnabledAddresses=false&countOnly=true"
+# {"rows":[],"total":2,"nextCursor":null}
+# Either positive enabled-presence selector contradicts hasAddresses=false.
+curl -i -H "Authorization: Bearer $TOKEN" \
+  "http://localhost:8787/api/v1/customer-snapshot?hasAddresses=false&hasEnabledContainers=true"
+# {"rows":[],"total":0,"nextCursor":null}; empty 200, not a validation error.
+```
+
+The new selectors AND-compose with every existing customer filter. For example,
+`hasContainers=true&hasEnabledContainers=false` keeps stored equipment with
+none enabled; `hasContainers=false&hasEnabledContainers=true` is empty.
+Send each exact enum once, or omit it and retry malformed/blank/repeated
+selectors (fixed value-free 400 after auth, before D1/304). Keep
+`countOnly=true` separate from `includeTotal=false`; the combination is invalid.
+On paged reads follow relative next Links unchanged on the same local origin;
+they retain effective selectors across either direction and offset-to-seek,
+never any/default. Sparse fields, bounded IDs, strictQuery and exact-envelope
+ETag/304/no-store are unchanged. Counted totals are cursor-relative; no
+snapshot isolation or latency guarantee is promised. No descendant expansion,
+new indexes or migrations. GET is idempotent/local-read; CLI `--dry-run` is N/A.
+
+Mirrored report state is **not** current account eligibility, live service
+status, deployment proof or authorization. Absence is not upstream emptiness
+and never authorizes deletion, reconciliation or sync. This recipe is not a
+live probe or deployment. Run `npm run check:focused -- customer-enabled-descendants`
+for synthetic local-D1 checks without upstream/R2 access or writes. See the
+[query policy](SNAPSHOT-LIST-QUERY-POLICY.md#customer-enabled-descendant-presence)
+and [400 correction guidance](PROBLEMS.md#customer-enabled-descendant-presence-bad-request).
 
 ### Address container presence
 

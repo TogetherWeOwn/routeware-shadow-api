@@ -5,6 +5,23 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
 
 ## [Unreleased]
 
+- #425: Customer snapshot lists accept `hasEnabledAddresses=true|false|any` and
+  `hasEnabledContainers=true|false|any` (default `any`). True requires a
+  mirrored descendant whose stored `enabled` is exactly 1; enabled equipment
+  may sit on any owned address, regardless of that address's enabled state.
+  Each false is the exact NOT EXISTS complement, including zero descendants
+  and all-non-1 descendants; noncanonical stored values never count as enabled.
+  Customer enabled and separate site cohorts remain independent. Selectors
+  AND-compose with all existing filters, with shared COUNT/page predicates,
+  countOnly/count-free modes, sparse fields, bounded bidirectional traversal,
+  retaining relative next Links and ETag/304/no-store. Malformed/blank/repeated
+  values fail value-free after auth and before D1/304. Uses existing FK
+  indexes without expansion, migrations or new indexes. Mirrored report
+  state is not account eligibility, live service, deployment proof or
+  authorization. Local active-footprint count recipe:
+  `docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence`; check:
+  `npm run check:focused -- customer-enabled-descendants`.
+
 - #433: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
   existing address snapshot list only, selecting sites by the owning stored
   customer's mirrored business numbers without resolving the numeric
@@ -80,6 +97,27 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   before D1/304. No writes, new index/migration or latency promise. Local
   recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
   check: `npm run check:focused -- customer-address-service-policy`.
+- #420: Optional `customerEnabled=true|false|any` (default `any`) on the existing
+  container snapshot list (`GET /api/v1/container-snapshot`): selects
+  equipment by the owning stored customer's `enabled` — `true` keeps only
+  stored `1`, `false` only stored `0` — through the shared address join
+  plus one customer primary-key join with qualified columns and no row
+  multiplication, so enabled/disabled account equipment cohorts read
+  without enumerating customers and sites. Omission/`any` adds no customer
+  predicate or join and keeps orphan and noncanonical rows visible;
+  explicit values never match a missing address or customer. Equipment
+  `enabled` and parent-site `parentEnabled` stay independent, and all
+  three AND-compose with every existing selector (including `customerId`
+  contradictions as empty 200) in the shared COUNT/page
+  predicates and binds. Filtering values round-trip in relative next
+  Links in both orders and across offset-to-seek; invalid, blank or
+  repeated values fail with the existing fixed value-free 400 after
+  authentication and before D1. Mirrored stored customer enabled is not
+  current account eligibility, billing status, service permission or
+  authorization. No migration or index; the synthetic local EXPLAIN in
+  the acceptance oracle is shape evidence only. Synthetic recipes:
+  `docs/CONSUMER-QUICKSTART.md#equipment-by-owning-customer-enabled-state`;
+  focused check: `npm run check:focused -- container-customer-enabled`.
 - #431: Customer snapshot lists accept optional `addressCity`, `addressState`
   and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
   code points including a non-whitespace character; leading zeros and
@@ -186,6 +224,9 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   fixed value-free 400 after auth and before D1. No new index, migration or
   latency claim; focused check:
   `npm run check:focused -- address-parent-customer-enabled`.
+- #417: Publish the complete OpenAPI contract as readable `docs/openapi.json`
+  and fail tests on drift from the live document. Runtime routes and schemas
+  are unchanged; production documentation endpoints remain disabled.
 - #383: Container snapshot lists accept optional `onCall` and `gpsLocked`
   stored-state selectors (`true`|`false`|`any`, default `any`). Exact
   case-sensitive enums match stored `1`/`0` via integer-literal predicates;
@@ -218,6 +259,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
   Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
   check: `npm run check:focused -- snapshot-lower-id`.
+
+- #403: Container snapshot lists accept optional `eventCode` and
+  `hasEventCode=true|false|any` (default `any`) for exact stored
+  `c.event_code` text and missing-code cohorts. The code is an opaque
+  case-sensitive 1..100 Unicode code-point string, never parsed as a
+  number, enum or status; `false` keeps exactly null-or-empty codes while
+  whitespace-only counts as present. Stored code text is mirrored import
+  text, not dispatch state, history, proof of service or a taxonomy. Both
+  selectors AND-compose with existing filters in COUNT and page reads on
+  both join paths, add no join, and round-trip in relative next links with
+  `any` omitted. Single-value bounds, sparse ETags/304 and count-free
+  pagination stay intact. No migration/index or performance promise is
+  added. Synthetic local check: `npm run check:focused -- container-event-code`; see
+  the event-code recipe in `docs/CONSUMER-QUICKSTART.md`.
 
 - #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
   list: each selects rows by stored `phone1`/`phone2` text as stored —
@@ -340,7 +395,18 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   completeness promise. No index or migration. See the synthetic bounded
   two-page recipe and focused check in `docs/CONSUMER-QUICKSTART.md` and
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`.
-
+- #382: Optional `customerTypeId` exact filter on the existing customer
+  snapshot list: one canonical unpadded ASCII decimal integer from `0` to
+  `9007199254740991`, AND-composed with every existing filter and cursor
+  clause. `0` matches literal stored classification `0`, never null or all
+  rows; stored NULL classifications never match. Invalid or repeated values
+  fail with the existing value-free 400 before D1, after read-role
+  authentication. Omission preserves previous matches; follow-next Links
+  retain the selector across offset/cursor, asc/desc and count-free
+  traversals. No new index, migration, join or upstream call; the value
+  filters the cached snapshot, not live Routeware state. See
+  `docs/CONSUMER-QUICKSTART.md` for the synthetic multi-page recipe;
+  focused check: `npm run check:focused -- customer-type-filter`.
 - #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
   (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
   fields/ETag, and emits a cursor/relative next Link only if another matching row
@@ -620,6 +686,13 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   its own operation's record, so unrelated selector PRs no longer collide on
   a shared integer. No route, runtime, docs-rendering, workflow or migration
   change. Focused checks: `npx vitest run test/routeExamples.test.ts` and
+  `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
+- #368 follow-up: Test-only: the `test/routeExamples.test.ts` per-operation
+  records now pin each parameter's location as well as its name
+  (`{ name, in: "query" | "path" }`), so remounting a parameter between query
+  and path with an unchanged name fails naming the operation, the location and
+  the name. No route, runtime, docs-rendering, workflow or migration change.
+  Focused checks: `npx vitest run test/routeExamples.test.ts` and
   `npx vitest run --config test/routeExamplesParameters.acceptance.config.ts`.
 - #350: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `upperId=`

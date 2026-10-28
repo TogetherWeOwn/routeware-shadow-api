@@ -82,8 +82,8 @@ const SPECS: Spec[] = [
     id: "customer_id",
     field: "company_name",
     allowed: [
-      "customerId", "ids", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
-      "enabled", "hasAddresses", "addressRouteId", "addressFranchiseId", "addressEnabled", "addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
+      "customerId", "ids", "customerTypeId", "customerNumber", "subCustomerNumber", "q", "phone", "comments",
+      "enabled", "hasAddresses", "hasEnabledAddresses", "hasEnabledContainers", "addressRouteId", "addressFranchiseId", "addressEnabled", "addressCity", "addressState", "addressZip", "addressExtrasAllowed", "addressLastAuditDate", "hasPhone1", "hasPhone2", "hasContainers", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal",
       "exactNext", "countOnly", "order", "fields", "strictQuery"
     ],
     cross: [
@@ -104,7 +104,7 @@ const SPECS: Spec[] = [
     ],
     cross: [
       "containerId=101", "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555",
-      "comments=note", "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
+      "comments=note", "hasAddresses=true", "hasEnabledAddresses=true", "hasEnabledContainers=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "serialNumber=SN-1", "rfid=RF-1",
       "locationAddress=Loc-1", "serviceCode=SVC-1", "containerTypeId=7"
     ]
   },
@@ -115,14 +115,14 @@ const SPECS: Spec[] = [
     field: "location_address",
     allowed: [
       "containerTypeId",
-      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
+      "customerId", "pickupAddressId", "containerId", "ids", "parentRouteId", "parentFranchiseId", "parentEnabled", "customerEnabled", "parentCity", "parentState", "parentZip", "serialNumber", "rfid",
       "hasSerialNumber", "hasRfid",
-      "materialStream", "color", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "syncedSince", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
+      "materialStream", "color", "eventCode", "hasEventCode", "serviceCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "q", "note", "enabled", "hasCoordinates", "onCall", "gpsLocked", "syncedSince", "limit", "offset", "cursor", "lowerId", "upperId", "includeTotal", "exactNext", "countOnly", "order",
       "fields", "strictQuery"
     ],
     cross: [
       "customerNumber=N-1", "subCustomerNumber=S-1", "phone=555", "comments=note",
-      "hasAddresses=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
+      "hasAddresses=true", "hasEnabledAddresses=true", "hasEnabledContainers=true", "addressRouteId=7", "addressFranchiseId=F-1", "addressEnabled=true", "hasPhone1=true", "hasPhone2=false", "routeId=7", "franchiseId=F-1",
       "hasContainers=true", "lastAuditDate=2026-01-15", "hasLastAuditDate=true", "parentCustomerEnabled=true"
     ]
   }
@@ -132,17 +132,18 @@ const SPECS: Spec[] = [
  *  on all three resources). A sample may filter to an empty page; the probe
  *  only proves the name is not rejected as unknown under strict mode. */
 const SAMPLES: Record<string, string> = {
-  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102",
+  customerId: "101", pickupAddressId: "101", containerId: "101", containerTypeId: "7", ids: "101,102", customerTypeId: "2",
   customerNumber: "N-1", subCustomerNumber: "S-1", owningCustomerNumber: "N-1", owningSubCustomerNumber: "S-1", q: "synthetic", phone: "555",
-  comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", syncedSince: "2026-08-31T00:00:00.000Z", extrasAllowed: "any", hasAddresses: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
+  comments: "note", driverNote: "access", note: "gate", enabled: "true", onCall: "true", gpsLocked: "true", syncedSince: "2026-08-31T00:00:00.000Z", extrasAllowed: "any", hasAddresses: "any", hasEnabledAddresses: "any", hasEnabledContainers: "any", hasContainers: "any", hasPhone1: "any", hasPhone2: "any",
   lastAuditDate: "2026-01-15", hasLastAuditDate: "any", hasCoordinates: "any", parentCustomerEnabled: "true",
   routeId: "7", franchiseId: "F-1", zip: "02139", streetAddress: "Synthetic street", city: "Riverton", state: "ST",
   parentCity: "Riverton", parentState: "ST", parentZip: "02139",
-  parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true",
+  parentRouteId: "7", parentFranchiseId: "F-1", parentEnabled: "true", customerEnabled: "true",
   addressRouteId: "7", addressFranchiseId: "F-1", addressEnabled: "true",
   addressCity: "Riverton", addressState: "ST", addressZip: "02139", addressExtrasAllowed: "any", addressLastAuditDate: "synthetic-audit",
   serialNumber: "SN-1", rfid: "RF-1", hasSerialNumber: "any", hasRfid: "any", materialStream: "Synthetic stream", color: "Synthetic color",
   serviceCodeType: "T-001", serviceCodeInput: "IN-01",
+  eventCode: "E-001", hasEventCode: "true",
   locationAddress: "Synthetic location", serviceCode: "SVC-1",
   limit: "2", offset: "0", cursor: "101",
   lowerId: "101", upperId: "104", includeTotal: "false", exactNext: "true", countOnly: "true", order: "asc", fields: "enabled",

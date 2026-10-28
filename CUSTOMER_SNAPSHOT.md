@@ -334,7 +334,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 
 | Method | Path | Purpose |
 |--------|------|--------|
-| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), child-cohort `addressRouteId` / `addressFranchiseId` / `addressEnabled=true\|false\|any` / `addressExtrasAllowed=true\|false\|any` / opaque exact `addressLastAuditDate` ([cohort recipes](docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts)), stored-phone presence `hasPhone1` / `hasPhone2` (`true\|false\|any`, default `any`), mirrored-grandchild `hasContainers=true\|false\|any` (default `any`), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup) |
+| GET | `/api/v1/customer-snapshot` | List rows: query `customerId`, stored-classification `customerTypeId`, exact `customerNumber` / `subCustomerNumber`, `q`, stored-phone substring `phone`, [stored-comment substring `comments`](docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment), mirrored-child `hasAddresses=true\|false\|any` (default `any`), child-cohort `addressRouteId` / `addressFranchiseId` / `addressEnabled=true\|false\|any` / `addressExtrasAllowed=true\|false\|any` / opaque exact `addressLastAuditDate` ([cohort recipes](docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts)), stored-phone presence `hasPhone1` / `hasPhone2` (`true\|false\|any`, default `any`), mirrored-grandchild `hasContainers=true\|false\|any` (default `any`), enabled-descendant `hasEnabledAddresses` / `hasEnabledContainers` (`true\|false\|any`, default `any`; [active-footprint recipe](docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence)), `enabled`, `fields`, `includeTotal`, `countOnly`, `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `order=asc\|desc` (default `asc`); [synthetic account lookup recipe](docs/CONSUMER-QUICKSTART.md#exact-external-account-lookup), [synthetic phone fragment recipe](docs/CONSUMER-QUICKSTART.md#stored-phone-fragment-lookup), [classification filter recipe](docs/CONSUMER-QUICKSTART.md#filter-by-stored-classification) |
 | GET | `/api/v1/customer-snapshot/{customerId}` | One customer row |
 | GET | `/api/v1/customer-snapshot/changes` | Incremental feed: rows with `synced_at > since` in `(synced_at, customer_id)` order; omit `since` for the first page, `limit` 1..500. A bare `since` replays every later run whole; to page a chunked delta, pass the previous page's `nextCursor` back as `since` + `since_id` (the composite pair resumes at the boundary timestamp without skipping same-timestamp rows). Optional inclusive `until` bounds the window (`synced_at <= until`, same UTC Z millisecond contract; normalized `since` must not exceed it); omit it for the unbounded tail. Optional strict `fields` selects customer columns plus always-present `customer_id` without changing the cursor |
 | GET | `/api/v1/customer-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="customer-snapshot.csv"`), streamed in keyset pages |
@@ -345,7 +345,7 @@ All `.../import` and `.../sync` and `data-snapshot/sync` routes use **`Authoriza
 | GET | `/api/v1/address-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="address-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/address-snapshot/sync` | Fetch address CSV (path or `ADDRESS_REPORT_QUERY_ID`) and upsert |
 | POST | `/api/v1/address-snapshot/import` | Body = raw address CSV; `Content-Type: text/csv` or `application/octet-stream` (a missing or other media type gets 415) |
-| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, stored `containerTypeId` ([type-filter recipe](docs/CONSUMER-QUICKSTART.md#stored-container-type-filter)), `ids`, exact `serialNumber` / `rfid` / `materialStream` / `color` / stored service-code `serviceCodeType` / `serviceCodeInput` ([entry-part recipe](docs/CONSUMER-QUICKSTART.md#stored-service-code-entry-part-filters)) / stored container `zip` / `locationAddress` (1..200 code points) / `city` (1..100 code points) / `state` (1..100 code points), stored-text presence `hasSerialNumber=true\|false\|any` / `hasRfid=true\|false\|any` (default `any`; [tagged-vs-untagged recipe](docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence)), parent address `parentRouteId` / `parentFranchiseId` / `parentEnabled=true\|false\|any` ([parent-cohort recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts)), parent stored locality `parentCity` / `parentState` / `parentZip` (1..100 code points, case-sensitive exact, independent of equipment locality; [site-locality recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality)), `q` (literal substring on location/serial/city/zip, not state), `note` (trimmed literal stored-instruction substring; [note policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment)), `enabled`, `syncedSince` (strictly later stored mirror timestamp; [polling recipe](docs/CONSUMER-QUICKSTART.md#container-mirror-freshness)), `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation), [exact city recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-city) |
+| GET | `/api/v1/container-snapshot` | List rows: `customerId` (join), `pickupAddressId`, `containerId`, stored `containerTypeId` ([type-filter recipe](docs/CONSUMER-QUICKSTART.md#stored-container-type-filter)), `ids`, exact `serialNumber` / `rfid` / `materialStream` / `color` / `eventCode` / `hasEventCode=true\|false\|any` ([event-code recipe](docs/CONSUMER-QUICKSTART.md#stored-container-event-code-cohorts)) / stored service-code `serviceCodeType` / `serviceCodeInput` ([entry-part recipe](docs/CONSUMER-QUICKSTART.md#stored-service-code-entry-part-filters)) / stored container `zip` / `locationAddress` (1..200 code points) / `city` (1..100 code points) / `state` (1..100 code points), stored-text presence `hasSerialNumber=true\|false\|any` / `hasRfid=true\|false\|any` (default `any`; [tagged-vs-untagged recipe](docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence)), parent address `parentRouteId` / `parentFranchiseId` / `parentEnabled=true\|false\|any` ([parent-cohort recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-cohorts)), parent stored locality `parentCity` / `parentState` / `parentZip` (1..100 code points, case-sensitive exact, independent of equipment locality; [site-locality recipe](docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality)), `q` (literal substring on location/serial/city/zip, not state), `note` (trimmed literal stored-instruction substring; [note policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#stored-container-instruction-fragment)), `enabled`, `syncedSince` (strictly later stored mirror timestamp; [polling recipe](docs/CONSUMER-QUICKSTART.md#container-mirror-freshness)), `limit`, `offset`, `cursor` (seek pagination, see `nextCursor`), `upperId`, `order=asc\|desc` (default `asc`), `fields`, `includeTotal`, `countOnly`; [stored-locality recipe](docs/CONSUMER-QUICKSTART.md#stored-container-locality), [exact installation recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-installation), [exact city recipe](docs/CONSUMER-QUICKSTART.md#exact-stored-container-city) |
 | GET | `/api/v1/container-snapshot/{containerId}` | One container row |
 | GET | `/api/v1/container-snapshot/export` | Download the snapshot as CSV (`Content-Disposition: attachment; filename="container-snapshot.csv"`), streamed in keyset pages |
 | POST | `/api/v1/container-snapshot/sync` | Fetch container CSV (path or `CONTAINER_REPORT_QUERY_ID`) and upsert |
@@ -460,6 +460,41 @@ promise. Run `npm run check:focused -- customer-container-presence` for syntheti
 local-D1 contract and existing-child-index EXPLAIN checks, not production
 performance evidence. CLI `--dry-run` is N/A. See the
 [present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-container-presence).
+
+### Customer enabled-descendant presence
+
+Only the ordinary customer list accepts `hasEnabledAddresses=true|false|any`
+and `hasEnabledContainers=true|false|any` (default `any`). An enabled address
+means a stored address owned by the customer with `enabled` exactly 1. An
+enabled container means a stored container with `enabled` exactly 1 reachable
+through **any** owned stored address; the intermediate address's enabled
+state is irrelevant. Noncanonical stored values never count as enabled.
+Each `false` is the exact NOT EXISTS complement: zero descendants at that
+level **or** descendants all non-1. Any/omission adds no predicate. Customer
+`enabled` is independent. Presence is global, not same-site membership with
+separate cohort selectors. No children are expanded or counted per account.
+
+The flags AND-compose with each other and every other customer selector:
+`hasAddresses=false` plus either enabled-presence flag `true` is an empty
+200; `hasAddresses=true&hasEnabledAddresses=false` selects accounts with
+stored sites but none enabled. `hasContainers=false&hasEnabledContainers=true`
+is also an empty 200; `hasContainers=true&hasEnabledContainers=false` finds
+stored equipment with none enabled. An enabled site need not hold enabled
+equipment, and enabled equipment can belong to a disabled site.
+
+COUNT/page share indexed correlated EXISTS predicates. `countOnly=true`
+runs one COUNT, `includeTotal=false` zero COUNTs; IDs, sparse fields,
+bidirectional bounded traversal and exact-representation ETag/304/no-store
+are unchanged. True/false stay in relative next Links; any/default is omitted.
+Send each exact enum once, or omit it and retry invalid/blank/repeated
+values (including encoded duplicate names): value-free 400 after auth,
+before D1/304. No migration, index change or latency/isolation promise.
+Mirrored report state is **not** current account eligibility, live service
+status, deployment proof or authorization; absence is not proof of upstream
+emptiness and never authorizes reconciliation, deletion or sync. Run
+`npm run check:focused -- customer-enabled-descendants` for synthetic local-D1 checks.
+GET is idempotent/local-read; CLI `--dry-run` is N/A. See the
+[active-footprint recipe](docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence).
 
 ### Ordinary list direction
 
