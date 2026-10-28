@@ -211,6 +211,29 @@ proof of no upstream equipment and never authorizes deletion,
 reconciliation or sync. See the
 [local present/absent recipe](CONSUMER-QUICKSTART.md#customer-container-presence).
 
+## Customer enabled-descendant presence (`bad-request`)
+
+Only `GET /api/v1/customer-snapshot` accepts `hasEnabledAddresses` and
+`hasEnabledContainers`. Send each once as exact case-sensitive `true`,
+`false` or `any` (default), or omit it and retry. Blank, malformed and
+repeated values (including encoded duplicate names) fail after auth and
+before D1/304 with fixed value-free guidance. No supplied values are echoed
+or logged. Detail for either field alone:
+
+`Invalid request query (hasEnabledAddresses). Send one hasEnabledAddresses=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+`Invalid request query (hasEnabledContainers). Send one hasEnabledContainers=true, false or any, or omit the selector and retry. See docs/PROBLEMS.md#bad-request.`
+
+True requires a stored descendant whose enabled is exactly 1. Enabled
+containers may sit on any owned address regardless of that address's state.
+Each false includes zero descendants at that level and descendants all non-1;
+noncanonical stored values never count as enabled. Customer enabled remains
+independent. Contradictions with `hasAddresses` or `hasContainers` are empty
+200s, not validation errors. Mirrored report state is not account eligibility,
+live service status, deployment proof or authorization and never authorizes
+upstream sync, deletion or reconciliation. See the
+[local active-footprint recipe](CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence).
+
 ## Customer service-site cohorts (`bad-request`)
 
 For `GET /api/v1/customer-snapshot`, send each optional cohort key once:

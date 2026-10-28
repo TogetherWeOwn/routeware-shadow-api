@@ -69,6 +69,8 @@ type SnapshotListQuery = {
   owningCustomerNumber?: string;
   owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
+  hasEnabledAddresses?: "true" | "false" | "any";
+  hasEnabledContainers?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
   addressRouteId?: number;
   addressFranchiseId?: string;
@@ -150,6 +152,13 @@ export function snapshotNextLink(
   }
   if (resource === "customer" && query.hasAddresses !== undefined && query.hasAddresses !== "any") {
     params.set("hasAddresses", query.hasAddresses);
+  }
+  // Customer-only exact-enabled descendant presence; omit any/default.
+  if (resource === "customer" && query.hasEnabledAddresses !== undefined && query.hasEnabledAddresses !== "any") {
+    params.set("hasEnabledAddresses", query.hasEnabledAddresses);
+  }
+  if (resource === "customer" && query.hasEnabledContainers !== undefined && query.hasEnabledContainers !== "any") {
+    params.set("hasEnabledContainers", query.hasEnabledContainers);
   }
   if (resource !== "customer" && query.hasCoordinates !== undefined && query.hasCoordinates !== "any") {
     params.set("hasCoordinates", query.hasCoordinates);
