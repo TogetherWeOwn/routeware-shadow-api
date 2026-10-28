@@ -32,6 +32,8 @@ type SnapshotListQuery = {
   materialStream?: string;
   color?: string;
   eventCode?: string;
+  serviceDate?: string;
+  hasServiceDate?: "true" | "false" | "any";
   serviceCodeType?: string;
   serviceCodeInput?: string;
   syncedSince?: string;
@@ -97,7 +99,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerTypeId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "eventCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "eventCode", "serviceDate", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -192,6 +194,9 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.hasRfid !== undefined && query.hasRfid !== "any") {
     params.set("hasRfid", query.hasRfid);
+  }
+  if (resource === "container" && query.hasServiceDate !== undefined && query.hasServiceDate !== "any") {
+    params.set("hasServiceDate", query.hasServiceDate);
   }
   if (resource === "container" && query.hasEventCode !== undefined && query.hasEventCode !== "any") {
     params.set("hasEventCode", query.hasEventCode);

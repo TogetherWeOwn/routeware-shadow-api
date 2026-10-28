@@ -587,6 +587,17 @@ const REMAINING_RESPONSES: RemainingResponse[] = [
   }
 ];
 
+// Keep the service-date insertion separate from independently maintained list rows.
+for (const response of REMAINING_RESPONSES) {
+  if (response.method === "get" && response.path === "/api/v1/container-snapshot") {
+    response.parameters = response.parameters.flatMap((parameter) =>
+      parameter.in === "query" && parameter.name === "color"
+        ? [parameter, ...queryParams("serviceDate", "hasServiceDate")]
+        : [parameter]
+    );
+  }
+}
+
 const REMAINING_REQUESTS = [
   ...["customer", "address", "container"].flatMap((entity) => [
     { path: `/api/v1/${entity}-snapshot/import`, mediaType: "text/csv" },

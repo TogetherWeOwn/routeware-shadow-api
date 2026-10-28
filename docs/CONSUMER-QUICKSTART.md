@@ -1220,6 +1220,50 @@ adoption or performance evidence. See the
 [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels) and
 [400 recovery](PROBLEMS.md#exact-stored-container-labels-bad-request).
 
+### Exact stored container service dates
+
+Use `listContainerSnapshot` with optional `serviceDate` (stored
+`service_date`) and/or `hasServiceDate=true|false|any` (default `any`) to
+pull equipment carrying a known stored service date, or count equipment
+missing service-date text, without downloading every container. `serviceDate`
+is a case-sensitive opaque exact string of 1..100 Unicode code points
+containing a non-whitespace character, preserved verbatim and never parsed as
+a date. `hasServiceDate=true` keeps stored non-null nonempty text including
+whitespace-only values; `false` keeps exactly the null-or-empty complement.
+Stored date text is mirrored report data, not service history, dispatch
+state, proof of service or a schedule. Preserve leading zeros, significant
+whitespace and punctuation. URL-encode one supported-length nonblank value,
+or omit the selector and retry if no date scope is intended. Empty,
+whitespace-only, repeated or overlength keys fail value-free after
+authentication and before D1; valid unknown dates return an empty 200. Null
+never matches a supplied date.
+
+Agent-runnable synthetic recipe, no service/credentials needed:
+
+```bash
+npm run check:container-service-date
+```
+
+The fixture's `serviceDate=2026-01-15&fields=service_date&limit=1&includeTotal=false`
+request returns ID 101, then 102, 104, 105 and 125 by following the
+server's same-origin Link unchanged, then an empty terminal page. Date and
+presence selectors
+AND-intersect with each other and every existing filter, on both
+customer-join paths. Significant whitespace, quotes, `%`, `_` and Unicode
+survive encoded next links. For a custom local fixture, use
+`new URLSearchParams({ serviceDate: "2026-01-15" })`; do not interpolate
+dates or reconstruct continuation URLs. Sparse `fields` uses `service_date`.
+
+`includeTotal=false` performs zero COUNTs; canonical IDs, `upperId`, ascending
+and descending traversal, no-store and representation ETags remain unchanged.
+Equality/presence selection may scan: no index, migration or performance
+guarantee is added. GET is an idempotent local-read; CLI `--dry-run` is N/A.
+The recipe uses synthetic local D1 and denies unexpected
+network/R2/browser/writes; it is not deployment, adoption or performance
+evidence. See the
+[service-date policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-service-dates) and
+[400 recovery](PROBLEMS.md#exact-stored-container-service-dates-bad-request).
+
 ### Container parent service-site cohorts
 
 Use `listContainerSnapshot` with `parentRouteId`, `parentFranchiseId` and/or
