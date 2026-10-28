@@ -19,7 +19,7 @@ and never authorizes deletion or reconciliation.
 | --- | --- | --- |
 | `/api/v1/customer-snapshot` | `customerId`, `ids`, `customerTypeId`, `customerNumber`, `subCustomerNumber`, `q`, `phone`, `comments`, `enabled`, `hasAddresses`, `addressRouteId`, `addressFranchiseId`, `addressEnabled`, `addressCity`, `addressState`, `addressZip`, `addressExtrasAllowed`, `addressLastAuditDate`, `hasPhone1`, `hasPhone2`, `hasContainers`, `hasEnabledAddresses`, `hasEnabledContainers`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/address-snapshot` | `customerId`, `pickupAddressId`, `ids`, `routeId`, `franchiseId`, `zip`, `streetAddress`, `city`, `state`, `driverNote`, `q`, `enabled`, `hasCoordinates`, `extrasAllowed`, `hasContainers`, `lastAuditDate`, `hasLastAuditDate`, `parentCustomerEnabled`, `owningCustomerNumber`, `owningSubCustomerNumber`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
-| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `customerEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `serviceCodeType`, `serviceCodeInput`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
+| `/api/v1/container-snapshot` | `customerId`, `pickupAddressId`, `containerId`, `containerTypeId`, `ids`, `parentRouteId`, `parentFranchiseId`, `parentEnabled`, `customerEnabled`, `parentCity`, `parentState`, `parentZip`, `serialNumber`, `rfid`, `hasSerialNumber`, `hasRfid`, `serviceCode`, `materialStream`, `color`, `eventCode`, `hasEventCode`, `serviceCodeType`, `serviceCodeInput`, `serviceDate`, `hasServiceDate`, `zip`, `locationAddress`, `city`, `state`, `q`, `note`, `enabled`, `syncedSince`, `onCall`, `gpsLocked`, `hasCoordinates`, `limit`, `offset`, `cursor`, `lowerId`, `upperId`, `order`, `includeTotal`, `exactNext`, `countOnly`, `fields`, `strictQuery` | Ignore by default; reject when strictQuery=true |
 | `/api/v1/customer-snapshot/changes` | `since`, `since_id`, `until`, `limit`, `fields` | Ignore |
 
 ## Container mirror freshness (`syncedSince`)
@@ -1492,6 +1492,57 @@ effects; CLI `--dry-run` is N/A. Run
 local-D1 oracle and neighboring list/auth/link/conditional/OpenAPI
 contracts. See the
 [compact consumer recipe](CONSUMER-QUICKSTART.md#equipment-by-owning-customer-enabled-state).
+
+## Exact stored container event codes
+
+Only the existing container list accepts optional `eventCode` and
+`hasEventCode=true|false|any` (default `any`). `eventCode` binds
+`c.event_code = ?`; `hasEventCode=true` keeps non-null nonempty codes while
+`false` keeps only the null-or-empty complement. Stored code text is opaque
+mirrored import text, not current dispatch state, event history, proof of
+service or a controlled taxonomy. The code must contain 1..100 Unicode code
+points and a non-whitespace character. Leading zeros, significant
+whitespace, punctuation and Unicode composition are preserved exactly;
+quotes, `%` and `_` are literal data, not SQL or wildcards. Null never
+matches a supplied string. Valid unknown codes return an empty 200.
+Whitespace-only stored text counts as present, never as missing.
+
+URL-encode one supported-length nonblank exact code, or omit the selector
+and retry if no code scope is intended. Send `hasEventCode` once as exact
+`true`, `false` or `any`. Empty, whitespace-only, overlength and repeated
+keys fail with the existing value-free `application/problem+json`
+bad-request after authentication and before D1.
+See [correction guidance](PROBLEMS.md#container-stored-event-code-selectors-bad-request).
+
+Both selectors AND-compose with each other and all existing filters on the
+joined and unjoined paths, including an empty 200 for `eventCode` plus
+`hasEventCode=false`. COUNT and page queries share the same bound scope;
+duplicates are retained and paginated. `includeTotal=false` executes zero
+COUNTs. Neither selector adds a join, so omission preserves unjoined orphan
+visibility. IDs, sparse projection, `upperId`, asc/desc seeks and
+representation ETags retain their existing contracts.
+
+Synthetic local fixture example (IDs 101, 102, 104, 105, 125 share `E-001`):
+
+```text
+GET /api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&includeTotal=false
+
+{"rows":[{"container_id":101,"event_code":"E-001"},{"container_id":102,"event_code":"E-001"}],"total":null,"nextCursor":102}
+Link: </api/v1/container-snapshot?eventCode=E-001&fields=event_code&limit=2&includeTotal=false&cursor=102>; rel="next"
+```
+
+Follow the returned same-origin Link unchanged through 104, 105 and the
+partial final page at 125, then stop when Link is absent. A full terminal
+page may still link to an empty page. Validated selectors round-trip encoded,
+including significant whitespace; raw origins, credentials and unknown keys
+are never copied. `hasEventCode=any` is omitted from continuation targets.
+
+Run `npm run check:container-event-code` for a hermetic local-D1 recipe including
+literal codes, malformed/auth zero-work checks, both join paths, count-free
+pagination, sparse fields, ETags and followed links. Equality/presence
+queries may scan; no new index/migration or performance claim is made. GET
+is an idempotent local-read with no upstream, R2, browser or write work;
+CLI `--dry-run` is N/A.
 
 ## Container parent service-site locality
 

@@ -260,6 +260,20 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
   check: `npm run check:snapshot-lower-id`.
 
+- #403: Container snapshot lists accept optional `eventCode` and
+  `hasEventCode=true|false|any` (default `any`) for exact stored
+  `c.event_code` text and missing-code cohorts. The code is an opaque
+  case-sensitive 1..100 Unicode code-point string, never parsed as a
+  number, enum or status; `false` keeps exactly null-or-empty codes while
+  whitespace-only counts as present. Stored code text is mirrored import
+  text, not dispatch state, history, proof of service or a taxonomy. Both
+  selectors AND-compose with existing filters in COUNT and page reads on
+  both join paths, add no join, and round-trip in relative next links with
+  `any` omitted. Single-value bounds, sparse ETags/304 and count-free
+  pagination stay intact. No migration/index or performance promise is
+  added. Synthetic local check: `npm run check:container-event-code`; see
+  the event-code recipe in `docs/CONSUMER-QUICKSTART.md`.
+
 - #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
   list: each selects rows by stored `phone1`/`phone2` text as stored —
   `true` keeps stored-present slots (`IS NOT NULL AND <> ''`), `false` the
