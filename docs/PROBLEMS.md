@@ -540,6 +540,26 @@ label, or omit the selector if no label scope is intended, then retry. Never
 log submitted labels. Valid unknown labels return an empty 200, not an error.
 See the [label policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-labels).
 
+## Container stored event-code selectors (`bad-request`)
+
+For `GET /api/v1/container-snapshot`, optional `eventCode` is a
+case-sensitive opaque exact stored code: 1..100 Unicode code points
+containing a non-whitespace character. It selects `event_code` only, never
+a parent column, and is never parsed as a number, enum or status. Optional
+`hasEventCode` is exactly `true`, `false` or `any` (default `any`):
+`true` keeps non-null nonempty codes, `false` keeps only the null-or-empty
+complement. Preserve leading zeros and significant whitespace without
+trimming or normalization.
+
+Empty, whitespace-only, repeated and overlength keys return the existing
+value-free 400 after authentication and before D1:
+`Invalid request query (eventCode). See docs/PROBLEMS.md#bad-request.`
+(or the fixed `hasEventCode` key). Send one nonblank supported-length
+exact code and one `true`/`false`/`any` presence value, or omit them, then
+retry. Never log submitted codes. Valid unknown codes return an empty 200,
+as does `eventCode` plus `hasEventCode=false`. See the
+[event-code policy](SNAPSHOT-LIST-QUERY-POLICY.md#exact-stored-container-event-codes).
+
 ## Exact stored address city and state (`bad-request`)
 
 For `GET /api/v1/address-snapshot`, send each optional `city` or `state`

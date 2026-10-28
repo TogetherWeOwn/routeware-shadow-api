@@ -31,6 +31,7 @@ type SnapshotListQuery = {
   hasRfid?: "true" | "false" | "any";
   materialStream?: string;
   color?: string;
+  eventCode?: string;
   serviceCodeType?: string;
   serviceCodeInput?: string;
   syncedSince?: string;
@@ -67,6 +68,7 @@ type SnapshotListQuery = {
   owningCustomerNumber?: string;
   owningSubCustomerNumber?: string;
   hasAddresses?: "true" | "false" | "any";
+  hasEventCode?: "true" | "false" | "any";
   hasEnabledAddresses?: "true" | "false" | "any";
   hasEnabledContainers?: "true" | "false" | "any";
   hasCoordinates?: "true" | "false" | "any";
@@ -95,7 +97,7 @@ type SnapshotListQuery = {
 const LISTS = {
   customer: { path: "/api/v1/customer-snapshot", selectors: ["customerId", "customerTypeId", "customerNumber", "subCustomerNumber", "phone", "comments", "addressRouteId", "addressFranchiseId", "addressCity", "addressState", "addressZip", "addressLastAuditDate"] },
   address: { path: "/api/v1/address-snapshot", selectors: ["customerId", "pickupAddressId", "routeId", "franchiseId", "zip", "streetAddress", "city", "state", "driverNote", "lastAuditDate", "owningCustomerNumber", "owningSubCustomerNumber"] },
-  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
+  container: { path: "/api/v1/container-snapshot", selectors: ["customerId", "pickupAddressId", "containerId", "containerTypeId", "parentRouteId", "parentFranchiseId", "parentCity", "parentState", "parentZip", "serialNumber", "rfid", "serviceCode", "materialStream", "color", "eventCode", "serviceCodeType", "serviceCodeInput", "zip", "locationAddress", "city", "state", "note", "syncedSince"] }
 } as const;
 
 export const snapshotNextLinkHeader = {
@@ -190,6 +192,9 @@ export function snapshotNextLink(
   }
   if (resource === "container" && query.hasRfid !== undefined && query.hasRfid !== "any") {
     params.set("hasRfid", query.hasRfid);
+  }
+  if (resource === "container" && query.hasEventCode !== undefined && query.hasEventCode !== "any") {
+    params.set("hasEventCode", query.hasEventCode);
   }
   if (query.fields !== undefined) params.set("fields", query.fields.join(","));
   // Caller-held inclusive window: the next target keeps the same floor and cap
