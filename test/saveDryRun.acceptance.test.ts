@@ -5,9 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *
  * Contract (from TOG-38651; Builder TOG-38652 builds on this branch):
  *
- * - `?dryRun=true` on all three `POST /api/v1/data/*` saves runs admission
- *   and validation — form fields plus session health — persists nothing, and
- *   keeps authorization identical (Kubernetes dry-run precedent).
+ * - `?dryRun=true` on all three `POST /api/v1/data/*` saves runs admission,
+ *   the stored-cookie presence check and the anti-forgery preparation that
+ *   applies to that request — it does not validate upstream form/business
+ *   rules or prove a stored cookie is currently authenticated. It persists
+ *   nothing and keeps authorization identical (Kubernetes dry-run precedent).
  * - Strict `dryRun`-only query validation: only `dryRun=true|false` passes;
  *   unknown keys, typos, empty values and repeats are 400s.
  * - Dry-pass envelope (HTTP 200): `{ ok: true, dryRun: true,
@@ -18,8 +20,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   No submitted fields and no upstream body are echoed (exact key set).
  * - Zero effects on dry-pass: zero upstream POST (save or login), zero D1
  *   writes, zero invalidations, zero `syncCustomerDetailFullToD1` calls, zero
- *   `establishSession` calls. Prep GETs (anti-forgery modal fetches) ARE
- *   allowed — they are reads, and dry-fail parity proves prep ran.
+ *   `establishSession` calls. Prep GETs (anti-forgery modal fetches) may run
+ *   on the token-preparation path — they are reads, and dry-fail parity
+ *   proves prep ran there. Supplied-token and disabled-auto-token requests
+ *   skip that GET, and the customer path may reuse its cached token.
  * - No-session dry fails closed 503 `application/problem+json` (never a login
  *   POST, never `establishSession`). Empty-body 400 precedes the session check
  *   (same order as live).
@@ -105,6 +109,7 @@ const upstreamBehavior = {
 };
 
 const sessionBehavior: { mode: "valid" | "none" } = { mode: "valid" };
+const preparationBehavior: { autoTokenEnabled: boolean } = { autoTokenEnabled: true };
 
 const MODAL_PATHS = new Set([
   "/WebRW/Customer/AddNewLong",
@@ -246,6 +251,7 @@ function appEnv(): Env {
     SHADOW_API_TOKEN: API_TOKEN,
     SHADOW_API_READ_TOKEN: READ_TOKEN,
     OPENAPI_DOCS_ENABLED: "true",
+    CUSTOMER_SAVE_AUTO_TOKEN: preparationBehavior.autoTokenEnabled ? "true" : "false",
     SESSION_TTL_SECONDS: "3600",
     CUSTOMER_DB: fakeDb(),
     AUTH_SESSION: { idFromName: (name: string) => name, get: () => stub }
@@ -339,6 +345,7 @@ function resetWork(): void {
   upstreamBehavior.saveBody = '{"success":true}';
   upstreamBehavior.challengeCookieless = false;
   sessionBehavior.mode = "valid";
+  preparationBehavior.autoTokenEnabled = true;
 }
 
 beforeEach(() => {
@@ -549,6 +556,75 @@ describe("save dry-run: dry-pass envelope and zero effects", () => {
     expect(body.upstreamBytes).toBe(0);
     expectZeroEffects();
     expect(work.upstreamModals).toEqual([]);
+  });
+
+  it.each(["address", "container"] as const)(
+    "%s dry-run with an explicit client token skips the modal yet still saves nothing",
+    async (kind) => {
+      const res = await postSave(
+        kind,
+        "?dryRun=true",
+        `__RequestVerificationToken=CLIENT-TOKEN&${UPDATE_BODIES[kind]}`
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DryEnvelope;
+      expect(body.dryRun).toBe(true);
+      expect(body.routewareStatus).toBeNull();
+      expect(body.upstreamBytes).toBe(0);
+      expectZeroEffects();
+      expect(work.upstreamModals).toEqual([]);
+    }
+  );
+
+  it.each(["customer", "address", "container"] as const)(
+    "%s dry-run with auto-token disabled skips the modal yet still saves nothing",
+    async (kind) => {
+      preparationBehavior.autoTokenEnabled = false;
+      const res = await postSave(kind, "?dryRun=true", UPDATE_BODIES[kind]);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DryEnvelope;
+      expect(body.dryRun).toBe(true);
+      expect(body.routewareStatus).toBeNull();
+      expect(body.upstreamBytes).toBe(0);
+      expectZeroEffects();
+      expect(work.upstreamModals).toEqual([]);
+    }
+  );
+
+  // A supplied token takes no upstream trip at all: even with the modal
+  // set to challenge the stored cookie and a body carrying only an id
+  // plus an unknown business field, the local dry pass succeeds. That is
+  // the executable proof that this branch proves neither a currently
+  // authenticated session nor complete upstream business validation.
+  const minimalExplicitBodies: Record<EntityKind, string> = {
+    customer: "__RequestVerificationToken=CLIENT-TOKEN&CustomerID=5&UnknownBusinessField=synthetic",
+    address: "__RequestVerificationToken=CLIENT-TOKEN&PickupAddressID=10&UnknownBusinessField=synthetic",
+    container: "__RequestVerificationToken=CLIENT-TOKEN&ContainerID=100&UnknownBusinessField=synthetic"
+  };
+  it.each(["customer", "address", "container"] as const)(
+    "%s explicit-token dry pass contacts no upstream, so it validates no upstream session or business rules",
+    async (kind) => {
+      upstreamBehavior.modalLoginChallenge = true;
+      const res = await postSave(kind, "?dryRun=true", minimalExplicitBodies[kind]);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DryEnvelope;
+      expect(body.dryRun).toBe(true);
+      expect(body.ok).toBe(true);
+      expect(body.routewareStatus).toBeNull();
+      expectZeroEffects();
+      expect(work.upstreamModals).toEqual([]);
+    }
+  );
+
+  it("customer token preparation may reuse its cached token instead of a second modal GET", async () => {
+    for (let i = 0; i < 2; i++) {
+      const res = await postSave("customer", "?dryRun=true", UPDATE_BODIES.customer);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as DryEnvelope;
+      expect(body.dryRun).toBe(true);
+    }
+    expectZeroEffects();
+    expect(work.upstreamModals).toHaveLength(1);
   });
 
   it("dry-run twice issues no save POSTs either time (non-idempotent create stays safe)", async () => {
