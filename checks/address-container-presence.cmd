@@ -1,0 +1,1 @@
+vitest run test/addressContainerPresence.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotAuth.test.ts test/openapiContract.test.ts test/openapiAgentMetadata.test.ts test/openapiDriftCheck.test.ts --maxWorkers=2

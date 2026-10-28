@@ -69,5 +69,5 @@ Fixes #
 - [ ] No secret, token or credential is in the diff, the title, the body or the branch name
 - [ ] CI is green on the exact head before I ask for review
 - [ ] I followed `docs/CONVENTIONS.md` and kept the authentication, PII and no-network-test invariants intact
-- [ ] I added an issue-referencing bullet under `CHANGELOG.md ## [Unreleased]` for any consumer-visible contract change, or this is docs/test/scripts/CI-only
+- [ ] I added an issue-referencing bullet as a `changelog/unreleased/<number>-<slug>.md` fragment for any consumer-visible contract change, or this is docs/test/scripts/CI-only
 - [ ] I did not run a production deploy or remote migration as ordinary development

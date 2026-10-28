@@ -6,7 +6,7 @@ import app from "../src/app";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJson from "../package.json";
+import { focusedCheckEntries } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -572,7 +572,7 @@ async function document() {
 describe("city/state: consumer delivery contract", () => {
   it("offers a discoverable focused acceptance check", () => {
     // Discover the command by its actual test target, not an invented script name.
-    const checks = Object.entries(packageJson.scripts).filter(([name, command]) =>
+    const checks = focusedCheckEntries.filter(([name, command]) =>
       name.startsWith("check:") && command.includes("test/addressCityStateFilters.acceptance.test.ts"));
     expect(checks.length).toBeGreaterThan(0);
     for (const [name, command] of checks) {

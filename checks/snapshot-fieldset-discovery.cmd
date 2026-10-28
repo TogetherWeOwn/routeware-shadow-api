@@ -1,0 +1,1 @@
+vitest run test/sparseFieldsetDiscovery.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/hydratedFields.acceptance.test.ts test/openapiContract.test.ts test/openapiAgentMetadata.test.ts test/openapiDriftCheck.test.ts

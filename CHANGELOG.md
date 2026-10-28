@@ -20,7 +20,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   state is not account eligibility, live service, deployment proof or
   authorization. Local active-footprint count recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence`; check:
-  `npm run check:customer-enabled-descendants`.
+  `npm run check:focused -- customer-enabled-descendants`.
 
 - #433: Optional `owningCustomerNumber` and `owningSubCustomerNumber` on the
   existing address snapshot list only, selecting sites by the owning stored
@@ -45,7 +45,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the existing value-free 400 after auth and before D1. No new index,
   migration or latency claim. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md#sites-by-owning-account-business-numbers`;
-  focused check: `npm run check:address-owning-account-numbers`.
+  focused check: `npm run check:focused -- address-owning-account-numbers`.
 - #390: Stored instruction fragment lookup on `GET /api/v1/container-snapshot`:
   optional `note` searches only stored `container_note` by bound literal
   substring, independently AND-composed with `q` and all other scopes.
@@ -56,7 +56,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   sparse IDs and ETag/304 semantics remain intact. No dedicated note index,
   migration, upstream call or schedule inference; substring-only reads scan.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-instruction-fragment`;
-  focused local check: `npm run check:container-note-search`.
+  focused local check: `npm run check:focused -- container-note-search`.
 - #424: Container snapshot lists accept `parentCity`, `parentState` and `parentZip`
   for case-sensitive exact stored service-site locality through the existing
   shared address join. Each is opaque nonblank text of 1..100 Unicode code
@@ -71,7 +71,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   postal verification or territory eligibility. Equality may scan: no new
   index, migration or performance promise. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md#container-parent-service-site-locality`;
-  local check: `npm run check:container-parent-locality`.
+  local check: `npm run check:focused -- container-parent-locality`.
 - #375: Container snapshot lists accept an optional `serviceCode` exact,
   case-sensitive filter (1..100 Unicode code points) matching the stored
   service code. Opaque values retain leading zeros and nonblank whitespace;
@@ -96,7 +96,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   blank, overlength or repeated decoded keys fail value-free after auth and
   before D1/304. No writes, new index/migration or latency promise. Local
   recipe: `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`;
-  check: `npm run check:customer-address-service-policy`.
+  check: `npm run check:focused -- customer-address-service-policy`.
 - #420: Optional `customerEnabled=true|false|any` (default `any`) on the existing
   container snapshot list (`GET /api/v1/container-snapshot`): selects
   equipment by the owning stored customer's `enabled` — `true` keeps only
@@ -117,7 +117,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   authorization. No migration or index; the synthetic local EXPLAIN in
   the acceptance oracle is shape evidence only. Synthetic recipes:
   `docs/CONSUMER-QUICKSTART.md#equipment-by-owning-customer-enabled-state`;
-  focused check: `npm run check:container-customer-enabled`.
+  focused check: `npm run check:focused -- container-customer-enabled`.
 - #431: Customer snapshot lists accept optional `addressCity`, `addressState`
   and `addressZip`: opaque case-sensitive exact equalities (1..100 Unicode
   code points including a non-whitespace character; leading zeros and
@@ -138,7 +138,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   verification, service-territory eligibility or proof of service.
   Synthetic account-by-site-locality recipe:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-locality`; local
-  check: `npm run check:customer-address-locality`.
+  check: `npm run check:focused -- customer-address-locality`.
 - #426: Container snapshot lists accept optional `syncedSince`, selecting stored
   `synced_at` strictly after a normalized UTC Z instant using the existing
   customer-changes timestamp parser. Empty, offset, excess-precision,
@@ -149,7 +149,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   not a changes feed or proof of upstream change; concurrent sync, deletions
   and completeness are not covered. No index/migration or latency promise.
   Recipe: `docs/CONSUMER-QUICKSTART.md#container-mirror-freshness`;
-  local check: `npm run check:container-synced-since`.
+  local check: `npm run check:focused -- container-synced-since`.
 - #419: Container snapshot lists accept an optional exact stored `city`:
   one nonblank case-sensitive opaque string of 1..100 Unicode code points
   bound as `c.city = ?` on the container row only, never the parent address
@@ -165,7 +165,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   mirrored text, not geolocation; unscoped equality scans with no
   index/migration or latency claim. Synthetic city-vs-`q` recipe:
   `docs/CONSUMER-QUICKSTART.md#exact-stored-container-city`; local check:
-  `npm run check:container-exact-city`.
+  `npm run check:focused -- container-exact-city`.
 - #415: Optional `hasContainers=true|false|any` (default `any`) on the
   existing customer snapshot list: `true` keeps accounts with at least one
   stored container reachable through any stored address they own, `false`
@@ -184,7 +184,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   value-free 400 after auth and before D1. Uses the existing foreign-key
   lookup indexes; no new index, migration or latency promise. Synthetic
   present/absent and contradiction recipes: `docs/CONSUMER-QUICKSTART.md`;
-  focused check: `npm run check:customer-container-presence`.
+  focused check: `npm run check:focused -- customer-container-presence`.
 - #412: Optional `addressRouteId`, `addressFranchiseId` and
   `addressEnabled=true|false|any` (default `any`) on the ordinary customer
   snapshot list only, selecting accounts in a mirrored
@@ -207,7 +207,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   and not snapshot isolation. No migration or index; synthetic local
   EXPLAIN uses the existing child `customer_id` index. Synthetic recipes:
   `docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts`; focused
-  check: `npm run check:customer-address-cohorts`.
+  check: `npm run check:focused -- customer-address-cohorts`.
 - Optional `parentCustomerEnabled=true|false|any` (default `any`) on the
   existing address snapshot list (`GET /api/v1/address-snapshot`): selects
   sites by the related stored customer's `enabled` — `true` keeps only
@@ -223,7 +223,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   status or authorization. Invalid, blank or repeated values fail with the
   fixed value-free 400 after auth and before D1. No new index, migration or
   latency claim; focused check:
-  `npm run check:address-parent-customer-enabled`.
+  `npm run check:focused -- address-parent-customer-enabled`.
 - #417: Publish the complete OpenAPI contract as readable `docs/openapi.json`
   and fail tests on drift from the live document. Runtime routes and schemas
   are unchanged; production documentation endpoints remain disabled.
@@ -238,7 +238,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   equipment-mutation permission or proof of fresh GPS. Local read-only D1
   only; no schema/index, upstream or auth changes. Synthetic follow-next
   recipe: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
-  `npm run check:container-oncall-gps-locked`.
+  `npm run check:focused -- container-oncall-gps-locked`.
 
 - #409: Three ordinary snapshot lists (`GET
   /api/v1/customer|address|container-snapshot`) accept an optional `lowerId=`
@@ -258,7 +258,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   not timestamps: in-window arrivals, updates and deletions remain visible,
   with no snapshot isolation, exact-once, deletion-CDC or watermark promises.
   Synthetic resume example: `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused
-  check: `npm run check:snapshot-lower-id`.
+  check: `npm run check:focused -- snapshot-lower-id`.
 
 - #403: Container snapshot lists accept optional `eventCode` and
   `hasEventCode=true|false|any` (default `any`) for exact stored
@@ -271,7 +271,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   both join paths, add no join, and round-trip in relative next links with
   `any` omitted. Single-value bounds, sparse ETags/304 and count-free
   pagination stay intact. No migration/index or performance promise is
-  added. Synthetic local check: `npm run check:container-event-code`; see
+  added. Synthetic local check: `npm run check:focused -- container-event-code`; see
   the event-code recipe in `docs/CONSUMER-QUICKSTART.md`.
 
 - #413: Optional `hasPhone1`/`hasPhone2` on the existing customer snapshot
@@ -290,7 +290,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   while `any`/default stays out. Presence-only selections may scan; no phone
   index or migration, no upstream hydration, no latency promise. Synthetic
   neither-slot count recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
-  `npm run check:customer-phone-presence`.
+  `npm run check:focused -- customer-phone-presence`.
 
 - #406: Snapshot archive errors now honor the configured `PROBLEM_TYPE_BASE`:
   dated and latest downloads (404 not-found, 409 replacement conflict),
@@ -316,7 +316,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   audit compliance, a schedule, overdue status or permission to act. No
   index, migration, date-range support or latency guarantee. Synthetic
   recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-last-audit-date`;
-  local check: `npm run check:address-last-audit-date`.
+  local check: `npm run check:focused -- address-last-audit-date`.
 - #411: Optional `serviceCodeType` and `serviceCodeInput` on the existing container
   snapshot list: exact case-sensitive equalities on the stored snapshot columns
   `service_code_type` and `service_code_input` (mirrored CSV entry text, not service
@@ -334,7 +334,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   preserves existing matches. Blank, overlength and repeated values are value-free
   400s before D1, after read-role authentication. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
-  `npm run check:container-service-code-parts`.
+  `npm run check:focused -- container-service-code-parts`.
 - #392: Exact stored street lookup on `GET /api/v1/address-snapshot`: optional
   `streetAddress` binds case-sensitive equality on the stored `address`,
   returning all matching site IDs rather than partial-street/city/ZIP matches.
@@ -345,7 +345,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   links retain the encoded street. No normalization, postal verification,
   geocoding, uniqueness, index/migration or upstream lookup is added; equality
   may scan. Synthetic recipe and focused check: `docs/CONSUMER-QUICKSTART.md`,
-  `npm run check:address-street-exact`.
+  `npm run check:focused -- address-street-exact`.
 - #380: Optional `containerTypeId` on the existing container snapshot list:
   exact equality on the stored snapshot column `container_type_id` (mirrored
   CSV state, not a live lookup), so one equipment type reads without
@@ -360,7 +360,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Non-canonical spellings and repeated keys are value-free 400s before D1,
   after read-role authentication. Synthetic recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused check:
-  `npm run check:container-type-filter`.
+  `npm run check:focused -- container-type-filter`.
 
 - #407: The ordinary container snapshot list accepts optional `hasSerialNumber`
   and `hasRfid`: exact `true|false|any` (default `any`) over stored identity
@@ -377,7 +377,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   equipment. Presence may scan; no index, migration or performance promise.
   Synthetic tagged-vs-untagged count-only recipe:
   `docs/CONSUMER-QUICKSTART.md#container-serial-and-rfid-presence`; focused
-  check: `npm run check:container-serial-rfid-presence`.
+  check: `npm run check:focused -- container-serial-rfid-presence`.
 
 - #379: Customer changes feed accepts an optional `until` inclusive upper
   bound (`synced_at <= until`) for finite caller-chosen time windows. Both
@@ -406,7 +406,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   traversals. No new index, migration, join or upstream call; the value
   filters the cached snapshot, not live Routeware state. See
   `docs/CONSUMER-QUICKSTART.md` for the synthetic multi-page recipe;
-  focused check: `npm run check:customer-type-filter`.
+  focused check: `npm run check:focused -- customer-type-filter`.
 - #402: Ordinary customer/address/container snapshot lists accept opt-in `exactNext=true`
   (default false): one bounded page SELECT fetches limit+1 (501 max), trims before
   fields/ETag, and emits a cursor/relative next Link only if another matching row
@@ -415,7 +415,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   count-free reads still run zero COUNTs. Strict single boolean validation fails
   value-free before D1 after auth. No snapshot isolation or latency guarantee:
   concurrent inserts/deletes can change later pages. No new endpoint/index,
-  upstream/R2 access or write. Local regression: `npm run check:snapshot-exact-next`;
+  upstream/R2 access or write. Local regression: `npm run check:focused -- snapshot-exact-next`;
   see `docs/CONSUMER-QUICKSTART.md#exact-next-page-signal`.
 
 - #381: The existing customer snapshot list `q` filter now matches a literal,
@@ -427,7 +427,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   selector and cursor predicate, omitted or blank `q` is unchanged, and `Link`
   next targets keep `q`. No new query, index or migration. Synthetic multi-page
   recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
-  `npm run check:customer-name-search`.
+  `npm run check:focused -- customer-name-search`.
 
 - #395: Address snapshot lists accept optional `driverNote`: a bound literal substring
   of stored `driver_note` only, not comments or locality. Raw input is limited
@@ -439,7 +439,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   fields and ETags remain unchanged. Note-only reads may scan; no index,
   migration, upstream call or operational scheduling/accuracy claim. Synthetic
   recipe: `docs/CONSUMER-QUICKSTART.md#stored-address-driver-note`;
-  local check: `npm run check:address-driver-note`.
+  local check: `npm run check:focused -- address-driver-note`.
 
 - #399: Container snapshot lists accept optional `parentRouteId`,
   `parentFranchiseId` and `parentEnabled=true|false|any` for the mirrored
@@ -449,7 +449,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   unscoped orphan visibility; validated scopes AND-compose in count/page reads
   and relative next links. Single-value bounds, sparse ETags/304 and count-free
   pagination stay intact. No migration/index or performance promise is added.
-  Synthetic local check: `npm run check:container-parent-scopes`; see the
+  Synthetic local check: `npm run check:focused -- container-parent-scopes`; see the
   parent-cohort recipe in `docs/CONSUMER-QUICKSTART.md`.
 
 - #376: `GET /api/v1/address-snapshot` accepts an optional stored
@@ -462,7 +462,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   D1 with value-free guidance. Next links preserve a non-any selector and
   omit `any` canonically; pagination, projection, count-free and conditional
   reads remain compatible. No new endpoint, index, migration, access or write
-  behavior. Synthetic recipe: `npm run check:address-extras-allowed` and
+  behavior. Synthetic recipe: `npm run check:focused -- address-extras-allowed` and
   `docs/CONSUMER-QUICKSTART.md`.
 
 - #401: Three ordinary flat snapshot lists add `strictQuery=true|false` (default
@@ -470,7 +470,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   using each mounted schema as its allowlist and a fixed no-echo bad-request
   correction. Relative next Links retain true; false/omitted keep existing
   ignore behavior, SQL and response bytes. Other query policies are unchanged.
-  Local synthetic check: `npm run check:snapshot-strict-query`; recipe:
+  Local synthetic check: `npm run check:focused -- snapshot-strict-query`; recipe:
   `docs/CONSUMER-QUICKSTART.md#opt-in-query-typo-detection`.
 
 - Follow-up to #339: hydrated customer/address/container batches hydrate each
@@ -481,7 +481,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   the sanitized 500, with no partial response or retries. Four roots does not cap
   nested D1 query totals, graph fanout or bytes for high-fanout customers. No
   cross-request cache, resource, migration or measured latency claim. Local check:
-  `npm run check:hydrated-batch-budget`; budget guidance: `docs/CONSUMER-QUICKSTART.md`.
+  `npm run check:focused -- hydrated-batch-budget`; budget guidance: `docs/CONSUMER-QUICKSTART.md`.
 
 - #397: Container snapshot lists accept exact stored
   `locationAddress` (1..200 Unicode code points) and `state` (1..100).
@@ -490,7 +490,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   next Links preserve count-free, sparse and ETag/304 contracts. Invalid or
   repeated values fail value-free before D1. No index/migration or live-location
   claim; unscoped reads scan. Synthetic recipe: `docs/CONSUMER-QUICKSTART.md`;
-  focused check: `npm run check:container-exact-location`.
+  focused check: `npm run check:focused -- container-exact-location`.
 
 - #398: Detail-full post-save refreshes preserve eight existing report-only container
   metadata fields instead of clearing them when the source cannot supply them.
@@ -511,7 +511,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Existing auth, no-store and ETag/304 apply (304 still counts). No cache,
   upstream/R2/write, isolation, migration or no-scan performance promise.
   Synthetic recipe: `docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads`;
-  focused check: `npm run check:snapshot-count-only`.
+  focused check: `npm run check:focused -- snapshot-count-only`.
 
 - #394: Each existing hydrated GET publishes registry-derived v1 field catalogs
   on all three typed selectors, plus root-specific legal-mode guidance:
@@ -521,7 +521,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   successful bytes, projection, full-cache contents, ETags and batch schemas
   are unchanged. Offline synthetic extraction recipe:
   `docs/CONSUMER-QUICKSTART.md`; focused mounted contract and safety check:
-  `npm run check:hydrated-fieldset-discovery`. No deployment or access change.
+  `npm run check:focused -- hydrated-fieldset-discovery`. No deployment or access change.
 
 - #388: `GET /api/v1/container-snapshot` accepts optional exact `materialStream`
   (stored `ud_material_stream_ud`) and `color` label selectors. Case-sensitive
@@ -533,7 +533,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   encoded labels; counts, count-free reads, fields, upperId and ETags remain
   compatible. No index/migration is added and equality may scan. Idempotent
   local-read GET, CLI dry-run N/A. Synthetic recipe:
-  `npm run check:container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
+  `npm run check:focused -- container-labels`; see `docs/CONSUMER-QUICKSTART.md`.
 
 - #396: Customer snapshot lists accept optional `comments` for literal stored-comment
   substring lookup, distinct from company-only `q` and stored-phone `phone`.
@@ -544,7 +544,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   AND-composes with existing selectors in COUNT and page reads; normalized
   relative next Links, count-free mode, sparse fields and ETags/304 stay intact.
   No dedicated index/migration/upstream call is added; substring reads may scan.
-  Synthetic local check: `npm run check:customer-comments-search`; recipe:
+  Synthetic local check: `npm run check:focused -- customer-comments-search`; recipe:
   `docs/CONSUMER-QUICKSTART.md#stored-customer-comment-fragment`.
 
 - #391: Hydrated customer/address/container GET 200 declarations now compose
@@ -568,7 +568,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   values fail before D1 with fixed value-free retry guidance. May scan; no new
   endpoint, index, migration, upstream/R2 request or performance claim.
   Synthetic local recipe: `docs/CONSUMER-QUICKSTART.md#stored-coordinate-pair-presence`;
-  focused check: `npm run check:snapshot-coordinates`. GET is idempotent and
+  focused check: `npm run check:focused -- snapshot-coordinates`. GET is idempotent and
   local-read; CLI `--dry-run` is N/A.
 
 - #387: `GET /api/v1/address-snapshot` accepts optional exact stored `city` and
@@ -580,7 +580,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   conditional reads retain their contracts. City/state-only equality may
   scan without a dedicated index; no migration or geography inference.
   This GET is idempotent/local-read. Synthetic recipe and focused check:
-  `docs/CONSUMER-QUICKSTART.md`, `npm run check:address-city-state`.
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:focused -- address-city-state`.
 
 - #386: Customer snapshot lists accept `hasAddresses=true|false|any` (default `any`)
   to select customers by mirrored address presence without expanding parents.
@@ -591,7 +591,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Invalid, empty or repeated values fail before D1 with fixed retry guidance.
   No mirrored child is not proof of no upstream site and never authorizes
   deletion, reconciliation or sync. Local recipe and focused check:
-  `docs/CONSUMER-QUICKSTART.md`, `npm run check:customer-address-presence`.
+  `docs/CONSUMER-QUICKSTART.md`, `npm run check:focused -- customer-address-presence`.
   No new endpoint, upstream call, migration, index or access change.
 
 - #385: Stored container locality on `GET /api/v1/container-snapshot`: optional exact,
@@ -601,7 +601,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   with every other selector. Normalized next links preserve zip and trimmed q;
   invalid/repeated selectors fail value-free before D1. No parent-address
   fallback, live geolocation, index/migration or production performance claim:
-  unscoped locality reads scan. Focused check: `npm run check:container-locality`;
+  unscoped locality reads scan. Focused check: `npm run check:focused -- container-locality`;
   synthetic recipe: `docs/CONSUMER-QUICKSTART.md#stored-container-locality`.
 
 - #370: Stored phone fragment lookup on the existing customer snapshot list:
@@ -617,7 +617,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   migration, upstream call or count-free COUNT query; fragment-only reads
   scan like `q`-alone. See `docs/CONSUMER-QUICKSTART.md` for the synthetic
   lookup-to-next-page recipe; focused check:
-  `npm run check:customer-phone-search`.
+  `npm run check:focused -- customer-phone-search`.
 
 - #369: `GET /api/v1/address-snapshot` accepts an exact stored `zip`
   selector, intersected by AND with existing filters. The opaque
@@ -629,7 +629,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   combined filters or deployed queries. Next
   links preserve the encoded selector; pagination, projection, count-free
   and conditional reads remain compatible. No new endpoint, index, migration,
-  access or write behavior. Synthetic recipe: `npm run check:address-zip`
+  access or write behavior. Synthetic recipe: `npm run check:focused -- address-zip`
   and `docs/CONSUMER-QUICKSTART.md`.
 
 - #377: `GET /api/v1/address-snapshot` accepts optional `hasContainers=true|false|any`
@@ -641,7 +641,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Filtering values round-trip in continuation Links; `any`/omitted stays
   byte-identical. Invalid/repeated values reject before D1 with value-free guidance.
   Absence means no currently mirrored child, not proof an upstream site is empty.
-  Synthetic recipe: `npm run check:address-container-presence` and
+  Synthetic recipe: `npm run check:focused -- address-container-presence` and
   `docs/CONSUMER-QUICKSTART.md`.
 - #384 (follow-up to #334): mounted OpenAPI now describes the existing combined-sync
   failure contract instead of only 200/401. HTTP 500 declares both
@@ -668,7 +668,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   Query count, ordering, totals, count-free/conditional semantics, auth order
   and value-free errors are unchanged; no new parameter, index or migration.
   Synthetic follow-next recipe: `docs/CONSUMER-QUICKSTART.md`; focused check:
-  `npm run check:address-locality`.
+  `npm run check:focused -- address-locality`.
 - #374: Hydrated single-ID `GET /api/v1/data/customer|address|container`
   200 responses publish three distinct named bundle schemas instead of
   `any`: root row plus nested relations, every stored column declared with
@@ -677,7 +677,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   operation carries full and root-projected synthetic examples.
   Declaration only: no runtime parsing or validator, no byte, SELECT,
   cache, auth or ETag change. Focused check:
-  `npm run check:typed-hydrated-bundles`.
+  `npm run check:focused -- typed-hydrated-bundles`.
 - #368: Test-only: `test/routeExamples.test.ts` pins expected query/path
   parameter names per operation beside the pinned operation inventory instead
   of one hand-counted global total; the checked total is derived as the sum
@@ -710,7 +710,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   ceiling, updates and deletions remain visible, with no snapshot isolation,
   exact-once or watermark promises. Synthetic resume example:
   `docs/SNAPSHOT-LIST-QUERY-POLICY.md`; focused check:
-  `npm run check:snapshot-upper-id`.
+  `npm run check:focused -- snapshot-upper-id`.
 - #361: Exact external account lookup on the existing customer snapshot list: optional
   `customerNumber` and `subCustomerNumber` use bound, case-sensitive equality and
   AND-compose with existing filters. Opaque strings preserve zeros and nonblank
@@ -792,7 +792,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   before D1 with value-free guidance. Next links preserve encoded scopes;
   pagination, projection, count-free and conditional reads remain compatible.
   No new endpoint, index, migration, access or write behavior. Synthetic recipe:
-  `npm run check:address-scope` and `docs/CONSUMER-QUICKSTART.md`.
+  `npm run check:focused -- address-scope` and `docs/CONSUMER-QUICKSTART.md`.
 
 - Follow-up to #343: Customer changes-feed GET now returns optional `Link: <relative-target>; rel="next"`
   exactly when its composite `nextCursor` is non-null. The fixed-path target
@@ -801,7 +801,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   SQL/binds and query counts are unchanged; a full terminal page can link to
   an empty page. Existing CORS exposure includes Link; mounted OpenAPI and
   the consumer quickstart document the contract and safe synthetic traversal.
-  Check: `npm run check:customer-changes-next-links`.
+  Check: `npm run check:focused -- customer-changes-next-links`.
 
 - #356: `POST /api/v1/data/address` and `POST /api/v1/data/container`
   creates (posted id 0/absent, upstream ok) now answer HTTP 201 with the
@@ -895,7 +895,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   without reading records or making invalid trial requests. Projection, omission
   and auth behavior are unchanged; unsupported routes gain no parameter.
   See `docs/CONSUMER-QUICKSTART.md` and the credential-free
-  `npm run check:snapshot-fieldset-discovery` check.
+  `npm run check:focused -- snapshot-fieldset-discovery` check.
 
 - #348: A rejected Workers `Cache.match` lookup in the shared entity-read
   cache helper now counts as one miss and continues through the existing D1
@@ -922,7 +922,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   filters, `fields`, `includeTotal=false`, cursor-over-offset precedence and
   follow-next targets. Keep order with the cursor; changing direction starts
   a new traversal.
-  No endpoint or migration added. Check: `npm run check:snapshot-order`.
+  No endpoint or migration added. Check: `npm run check:focused -- snapshot-order`.
 
 - #347: Conditional snapshot JSON reads: customer, address and container lists return
   quoted SHA-256 ETags for the final projected JSON envelope and an empty 304
@@ -998,7 +998,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   unchanged. Declaration-only: served bytes, SELECT plans, projection,
   conditional and auth behavior are identical. See
   `docs/TYPED-FLAT-SNAPSHOT-ROWS.md`; focused check:
-  `npm run check:typed-flat-snapshot-rows`.
+  `npm run check:focused -- typed-flat-snapshot-rows`.
 
 - #373: The existing customer `changes` feed
   (`GET /api/v1/customer-snapshot/changes`) publishes typed delta rows
@@ -1013,7 +1013,7 @@ the single source of truth — see `docs/VERSIONING.md` for the bump policy.
   meaning; operationId, headers, examples and response codes are unchanged.
   Served bytes, SELECTs, cursors, auth and query behavior are unchanged.
   Synthetic resume recipe: `docs/CONSUMER-QUICKSTART.md` §2c; focused check:
-  `npm run check:customer-changes-delta`.
+  `npm run check:focused -- customer-changes-delta`.
 
 - #378: The three flat snapshot by-ID GETs (`GET
   /api/v1/customer|address|container-snapshot/{id}`) return a quoted SHA-256
@@ -1096,13 +1096,13 @@ versioned OpenAPI document at `GET /openapi.json`.
   with up to 3 fractional-second digits to milliseconds, reject timestamps with
   more than 3 digits or calendar-invalid dates and unsafe or noncanonical decimal `since_id` values, and
   require a valid `since` when `since_id` is supplied; tuple-based paging is
-  preserved. The focused local check is `npm run check:customer-changes-cursor`.
+  preserved. The focused local check is `npm run check:focused -- customer-changes-cursor`.
 - Daily R2 verification now binds real calendar dates and exact object keys,
   rejects empty/ambiguous comparisons and supports explicit `--expect` table
   coverage. Default success is labeled listed-only (partial), never a full-chain
   claim. `--json` provides bounded versioned findings/actions; `--dry-run` plans
   without children, object reads or artifacts. Remote credential fences and archive
-  writes are unchanged. Run `npm run check:r2-manifest` for hermetic acceptance.
+  writes are unchanged. Run `npm run check:focused -- r2-manifest` for hermetic acceptance.
 - #325: Chained snapshot sync now bounds each table's full header+body observation
   to one `CHAINED_SYNC_TIMEOUT_MS` deadline (180s default) and 65,536 actual
   UTF-8 bytes inclusive. Error bodies are cancelled without draining or waiting
@@ -1137,7 +1137,7 @@ versioned OpenAPI document at `GET /openapi.json`.
   mounted OpenAPI document includes an `x-agent-metadata` legend; privileged
   GETs are explicitly sync-secret-only and upstream POST reads are not
   advertised as writes. Authorization behavior and the docs-enabled gate
-  are unchanged. Run `npm run check:openapi-agent-metadata` without credentials
+  are unchanged. Run `npm run check:focused -- openapi-agent-metadata` without credentials
   to check completeness against the mounted router and existing auth gates.
 
 - The supported Node runtime moves from 22 (Maintenance LTS, security

@@ -1,0 +1,1 @@
+vitest run test/customerAddressPresence.acceptance.test.ts test/snapshotAuth.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/snapshotListConditional.acceptance.test.ts test/openapiContract.test.ts test/routeExamples.test.ts --maxWorkers=2

@@ -7,7 +7,7 @@ import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import snapshotDoc from "../CUSTOMER_SNAPSHOT.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -538,8 +538,7 @@ describe("customer address presence agent guidance", () => {
   });
 
   it("exposes a named local-only focused check that includes this acceptance suite", () => {
-    const scripts = packageJson.scripts as Record<string, string>;
-    const command = scripts["check:customer-address-presence"];
+    const command = focusedChecks["customer-address-presence"];
     expect(command).toEqual(expect.any(String));
     expect(command).toMatch(/vitest\s+run/);
     expect(command).toContain("test/customerAddressPresence.acceptance.test.ts");

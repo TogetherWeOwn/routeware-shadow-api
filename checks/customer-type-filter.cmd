@@ -1,0 +1,1 @@
+vitest run --maxWorkers=2 test/customerTypeFilter.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts test/openapiContract.test.ts test/routeExamples.test.ts

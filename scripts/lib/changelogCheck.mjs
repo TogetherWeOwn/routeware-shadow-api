@@ -109,16 +109,20 @@ export function unreleasedCardIds(section) {
  * @param {string[]} [changedPaths] repo-relative changed paths
  * @param {unknown} [changelogText] full CHANGELOG.md text
  * @param {string[]} [cardIds] references claimed for this change (e.g. `#123`)
+ * @param {string[]} [fragments] texts of `changelog/unreleased/*.md` fragments;
+ *   each is a bullet that counts exactly like one under `## [Unreleased]`
  * @returns {{ ok: boolean, contractPaths: string[], cards: string[], skipped: boolean }}
  */
-export function evaluateChangelogGate(changedPaths, changelogText, cardIds) {
+export function evaluateChangelogGate(changedPaths, changelogText, cardIds, fragments) {
   const contractPaths = [...new Set(changedPaths ?? [])]
     .filter(isContractVisiblePath)
     .sort();
   if (contractPaths.length === 0) {
     return { ok: true, contractPaths: [], cards: [], skipped: true };
   }
-  const section = unreleasedSection(changelogText ?? "");
+  const heading = unreleasedSection(changelogText ?? "");
+  const fragmentText = (fragments ?? []).join("\n");
+  const section = heading === null && fragmentText === "" ? null : `${heading ?? ""}\n${fragmentText}`;
   if (section === null) {
     return { ok: false, contractPaths, cards: [], skipped: false };
   }

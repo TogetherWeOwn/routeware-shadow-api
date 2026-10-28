@@ -1,6 +1,6 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import app from "../src/app";
 import changelog from "../CHANGELOG.md?raw";
 import quickstart from "../docs/CONSUMER-QUICKSTART.md?raw";
@@ -48,7 +48,7 @@ import quickstart from "../docs/CONSUMER-QUICKSTART.md?raw";
  * `test/authGateResweep.test.ts` use; `x-effect` is verified against pinned
  * semantic rules plus explicit representative cases.
  *
- * Run: `npm run check:openapi-agent-metadata` (this file only, credential-free).
+ * Run: `npm run check:focused -- openapi-agent-metadata` (this file only, credential-free).
  */
 
 // Matches wrangler.toml [env.test.vars].
@@ -522,7 +522,7 @@ describe("x-access matches the live gates", () => {
 
 describe("wiring and documentation", () => {
   it("exposes an agent-runnable command that runs this file only", () => {
-    const script = (packageJson.scripts as Record<string, string>)["check:openapi-agent-metadata"];
+    const script = focusedChecks["openapi-agent-metadata"];
 
     expect(script).toContain("vitest run");
     expect(script).toContain("test/openapiAgentMetadata.test.ts");
@@ -540,6 +540,6 @@ describe("wiring and documentation", () => {
     expect(quickstart).toContain("x-access");
     expect(quickstart).toContain("x-effect");
     expect(quickstart).toContain("operationId");
-    expect(quickstart).toContain("npm run check:openapi-agent-metadata");
+    expect(quickstart).toContain("npm run check:focused -- openapi-agent-metadata");
   });
 });

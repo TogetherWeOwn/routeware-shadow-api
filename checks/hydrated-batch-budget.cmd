@@ -1,0 +1,1 @@
+vitest run --maxWorkers=2 test/hydratedBatchBudget.acceptance.test.ts test/batchHydratedReadIds.acceptance.test.ts test/dataEntityReadChunk.test.ts test/snapshotAuth.test.ts test/dataEntityHandlers.test.ts test/entityCacheReadFailure.acceptance.test.ts test/hydratedReadIds.acceptance.test.ts test/hydratedReadStrictQuery.acceptance.test.ts

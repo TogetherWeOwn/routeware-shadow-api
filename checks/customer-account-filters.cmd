@@ -1,0 +1,1 @@
+vitest run --maxWorkers=2 test/customerAccountFilters.acceptance.test.ts test/snapshotQueryLimit.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts

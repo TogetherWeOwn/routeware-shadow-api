@@ -1,0 +1,1 @@
+vitest run test/containerLocalityFilters.acceptance.test.ts test/containerIdentifierFilters.acceptance.test.ts test/snapshotTextFilterIndexes.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListConditional.acceptance.test.ts test/snapshotAuth.test.ts test/openapiContract.test.ts test/routeExamples.test.ts --maxWorkers=2
