@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 /**
  * Caller seam, deliberately specified before implementation:
@@ -450,8 +454,8 @@ jobs:
         id: publish-request
         env:
           CALVER_PLAN: \${{ steps.build-version.outputs.plan }}
-          DEPLOY_OUTCOME: \${{ steps.worker.outcome }}
-          DEPLOYED_VERSION: \${{ steps.build-version.outputs.version }}
+          CALVER_DEPLOY_OUTCOME: \${{ steps.worker.outcome }}
+          BUILD_VERSION: \${{ steps.build-version.outputs.version }}
         run: node scripts/calver-build.mjs publish
       - name: Publish non-Latest deployment build
         uses: ${action}
@@ -522,20 +526,30 @@ function historyFixture(attempts = [], options = {}) {
   }
   const api = { async request(method, path) {
     calls.push({ method, path });
-    assert.ok(calls.length <= 100, "bounded fixture tripwire: pagination must not loop");
+    assert.ok(calls.length <= (options.maxRequests ?? 100), "bounded fixture tripwire: pagination must not loop");
     assert.equal(method, "GET", "history admission must never mutate provider state");
     const url = new URL(path, "https://api.github.com");
     assert.equal(url.origin, "https://api.github.com", "do not follow foreign pagination URLs");
-    assert.ok(url.pathname.startsWith(`${historyRoot}/`), "history reads stay in this repository");
+    if (url.pathname.startsWith("/repositories/")) {
+      assert.ok(calls.slice(0, -1).some((c) => new URL(c.path, url).pathname === historyRoot),
+        "numeric pagination requires an independent canonical repository lookup first");
+      assert.ok(url.pathname.startsWith("/repositories/17/"), "never read a foreign numeric repository");
+      url.pathname = url.pathname.replace("/repositories/17/", `${historyRoot}/`);
+    }
+    assert.ok(url.pathname === historyRoot || url.pathname.startsWith(`${historyRoot}/`), "history reads stay in this repository");
     if (options.fail?.test(url.pathname)) throw Object.assign(new Error("Synthetic history provider unavailable"), { status: 503 });
     let response;
     const match = url.pathname.match(/\/actions\/runs\/(\d+)\/attempts\/(\d+)(\/jobs)?$/);
-    if (url.pathname === `${historyRoot}/actions/workflows/ci.yml/runs`) {
+    if (url.pathname === historyRoot) {
+      response = { status: 200, headers: {}, data: {
+        id: 17, full_name: repository, name: "routeware-shadow-api", owner: { login: "TogetherWeOwn" },
+      } };
+    } else if (url.pathname === `${historyRoot}/actions/workflows/ci.yml/runs`) {
       assert.equal(url.searchParams.get("branch"), "main");
       assert.equal(url.searchParams.get("event"), "push");
       assert.equal(url.searchParams.get("per_page"), "100");
       const n = Number(url.searchParams.get("page"));
-      response = pageResponse(pages, n, "workflow_runs", (p) => `${historyRoot}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100&page=${p}`, total);
+      response = pageResponse(pages, n, "workflow_runs", (p) => `${options.runPageRoot ?? historyRoot}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100&page=${p}`, total);
     } else if (match) {
       const key = `${match[1]}/${match[2]}`;
       if (!match[3]) {
@@ -549,7 +563,7 @@ function historyFixture(attempts = [], options = {}) {
         const rows = item.jobPages ?? [[item.job]];
         assert.equal(url.searchParams.get("per_page"), "100");
         response = pageResponse(rows, Number(url.searchParams.get("page")), "jobs",
-          (p) => `${historyRoot}/actions/runs/${match[1]}/attempts/${match[2]}/jobs?per_page=100&page=${p}`, item.jobTotal);
+          (p) => `${options.jobPageRoot ?? historyRoot}/actions/runs/${match[1]}/attempts/${match[2]}/jobs?per_page=100&page=${p}`, item.jobTotal);
       }
     } else if (url.pathname === `${historyRoot}/contents/${historyWorkflow}`) {
       const ref = url.searchParams.get("ref");
@@ -734,7 +748,10 @@ for (const [name, mutate] of [
   ["missing planning step", (p) => p.job.steps.shift()],
   ["duplicate publication step", (p) => p.job.steps.push({ ...p.job.steps[2], number: 4 })],
   ["duplicate production job", (p) => { p.jobPages = [[p.job, { ...p.job, id: 800099 }]]; }],
-  ["missing production job", (p) => { p.jobPages = [[{ ...p.job, name: "Unrelated successful job" }]]; }],
+  ["missing production job without terminal cancellation evidence", (p) => {
+    Object.assign(p.run, { status: "in_progress", conclusion: null });
+    p.jobPages = [[{ ...p.job, name: "Unrelated successful job" }]];
+  }],
   ["missing step statuses", (p) => { delete p.job.steps[1].status; }],
   ["no trustworthy legacy workflow bytes", (p) => { p.workflow = ""; }],
 ]) {
@@ -763,4 +780,491 @@ test("history guard: CLI admission runs before the first planner in the same exi
   const condition = request.executable.match(/^        if:\s*(.*)$/m)?.[1];
   assert.ok(condition === undefined || condition === "success()", "admission cannot be skipped while planning proceeds");
 });
+});
+
+/**
+ * Regression controls exercise the real exported guard and real publication CLI.
+ * Provider doubles return only synthetic REST records; no admission decision is
+ * stubbed. Numeric Link URLs require a separate GET /repos/:owner/:repo identity
+ * lookup. Large fixtures opt into a larger test tripwire, not a live API quota.
+ * At most 1,000 listed runs / 20 attempts per run are the bounded history contract;
+ * completing eligible history must not silently stop at 100 or 200 reads.
+ */
+describe("publication admission regression controls", () => {
+  beforeEach((t) => {
+    t.mock.method(globalThis, "fetch", () => { throw new Error("Unexpected network in admission regression"); });
+  });
+
+  for (const unrelatedJobs of [false, true]) {
+    test(`terminal cancellation: complete job enumeration with no production job permits (other jobs=${unrelatedJobs})`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
+      prior.jobPages = [unrelatedJobs ? [{ ...prior.job, name: "Credential-free build", conclusion: "success", steps: [] }] : []];
+      await historyPermits(historyFixture([prior]));
+    });
+  }
+
+  for (const completedAt of [null, "2026-03-03T01:05:00Z"]) {
+    test(`terminal cancellation: unstarted production job with empty steps permits (completed_at=${completedAt})`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
+      Object.assign(prior.job, { status: "completed", conclusion: "cancelled", started_at: null, completed_at: completedAt, steps: [] });
+      await historyPermits(historyFixture([prior]));
+    });
+  }
+
+  for (const [name, change] of [
+    ["nonterminal run", { status: "in_progress", conclusion: null }],
+    ["missing run status", { status: undefined, conclusion: "cancelled" }],
+    ["nonterminal status with cancelled conclusion", { status: "queued", conclusion: "cancelled" }],
+    ["missing cancellation conclusion", { status: "completed", conclusion: null }],
+  ]) {
+    test(`terminal cancellation: absent production job with ${name} still refuses`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, change);
+      prior.jobPages = [[]];
+      await historyRefuses(historyFixture([prior]));
+    });
+  }
+
+  for (const [name, mutate] of [
+    ["missing jobs array", (r) => { delete r.data.jobs; }],
+    ["null jobs array", (r) => { r.data.jobs = null; }],
+    ["incomplete enumeration", (r) => { r.data.total_count = 1; }],
+    ["malformed job row", (r) => { r.data.jobs = [null]; r.data.total_count = 1; }],
+  ]) {
+    test(`terminal cancellation: ${name} is not affirmative no-run evidence`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
+      prior.jobPages = [[]];
+      await historyRefuses(historyFixture([prior], { transform: (r, u) => {
+        if (u.pathname.endsWith("/jobs")) mutate(r);
+        return r;
+      } }));
+    });
+  }
+
+  for (const [name, change] of [
+    ["started cancelled job", { started_at: "2026-03-03T01:01:00Z" }],
+    ["missing start field", { started_at: undefined }],
+    ["missing steps", { steps: undefined }],
+    ["null steps", { steps: null }],
+    ["an executed deployment step", { steps: [historyStep(historyNames.deploy, 1, "cancelled")] }],
+  ]) {
+    test(`terminal cancellation: ${name} may have consumed a build and refuses`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
+      Object.assign(prior.job, { status: "completed", conclusion: "cancelled", started_at: null, completed_at: null, steps: [], ...change });
+      await historyRefuses(historyFixture([prior]));
+    });
+  }
+
+  test("queued production job: empty steps, null conclusion and no start permits the current lock holder", async () => {
+    const prior = priorAttempt();
+    Object.assign(prior.run, { status: "in_progress", conclusion: null });
+    Object.assign(prior.job, { status: "queued", conclusion: null, started_at: null, completed_at: null, steps: [] });
+    await historyPermits(historyFixture([prior]));
+  });
+
+  for (const status of ["in_progress", "pending", "waiting"]) {
+    test(`queued production job: ${status} with start evidence is not an unstarted queued job`, async () => {
+      const prior = priorAttempt();
+      Object.assign(prior.run, { status: "in_progress", conclusion: null });
+      Object.assign(prior.job, { status, conclusion: null, completed_at: null, steps: [] });
+      await historyRefuses(historyFixture([prior]));
+    });
+  }
+
+  test("legacy execution: an unfinished legacy-shaped job with an in-progress deploy step refuses", async () => {
+    const prior = priorAttempt({ legacy: true, deploy: null });
+    Object.assign(prior.job, { status: "in_progress", conclusion: null, completed_at: null });
+    const fixture = historyFixture([prior]);
+    await historyRefuses(fixture);
+    assert.ok(fixture.calls.some((c) => c.path.includes("/runs/8000/attempts/1/jobs")), "inspect the unfinished legacy job");
+  });
+
+  test("legacy execution: a completed legacy deployment remains a positive control", async () => {
+    await historyPermits(historyFixture([priorAttempt({ legacy: true, deploy: "success" })]));
+  });
+
+  for (const collection of ["runs", "jobs"]) {
+    test(`numeric pagination: a same-repository numeric next Link completes ${collection} after identity validation`, async () => {
+      const prior = priorAttempt({ publish: "success" });
+      const options = {};
+      if (collection === "runs") {
+        options.runPages = [[historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null })], [prior.run]];
+        options.runPageRoot = "/repositories/17";
+      } else {
+        prior.jobPages = [[{ ...prior.job, id: 123, name: "Credential-free build", steps: [] }], [prior.job]];
+        options.jobPageRoot = "/repositories/17";
+      }
+      const fixture = await historyPermits(historyFixture([prior], options));
+      assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname === historyRoot), "independently resolve canonical repository identity");
+      const continuation = fixture.calls.findIndex((c) => {
+        const url = new URL(c.path, "https://api.github.com");
+        return url.pathname.endsWith(collection === "runs" ? "/workflows/ci.yml/runs" : "/runs/8000/attempts/1/jobs") && url.searchParams.get("page") === "2";
+      });
+      const identity = fixture.calls.findIndex((c) => new URL(c.path, "https://api.github.com").pathname === historyRoot);
+      assert.ok(identity >= 0 && continuation > identity, "consume the numeric Link (canonicalizing its URL is allowed) only after independent identity validation");
+    });
+
+    test(`numeric pagination: a foreign numeric repository next Link for ${collection} refuses before foreign reads`, async () => {
+      const prior = priorAttempt({ publish: "success" });
+      const options = collection === "runs"
+        ? { runPages: [[historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null })], [prior.run]], runPageRoot: "/repositories/18" }
+        : { jobPageRoot: "/repositories/18" };
+      if (collection === "jobs") prior.jobPages = [[{ ...prior.job, id: 123, name: "Credential-free build", steps: [] }], [prior.job]];
+      const fixture = historyFixture([prior], options);
+      await historyRefuses(fixture);
+      assert.ok(!fixture.calls.some((c) => c.path.includes("/repositories/18/")), "reject the foreign Link before sending a read");
+    });
+  }
+
+  test("numeric pagination: canonical metadata for another repository cannot authorize numeric Links", async () => {
+    const prior = priorAttempt({ publish: "success" });
+    const fixture = historyFixture([prior], {
+      runPages: [[historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null })], [prior.run]],
+      runPageRoot: "/repositories/17",
+      transform: (r, u) => u.pathname === historyRoot ? { ...r, data: { ...r.data, id: 18, full_name: "Another/repo" } } : r,
+    });
+    await historyRefuses(fixture);
+    assert.ok(!fixture.calls.some((c) => c.path.includes("/repositories/17/")));
+  });
+
+  for (const attemptCount of [1, 20]) {
+    test(`bounded history: all 110 prior runs with ${attemptCount} published attempt(s) admit beyond 200 reads`, async () => {
+      const attempts = [];
+      for (let id = 8000; id < 8110; id++) {
+        for (let attempt = 1; attempt <= attemptCount; attempt++) {
+          const item = priorAttempt({ id, attempt, publish: "success" });
+          item.job.id = id * 100 + attempt;
+          attempts.push(item);
+        }
+      }
+      const latest = attempts.filter((a) => a.run.run_attempt === attemptCount).map((a) => a.run);
+      const rows = [historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null }), ...latest];
+      const fixture = await historyPermits(historyFixture(attempts, {
+        runPages: [rows.slice(0, 100), rows.slice(100)], maxRequests: 10_000,
+      }));
+      assert.ok(fixture.calls.length > 200, "exercise real history larger than an arbitrary 200-read cap");
+      assert.ok(fixture.calls.length < 10_000, "legitimate bounded history must not loop or re-read without bound");
+      const reads = new Set(fixture.calls.map((c) => new URL(c.path, "https://api.github.com").pathname));
+      for (const item of attempts) {
+        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}`), "read every exact historical attempt, not only the latest");
+        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}/jobs`), "read every attempt's publication evidence");
+      }
+    });
+  }
+
+  test("bounded history: a declared attempt count over 20 refuses without truncating to the latest attempt", async () => {
+    const prior = priorAttempt({ attempt: 21, publish: "success" });
+    const fixture = historyFixture([prior]);
+    await historyRefuses(fixture);
+    assert.ok(fixture.calls.length <= 6, "refuse unsupported bounds before scanning an incomplete prefix");
+  });
+});
+
+// Evaluate only the real job/step env mapping used by the publication command.
+// Expressions are inert lookup keys, never eval or shell interpolation. The CLI
+// receives no ambient credentials and a throwing fetch preload in its own process.
+function workflowEnvironment(text, indent, values) {
+  const lines = text.split("\n");
+  const start = lines.findIndex((line) => line === `${" ".repeat(indent)}env:`);
+  assert.ok(start >= 0, "the publication caller needs explicit trusted environment data");
+  const result = {};
+  for (const line of lines.slice(start + 1)) {
+    if (!line.trim() || /^\s*#/.test(line)) continue;
+    const match = line.match(new RegExp(`^ {${indent + 2}}([A-Z_]+): (.*)$`));
+    if (!match) break;
+    let value = match[2];
+    const expression = value.match(/^\$\{\{\s*(.*?)\s*\}\}$/)?.[1];
+    if (expression !== undefined) {
+      assert.ok(Object.hasOwn(values, expression), `unsupported synthetic Actions expression: ${expression}`);
+      value = String(values[expression]);
+    } else value = value.replace(/^(['"])(.*)\1$/, "$2");
+    result[match[1]] = value;
+  }
+  return result;
+}
+
+function runWorkflowPublication(deployOutcome) {
+  const { job, steps: all, planner } = sharedSteps();
+  const worker = all.find((s) => /\bwrangler deploy\b/.test(s.executable));
+  const caller = all.find((s) => /\bnode scripts\/calver-build\.mjs publish\b/.test(s.executable));
+  assert.ok(worker?.id && caller, "find the actual deployment-bound publication CLI step");
+  const command = runBody(caller).match(/\bnode (scripts\/calver-build\.mjs) (publish)\b/);
+  assert.ok(command, "execute the workflow's real publication CLI, not a pure-function substitute");
+  const values = {
+    "github.repository": repository, "github.sha": sha, "github.run_id": context.runId,
+    "github.run_attempt": context.attempt, "github.event_name": "push", "github.ref": "refs/heads/main",
+    "vars.PRODUCTION_DEPLOY_ENABLED == 'true'": true,
+    [`steps.${planner.id}.outputs.plan`]: JSON.stringify(frozenPlan),
+    [`steps.${planner.id}.outputs.version`]: "2026.303.0",
+    [`steps.${worker.id}.outcome`]: deployOutcome ?? "",
+  };
+  const directory = mkdtempSync(join(tmpdir(), "calver-publication-acceptance-"));
+  try {
+    const output = join(directory, "output");
+    const result = spawnSync(process.execPath, [
+      "--import", "data:text/javascript,globalThis.fetch=()=>{throw new Error('Unexpected network in publication CLI acceptance')}",
+      fileURLToPath(new URL(`../${command[1]}`, import.meta.url)), command[2],
+    ], {
+      cwd: fileURLToPath(new URL("../", import.meta.url)), timeout: 10_000, encoding: "utf8", maxBuffer: 1024 * 1024,
+      env: {
+        PATH: process.env.PATH, HOME: directory, NODE_ENV: "test", GITHUB_OUTPUT: output,
+        ...workflowEnvironment(job, 4, values), ...workflowEnvironment(caller.executable, 8, values),
+      },
+    });
+    assert.equal(result.error, undefined, "publication CLI must finish within its local offline bound");
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.signal, null);
+    const content = readFileSync(output, "utf8");
+    const requests = [...content.matchAll(/^request=(.*)$/gm)];
+    assert.equal(requests.length, 1, "emit exactly one Actions request output");
+    return requests[0][1];
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+test("workflow CLI publication: success emits the exact saved-plan request using the actual YAML environment", () => {
+  const request = runWorkflowPublication("success");
+  assert.notEqual(request, "", "a renamed/missing YAML outcome binding must not silently suppress successful publication");
+  assert.deepEqual(JSON.parse(request), { phase: "publish", plan: frozenPlan });
+});
+for (const outcome of ["failure", "skipped", "cancelled", undefined]) {
+  test(`workflow CLI publication: ${String(outcome)} deployment emits no publication request`, () => {
+    assert.equal(runWorkflowPublication(outcome), "");
+  });
+}
+
+/**
+ * Read-only repair proof extends the SAME injectable GET seam with ordinary REST
+ * /tags?per_page=100&page=N (array + Link), /git/ref/tags/:encodedTag,
+ * /git/tags/:objectSha, and /releases/tags/:encodedTag response envelopes.
+ * These are publication records AFTER an explicit same-lock shared-writer repair;
+ * this suite never performs that repair, allocates a version or invokes a writer.
+ *
+ * The literal plan/annotation below were produced offline by the ACTUAL engine at
+ * the approved pin, for routeware-build:8000:1 / a*40 / 2026-03-02T12:00:00Z with
+ * empty tag history. The original 2026.303.0 fixture can coexist on a distinct tag.
+ * The annotation fingerprint is shared plan provenance, not a signature or proof
+ * of rollout. Admission must cross-bind it to independently read attempt/job/SHA
+ * and frozen-plan workflow wiring; an arbitrary operation-shaped string is not
+ * sufficient. No allocator or provenance implementation is copied into tests.
+ */
+const repairedPlan = Object.freeze({
+  schema: "calver-plan-v1", repository, version: "2026.302.0", tag: "build/v2026.302.0", date: "2026-03-02",
+  channel: "stable", namespace: "build", sha: "a".repeat(40), operation: "routeware-build:8000:1",
+  policy: "direct-release", latest: "never", repairDate: null, sourceCanary: null, source: null,
+  evidence: null, previousStableTag: null, id: "159d3967a240e855f463351aac0ec44eaa264d975024a037065bab8508b44d62",
+});
+const repairedAnnotation = 'calver-plan-v1\n{"channel":"stable","date":"2026-03-02","evidence":null,"id":"159d3967a240e855f463351aac0ec44eaa264d975024a037065bab8508b44d62","latest":"never","namespace":"build","operation":"routeware-build:8000:1","policy":"direct-release","previousStableTag":null,"publicationEvidence":null,"repairDate":null,"repository":"TogetherWeOwn/routeware-shadow-api","schema":"calver-plan-v1","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":null,"sourceCanary":null,"tag":"build/v2026.302.0","version":"2026.302.0"}';
+const unrelatedAnnotation = 'calver-plan-v1\n{"channel":"stable","date":"2026-03-03","evidence":null,"id":"deffc3f9994c8309550c9ce413d48ab1847cdf4905ee1a0fff3c986ceb624b01","latest":"never","namespace":"build","operation":"routeware-build:6200345:2","policy":"direct-release","previousStableTag":null,"publicationEvidence":null,"repairDate":null,"repository":"TogetherWeOwn/routeware-shadow-api","schema":"calver-plan-v1","sha":"31cd91285aa6a814c034b66dae6bb17151038d55","source":null,"sourceCanary":null,"tag":"build/v2026.303.0","version":"2026.303.0"}';
+
+const otherAttemptAnnotation = 'calver-plan-v1\n{"channel":"stable","date":"2026-03-03","evidence":null,"id":"7386db26264835dd69114ad0e8f2d87b77b025f9fc3ebce2dc23dfbef88effa0","latest":"never","namespace":"build","operation":"routeware-build:8000:2","policy":"direct-release","previousStableTag":null,"publicationEvidence":null,"repairDate":null,"repository":"TogetherWeOwn/routeware-shadow-api","schema":"calver-plan-v1","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","source":null,"sourceCanary":null,"tag":"build/v2026.303.0","version":"2026.303.0"}';
+const otherShaAnnotation = 'calver-plan-v1\n{"channel":"stable","date":"2026-03-03","evidence":null,"id":"24ac8098ae0a918de74ddce4a95f8a96b289219a744055ef2289bca73a697c5f","latest":"never","namespace":"build","operation":"routeware-build:8000:1","policy":"direct-release","previousStableTag":null,"publicationEvidence":null,"repairDate":null,"repository":"TogetherWeOwn/routeware-shadow-api","schema":"calver-plan-v1","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","source":null,"sourceCanary":null,"tag":"build/v2026.303.0","version":"2026.303.0"}';
+
+function publicationRecord(plan = repairedPlan, annotation = repairedAnnotation, objectSha = "d".repeat(40)) {
+  const tagPath = encodeURIComponent(plan.tag);
+  return {
+    listItem: {
+      name: plan.tag, commit: { sha: plan.sha, url: `https://api.github.com${historyRoot}/commits/${plan.sha}` },
+      zipball_url: `https://api.github.com${historyRoot}/zipball/${tagPath}`,
+      tarball_url: `https://api.github.com${historyRoot}/tarball/${tagPath}`, node_id: "synthetic-tag-list-node",
+    },
+    ref: {
+      ref: `refs/tags/${plan.tag}`, node_id: "synthetic-ref-node", url: `https://api.github.com${historyRoot}/git/refs/tags/${tagPath}`,
+      object: { type: "tag", sha: objectSha, url: `https://api.github.com${historyRoot}/git/tags/${objectSha}` },
+    },
+    tagObject: {
+      sha: objectSha, tag: plan.tag, message: annotation, url: `https://api.github.com${historyRoot}/git/tags/${objectSha}`,
+      object: { type: "commit", sha: plan.sha, url: `https://api.github.com${historyRoot}/git/commits/${plan.sha}` },
+      tagger: { name: "github-actions[bot]", email: "github-actions[bot]@users.noreply.github.com", date: "2026-03-03T01:10:00Z" },
+      verification: { verified: false, reason: "unsigned", signature: null, payload: null },
+    },
+    release: {
+      id: plan.tag === repairedPlan.tag ? 701 : 702,
+      url: `https://api.github.com${historyRoot}/releases/${plan.tag === repairedPlan.tag ? 701 : 702}`,
+      html_url: `https://github.com/${repository}/releases/tag/${plan.tag}`, tag_name: plan.tag,
+      target_commitish: plan.sha, name: plan.version, draft: false, prerelease: false,
+      created_at: "2026-03-03T01:10:00Z", published_at: "2026-03-03T01:10:01Z", assets: [],
+      body: `### Features\n\n* fixture change ([${plan.sha.slice(0, 7)}](https://github.com/${repository}/commit/${plan.sha}))\n\n\n<!-- calver-plan:${plan.id} -->\n\nSource: ${plan.sha}\n`,
+    },
+  };
+}
+
+function publicationFixture(records = [publicationRecord()], options = {}) {
+  // Serve full real workflow bytes as the synthetic attempt's immutable source,
+  // not the minimal legacy-classification projection used by the original suite.
+  const prior = { ...(options.prior ?? priorAttempt()), workflow: options.workflow ?? read("../.github/workflows/ci.yml") };
+  const fixture = historyFixture([prior], options);
+  const tagPages = options.tagPages ?? [records];
+  const historyRequest = fixture.api.request;
+  fixture.api = { async request(method, path) {
+    const url = new URL(path, "https://api.github.com");
+    const publicationRead = url.pathname === `${historyRoot}/tags`
+      || url.pathname.startsWith(`${historyRoot}/git/ref/tags/`)
+      || url.pathname.startsWith(`${historyRoot}/git/tags/`)
+      || url.pathname.startsWith(`${historyRoot}/releases/tags/`);
+    if (!publicationRead) return historyRequest(method, path);
+    fixture.calls.push({ method, path });
+    assert.equal(method, "GET", "a repaired-publication guard is read-only, never a second release writer");
+    assert.equal(url.origin, "https://api.github.com");
+    assert.ok(fixture.calls.length <= (options.maxRequests ?? 100), "bounded repair proof must not loop");
+    if (options.publicationFail?.test(url.pathname)) throw Object.assign(new Error("Synthetic publication provider unavailable"), { status: 503 });
+    let response;
+    if (url.pathname === `${historyRoot}/tags`) {
+      assert.equal(url.searchParams.get("per_page"), "100");
+      const page = Number(url.searchParams.get("page") ?? "1");
+      assert.ok(tagPages[page - 1], "request a known publication page");
+      response = { status: 200, headers: page < tagPages.length ? {
+        link: `<https://api.github.com${historyRoot}/tags?per_page=100&page=${page + 1}>; rel="next"`,
+      } : {}, data: tagPages[page - 1].map((r) => r.listItem) };
+    } else if (url.pathname.startsWith(`${historyRoot}/git/ref/tags/`)) {
+      const tag = decodeURIComponent(url.pathname.slice(`${historyRoot}/git/ref/tags/`.length));
+      const record = records.find((r) => r.listItem.name === tag);
+      response = record ? { status: 200, headers: {}, data: record.ref }
+        : { status: 404, headers: {}, data: { message: "Not Found" } };
+    } else if (url.pathname.startsWith(`${historyRoot}/git/tags/`)) {
+      const objectSha = url.pathname.slice(`${historyRoot}/git/tags/`.length);
+      const record = records.find((r) => r.ref.object.sha === objectSha);
+      response = record ? { status: 200, headers: {}, data: record.tagObject }
+        : { status: 404, headers: {}, data: { message: "Not Found" } };
+    } else {
+      const tag = decodeURIComponent(url.pathname.slice(`${historyRoot}/releases/tags/`.length));
+      const record = records.find((r) => r.listItem.name === tag);
+      response = record?.release ? { status: 200, headers: {}, data: record.release }
+        : { status: 404, headers: {}, data: { message: "Not Found" } };
+    }
+    const copy = structuredClone(response);
+    return options.publicationTransform?.(copy, url) ?? copy;
+  } };
+  return fixture;
+}
+
+function assertRepairRecordsRead(fixture) {
+  for (const path of ["/tags", "/git/ref/tags/", "/git/tags/", "/releases/tags/"]) {
+    assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname.includes(path)), `read immutable publication proof: ${path}`);
+  }
+}
+
+describe("explicit publication repair admission", () => {
+  beforeEach((t) => {
+    t.mock.method(globalThis, "fetch", () => { throw new Error("Unexpected network in repaired-publication acceptance"); });
+  });
+
+  test("repaired publication: exact immutable annotated tag and matching Release admit after historical publication failure", async () => {
+    const fixture = await historyPermits(publicationFixture());
+    assertRepairRecordsRead(fixture);
+  });
+
+  for (const outcome of ["cancelled", "skipped"]) {
+    test(`repaired publication: exact proof is still sufficient after ${String(outcome)} historical publication`, async () => {
+      const fixture = await historyPermits(publicationFixture([publicationRecord()], { prior: priorAttempt({ publish: outcome }) }));
+      assertRepairRecordsRead(fixture);
+    });
+  }
+
+  test("repaired publication: immutable proof does not excuse an unfinished historical publication step", async () => {
+    await historyRefuses(publicationFixture([publicationRecord()], { prior: priorAttempt({ publish: null }) }));
+  });
+
+  test("repaired publication: the matching operation on a second tag page is not hidden by an unrelated Release", async () => {
+    const unrelated = publicationRecord(frozenPlan, unrelatedAnnotation, "e".repeat(40));
+    const exact = publicationRecord();
+    const fixture = await historyPermits(publicationFixture([unrelated, exact], { tagPages: [[unrelated], [exact]] }));
+    assertRepairRecordsRead(fixture);
+    assert.ok(fixture.calls.some((c) => {
+      const u = new URL(c.path, "https://api.github.com");
+      return u.pathname.endsWith("/tags") && u.searchParams.get("page") === "2";
+    }));
+  });
+
+  test("repaired publication: an unrelated valid shared plan and Release cannot clear A's failed publication", async () => {
+    await historyRefuses(publicationFixture([publicationRecord(frozenPlan, unrelatedAnnotation)]));
+  });
+
+  for (const [name, annotation] of [
+    ["same SHA but another run attempt", otherAttemptAnnotation],
+    ["same run/attempt operation but another SHA", otherShaAnnotation],
+  ]) {
+    test(`repaired publication: valid shared provenance for ${name} cannot clear A's failure`, async () => {
+      const plan = JSON.parse(annotation.slice("calver-plan-v1\n".length));
+      await historyRefuses(publicationFixture([publicationRecord(plan, annotation)]));
+    });
+  }
+
+  test("repaired publication: conflicting publications for one operation are not resolved by taking the first match", async () => {
+    const wrongShaPlan = JSON.parse(otherShaAnnotation.slice("calver-plan-v1\n".length));
+    await historyRefuses(publicationFixture([
+      publicationRecord(), publicationRecord(wrongShaPlan, otherShaAnnotation, "e".repeat(40)),
+    ]));
+  });
+
+  for (const [name, workflow] of [
+    ["wrong shared action pin", read("../.github/workflows/ci.yml").replaceAll(action, `TogetherWeOwn/.github/actions/calver@${"f".repeat(40)}`)],
+    ["publication does not use the saved plan", read("../.github/workflows/ci.yml").replace("steps.build-version.outputs.plan", "steps.unrelated.outputs.plan")],
+    ["deployment does not use the planned version", read("../.github/workflows/ci.yml").replace('BUILD_VERSION: ${{ steps.build-version.outputs.version }}', 'BUILD_VERSION: unplanned-version')],
+  ]) {
+    test(`repaired publication: ${name} cannot prove that historical transaction`, async () => {
+      await historyRefuses(publicationFixture([publicationRecord()], { workflow }));
+    });
+  }
+
+  for (const [name, mutate] of [
+    ["lightweight ref", (r) => { r.ref.object = { type: "commit", sha: repairedPlan.sha }; }],
+    ["different ref name", (r) => { r.ref.ref = "refs/tags/build/v2026.303.0"; }],
+    ["peeled SHA differs from the attempt", (r) => { r.tagObject.object.sha = "b".repeat(40); }],
+    ["list peeled SHA differs from the annotated object", (r) => { r.listItem.commit.sha = "b".repeat(40); }],
+    ["tag-object identity mismatch", (r) => { r.tagObject.sha = "e".repeat(40); }],
+    ["tag version differs from the frozen annotation", (r) => { r.tagObject.tag = "build/v2026.303.0"; }],
+    ["malformed annotation JSON", (r) => { r.tagObject.message = "calver-plan-v1\n{not-json}"; }],
+    ["missing shared annotation prefix", (r) => { r.tagObject.message = r.tagObject.message.slice("calver-plan-v1\n".length); }],
+    ["self-claimed operation without valid provenance", (r) => { r.tagObject.message = r.tagObject.message.replace(repairedPlan.id, "0".repeat(64)); }],
+    ["annotation for another repository", (r) => { r.tagObject.message = r.tagObject.message.replace(repository, "TogetherWeOwn/another-product"); }],
+    ["annotation for another namespace", (r) => { r.tagObject.message = r.tagObject.message.replace('"namespace":"build"', '"namespace":""'); }],
+    ["annotation version was changed after planning", (r) => { r.tagObject.message = r.tagObject.message.replace('"version":"2026.302.0"', '"version":"2026.303.0"'); }],
+    ["missing Release", (r) => { r.release = null; }],
+    ["Release tag mismatch", (r) => { r.release.tag_name = "build/v2026.303.0"; }],
+    ["Release SHA mismatch", (r) => { r.release.target_commitish = "b".repeat(40); }],
+    ["draft Release", (r) => { r.release.draft = true; }],
+    ["prerelease Release", (r) => { r.release.prerelease = true; }],
+    ["Release has another plan marker", (r) => { r.release.body = r.release.body.replace(repairedPlan.id, frozenPlan.id); }],
+    ["Release has no plan marker", (r) => { r.release.body = `Source: ${repairedPlan.sha}\n`; }],
+  ]) {
+    test(`repaired publication: ${name} cannot clear the original transaction`, async () => {
+      const record = publicationRecord();
+      mutate(record);
+      await historyRefuses(publicationFixture([record]));
+    });
+  }
+
+  for (const [name, options] of [
+    ["tag-list provider exception", { publicationFail: /\/tags$/ }],
+    ["ref provider exception", { publicationFail: /\/git\/ref\/tags\// }],
+    ["annotation provider exception", { publicationFail: /\/git\/tags\// }],
+    ["Release provider exception", { publicationFail: /\/releases\/tags\// }],
+    ["unavailable tag list", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, status: 503 } : r }],
+    ["malformed tag list", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, data: {} } : r }],
+    ["foreign tag-page Link", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: '<https://foreign.example.test/tags?page=2>; rel="next"' } } : r }],
+    ["cyclic tag-page Link", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
+    ["truncated tag pagination", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: `<https://api.github.com${historyRoot}/tags?per_page=100&page=2>; rel="next"` } } : r }],
+    ["malformed Release", { publicationTransform: (r, u) => u.pathname.includes("/releases/tags/") ? { ...r, data: null } : r }],
+  ]) {
+    test(`repaired publication: ${name} still refuses rather than waiving the historical failure`, async () => {
+      const fixture = publicationFixture([publicationRecord()], options);
+      await historyRefuses(fixture);
+      assert.ok(fixture.calls.length <= 20, "reject bad continuation evidence before the test transport's hard stop");
+      assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").origin === "https://api.github.com"), "never send a read to a foreign Link origin");
+    });
+  }
+
+  test("repaired publication: finding exact proof on page one does not waive an unavailable continuation", async () => {
+    const exact = publicationRecord();
+    const unrelated = publicationRecord(frozenPlan, unrelatedAnnotation, "e".repeat(40));
+    await historyRefuses(publicationFixture([exact, unrelated], {
+      tagPages: [[exact], [unrelated]], publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` && u.searchParams.get("page") === "2" ? { ...r, status: 503 } : r,
+    }));
+  });
 });
