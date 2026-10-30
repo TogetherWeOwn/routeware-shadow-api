@@ -17,6 +17,8 @@
  * narrower proof, not a silent shortcut.
  */
 
+import { createBuildRepairProof, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
+
 export const REPOSITORY = "TogetherWeOwn/routeware-shadow-api";
 
 const WORKFLOW_PATH = ".github/workflows/ci.yml";
@@ -31,13 +33,11 @@ const MAX_PAGES = 50;
 const MAX_RUN_RECORDS = 1000;
 const MAX_ATTEMPTS = 20;
 /**
- * Each earlier attempt costs one attempt read plus at least one jobs read, and
- * a legacy-looking attempt costs one more for its workflow source, so the budget
- * must cover the run/attempt ceilings rather than a small fixed number: 1000 runs
- * x (2 + 1) reads, plus enumeration overhead. This is a linear cost paid per
- * deployment; the enumeration ceiling is what keeps it from growing without end.
+ * Cover every supported run AND attempt, including all bounded job pages, one
+ * numeric-link identity lookup and one workflow read per attempt. Provider quota
+ * failures still refuse; this safety ceiling is not a promise of live API quota.
  */
-const MAX_READS = MAX_RUN_RECORDS * 3 + 100;
+const MAX_READS = MAX_RUN_RECORDS * MAX_ATTEMPTS * (MAX_PAGES + 3) + MAX_REPAIR_READS + 100;
 const API_ORIGIN = "https://api.github.com";
 
 function fail(message) {
@@ -232,8 +232,10 @@ function findProductionJob(jobs, expected) {
  * never treated as safe.
  */
 function isAffirmativelySkipped(job) {
-  if (!Array.isArray(job.steps) || job.steps.length !== 0) return false;
-  return job.conclusion === "skipped" || (job.status === "queued" && job.conclusion === null);
+  if (!Array.isArray(job.steps) || job.steps.length !== 0 || job.started_at !== null) return false;
+  return job.conclusion === "skipped"
+    || (job.status === "queued" && job.conclusion === null)
+    || (job.status === "completed" && job.conclusion === "cancelled");
 }
 
 /**
@@ -267,13 +269,18 @@ function assertStepsCompleted(steps, label) {
 }
 
 /** Live source of the exact run's workflow, never main or a latest ref. */
-async function isLegacyWorkflow(read, sha) {
+async function readWorkflow(read, sha) {
   const path = `/repos/${REPOSITORY}/contents/${WORKFLOW_PATH}?ref=${sha}`;
   const { data } = await read(path);
   if (!isObject(data) || data.type !== "file") fail("workflow source is not a file");
   if (data.encoding !== "base64" || typeof data.content !== "string") fail("workflow source encoding unsupported");
   const text = Buffer.from(data.content, "base64").toString("utf8");
-  if (text.trim().length === 0) fail("workflow source cannot prove legacy history");
+  if (text.trim().length === 0) fail("workflow source cannot prove history");
+  return text;
+}
+
+async function isLegacyWorkflow(read, sha) {
+  const text = await readWorkflow(read, sha);
   return !/scripts\/calver-build\.mjs|Plan deployment build identity|Publish non-Latest deployment build/.test(text);
 }
 
@@ -281,15 +288,16 @@ async function isLegacyWorkflow(read, sha) {
  * Judge one completed attempt. Deploying without published proof, or a deploy
  * whose outcome is unknown, may have consumed an unrecorded build identity.
  */
-async function assertAttemptSafe(read, run, attempt) {
+async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   const expected = { runId: run.id, attempt, sha: run.head_sha };
   const metadata = await read(`/repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${attempt}`);
   assertAttemptIdentity(metadata.data, expected);
   const job = findProductionJob(await listJobs(read, run.id, attempt), expected);
-  // A run cancelled before its production job ever existed has no job to judge;
-  // the exact historical workflow source is then the only honest evidence, so
-  // it must still prove the workflow predates build identity.
+  // Complete job enumeration plus exact terminal cancellation metadata proves
+  // this attempt ended without ever creating its production job. Run-list state
+  // alone cannot prove this (it may describe a later rerun).
   if (job === null) {
+    if (metadata.data.status === "completed" && metadata.data.conclusion === "cancelled") return;
     if (await isLegacyWorkflow(read, run.head_sha)) return;
     fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
   }
@@ -308,7 +316,9 @@ async function assertAttemptSafe(read, run, attempt) {
   if (deploy !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous deployment`);
   if (steps.plan.conclusion === "skipped") return;
   if (steps.plan.conclusion !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous build plan`);
-  if (steps.publish.conclusion !== "success") fail(`attempt ${run.id}/${attempt} deployed an unpublished build`);
+  if (steps.publish.conclusion !== "success") {
+    await assertRepaired(expected, await readWorkflow(read, run.head_sha));
+  }
 }
 
 /**
@@ -340,7 +350,8 @@ export async function assertBuildPublicationHistory(context, api) {
   }
   // Oldest first so a reported refusal names the earliest unresolved transaction.
   pending.sort((left, right) => left.run.id - right.run.id || left.attempt - right.attempt);
+  const assertRepaired = createBuildRepairProof(read, createLinkNormalizer(read), REPOSITORY);
   for (const { run, attempt } of pending) {
-    await assertAttemptSafe(read, run, attempt);
+    await assertAttemptSafe(read, run, attempt, assertRepaired);
   }
 }
