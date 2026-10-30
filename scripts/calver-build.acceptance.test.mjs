@@ -931,10 +931,10 @@ describe("publication admission regression controls", () => {
     assert.ok(!fixture.calls.some((c) => c.path.includes("/repositories/17/")));
   });
 
-  for (const attemptCount of [1, 20]) {
-    test(`bounded history: all 110 prior runs with ${attemptCount} published attempt(s) admit beyond 200 reads`, async () => {
+  for (const [runCount, attemptCount, maxRequests] of [[110, 1, 10_000], [110, 20, 10_000], [999, 20, 60_000]]) {
+    test(`bounded history: all ${runCount} prior runs with ${attemptCount} published attempt(s) admit beyond 200 reads`, async () => {
       const attempts = [];
-      for (let id = 8000; id < 8110; id++) {
+      for (let id = 8000; id < 8000 + runCount; id++) {
         for (let attempt = 1; attempt <= attemptCount; attempt++) {
           const item = priorAttempt({ id, attempt, publish: "success" });
           item.job.id = id * 100 + attempt;
@@ -944,10 +944,10 @@ describe("publication admission regression controls", () => {
       const latest = attempts.filter((a) => a.run.run_attempt === attemptCount).map((a) => a.run);
       const rows = [historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null }), ...latest];
       const fixture = await historyPermits(historyFixture(attempts, {
-        runPages: [rows.slice(0, 100), rows.slice(100)], maxRequests: 10_000,
+        runPages: Array.from({ length: Math.ceil(rows.length / 100) }, (_, page) => rows.slice(page * 100, (page + 1) * 100)), maxRequests,
       }));
       assert.ok(fixture.calls.length > 200, "exercise real history larger than an arbitrary 200-read cap");
-      assert.ok(fixture.calls.length < 10_000, "legitimate bounded history must not loop or re-read without bound");
+      assert.ok(fixture.calls.length < maxRequests, "legitimate bounded history must not loop or re-read without bound");
       const reads = new Set(fixture.calls.map((c) => new URL(c.path, "https://api.github.com").pathname));
       for (const item of attempts) {
         assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}`), "read every exact historical attempt, not only the latest");
