@@ -134,6 +134,18 @@ headers cannot supply or override this identity. No default is committed in
   succeeds but publication fails, retain the saved plan and diagnose the failure;
   do not relabel the deployed build. Missing-Release repair requires the shared
   explicit repair procedure under the same writer lock, not a new version.
+- Read-only history admission runs before any new version is allocated, inside
+  the same serialized job. A deployment whose build identity was consumed but
+  never recorded leaves tag history unchanged, so the next run would otherwise
+  be handed that same number for a different commit. Before planning, the guard
+  enumerates this workflow's earlier main push runs, reads each attempt's
+  planning/deployment/publication step outcomes, and refuses to allocate unless
+  every earlier transaction either never deployed or published its own build.
+  It only reads, never reconciles by writing, and treats incomplete or
+  ambiguous evidence (pagination gaps, provider errors, missing or duplicate
+  steps, unknown outcomes) as refusal rather than absence. Provider enumeration
+  is bounded, so exceeding that bound also refuses. Disabled deploys perform no
+  reads at all.
 
 Rollback this wiring with a reviewed revert; do not delete tags or publish a new
 forward build release for a rollback. No production deploy, migration, service

@@ -384,7 +384,14 @@ jobs:
       - run: npm ci
       - name: Construct build plan request
         id: build-request
-        run: node scripts/calver-build.mjs plan
+        # Read-only admission runs first, inside the existing serialized job: a
+        # deployment that failed before its build tag was recorded would let this
+        # run reuse its version. No new job, runner, step action or write scope.
+        run: |
+          node scripts/calver-build.mjs history
+          node scripts/calver-build.mjs plan
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Plan deployment build identity
         id: build-version
         uses: TogetherWeOwn/.github/actions/calver@1508f2c10cb83bc0677e8e559ff796a55c66e737
