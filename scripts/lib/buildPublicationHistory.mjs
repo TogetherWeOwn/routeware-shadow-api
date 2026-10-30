@@ -30,7 +30,14 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 const MAX_RUN_RECORDS = 1000;
 const MAX_ATTEMPTS = 20;
-const MAX_READS = 200;
+/**
+ * Each earlier attempt costs one attempt read plus at least one jobs read, and
+ * a legacy-looking attempt costs one more for its workflow source, so the budget
+ * must cover the run/attempt ceilings rather than a small fixed number: 1000 runs
+ * x (2 + 1) reads, plus enumeration overhead. This is a linear cost paid per
+ * deployment; the enumeration ceiling is what keeps it from growing without end.
+ */
+const MAX_READS = MAX_RUN_RECORDS * 3 + 100;
 const API_ORIGIN = "https://api.github.com";
 
 function fail(message) {
@@ -84,23 +91,45 @@ function nextLink(headers) {
   return null;
 }
 
-function nextPagePath(link) {
-  let url;
-  try {
-    url = new URL(link);
-  } catch {
-    fail("unparseable pagination link");
-  }
-  if (url.origin !== API_ORIGIN) fail("pagination must stay on the GitHub API origin");
-  if (!url.pathname.startsWith(`/repos/${REPOSITORY}/`)) fail("pagination must stay in this repository");
-  return `${url.pathname}${url.search}`;
+/**
+ * GitHub returns `rel="next"` links under `/repositories/<numeric id>/...`,
+ * not the `/repos/owner/name/...` form used for requests. Accept that alias
+ * only when the numeric id is the one this repository actually resolves to,
+ * read once and cached; every other shape is refused. A normalized alias is
+ * rewritten to the canonical `/repos/<repository>/...` path so the caller's
+ * exact-continuation check keeps comparing one shape.
+ */
+function createLinkNormalizer(read) {
+  let repositoryId = null;
+  return async function normalize(link) {
+    let url;
+    try {
+      url = new URL(link);
+    } catch {
+      fail("unparseable pagination link");
+    }
+    if (url.origin !== API_ORIGIN) fail("pagination must stay on the GitHub API origin");
+    const canonical = `/repos/${REPOSITORY}/`;
+    if (url.pathname.startsWith(canonical)) return `${url.pathname}${url.search}`;
+    const alias = url.pathname.match(/^\/repositories\/(\d+)(\/.*)$/);
+    if (!alias) fail("pagination must stay in this repository");
+    if (repositoryId === null) {
+      const { data } = await read(`/repos/${REPOSITORY}`);
+      if (!isObject(data) || !Number.isSafeInteger(data.id) || data.id <= 0) fail("repository identity unavailable");
+      if (data.full_name !== REPOSITORY) fail("repository identity mismatch");
+      repositoryId = data.id;
+    }
+    if (Number(alias[1]) !== repositoryId) fail("pagination must stay in this repository");
+    return `${canonical.slice(0, -1)}${alias[2]}${url.search}`;
+  };
 }
 
 /**
  * Enumerate every page of a collection, refusing cycles, foreign links, a
  * changing or invalid total, duplicate records and short collection.
  */
-async function readCollection(read, base, key, createPath) {
+async function readCollection(read, key, createPath) {
+  const normalize = createLinkNormalizer(read);
   const visited = new Set();
   const records = [];
   let declaredTotal = null;
@@ -124,7 +153,7 @@ async function readCollection(read, base, key, createPath) {
     }
     const link = nextLink(headers);
     if (link === null) break;
-    const next = nextPagePath(link);
+    const next = await normalize(link);
     if (visited.has(next)) fail("cyclic pagination link");
     // Re-enter the loop through the same validated path shape.
     const expected = createPath(visited.size + 1);
@@ -135,7 +164,7 @@ async function readCollection(read, base, key, createPath) {
 
 async function listRuns(read) {
   const base = `/repos/${REPOSITORY}/actions/workflows/ci.yml/runs`;
-  const { records, declaredTotal } = await readCollection(read, base, "workflow_runs", (page) =>
+  const { records, declaredTotal } = await readCollection(read, "workflow_runs", (page) =>
     `${base}?branch=main&event=push&per_page=${PAGE_SIZE}&page=${page}`
   );
   if (declaredTotal > MAX_RUN_RECORDS) fail("run history exceeds the provider enumeration cap");
@@ -158,7 +187,7 @@ async function listRuns(read) {
 
 async function listJobs(read, runId, attempt) {
   const base = `/repos/${REPOSITORY}/actions/runs/${runId}/attempts/${attempt}/jobs`;
-  const { records, declaredTotal } = await readCollection(read, base, "jobs", (page) =>
+  const { records, declaredTotal } = await readCollection(read, "jobs", (page) =>
     `${base}?per_page=${PAGE_SIZE}&page=${page}`
   );
   if (records.length !== declaredTotal) fail(`job enumeration for ${runId}/${attempt} is incomplete`);
@@ -185,7 +214,8 @@ function assertAttemptIdentity(metadata, expected) {
 
 function findProductionJob(jobs, expected) {
   const matches = jobs.filter((job) => job.name === JOB_NAME);
-  if (matches.length !== 1) fail(`expected exactly one ${JOB_NAME} job for ${expected.runId}/${expected.attempt}`);
+  if (matches.length === 0) return null;
+  if (matches.length !== 1) fail(`expected at most one ${JOB_NAME} job for ${expected.runId}/${expected.attempt}`);
   const job = matches[0];
   if (job.run_id !== expected.runId) fail("production job belongs to another run");
   if (job.run_attempt !== expected.attempt) fail("production job belongs to another attempt");
@@ -193,9 +223,29 @@ function findProductionJob(jobs, expected) {
   return job;
 }
 
-/** A skipped job with no steps is affirmative evidence that nothing was planned or deployed. */
+/**
+ * A skipped job with no steps is affirmative evidence that nothing was planned
+ * or deployed. A job that never started (queued) is the same evidence: this
+ * guard runs while its own transaction holds the exclusive deploy lock, so a
+ * queued production job elsewhere in the group has not run, and it must not
+ * block the current holder. A started-but-unfinished job is ambiguous and is
+ * never treated as safe.
+ */
 function isAffirmativelySkipped(job) {
-  return job.conclusion === "skipped" && Array.isArray(job.steps) && job.steps.length === 0;
+  if (!Array.isArray(job.steps) || job.steps.length !== 0) return false;
+  return job.conclusion === "skipped" || (job.status === "queued" && job.conclusion === null);
+}
+
+/**
+ * Legacy classification may only excuse a job that has finished executing.
+ * A step still in progress could be deploying right now, so its workflow
+ * predating build identity says nothing about whether this attempt consumed one.
+ */
+function assertJobFinished(job, label) {
+  if (!Array.isArray(job.steps)) fail(`${label} production job steps missing`);
+  for (const step of job.steps) {
+    if (!isObject(step) || step.status !== "completed") fail(`${label} production job has not finished executing`);
+  }
 }
 
 function findIdentitySteps(job) {
@@ -236,7 +286,17 @@ async function assertAttemptSafe(read, run, attempt) {
   const metadata = await read(`/repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${attempt}`);
   assertAttemptIdentity(metadata.data, expected);
   const job = findProductionJob(await listJobs(read, run.id, attempt), expected);
+  // A run cancelled before its production job ever existed has no job to judge;
+  // the exact historical workflow source is then the only honest evidence, so
+  // it must still prove the workflow predates build identity.
+  if (job === null) {
+    if (await isLegacyWorkflow(read, run.head_sha)) return;
+    fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
+  }
   if (isAffirmativelySkipped(job)) return;
+  // Anything that has started but not finished is ambiguous: it could be
+  // deploying while this admission runs.
+  assertJobFinished(job, `${run.id}/${attempt}`);
   const steps = findIdentitySteps(job);
   if (steps === null) {
     if (await isLegacyWorkflow(read, run.head_sha)) return;
