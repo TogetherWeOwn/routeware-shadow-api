@@ -143,9 +143,14 @@ headers cannot supply or override this identity. No default is committed in
   every earlier transaction either never deployed or published its own build.
   It only reads, never reconciles by writing, and treats incomplete or
   ambiguous evidence (pagination gaps, provider errors, missing or duplicate
-  steps, unknown outcomes) as refusal rather than absence. Provider enumeration
-  is bounded, so exceeding that bound also refuses. Disabled deploys perform no
-  reads at all.
+  steps, a deployment that started but has not finished, unknown outcomes) as
+  refusal rather than absence. Provider enumeration is bounded, so exceeding
+  that bound also refuses. Two cases are affirmative evidence that no version
+  was consumed, and admission proceeds: a production job that never ran (a
+  cancelled or skipped job with no steps, or one still queued, which cannot
+  have run while this transaction holds the exclusive deploy lock), and a run
+  whose exact historical workflow predates build identity. Disabled deploys
+  perform no reads at all.
 
 Rollback this wiring with a reviewed revert; do not delete tags or publish a new
 forward build release for a rollback. No production deploy, migration, service
