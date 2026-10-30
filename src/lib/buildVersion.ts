@@ -6,8 +6,8 @@ export function parseBuildVersion(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const match = /^([1-9][0-9]{3})\.([1-9][0-9]{2,3})\.(0|[1-9][0-9]*)$/.exec(value);
   if (!match || match[0] !== value || !Number.isSafeInteger(Number(match[3]))) return null;
-  const month = match[2].slice(0, -2);
-  const day = match[2].slice(-2);
+  const month = match[2]!.slice(0, -2);
+  const day = match[2]!.slice(-2);
   const date = `${match[1]}-${month.padStart(2, "0")}-${day}`;
   const time = new Date(`${date}T00:00:00.000Z`);
   return Number.isFinite(time.getTime()) && time.toISOString().slice(0, 10) === date
