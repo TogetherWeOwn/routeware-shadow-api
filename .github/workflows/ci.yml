@@ -350,11 +350,22 @@ jobs:
     needs: [build, hygiene]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
+    # Only the enabled production transaction can publish build-namespace refs.
+    permissions:
+      contents: write
+      actions: read
     # Scopes the CLOUDFLARE_API_TOKEN secret; add required reviewers here to gate prod.
     environment: production
     # Preflight and deploy read this same config; shell vars are not Worker vars.
     env:
       WRANGLER_CONFIG: wrangler.toml
+      CALVER_REPOSITORY: ${{ github.repository }}
+      CALVER_SHA: ${{ github.sha }}
+      CALVER_RUN_ID: ${{ github.run_id }}
+      CALVER_ATTEMPT: ${{ github.run_attempt }}
+      CALVER_EVENT: ${{ github.event_name }}
+      CALVER_REF: ${{ github.ref }}
+      CALVER_ENABLED: ${{ vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
     # Serialize deploys so overlapping merges can't race; don't cancel an in-flight one.
     concurrency:
       group: deploy-production
@@ -364,11 +375,22 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
           cache: npm
       - run: npm ci
+      - name: Construct build plan request
+        id: build-request
+        run: node scripts/calver-build.mjs plan
+      - name: Plan deployment build identity
+        id: build-version
+        uses: TogetherWeOwn/.github/actions/calver@1508f2c10cb83bc0677e8e559ff796a55c66e737
+        with:
+          runs-on-json: '"ubuntu-latest"'
+          request: ${{ steps.build-request.outputs.request }}
       - name: R2 bucket preflight
         # Read-only `wrangler r2 bucket info <name> --json` lookup: the SNAPSHOTS
         # bucket must exist before deploy, else snapshot CSV archiving silently
@@ -383,9 +405,24 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       - name: Deploy Worker
+        id: worker
         # Uses the repo's pinned Wrangler. Worker secrets (SHADOW_API_TOKEN, etc.) are
         # set once via `wrangler secret put` and are not touched by deploy. account_id
         # lives in wrangler.toml, so only the API token is needed here.
-        run: npx wrangler deploy --config "$WRANGLER_CONFIG"
+        run: npx wrangler deploy --config "$WRANGLER_CONFIG" --var "BUILD_VERSION:$BUILD_VERSION"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          BUILD_VERSION: ${{ steps.build-version.outputs.version }}
+      - name: Construct successful build publication request
+        id: publish-request
+        run: node scripts/calver-build.mjs publish
+        env:
+          CALVER_PLAN: ${{ steps.build-version.outputs.plan }}
+          CALVER_DEPLOY_OUTCOME: ${{ steps.worker.outcome }}
+          BUILD_VERSION: ${{ steps.build-version.outputs.version }}
+      - name: Publish non-Latest deployment build
+        if: success() && steps.publish-request.outputs.request != ''
+        uses: TogetherWeOwn/.github/actions/calver@1508f2c10cb83bc0677e8e559ff796a55c66e737
+        with:
+          runs-on-json: '"ubuntu-latest"'
+          request: ${{ steps.publish-request.outputs.request }}

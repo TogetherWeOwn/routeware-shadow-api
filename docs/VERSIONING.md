@@ -85,7 +85,7 @@ date.
 
 ## Tag convention and release cut
 
-- Tags are annotated and named `vX.Y.Z`, exactly matching
+- API contract tags are annotated and named `vX.Y.Z`, exactly matching
   `package.json#version` with a leading `v` (e.g. `v1.0.0`). No other
   prefixes, suffixes, or lightweight tags.
 - Tag the exact green `main` head the version PR merged as — never an
@@ -96,3 +96,48 @@ date.
      (`gh release create vX.Y.Z --title "vX.Y.Z" --notes-file <notes>`)
      with consumer-facing notes covering every consumer-visible change.
 - The first release to be cut this way will be `v1.0.0`.
+
+## Separate deployment-build identity (dormant)
+
+The consumer contract above remains SemVer. `APP_VERSION`, package version,
+OpenAPI `info.version`, public health JSON, annotated API contract tags and
+consumer CHANGELOG entries are not replaced by deployment dates. A build release
+is not an API compatibility promise or evidence that a consumer used the service.
+
+A future successful production deploy has a separate, optional `BUILD_VERSION`
+Worker binding. It is exposed as `X-Build-Version` (also CORS-exposed), never as
+an extra health JSON field. The Worker accepts only canonical stable calendar
+versions; unset or malformed metadata omits the header. Client and upstream
+headers cannot supply or override this identity. No default is committed in
+`wrangler.toml`, and it never falls back to `APP_VERSION`.
+
+- Build tags use **`build/vYYYY.MDD.P`**, not the API's `vX.Y.Z` namespace.
+  UTC month has no leading zero; the day has two digits: January 5 is
+  `2026.105.0`, March 3 is `2026.303.0`. P starts at zero and increments within
+  that UTC date's independent build counter, ignoring API contract releases.
+- The shared planner freezes its date/version and operation before deployment,
+  including across midnight. That exact frozen version is passed to Wrangler as
+  a deployment var; publication uses the same saved plan, not a second allocation.
+- Both phases pin
+  `TogetherWeOwn/.github/actions/calver@1508f2c10cb83bc0677e8e559ff796a55c66e737`.
+  Routeware uses the shared repository-specific `direct-release` exception,
+  `namespace: build` and `latest: never`. Build Releases are always non-Latest:
+  they must never displace the consumer API release as GitHub Latest.
+- The existing `deploy-production` lock covers plan, stamp, deploy and publish.
+  Publication follows only a successful Wrangler deploy, with the unchanged
+  push/main/`PRODUCTION_DEPLOY_ENABLED == 'true'` fence. Failed, skipped,
+  cancelled or disabled deployment produces no build release. This change does
+  not configure the enable gate; it neither enables production nor creates staging.
+- The adapter binds repository, exact SHA, run and attempt. The shared publisher
+  verifies provenance and target reachability, refuses collisions and handles
+  exact-operation replay; never move, mutate or rewrite release tags. If deploy
+  succeeds but publication fails, retain the saved plan and diagnose the failure;
+  do not relabel the deployed build. Missing-Release repair requires the shared
+  explicit repair procedure under the same writer lock, not a new version.
+
+Rollback this wiring with a reviewed revert; do not delete tags or publish a new
+forward build release for a rollback. No production deploy, migration, service
+retirement or new infrastructure is authorized by this policy. Tests use offline
+synthetic inputs, not a live deployment. If staging is introduced under a later
+approved scope, its build canaries use `build/canary/vYYYY.MDD.P-canary.N`; this
+change adds no staging lane or canary publisher.
