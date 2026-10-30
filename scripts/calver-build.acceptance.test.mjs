@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
-import { test } from "node:test";
+import { beforeEach, describe, test } from "node:test";
 
 /**
  * Caller seam, deliberately specified before implementation:
@@ -373,4 +373,394 @@ test("version policy separates frozen UTC build releases from the unchanged cons
     assert.match(policy.slice(Math.max(0, prefixRule - 400), prefixRule), /API contract tags|consumer contract tags/i,
       "scope the prefix restriction explicitly to API contract tags, not all build tags");
   }
+});
+
+/**
+ * Additional admission seam (original acceptance above stays unchanged):
+ *   await assertBuildPublicationHistory(context, api)
+ * Export from ./calver-build.mjs; context has the original repository/sha/runId/
+ * attempt/enabled/eventName/ref fields. Resolve on proven safe admission, throw
+ * Error on unsafe OR incomplete evidence. Disabled contexts do no reads. This
+ * read-only guard runs BEFORE allocating/stamping a new build under the existing
+ * deploy-production lock; it never reconciles by writing a tag/release/deployment.
+ *
+ * api.request("GET", path) returns Promise<{status, headers, data}>: the ordinary
+ * GitHub REST response envelope, with JSON data and lowercase Link headers.
+ * Paths are repository-relative (absolute api.github.com pagination URLs are also
+ * allowed). Supported reads: workflows/ci.yml/runs (branch=main,event=push), exact
+ * runs/:run/attempts/:attempt, attempts/:attempt/jobs, and contents of the exact
+ * historical .github/workflows/ci.yml?ref=HEAD_SHA. Lists use per_page=100 and
+ * explicit page=1,2,...; Link and total_count must establish complete enumeration.
+ * No implicit "latest attempt", time-window cutoff or first-page-only shortcut.
+ *
+ * Bind the current attempt to its independently read same-repository/main-push
+ * metadata, then exclude ONLY that still-running attempt's unfinished jobs.
+ * Examine every earlier attempt, including earlier attempts of the current run.
+ * The exact same-attempt plan/deploy/publish step names below are the current
+ * serialized workflow's contract. A successful publish step is proof only with
+ * the matching run/SHA/attempt, unique job/steps and that versioned workflow's
+ * frozen-plan wiring; whole-job/workflow success is not publication proof.
+ * Legacy runs without build labels require the exact historical workflow source
+ * to demonstrate that absence; missing steps in a build-aware workflow are NOT
+ * automatically legacy. No newly planned build or an explicitly skipped deploy
+ * is safe; a planned build with failed/cancelled/unknown deployment may be live.
+ * Missing/masked publication after any such deployment blocks new allocation.
+ *
+ * CLI integration: invoke `node scripts/calver-build.mjs history` in the EXISTING
+ * plan-request step before its `... plan` command. A separate adapter step would
+ * violate the original two-caller-step assertion above. Existing job permissions,
+ * runner and lock suffice; this adds no job, resource, schedule or write scope.
+ */
+const historyWorkflow = ".github/workflows/ci.yml";
+const historyRoot = `/repos/${repository}`;
+const historyNames = Object.freeze({
+  job: "Deploy to Cloudflare Workers",
+  plan: "Plan deployment build identity",
+  deploy: "Deploy Worker",
+  publish: "Publish non-Latest deployment build",
+});
+const historyContext = Object.freeze({ ...context, runId: 9000, attempt: 1, sha: "b".repeat(40) });
+const buildAwareWorkflow = `name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Workers
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Construct build plan request
+        id: build-request
+        run: node scripts/calver-build.mjs plan
+      - name: Plan deployment build identity
+        id: build-version
+        uses: ${action}
+        with:
+          runs-on-json: '"ubuntu-latest"'
+          request: \${{ steps.build-request.outputs.request }}
+      - name: Deploy Worker
+        id: worker
+        run: npx wrangler deploy --var BUILD_VERSION:"$BUILD_VERSION"
+        env:
+          BUILD_VERSION: \${{ steps.build-version.outputs.version }}
+      - name: Construct successful build publication request
+        id: publish-request
+        env:
+          CALVER_PLAN: \${{ steps.build-version.outputs.plan }}
+          DEPLOY_OUTCOME: \${{ steps.worker.outcome }}
+          DEPLOYED_VERSION: \${{ steps.build-version.outputs.version }}
+        run: node scripts/calver-build.mjs publish
+      - name: Publish non-Latest deployment build
+        uses: ${action}
+        with:
+          runs-on-json: '"ubuntu-latest"'
+          request: \${{ steps.publish-request.outputs.request }}
+`;
+const legacyWorkflow = `name: CI
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Workers
+    steps:
+      - name: Deploy Worker
+        run: npx wrangler deploy
+`;
+
+function historyRun(id, attempt = 1, changes = {}) {
+  return {
+    id, run_attempt: attempt, workflow_id: 42, path: historyWorkflow,
+    repository: { id: 17, full_name: repository }, head_repository: { id: 17, full_name: repository },
+    head_sha: id === 9000 ? historyContext.sha : "a".repeat(40), head_branch: "main", event: "push",
+    status: "completed", conclusion: "failure",
+    created_at: "2026-03-03T01:00:00Z", run_started_at: "2026-03-03T01:00:01Z", updated_at: "2026-03-03T01:05:00Z",
+    ...changes,
+  };
+}
+function historyStep(name, number, conclusion) {
+  return { name, number, status: conclusion === null ? "in_progress" : "completed", conclusion,
+    started_at: "2026-03-03T01:01:00Z", completed_at: conclusion === null ? null : "2026-03-03T01:02:00Z" };
+}
+function priorAttempt({ id = 8000, attempt = 1, plan = "success", deploy = "success", publish = "failure", legacy = false } = {}) {
+  const run = historyRun(id, attempt);
+  const job = {
+    id: id * 10 + attempt, run_id: id, run_attempt: attempt, head_sha: run.head_sha,
+    name: historyNames.job, status: "completed", conclusion: publish === "success" ? "success" : "failure",
+    started_at: run.run_started_at, completed_at: run.updated_at,
+    steps: legacy ? [historyStep(historyNames.deploy, 1, deploy)] : [
+      historyStep(historyNames.plan, 1, plan), historyStep(historyNames.deploy, 2, deploy), historyStep(historyNames.publish, 3, publish),
+    ],
+  };
+  return { run, job, workflow: legacy ? legacyWorkflow : buildAwareWorkflow };
+}
+
+function historyFixture(attempts = [], options = {}) {
+  const ctx = { ...historyContext, ...options.context };
+  const current = historyRun(ctx.runId, ctx.attempt, {
+    head_sha: ctx.sha, status: "in_progress", conclusion: null,
+    created_at: "2026-03-03T23:00:00Z", run_started_at: "2026-03-03T23:00:01Z", updated_at: "2026-03-03T23:00:01Z",
+  });
+  const latest = new Map();
+  for (const item of attempts) {
+    if (!latest.has(item.run.id) || latest.get(item.run.id).run_attempt < item.run.run_attempt) latest.set(item.run.id, item.run);
+  }
+  latest.set(current.id, current);
+  const pages = options.runPages ?? [[...latest.values()]];
+  const total = options.total ?? pages.flat().length;
+  const calls = [];
+  const known = new Map(attempts.map((a) => [`${a.run.id}/${a.run.run_attempt}`, a]));
+  const source = new Map(attempts.map((a) => [a.run.head_sha, a.workflow]));
+  source.set(ctx.sha, buildAwareWorkflow);
+  function pageResponse(rows, page, key, makePath, declaredTotal = rows.flat().length) {
+    if (!rows[page - 1]) throw new Error("Unexpected synthetic page");
+    const next = page < rows.length ? `<https://api.github.com${makePath(page + 1)}>; rel="next"` : undefined;
+    return { status: 200, headers: next ? { link: next } : {}, data: { total_count: declaredTotal, [key]: rows[page - 1] } };
+  }
+  const api = { async request(method, path) {
+    calls.push({ method, path });
+    assert.ok(calls.length <= 100, "bounded fixture tripwire: pagination must not loop");
+    assert.equal(method, "GET", "history admission must never mutate provider state");
+    const url = new URL(path, "https://api.github.com");
+    assert.equal(url.origin, "https://api.github.com", "do not follow foreign pagination URLs");
+    assert.ok(url.pathname.startsWith(`${historyRoot}/`), "history reads stay in this repository");
+    if (options.fail?.test(url.pathname)) throw Object.assign(new Error("Synthetic history provider unavailable"), { status: 503 });
+    let response;
+    const match = url.pathname.match(/\/actions\/runs\/(\d+)\/attempts\/(\d+)(\/jobs)?$/);
+    if (url.pathname === `${historyRoot}/actions/workflows/ci.yml/runs`) {
+      assert.equal(url.searchParams.get("branch"), "main");
+      assert.equal(url.searchParams.get("event"), "push");
+      assert.equal(url.searchParams.get("per_page"), "100");
+      const n = Number(url.searchParams.get("page"));
+      response = pageResponse(pages, n, "workflow_runs", (p) => `${historyRoot}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100&page=${p}`, total);
+    } else if (match) {
+      const key = `${match[1]}/${match[2]}`;
+      if (!match[3]) {
+        const run = key === `${ctx.runId}/${ctx.attempt}` ? current : known.get(key)?.run;
+        assert.ok(run, `unexpected attempt selector ${key}`);
+        response = { status: 200, headers: {}, data: run };
+      } else {
+        assert.notEqual(key, `${ctx.runId}/${ctx.attempt}`, "do not require current transaction's unfinished publication");
+        const item = known.get(key);
+        assert.ok(item, `unexpected job attempt selector ${key}`);
+        const rows = item.jobPages ?? [[item.job]];
+        assert.equal(url.searchParams.get("per_page"), "100");
+        response = pageResponse(rows, Number(url.searchParams.get("page")), "jobs",
+          (p) => `${historyRoot}/actions/runs/${match[1]}/attempts/${match[2]}/jobs?per_page=100&page=${p}`, item.jobTotal);
+      }
+    } else if (url.pathname === `${historyRoot}/contents/${historyWorkflow}`) {
+      const ref = url.searchParams.get("ref");
+      assert.match(ref ?? "", /^[a-f0-9]{40}$/, "legacy classification uses immutable workflow source, never main/latest");
+      assert.ok(source.has(ref), "workflow source must bind a known attempt SHA");
+      const text = source.get(ref);
+      response = { status: 200, headers: {}, data: {
+        type: "file", path: historyWorkflow, sha: "c".repeat(40), encoding: "base64", size: Buffer.byteLength(text),
+        content: Buffer.from(text).toString("base64"),
+      } };
+    } else throw new Error(`Unexpected read in hermetic history fixture: ${url.pathname}`);
+    const copy = structuredClone(response);
+    return options.transform?.(copy, url) ?? copy;
+  } };
+  return { ctx, api, calls };
+}
+async function historyGuard() {
+  const { assertBuildPublicationHistory } = await adapter();
+  assert.equal(typeof assertBuildPublicationHistory, "function", "missing read-only publication-history admission guard export");
+  return assertBuildPublicationHistory;
+}
+async function historyRefuses(fixture) {
+  const guard = await historyGuard(); // A missing export must fail this test, not satisfy assert.rejects below.
+  await assert.rejects(async () => guard(fixture.ctx, fixture.api), Error);
+  assert.ok(fixture.calls.every((c) => c.method === "GET"));
+}
+async function historyPermits(fixture) {
+  const guard = await historyGuard();
+  await guard(fixture.ctx, fixture.api);
+  assert.ok(fixture.calls.some((c) => c.path.includes(`/actions/runs/${fixture.ctx.runId}/attempts/${fixture.ctx.attempt}`)),
+    "admission must bind current provider identity, not merely return success");
+  assert.ok(fixture.calls.some((c) => c.path.includes("/actions/workflows/ci.yml/runs")), "enumerate history before permitting allocation");
+  return fixture;
+}
+
+describe("unpublished deployment admission", () => {
+beforeEach((t) => {
+  t.mock.method(globalThis, "fetch", () => { throw new Error("Unexpected un-injected network request in history acceptance"); });
+});
+
+test("history guard: deploy A then unpublished tag cannot admit allocation for different SHA B", async () => {
+  const previous = priorAttempt(); // A may be live, but failed publication left tag history unchanged.
+  const fixture = historyFixture([previous]);
+  await historyRefuses(fixture);
+  assert.ok(fixture.calls.some((c) => c.path.includes("/runs/8000/attempts/1/jobs")), "inspect A's executed steps");
+});
+
+for (const publication of ["failure", "cancelled", "skipped", null]) {
+  test(`history guard: successful deploy plus ${String(publication)} publication refuses even if the job says success`, async () => {
+    const previous = priorAttempt({ publish: publication });
+    previous.job.conclusion = "success";
+    previous.run.conclusion = "success";
+    await historyRefuses(historyFixture([previous]));
+  });
+}
+for (const outcome of ["failure", "cancelled", null]) {
+  test(`history guard: planned build with ambiguous deploy ${String(outcome)} and no publication blocks`, async () => {
+    await historyRefuses(historyFixture([priorAttempt({ deploy: outcome, publish: "skipped" })]));
+  });
+}
+for (const [name, item] of [
+  ["same-attempt successful publication", priorAttempt({ publish: "success" })],
+  ["no planned build and skipped deployment", priorAttempt({ plan: "skipped", deploy: "skipped", publish: "skipped" })],
+  ["planned build but unambiguously skipped deployment", priorAttempt({ deploy: "skipped", publish: "skipped" })],
+]) {
+  test(`history guard: ${name} permits continuing under the lock`, async () => {
+    const fixture = await historyPermits(historyFixture([item]));
+    assert.ok(fixture.calls.some((c) => c.path.includes("/runs/8000/attempts/1/jobs")));
+  });
+}
+
+test("history guard: a wholly skipped production job with no steps is affirmative no-plan evidence", async () => {
+  const prior = priorAttempt();
+  Object.assign(prior.job, { conclusion: "skipped", steps: [], started_at: null, completed_at: null });
+  await historyPermits(historyFixture([prior]));
+});
+test("history guard: complete empty prior history permits but excludes the current still-running transaction", async () => {
+  await historyPermits(historyFixture());
+});
+test("history guard: real legacy no-build workflow permits without inventing publication evidence", async () => {
+  const fixture = await historyPermits(historyFixture([priorAttempt({ legacy: true })]));
+  assert.ok(fixture.calls.some((c) => c.path.includes(`/contents/${historyWorkflow}`) && c.path.includes("a".repeat(40))),
+    "prove legacy using the workflow at that run's exact SHA");
+});
+test("history guard: missing build steps in a build-aware workflow are not classified as legacy", async () => {
+  const prior = priorAttempt({ legacy: true });
+  prior.workflow = buildAwareWorkflow;
+  await historyRefuses(historyFixture([prior]));
+});
+test("history guard: latest rerun success cannot conceal an earlier deployed-unpublished attempt", async () => {
+  const fixture = historyFixture([priorAttempt(), priorAttempt({ attempt: 2, publish: "success" })]);
+  await historyRefuses(fixture);
+  assert.ok(fixture.calls.some((c) => c.path.includes("/runs/8000/attempts/1/jobs")));
+});
+test("history guard: only the current attempt is excluded, not an unresolved earlier attempt of the same run", async () => {
+  await historyRefuses(historyFixture([priorAttempt({ id: 9000 })], { context: { attempt: 2 } }));
+});
+test("history guard: a skipped old attempt and published rerun are both examined before permission", async () => {
+  const fixture = await historyPermits(historyFixture([
+    priorAttempt({ plan: "skipped", deploy: "skipped", publish: "skipped" }), priorAttempt({ attempt: 2, publish: "success" }),
+  ]));
+  for (const attempt of [1, 2]) assert.ok(fixture.calls.some((c) => c.path.includes(`/runs/8000/attempts/${attempt}/jobs`)));
+});
+
+test("history guard: unpublished earlier run on a second run-history page still blocks", async () => {
+  const current = historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null });
+  const prior = priorAttempt();
+  const fixture = historyFixture([prior], { runPages: [[current], [prior.run]] });
+  await historyRefuses(fixture);
+  assert.ok(fixture.calls.some((c) => c.path.includes("/workflows/ci.yml/runs") && new URL(c.path, "https://api.github.com").searchParams.get("page") === "2"));
+});
+test("history guard: publication evidence on a second job page is not mistaken for missing publication", async () => {
+  const prior = priorAttempt({ publish: "success" });
+  prior.jobPages = [[{ ...prior.job, id: 123, name: "Typecheck, test, build", steps: [] }], [prior.job]];
+  const fixture = await historyPermits(historyFixture([prior]));
+  assert.ok(fixture.calls.some((c) => c.path.includes("/jobs") && new URL(c.path, "https://api.github.com").searchParams.get("page") === "2"));
+});
+
+for (const [name, options] of [
+  ["truncated run search (including GitHub's search cap)", { total: 1001 }],
+  ["run-history provider failure", { fail: /\/workflows\/ci.yml\/runs$/ }],
+  ["attempt metadata provider failure", { fail: /\/runs\/8000\/attempts\/1$/ }],
+  ["job evidence provider failure", { fail: /\/jobs$/ }],
+  ["legacy source provider failure", { fail: /\/contents\// }],
+  ["non-success provider envelope", { transform: (r, u) => u.pathname.endsWith("/jobs") ? { ...r, status: 403 } : r }],
+  ["missing run collection", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, data: { total_count: 0 } } : r }],
+  ["invalid run count", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, data: { ...r.data, total_count: -1 } } : r }],
+  ["missing run count", { transform: (r, u) => { if (u.pathname.endsWith("/runs")) delete r.data.total_count; return r; } }],
+  ["duplicate run records", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, data: {
+    total_count: r.data.total_count + 1, workflow_runs: [...r.data.workflow_runs, r.data.workflow_runs[0]],
+  } } : r }],
+  ["missing prior attempt (provider 404)", { transform: (r, u) => u.pathname.endsWith("/runs/8000/attempts/1") ? { status: 404, headers: {}, data: { message: "Not Found" } } : r }],
+  ["missing jobs", { transform: (r, u) => u.pathname.endsWith("/jobs") ? { ...r, data: { total_count: 0 } } : r }],
+  ["truncated job collection", { transform: (r, u) => u.pathname.endsWith("/jobs") ? { ...r, data: { ...r.data, total_count: 2 } } : r }],
+  ["foreign next-page origin", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: '<https://foreign.example.test/history?page=2>; rel="next"' } } : r }],
+  ["foreign next-page repository", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: '<https://api.github.com/repos/another/project/actions/runs?page=2>; rel="next"' } } : r }],
+  ["cyclic next-page link", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
+]) {
+  test(`history guard: ${name} fails closed rather than treating uncertainty as absence`, async () => {
+    const fixture = historyFixture([priorAttempt({ legacy: true })], options);
+    await historyRefuses(fixture);
+    assert.ok(fixture.calls.length <= 12, "recognize incomplete/cyclic evidence without spinning to the fixture hard stop");
+    assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").origin === "https://api.github.com"));
+    assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").pathname.startsWith(`${historyRoot}/`)));
+  });
+}
+for (const [name, change] of [
+  ["different run id", { id: 7000 }], ["different SHA", { head_sha: "d".repeat(40) }],
+  ["different attempt", { run_attempt: 3 }], ["foreign repository", { repository: { id: 18, full_name: "Another/repo" } }],
+  ["foreign head repository", { head_repository: { id: 18, full_name: "Another/repo" } }],
+  ["manual event", { event: "workflow_dispatch" }], ["non-main branch", { head_branch: "feature" }],
+  ["other workflow", { path: ".github/workflows/other.yml" }],
+]) {
+  test(`history guard: independently read current metadata with ${name} refuses`, async () => {
+    const fixture = historyFixture([], { transform: (r, u) => u.pathname.endsWith("/runs/9000/attempts/1") ? { ...r, data: { ...r.data, ...change } } : r });
+    await historyRefuses(fixture);
+  });
+}
+for (const [name, change] of [
+  ["foreign context repository", { repository: "Another/repo" }], ["short SHA", { sha: "abcdef0" }],
+  ["unsafe attempt", { attempt: Number.MAX_SAFE_INTEGER + 1 }], ["zero run id", { runId: 0 }],
+  ["manual current event", { eventName: "workflow_dispatch" }], ["non-main current ref", { ref: "refs/heads/feature" }],
+]) {
+  test(`history guard: ${name} is refused before provider reads`, async () => {
+    const fixture = historyFixture([], { context: change });
+    await historyRefuses(fixture);
+    assert.deepEqual(fixture.calls, []);
+  });
+}
+for (const [name, change] of [
+  ["wrong attempt", { run_attempt: 2 }], ["foreign SHA", { head_sha: "d".repeat(40) }], ["wrong run", { run_id: 8001 }],
+]) {
+  test(`history guard: published job with ${name} cannot satisfy a different operation`, async () => {
+    const prior = priorAttempt({ publish: "success" });
+    Object.assign(prior.job, change);
+    await historyRefuses(historyFixture([prior]));
+  });
+}
+for (const [name, mutate] of [
+  ["missing publication step", (p) => p.job.steps.pop()],
+  ["missing deployment step", (p) => p.job.steps.splice(1, 1)],
+  ["missing planning step", (p) => p.job.steps.shift()],
+  ["duplicate publication step", (p) => p.job.steps.push({ ...p.job.steps[2], number: 4 })],
+  ["duplicate production job", (p) => { p.jobPages = [[p.job, { ...p.job, id: 800099 }]]; }],
+  ["missing production job", (p) => { p.jobPages = [[{ ...p.job, name: "Unrelated successful job" }]]; }],
+  ["missing step statuses", (p) => { delete p.job.steps[1].status; }],
+  ["no trustworthy legacy workflow bytes", (p) => { p.workflow = ""; }],
+]) {
+  test(`history guard: ${name} is ambiguous evidence, not permission`, async () => {
+    const prior = priorAttempt({ publish: "success", legacy: name.includes("legacy") });
+    mutate(prior);
+    await historyRefuses(historyFixture([prior]));
+  });
+}
+
+test("history guard: a disabled production context performs no reads and cannot create provider writes", async () => {
+  const guard = await historyGuard();
+  const fixture = historyFixture([], { context: { enabled: false } });
+  await guard(fixture.ctx, fixture.api);
+  assert.deepEqual(fixture.calls, []);
+});
+test("history guard: CLI admission runs before the first planner in the same existing serialized request step", () => {
+  const { steps: all, planner } = sharedSteps();
+  const request = all.find((s) => s.executable.includes("scripts/calver-build.mjs") && all.indexOf(s) < all.indexOf(planner));
+  assert.ok(request, "retain the original plan-request step");
+  const command = runBody(request);
+  const history = command.search(/\bnode scripts\/calver-build\.mjs history\b/);
+  const plan = command.search(/\bnode scripts\/calver-build\.mjs plan\b/);
+  assert.ok(history >= 0 && plan > history, "reconcile/admit history before requesting any new version");
+  assert.doesNotMatch(command, /\|\|\s*true|set\s+\+e|always\s*\(|continue-on-error/);
+  const condition = request.executable.match(/^        if:\s*(.*)$/m)?.[1];
+  assert.ok(condition === undefined || condition === "success()", "admission cannot be skipped while planning proceeds");
+});
 });
