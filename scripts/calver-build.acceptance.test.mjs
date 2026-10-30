@@ -1268,3 +1268,143 @@ describe("explicit publication repair admission", () => {
     }));
   });
 });
+
+/**
+ * Inventory proof uses the same exported guard and injected GET envelopes, not a
+ * second admission implementation. A matching total_count proves completeness
+ * only when EVERY row has a nonblank string name, positive safe-integer unique
+ * job id and the exact run_id/run_attempt/head_sha for the requested attempt.
+ * Otherwise filtering by production name can conceal a deployed, unpublished
+ * build. Unrelated jobs need those identities too; their steps are not deploys.
+ * Multi-page specimens fill page one (100 rows) and follow its Link to the last
+ * row. No fixture transport exception may count as a policy refusal. Empty tag
+ * enumeration is successful provider evidence of NO publication repair.
+ */
+describe("job inventory evidence", () => {
+  beforeEach((t) => {
+    t.mock.method(globalThis, "fetch", () => { throw new Error("Unexpected network in job inventory acceptance"); });
+  });
+
+  function cancelledAttempt() {
+    const prior = priorAttempt({ publish: "cancelled" });
+    Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
+    prior.job.conclusion = "cancelled";
+    return prior;
+  }
+  function unrelatedJob(prior, id = 81000) {
+    return { ...prior.job, id, name: "Credential-free build", conclusion: "success", steps: [] };
+  }
+  async function inventoryRefuses(prior) {
+    const fixture = publicationFixture([], { prior });
+    const request = fixture.api.request;
+    const transportErrors = [];
+    fixture.api.request = async (method, path) => {
+      try { return await request(method, path); }
+      catch (error) { transportErrors.push(error); throw error; }
+    };
+    await historyRefuses(fixture);
+    assert.deepEqual(transportErrors, [], "a fixture assertion or unavailable fake route is not a guard refusal");
+    assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname.endsWith("/runs/8000/attempts/1/jobs")),
+      "refuse after inspecting the actual job inventory, not an earlier unrelated precondition");
+    return fixture;
+  }
+
+  for (const [name, mutate] of [
+    ["missing name", (job) => { delete job.name; }],
+    ["empty name", (job) => { job.name = ""; }],
+    ["blank name", (job) => { job.name = "   "; }],
+    ["null name", (job) => { job.name = null; }],
+    ["numeric name", (job) => { job.name = 17; }],
+    ["object name", (job) => { job.name = { value: historyNames.job }; }],
+  ]) {
+    test(`job inventory: ${name} cannot hide successful planning/deployment and cancelled publication`, async () => {
+      const prior = cancelledAttempt(); // All executed step evidence stays intact; only the name changes.
+      mutate(prior.job);
+      await inventoryRefuses(prior);
+    });
+  }
+
+  for (const [name, mutate] of [
+    ["missing id", (job) => { delete job.id; }],
+    ["null id", (job) => { job.id = null; }],
+    ["zero id", (job) => { job.id = 0; }],
+    ["negative id", (job) => { job.id = -1; }],
+    ["fractional id", (job) => { job.id = 81000.5; }],
+    ["string id", (job) => { job.id = "81000"; }],
+    ["unsafe integer id", (job) => { job.id = Number.MAX_SAFE_INTEGER + 1; }],
+    ["missing run identity", (job) => { delete job.run_id; }],
+    ["foreign run identity", (job) => { job.run_id = 8001; }],
+    ["missing attempt identity", (job) => { delete job.run_attempt; }],
+    ["foreign attempt identity", (job) => { job.run_attempt = 2; }],
+    ["missing SHA identity", (job) => { delete job.head_sha; }],
+    ["foreign SHA identity", (job) => { job.head_sha = "d".repeat(40); }],
+  ]) {
+    test(`job inventory: unrelated row with ${name} cannot prove production never ran`, async () => {
+      const prior = cancelledAttempt();
+      const other = unrelatedJob(prior);
+      mutate(other);
+      prior.jobPages = [[other]];
+      await inventoryRefuses(prior);
+    });
+  }
+
+  test("job inventory: duplicate unrelated IDs on one complete page are not proof of no production job", async () => {
+    const prior = cancelledAttempt();
+    const other = unrelatedJob(prior);
+    prior.jobPages = [[other, { ...other }]]; // Two reported rows, matching total_count, only one job identity.
+    await inventoryRefuses(prior);
+  });
+
+  test("job inventory: duplicate unrelated IDs across complete pages refuse despite matching total_count", async () => {
+    const prior = cancelledAttempt();
+    const firstPage = Array.from({ length: 100 }, (_, i) => unrelatedJob(prior, 81000 + i));
+    prior.jobPages = [firstPage, [{ ...firstPage[0] }]];
+    const fixture = await inventoryRefuses(prior);
+    assert.ok(fixture.calls.some((c) => c.path.includes("/jobs?") && new URL(c.path, "https://api.github.com").searchParams.get("page") === "2"),
+      "inspect the duplicate beyond the first full page");
+  });
+
+  for (const [name, mutate] of [
+    ["a nameless unrelated row", (job) => { delete job.name; }],
+    ["a foreign unrelated row", (job) => { job.run_id = 8001; }],
+    ["a duplicate unrelated row", (job, rows) => { rows.push({ ...job }); }],
+  ]) {
+    test(`job inventory: a published production job cannot excuse ${name}`, async () => {
+      const prior = priorAttempt({ publish: "success" });
+      const other = unrelatedJob(prior);
+      const rows = [other, prior.job];
+      mutate(other, rows);
+      prior.jobPages = [rows];
+      await inventoryRefuses(prior);
+    });
+  }
+
+  for (const count of [0, 1]) {
+    test(`job inventory control: complete terminal cancellation with ${count} faithful unrelated jobs permits`, async () => {
+      const prior = cancelledAttempt();
+      prior.jobPages = [count === 0 ? [] : [unrelatedJob(prior)]];
+      await historyPermits(publicationFixture([], { prior }));
+    });
+  }
+
+  test("job inventory control: 101 unique unrelated jobs across complete pages permit terminal cancellation", async () => {
+    const prior = cancelledAttempt();
+    const rows = Array.from({ length: 101 }, (_, i) => unrelatedJob(prior, 81000 + i));
+    prior.jobPages = [rows.slice(0, 100), rows.slice(100)];
+    const fixture = await historyPermits(publicationFixture([], { prior }));
+    assert.ok(fixture.calls.some((c) => c.path.includes("/jobs?") && new URL(c.path, "https://api.github.com").searchParams.get("page") === "2"),
+      "complete the valid inventory rather than reject or silently truncate pagination");
+  });
+
+  test("job inventory control: intact planned/deployed production job with cancelled publication still refuses", async () => {
+    const fixture = await inventoryRefuses(cancelledAttempt());
+    assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname === `${historyRoot}/tags`),
+      "successful empty publication enumeration proves no repair, not a fixture transport failure");
+  });
+
+  test("job inventory control: a published production job with a unique faithful unrelated row permits", async () => {
+    const prior = priorAttempt({ publish: "success" });
+    prior.jobPages = [[unrelatedJob(prior), prior.job]];
+    await historyPermits(publicationFixture([], { prior }));
+  });
+});
