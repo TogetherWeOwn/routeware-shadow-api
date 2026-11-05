@@ -4,6 +4,12 @@ Headed Playwright session that logs **every `/WebRW` request and response** to N
 
 ## Setup
 
+Use Node 24+ and npm 11.19+; see the [dependency installation policy](../../docs/DEPENDENCY-INSTALLATION.md).
+Playwright is pinned to 1.59.1 to retain bundled Chromium downloads on macOS 13
+(Intel/ARM), Ubuntu 20.04 and Debian 11 (x64/ARM64). Later upgrades must recheck
+these host paths and the dependency audit, rather than silently dropping them.
+The system-Chrome option below remains optional, not a required setup fallback.
+
 One-liner from the **repo root** (installs deps + the Chromium browser):
 
 ```bash
@@ -14,8 +20,8 @@ Or manually:
 
 ```bash
 cd tools/api-discovery
-npm install
-npx playwright install chromium
+npm ci --include=dev
+npm run setup
 ```
 
 ### Linux / WSL (missing `libnspr4.so` and similar)

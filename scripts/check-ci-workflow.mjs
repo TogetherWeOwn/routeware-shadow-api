@@ -394,10 +394,10 @@ assert.match(
 );
 
 // Fresh checkouts do not contain the gitignored Worker declarations. Keep the
-// npm typecheck lifecycle hook responsible for generating them locally while
-// preserving the existing standalone types command.
+// named typecheck command responsible for generating them even with npm's
+// ignore-scripts policy, preserving the existing standalone types command.
 const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
-assert.equal(packageJson.scripts.pretypecheck, "npm run types", "typecheck must generate Worker declarations first");
+assert.ok(packageJson.scripts.typecheck.startsWith("npm run types && "), "typecheck must generate Worker declarations first");
 assert.equal(packageJson.scripts.types, "wrangler types", "the standalone types command must remain unchanged");
 
 // The changelog gate diffs the PR against origin/main and fails when a
