@@ -46,6 +46,7 @@ const EXPOSED_RESPONSE_HEADERS = [
   "RateLimit-Policy",
   "Content-Disposition",
   "X-Request-Id",
+  "X-Build-Version",
   "Link"
 ];
 // Default `Cache-Control` for `/api/v1/*` responses: nothing under

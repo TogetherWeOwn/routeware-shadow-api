@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { Scalar } from "@scalar/hono-api-reference";
 import { isApiAuthorized, isReadAuthorized } from "./lib/auth";
+import { withBuildVersion } from "./lib/buildVersion";
 import {
   AUTH_THROTTLE_ALLOWED_FAILURES,
   AUTH_THROTTLE_WINDOW_MS,
@@ -116,7 +117,7 @@ function openapiDocsEnabled(env: Env): boolean {
 // Both middlewares below must stay registered BEFORE the route modules are
 // mounted: Hono runs matching handlers in registration order, so a route
 // mounted first would be reachable without passing the gate.
-app.use("/api/v1/*", async (c, next) => {
+app.use("/api/v1/*", withBuildVersion(async (c, next) => {
   // Adopt-or-mint before any early return: the gate, preflight and every
   // downstream response echo this id, and onError/notFound read it from
   // context (falling back to a fresh resolve when the chain was bypassed).
@@ -214,7 +215,7 @@ app.use("/api/v1/*", async (c, next) => {
   // 404s) so browsers surface the real status instead of a CORS error.
   c.res = stampRequestId(withCors(c.res, c.req.raw), requestId);
   return;
-});
+}));
 
 app.use("/api/v1/*", async (c, next) => {
   const raw = c.req.raw;
@@ -234,6 +235,8 @@ app.use("/api/v1/*", async (c, next) => {
   );
   await next();
 });
+
+app.use("/openapi.json", withBuildVersion());
 
 // Route modules. Each is an OpenAPIHono, so `route()` merges its
 // `openAPIRegistry` into this app's and `/openapi.json` still sees every route.
