@@ -185,12 +185,24 @@ async function listRuns(read) {
   return byId;
 }
 
-async function listJobs(read, runId, attempt) {
+async function listJobs(read, expected) {
+  const { runId, attempt, sha } = expected;
   const base = `/repos/${REPOSITORY}/actions/runs/${runId}/attempts/${attempt}/jobs`;
   const { records, declaredTotal } = await readCollection(read, "jobs", (page) =>
     `${base}?per_page=${PAGE_SIZE}&page=${page}`
   );
   if (records.length !== declaredTotal) fail(`job enumeration for ${runId}/${attempt} is incomplete`);
+  // Every row must be identifiable before filtering by name can prove absence.
+  const ids = new Set();
+  for (const job of records) {
+    requirePositiveInteger(job.id, "job id");
+    if (ids.has(job.id)) fail("duplicate job record");
+    ids.add(job.id);
+    if (typeof job.name !== "string" || job.name.trim().length === 0) fail("job name missing or malformed");
+    if (job.run_id !== runId) fail("job belongs to another run");
+    if (job.run_attempt !== attempt) fail("job belongs to another attempt");
+    if (job.head_sha !== sha) fail("job belongs to another commit");
+  }
   return records;
 }
 
@@ -292,7 +304,7 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   const expected = { runId: run.id, attempt, sha: run.head_sha };
   const metadata = await read(`/repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${attempt}`);
   assertAttemptIdentity(metadata.data, expected);
-  const job = findProductionJob(await listJobs(read, run.id, attempt), expected);
+  const job = findProductionJob(await listJobs(read, expected), expected);
   // Complete job enumeration plus exact terminal cancellation metadata proves
   // this attempt ended without ever creating its production job. Run-list state
   // alone cannot prove this (it may describe a later rerun).
