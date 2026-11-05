@@ -85,7 +85,7 @@ fails closed. Large-object streaming is not added.
 ## Hermetic acceptance check
 
 ```bash
-npm run check:r2-manifest
+npm run check:focused -- r2-manifest
 ```
 
 Runs protected pure fixture tests plus the fake-npx CLI suite; **no Wrangler/R2

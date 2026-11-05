@@ -127,7 +127,7 @@ Vitest uses the Wrangler **`test`** environment ([`env.test`](./wrangler.toml)),
 | `npm test` | Vitest with [`@cloudflare/vitest-pool-workers`](https://developers.cloudflare.com/workers/testing/vitest-integration/) (`environment: "test"` in [`wrangler.toml`](./wrangler.toml)) |
 | `npm run check:ci-workflow` | Verify credential-free build/hygiene, the optional staging credential boundary, and fail-closed production deploy gates |
 | `npm run verify:r2-manifest` | Verify daily R2 key/hash/byte coverage; use `--expect=customer,address,container` for full-chain coverage, `--json` for machine results, `--dry-run` for a no-read plan — [contract](./docs/R2-MANIFEST-VERIFY.md) |
-| `npm run check:r2-manifest` | Hermetic pure + fake-reader acceptance checks; no R2/Wrangler access |
+| `npm run check:focused -- r2-manifest` | Hermetic pure + fake-reader acceptance checks; no R2/Wrangler access |
 | `npm run deploy` | Manual deploy (CI deploys pushes to `main` only when explicitly enabled — see [Deploy](#deploy)) |
 
 ### First-run plans and local verification

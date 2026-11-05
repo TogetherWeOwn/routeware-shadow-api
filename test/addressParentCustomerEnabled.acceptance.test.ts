@@ -7,7 +7,7 @@ import { problemType } from "../src/lib/problem";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -1108,8 +1108,7 @@ describe("parent agent guidance: inventory, recipe and changelog", () => {
   });
 
   it("exposes a named local-only focused check that includes this acceptance suite", () => {
-    const scripts = packageJson.scripts as Record<string, string>;
-    const command = scripts["check:address-parent-customer-enabled"];
+    const command = focusedChecks["address-parent-customer-enabled"];
     expect(command).toEqual(expect.any(String));
     expect(command).toMatch(/vitest\s+run/);
     expect(command).toContain("test/addressParentCustomerEnabled.acceptance.test.ts");

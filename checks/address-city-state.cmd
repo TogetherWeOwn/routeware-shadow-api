@@ -1,0 +1,1 @@
+vitest run test/addressCityStateFilters.acceptance.test.ts test/addressZipFilter.acceptance.test.ts test/addressScopeFilters.acceptance.test.ts test/addressLocalitySearch.acceptance.test.ts test/addressContainerPresence.acceptance.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotAuth.test.ts test/openapiContract.test.ts test/routeExamples.test.ts --maxWorkers=2
