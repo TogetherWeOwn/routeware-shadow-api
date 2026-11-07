@@ -21,6 +21,8 @@ Cloudflare Worker that exposes an explicit, versioned HTTP API (`/api/v1/...`) i
 ## Prerequisites
 
 - Node 24+ (see [`.nvmrc`](./.nvmrc); `nvm use` picks it up)
+- npm 11.19+ for the native three-day release-age policy; older npm may ignore it.
+  Both package roots disable install hooks. See [dependency installation policy](./docs/DEPENDENCY-INSTALLATION.md).
 - Cloudflare account (for `wrangler deploy`)
 
 ## Quick start (local)

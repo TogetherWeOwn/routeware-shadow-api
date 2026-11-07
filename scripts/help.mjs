@@ -14,5 +14,5 @@ import { formatHelpMenu, groupScripts } from "./lib/helpMenu.mjs";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { scripts } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
-console.log("Run any entry with `npm run <name>`. Lifecycle hooks (predev, ...) run automatically and are hidden.");
+console.log("Run any entry with `npm run <name>`. Install/lifecycle hooks are disabled by the project npm policy.");
 console.log(formatHelpMenu(groupScripts(scripts)));

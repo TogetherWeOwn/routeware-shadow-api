@@ -18,7 +18,7 @@
     "process": "node route-map-validation.mjs && node validate-harvest.mjs && node aggregate.mjs && node generate-harvest-docs.mjs && node route-gap.mjs --report-only && node export-curl-examples.mjs && node suggest-routes.mjs && node route-gap.mjs --check"
   },
   "devDependencies": {
-    "playwright": "^1.49.1",
+    "playwright": "1.59.1",
     "tsx": "^4.19.2"
   }
 }
