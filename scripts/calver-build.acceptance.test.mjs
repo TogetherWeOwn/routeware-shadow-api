@@ -640,6 +640,21 @@ test("history guard: a wholly skipped production job with no steps is affirmativ
   Object.assign(prior.job, { conclusion: "skipped", steps: [], started_at: null, completed_at: null });
   await historyPermits(historyFixture([prior]));
 });
+test("history guard: provider-timestamped completed skipped job is affirmative no-plan evidence", async () => {
+  const prior = priorAttempt();
+  Object.assign(prior.job, {
+    status: "completed", conclusion: "skipped", steps: [],
+    started_at: "2026-11-05T02:10:57Z", completed_at: "2026-11-05T02:10:57Z",
+  });
+  await historyPermits(historyFixture([prior]));
+});
+for (const status of ["queued", "in_progress", undefined]) {
+  test(`history guard: skipped conclusion with nonterminal status ${String(status)} is not no-plan proof`, async () => {
+    const prior = priorAttempt();
+    Object.assign(prior.job, { status, conclusion: "skipped", steps: [], started_at: null });
+    await historyRefuses(historyFixture([prior]));
+  });
+}
 test("history guard: complete empty prior history permits but excludes the current still-running transaction", async () => {
   await historyPermits(historyFixture());
 });
@@ -810,6 +825,18 @@ describe("publication admission regression controls", () => {
       Object.assign(prior.run, { status: "completed", conclusion: "cancelled" });
       Object.assign(prior.job, { status: "completed", conclusion: "cancelled", started_at: null, completed_at: completedAt, steps: [] });
       await historyPermits(historyFixture([prior]));
+    });
+  }
+
+  for (const status of ["queued", "in_progress"]) {
+    test(`prerequisite wait: newer ${status} attempt without production job permits only reviewed locked wiring`, async () => {
+      const prior = priorAttempt({ id: 9001 });
+      Object.assign(prior.run, { status, conclusion: null });
+      prior.jobPages = [[]];
+      prior.workflow = read("../.github/workflows/ci.yml");
+      await historyPermits(historyFixture([prior]));
+      prior.workflow = prior.workflow.replace("group: deploy-production", "group: unrelated-lock");
+      await historyRefuses(historyFixture([prior]));
     });
   }
 
@@ -1106,7 +1133,8 @@ function publicationFixture(records = [publicationRecord()], options = {}) {
     const publicationRead = url.pathname === `${historyRoot}/tags`
       || url.pathname.startsWith(`${historyRoot}/git/ref/tags/`)
       || url.pathname.startsWith(`${historyRoot}/git/tags/`)
-      || url.pathname.startsWith(`${historyRoot}/releases/tags/`);
+      || url.pathname.startsWith(`${historyRoot}/releases/tags/`)
+      || url.pathname === `${historyRoot}/actions/jobs/${prior.job.id}/logs`;
     if (!publicationRead) return historyRequest(method, path);
     fixture.calls.push({ method, path });
     assert.equal(method, "GET", "a repaired-publication guard is read-only, never a second release writer");
@@ -1114,7 +1142,9 @@ function publicationFixture(records = [publicationRecord()], options = {}) {
     assert.ok(fixture.calls.length <= (options.maxRequests ?? 100), "bounded repair proof must not loop");
     if (options.publicationFail?.test(url.pathname)) throw Object.assign(new Error("Synthetic publication provider unavailable"), { status: 503 });
     let response;
-    if (url.pathname === `${historyRoot}/tags`) {
+    if (url.pathname === `${historyRoot}/actions/jobs/${prior.job.id}/logs`) {
+      response = { status: 200, headers: {}, data: options.originalLog ?? `2026-03-02T12:00:00.0000000Z plan=${JSON.stringify(repairedPlan)}\n` };
+    } else if (url.pathname === `${historyRoot}/tags`) {
       assert.equal(url.searchParams.get("per_page"), "100");
       const page = Number(url.searchParams.get("page") ?? "1");
       assert.ok(tagPages[page - 1], "request a known publication page");
@@ -1144,7 +1174,7 @@ function publicationFixture(records = [publicationRecord()], options = {}) {
 }
 
 function assertRepairRecordsRead(fixture) {
-  for (const path of ["/tags", "/git/ref/tags/", "/git/tags/", "/releases/tags/"]) {
+  for (const path of ["/tags", "/git/ref/tags/", "/git/tags/", "/releases/tags/", "/actions/jobs/"]) {
     assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname.includes(path)), `read immutable publication proof: ${path}`);
   }
 }
@@ -1165,6 +1195,21 @@ describe("explicit publication repair admission", () => {
       assertRepairRecordsRead(fixture);
     });
   }
+
+  for (const [name, originalLog] of [
+    ["missing original plan", "2026-03-02T12:00:00.0000000Z no plan retained\n"],
+    ["different frozen version", `2026-03-02T12:00:00.0000000Z plan=${JSON.stringify({ ...repairedPlan, date: "2026-03-03", version: "2026.303.0", tag: "build/v2026.303.0", id: "bff21b010d74ec9b6332755ca11c9eaa96f4e2b7307152827228778b1f3790c3" })}\n`],
+    ["different valid frozen plan", `2026-03-02T12:00:00.0000000Z plan=${JSON.stringify(frozenPlan)}\n`],
+    ["ambiguous duplicate plan outputs", `2026-03-02T12:00:00.0000000Z plan=${JSON.stringify(repairedPlan)}\n2026-03-02T12:00:01.0000000Z plan=${JSON.stringify(repairedPlan)}\n`],
+    ["malformed original plan", "2026-03-02T12:00:00.0000000Z plan={not-json}\n"],
+  ]) {
+    test(`repaired publication: ${name} refuses despite matching operation, SHA and Release`, async () => {
+      await historyRefuses(publicationFixture([publicationRecord()], { originalLog }));
+    });
+  }
+  test("repaired publication: unavailable original job log cannot prove the deployed frozen plan", async () => {
+    await historyRefuses(publicationFixture([publicationRecord()], { publicationFail: /\/actions\/jobs\/\d+\/logs$/ }));
+  });
 
   test("repaired publication: immutable proof does not excuse an unfinished historical publication step", async () => {
     await historyRefuses(publicationFixture([publicationRecord()], { prior: priorAttempt({ publish: null }) }));

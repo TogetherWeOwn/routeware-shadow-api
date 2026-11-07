@@ -17,7 +17,7 @@
  * narrower proof, not a silent shortcut.
  */
 
-import { createBuildRepairProof, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
+import { createBuildRepairProof, isReviewedBuildWorkflow, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
 
 export const REPOSITORY = "TogetherWeOwn/routeware-shadow-api";
 
@@ -37,7 +37,7 @@ const MAX_ATTEMPTS = 20;
  * numeric-link identity lookup and one workflow read per attempt. Provider quota
  * failures still refuse; this safety ceiling is not a promise of live API quota.
  */
-const MAX_READS = MAX_RUN_RECORDS * MAX_ATTEMPTS * (MAX_PAGES + 3) + MAX_REPAIR_READS + 100;
+const MAX_READS = MAX_RUN_RECORDS * MAX_ATTEMPTS * (MAX_PAGES + 4) + MAX_REPAIR_READS + 100;
 const API_ORIGIN = "https://api.github.com";
 
 function fail(message) {
@@ -244,9 +244,11 @@ function findProductionJob(jobs, expected) {
  * never treated as safe.
  */
 function isAffirmativelySkipped(job) {
-  if (!Array.isArray(job.steps) || job.steps.length !== 0 || job.started_at !== null) return false;
-  return job.conclusion === "skipped"
-    || (job.status === "queued" && job.conclusion === null)
+  if (!Array.isArray(job.steps) || job.steps.length !== 0) return false;
+  // GitHub timestamps wholly skipped jobs even though no runner steps executed.
+  if (job.status === "completed" && job.conclusion === "skipped") return true;
+  if (job.started_at !== null) return false;
+  return (job.status === "queued" && job.conclusion === null)
     || (job.status === "completed" && job.conclusion === "cancelled");
 }
 
@@ -310,6 +312,9 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   // alone cannot prove this (it may describe a later rerun).
   if (job === null) {
     if (metadata.data.status === "completed" && metadata.data.conclusion === "cancelled") return;
+    if ((metadata.data.status === "queued" || metadata.data.status === "in_progress")
+      && metadata.data.conclusion === null
+      && isReviewedBuildWorkflow(await readWorkflow(read, run.head_sha))) return;
     if (await isLegacyWorkflow(read, run.head_sha)) return;
     fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
   }
@@ -329,7 +334,7 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   if (steps.plan.conclusion === "skipped") return;
   if (steps.plan.conclusion !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous build plan`);
   if (steps.publish.conclusion !== "success") {
-    await assertRepaired(expected, await readWorkflow(read, run.head_sha));
+    await assertRepaired({ ...expected, jobId: job.id }, await readWorkflow(read, run.head_sha));
   }
 }
 

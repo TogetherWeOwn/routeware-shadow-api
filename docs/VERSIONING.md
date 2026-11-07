@@ -131,7 +131,11 @@ headers cannot supply or override this identity. No default is committed in
   not configure the enable gate; it neither enables production nor creates staging.
 - The adapter binds repository, exact SHA, run and attempt. The shared publisher
   verifies provenance and target reachability, refuses collisions and handles
-  exact-operation replay; never move, mutate or rewrite release tags. If deploy
+  exact-operation replay; never move, mutate or rewrite release tags. An Actions
+  **Re-run all jobs** creates a different attempt/operation, not an exact-operation
+  replay. If that SHA already has a published build, the shared planner refuses
+  the new operation before deployment; a successful redeploy/no-op is not promised.
+  Do not change the operation to bypass this collision protection. If deploy
   succeeds but publication fails, retain the saved plan and diagnose the failure;
   do not relabel the deployed build. Missing-Release repair requires the shared
   explicit repair procedure under the same writer lock, not a new version.
@@ -139,8 +143,14 @@ headers cannot supply or override this identity. No default is committed in
   even though its old publish step still says failure, cancellation or skipped.
   It requires the complete tag inventory, exact annotated ref and commit,
   the shared plan's integrity fingerprint and original run/attempt/SHA, and the
-  matching published stable Release. A plain tag or operation-shaped string is
-  insufficient; the fingerprint is not a signature or independent rollout proof.
+  matching published stable Release. It also reads the original production job's
+  timestamped planner output and requires the same frozen plan fingerprint; a
+  later reallocation for the same operation/SHA is not a repair of the deployed
+  version. Missing, expired, ambiguous or oversized (over 8 MiB) original logs
+  refuse admission. Retain original logs and the saved plan for recovery; a repair
+  job's output cannot substitute for that original evidence. A plain tag or
+  operation-shaped string is insufficient; the fingerprint is not a signature or
+  independent rollout proof.
   The exact historical workflow bytes must also match the reviewed fingerprints
   in `scripts/lib/buildPublicationRepair.mjs`, binding the approved tooling pin,
   frozen deployment version and saved-plan publication. Unsupported workflow
@@ -165,10 +175,16 @@ headers cannot supply or override this identity. No default is committed in
   feasibility must be established before any separate production enablement.
   Affirmative evidence that no version was consumed permits admission: a
   completed/cancelled attempt with fully enumerated jobs and no production job;
-  a cancelled or skipped production job with no steps and `started_at: null`;
-  or a queued job with no steps, no start and null conclusion (it cannot have run
-  while this transaction holds the exclusive deploy lock). Missing job data or
-  start fields is not no-run evidence. A run whose exact historical workflow
+  a completed/skipped production job with no steps (GitHub may populate its
+  timestamps without executing it); a cancelled production job with no steps and
+  `started_at: null`; or a queued job with no steps, no start and null conclusion
+  (it cannot have run while this transaction holds the exclusive deploy lock).
+  An active attempt with no production job can also wait on build/hygiene
+  prerequisites: complete job enumeration and the exact reviewed historical
+  workflow fingerprint must prove the same exclusive deploy lock. Arbitrary
+  build-aware workflow text or incomplete inventories cannot establish this.
+  Missing job data or missing start fields on queued/cancelled jobs is not no-run
+  evidence. A run whose exact historical workflow
   predates build identity also permits admission once any executed steps have
   finished. Disabled deploys perform no reads at all.
 

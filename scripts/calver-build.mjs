@@ -87,6 +87,9 @@ function githubTransport(token) {
         }
       });
       const text = await response.text();
+      if (/\/actions\/jobs\/[1-9][0-9]*\/logs$/.test(path)) {
+        return { status: response.status, headers: {}, data: text };
+      }
       let data = null;
       if (text.length > 0) {
         try {

@@ -28,6 +28,10 @@ function digest(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function isReviewedBuildWorkflow(workflow) {
+  return WORKFLOW_DIGESTS.has(digest(workflow));
+}
+
 /** Verify only the pinned engine's flat, ordinary direct-release plan format.
  * No allocation, clock, writer, staging certificate or substitute operation.
  * Its ID is an integrity fingerprint, NOT a signature or rollout attestation.
@@ -108,10 +112,24 @@ async function buildInventory(read, normalize, repository) {
 export function createBuildRepairProof(read, normalize, repository) {
   let inventory;
   return async function assertRepaired(expected, workflow) {
-    if (!WORKFLOW_DIGESTS.has(digest(workflow))) fail("unsupported historical workflow wiring");
+    if (!isReviewedBuildWorkflow(workflow)) fail("unsupported historical workflow wiring");
     inventory ??= buildInventory(read, normalize, repository);
     const plan = (await inventory).get(`routeware-build:${expected.runId}:${expected.attempt}`);
     if (!plan || plan.sha !== expected.sha) fail("exact deployed operation has no repaired publication");
+    // The approved planner prints its frozen JSON before Wrangler executes. Read
+    // that ORIGINAL job, not a repair job's outputs: operation/SHA alone cannot
+    // distinguish an accidentally replanned version after an unpublished deploy.
+    const { data: log } = await read(`/repos/${repository}/actions/jobs/${expected.jobId}/logs`);
+    if (typeof log !== "string" || Buffer.byteLength(log) > 8 * 1024 * 1024) fail("original planning log unavailable or too large");
+    const outputs = log.split(/\r?\n/).map((line) =>
+      line.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z plan=(\{.*\})$/)
+    ).filter(Boolean);
+    if (outputs.length !== 1) fail("original frozen plan output missing or ambiguous");
+    const output = JSON.parse(outputs[0][1]);
+    if (!isObject(output) || Object.hasOwn(output, "publicationEvidence")) fail("unexpected original plan output");
+    const annotation = `calver-plan-v1\n${JSON.stringify({ ...output, publicationEvidence: null })}`;
+    const original = publicationPlan(annotation, repository, plan.tag, expected.sha);
+    if (original.id !== plan.id) fail("repaired publication differs from the original deployed frozen plan");
     const { data: release } = await read(`/repos/${repository}/releases/tags/${encodeURIComponent(plan.tag)}`);
     if (!isObject(release) || release.tag_name !== plan.tag || release.target_commitish !== expected.sha
       || release.draft !== false || release.prerelease !== false || typeof release.body !== "string"
