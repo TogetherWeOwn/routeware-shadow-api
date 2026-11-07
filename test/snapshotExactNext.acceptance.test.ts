@@ -7,7 +7,7 @@ import { problemType } from "../src/lib/problem";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
-import packageJsonRaw from "../package.json?raw";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -788,7 +788,7 @@ describe("exactNext mounted contract and docs", () => {
     }
     expect(row("/api/v1/customer-snapshot/changes")).not.toContain("exactNext");
     expect(policyDoc).toContain("test/snapshotExactNext.acceptance.test.ts");
-    expect(policyDoc).toContain("npm run check:snapshot-exact-next");
+    expect(policyDoc).toContain("npm run check:focused -- snapshot-exact-next");
     expect(policyDoc).toMatch(/exactNext[\s\S]{0,400}(?:concurren|isolation)/i);
   });
 
@@ -805,7 +805,6 @@ describe("exactNext mounted contract and docs", () => {
   });
 
   it("wires the focused local check to this oracle", () => {
-    const scripts = (JSON.parse(packageJsonRaw) as { scripts: Record<string, string> }).scripts;
-    expect(scripts["check:snapshot-exact-next"]).toContain("test/snapshotExactNext.acceptance.test.ts");
+    expect(focusedChecks["snapshot-exact-next"]).toContain("test/snapshotExactNext.acceptance.test.ts");
   });
 });

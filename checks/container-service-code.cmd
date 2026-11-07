@@ -1,0 +1,1 @@
+vitest run test/containerServiceCode.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotCountFreePagination.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotListConditional.acceptance.test.ts --maxWorkers=2

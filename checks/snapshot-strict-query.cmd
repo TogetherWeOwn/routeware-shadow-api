@@ -1,0 +1,1 @@
+vitest run --maxWorkers=2 test/snapshotStrictQueryOptIn.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/snapshotQueryLimit.test.ts test/snapshotAuth.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/snapshotListConditional.acceptance.test.ts test/openapiContract.test.ts test/routeExamples.test.ts

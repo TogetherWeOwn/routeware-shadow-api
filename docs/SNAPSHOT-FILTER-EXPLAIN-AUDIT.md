@@ -54,7 +54,7 @@ limit/offset only for SELECT. The executable
 actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
 statements with an opaque quote/Unicode/percent fixture, and asserts exact
 matches, read-only execution and denied network. Run
-`npm run check:address-scope` to repeat that bounded check.
+`npm run check:focused -- address-scope` to repeat that bounded check.
 
 Scope-only reads may still scan; this feature bounds returned data, not
 query cost. No migration/index, remote D1 probe, latency measurement or
@@ -96,7 +96,7 @@ The executable `test/customerPhoneSearch.acceptance.test.ts` independently
 records every actual handler SELECT/bind against real local test D1, runs
 EXPLAIN on both statements with a quote/Unicode/percent fixture, and asserts
 exact matches, read-only execution and denied network. Run
-`npm run check:customer-phone-search` to repeat that bounded check.
+`npm run check:focused -- customer-phone-search` to repeat that bounded check.
 
 Fragment-only reads may still scan; this feature bounds returned data, not
 query cost. No migration/index, remote D1 probe, latency measurement or
@@ -122,7 +122,7 @@ a new join or a deduplication step. The executable
 handler SELECT/bind against real local test D1, runs EXPLAIN on both
 statements with an opaque Unicode/reserved-character fixture, and asserts the
 same `SEARCH ... idx_address_snapshot_zip (zip=?)` shape with exact matches,
-read-only execution and denied network. Run `npm run check:address-zip` to
+read-only execution and denied network. Run `npm run check:focused -- address-zip` to
 repeat that bounded check.
 
 No migration/index, remote D1 probe, latency measurement or
@@ -153,7 +153,7 @@ SELECT adds just the page window. The executable
 `test/addressContainerPresence.acceptance.test.ts` independently records every
 actual handler SELECT/bind against real local test D1, runs EXPLAIN on both
 statements for both enum values, and asserts exact matches, read-only
-execution and denied network. Run `npm run check:address-container-presence`
+execution and denied network. Run `npm run check:focused -- address-container-presence`
 to repeat that bounded check.
 
 Presence-only reads may still scan the parent; this feature bounds returned
@@ -183,7 +183,7 @@ pagination binds on SELECT. No LIKE, join or deduplication step is added. The
 executable `test/addressExtrasAllowed.acceptance.test.ts` independently
 records every actual handler SELECT/bind against real local test D1, runs
 EXPLAIN on the emitted shapes, and asserts exact matches, read-only execution
-and denied network. Run `npm run check:address-extras-allowed` to repeat that
+and denied network. Run `npm run check:focused -- address-extras-allowed` to repeat that
 bounded check.
 
 Selector-only reads scan; this feature bounds returned data, not query cost.
@@ -220,7 +220,7 @@ only on SELECT. The executable
 every actual handler SELECT/bind against real local test D1, runs EXPLAIN
 on both emitted statements, and asserts same-child membership,
 contradictions, read-only execution and denied network. Run
-`npm run check:customer-address-cohorts` to repeat that bounded check.
+`npm run check:focused -- customer-address-cohorts` to repeat that bounded check.
 
 Unscoped outer reads scan; this feature bounds returned data, not query
 cost. No migration/index, remote D1 probe, latency measurement or
@@ -253,7 +253,7 @@ join or deduplication step is added. The executable
 `test/addressLastAuditDate.acceptance.test.ts` independently records every
 actual handler SELECT/bind against real local test D1 and asserts exact
 matches, read-only execution and denied network. Run
-`npm run check:address-last-audit-date` to repeat that bounded check.
+`npm run check:focused -- address-last-audit-date` to repeat that bounded check.
 
 Selector-only reads scan; this feature bounds returned data, not query cost.
 No migration/index, date-range support, remote D1 probe, latency measurement

@@ -8,7 +8,7 @@ import snapshotDoc from "../CUSTOMER_SNAPSHOT.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import changelog from "../CHANGELOG.md?raw";
 import problemsDoc from "../docs/PROBLEMS.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -910,8 +910,7 @@ describe("presence agent guidance", () => {
   });
 
   it("exposes a named local-only focused check that includes this acceptance suite", () => {
-    const scripts = packageJson.scripts as Record<string, string>;
-    const command = scripts["check:container-serial-rfid-presence"];
+    const command = focusedChecks["container-serial-rfid-presence"];
     expect(command).toEqual(expect.any(String));
     expect(command).toMatch(/vitest\s+run/);
     expect(command).toContain("test/containerSerialRfidPresence.acceptance.test.ts");

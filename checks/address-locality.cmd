@@ -1,0 +1,1 @@
+vitest run test/addressLocalitySearch.acceptance.test.ts test/snapshotRoutes.test.ts test/snapshotTextFilterIndexes.test.ts test/addressScopeFilters.acceptance.test.ts test/snapshotNextLinks.acceptance.test.ts test/snapshotQueryLimit.test.ts --maxWorkers=2

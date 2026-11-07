@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import app from "../src/app";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
-import packageJson from "../package.json";
+import { focusedChecks } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -552,7 +552,7 @@ describe("customer child cohorts: mounted discovery and agent continuation guida
       expect(recipe).toContain(PATH);
       expect(recipe).not.toMatch(/Bearer (?!\$TOKEN)\S+/);
     }
-    const commands = Object.values(packageJson.scripts).filter(command => command.includes("test/customerAddressCohorts.acceptance.test.ts"));
+    const commands = Object.values(focusedChecks).filter(command => command.includes("test/customerAddressCohorts.acceptance.test.ts"));
     expect(commands.length).toBeGreaterThan(0);
     for (const command of commands) {
       expect(command).toMatch(/vitest\s+run/);
