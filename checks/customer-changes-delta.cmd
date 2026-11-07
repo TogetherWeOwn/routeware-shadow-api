@@ -1,0 +1,1 @@
+vitest run test/typedCustomerChangesDelta.acceptance.test.ts test/customerSnapshotChanges.test.ts test/customerChangesCursor.acceptance.test.ts test/customerChangesNextLinks.acceptance.test.ts test/customerChangesFields.acceptance.test.ts test/snapshotCountFreePagination.test.ts test/openapiContract.test.ts

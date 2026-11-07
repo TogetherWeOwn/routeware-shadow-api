@@ -1,0 +1,1 @@
+vitest run test/customerChangesUntil.acceptance.test.ts test/customerChangesCursor.acceptance.test.ts test/customerSnapshotChanges.test.ts test/customerChangesFields.acceptance.test.ts test/customerChangesNextLinks.acceptance.test.ts test/snapshotListUnknownParams.test.ts test/openapiContract.test.ts test/openapiAgentMetadata.test.ts

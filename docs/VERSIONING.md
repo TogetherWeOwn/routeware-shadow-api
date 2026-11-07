@@ -71,9 +71,10 @@ date.
 
 1. Bump `version` in `package.json` (`npm version patch|minor|major
    --no-git-tag-version` keeps the edit local without tagging).
-2. Move the `CHANGELOG.md` `## [Unreleased]` consumer-visible bullets under
-   a new `## [x.y.z]` heading (dated), leaving an empty `## [Unreleased]`
-   section at the top.
+2. Move the `CHANGELOG.md` `## [Unreleased]` consumer-visible bullets and the
+   text of every `changelog/unreleased/*.md` fragment under a new
+   `## [x.y.z]` heading (dated), delete those fragment files (keep their
+   `README.md`), and leave an empty `## [Unreleased]` section at the top.
 3. The OpenAPI contract test (`test/openapiContract.test.ts`) asserts
    `info.version` equals `package.json#version`, and `docs/openapi.json` records
    the published contract. Run `npm test`; for a version-only release, run

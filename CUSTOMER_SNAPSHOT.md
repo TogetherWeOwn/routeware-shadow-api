@@ -206,7 +206,7 @@ requires already-authorized `CLOUDFLARE_API_TOKEN` environment injection; use
 Exit 0 = verified coverage or valid dry-run; 1 = verification/credential failure;
 2 = invalid flags. JSON has a bounded versioned schema, stable codes/IDs and next
 actions. See [verifier contract and recovery guidance](docs/R2-MANIFEST-VERIFY.md).
-Run `npm run check:r2-manifest` for pure and hermetic fake-reader acceptance tests
+Run `npm run check:focused -- r2-manifest` for pure and hermetic fake-reader acceptance tests
 (no Wrangler/R2 access); the wrapper suite also runs in `npm run test:probe`.
 
 ## Dry-run sync and import
@@ -374,7 +374,7 @@ exact-envelope ETag/304 apply; even a 304 executes a fresh COUNT.
 No upstream, R2 or writes. Other read routes do not gain the mode.
 [Mode comparison](docs/SNAPSHOT-LIST-QUERY-POLICY.md#count-only-inspection),
 [synthetic recipe](docs/CONSUMER-QUICKSTART.md#count-before-fetching-payloads);
-focused check: `npm run check:snapshot-count-only` (local test D1 only).
+focused check: `npm run check:focused -- snapshot-count-only` (local test D1 only).
 
 ### Customer mirrored-address presence
 
@@ -386,7 +386,7 @@ authorizes deletion, reconciliation or sync. Send one supported value or omit
 it and retry invalid/empty/repeated selectors. The local-read GET composes
 with all existing filters/paging/fields/conditional reads; true/false stay in
 relative next Links and count-free mode runs zero COUNTs. No isolation promise.
-Run `npm run check:customer-address-presence` for synthetic local-D1 contract
+Run `npm run check:focused -- customer-address-presence` for synthetic local-D1 contract
 and existing-child-index EXPLAIN checks, not production performance evidence.
 CLI `--dry-run` is N/A. See the
 [present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-address-presence).
@@ -414,7 +414,7 @@ effective cohort scope is an empty-200 contradiction. Mirrored membership
 is not current upstream assignment, not a permission, and not snapshot
 isolation. The local-read GET composes with all existing filters,
 paging/fields/count modes and conditional reads; effective scopes stay in
-relative next Links. Run `npm run check:customer-address-cohorts` for
+relative next Links. Run `npm run check:focused -- customer-address-cohorts` for
 synthetic local-D1 contract and existing-child-index EXPLAIN checks, not
 production performance evidence. CLI `--dry-run` is N/A. See the
 [cohort recipes](docs/CONSUMER-QUICKSTART.md#customer-service-site-cohorts).
@@ -433,7 +433,7 @@ never authorizes outreach. Send each key once or omit it and retry
 invalid/blank/repeated/case-variant selectors (value-free 400 after auth,
 before D1). Effective values stay in relative next Links; count-free mode
 runs zero COUNTs. Presence-only selections may scan; no phone index exists
-and none is added. Run `npm run check:customer-phone-presence` for
+and none is added. Run `npm run check:focused -- customer-phone-presence` for
 synthetic local-D1 contract coverage, not production performance evidence.
 CLI `--dry-run` is N/A. See the
 [neither-slot count recipe](docs/CONSUMER-QUICKSTART.md#customer-stored-phone-presence).
@@ -456,7 +456,7 @@ supported value or omit it and retry invalid/empty/repeated selectors
 (value-free 400 after auth, before D1). The local-read GET composes with
 all existing filters/paging/fields/conditional reads; true/false stay in
 relative next Links and count-free mode runs zero COUNTs. No isolation
-promise. Run `npm run check:customer-container-presence` for synthetic
+promise. Run `npm run check:focused -- customer-container-presence` for synthetic
 local-D1 contract and existing-child-index EXPLAIN checks, not production
 performance evidence. CLI `--dry-run` is N/A. See the
 [present/absent recipe](docs/CONSUMER-QUICKSTART.md#customer-container-presence).
@@ -492,7 +492,7 @@ before D1/304. No migration, index change or latency/isolation promise.
 Mirrored report state is **not** current account eligibility, live service
 status, deployment proof or authorization; absence is not proof of upstream
 emptiness and never authorizes reconciliation, deletion or sync. Run
-`npm run check:customer-enabled-descendants` for synthetic local-D1 checks.
+`npm run check:focused -- customer-enabled-descendants` for synthetic local-D1 checks.
 GET is idempotent/local-read; CLI `--dry-run` is N/A. See the
 [active-footprint recipe](docs/CONSUMER-QUICKSTART.md#customer-enabled-descendant-presence).
 
@@ -511,7 +511,7 @@ Use exactly one lowercase `asc` or `desc` (or omit for `asc`); invalid/repeated
 values return the fixed value-free 400 after auth and before D1. See
 [synthetic examples](docs/CONSUMER-QUICKSTART.md#highest-primary-ids-first) and
 [query policy](docs/SNAPSHOT-LIST-QUERY-POLICY.md#primary-id-direction-order).
-Run `npm run check:snapshot-order` for credential-free synthetic local D1
+Run `npm run check:focused -- snapshot-order` for credential-free synthetic local D1
 coverage with unexpected outbound fetch denied.
 
 ### Customer changes cursor
@@ -594,10 +594,10 @@ rows outside the window and bulk imports advance timestamps.
 Hermetic regression checks (no running Worker needed):
 
 ```bash
-npm run check:customer-changes-cursor
+npm run check:focused -- customer-changes-cursor
 npx vitest run test/customerChangesFields.acceptance.test.ts test/sparseFieldsets.acceptance.test.ts test/openapiContract.test.ts --maxWorkers=2
-npm run check:customer-changes-next-links
-npm run check:customer-changes-until
+npm run check:focused -- customer-changes-next-links
+npm run check:focused -- customer-changes-until
 ```
 
 This uses synthetic local D1 rows only; no credentials, upstream requests,

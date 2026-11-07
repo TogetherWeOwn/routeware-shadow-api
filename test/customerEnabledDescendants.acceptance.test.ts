@@ -6,7 +6,7 @@ import app from "../src/app";
 import policyDoc from "../docs/SNAPSHOT-LIST-QUERY-POLICY.md?raw";
 import quickstartDoc from "../docs/CONSUMER-QUICKSTART.md?raw";
 import snapshotDoc from "../CUSTOMER_SNAPSHOT.md?raw";
-import packageJson from "../package.json";
+import { focusedCheckEntries } from "./focusedChecks";
 import { ensureD1TestTables } from "./d1TestMigrations";
 
 /**
@@ -770,7 +770,7 @@ describe("enabled-descendant selection: mounted discovery and agent guidance", (
     expect(footprint).toContain("localhost:8787");
     expect(footprint).toContain(PATH);
     expect(footprint).not.toMatch(/Bearer (?!\$TOKEN)\S+/);
-    const commands = Object.entries(packageJson.scripts)
+    const commands = focusedCheckEntries
       .filter(([name, command]) => name.startsWith("check:") && command.includes("test/customerEnabledDescendants.acceptance.test.ts"));
     expect(commands.length).toBeGreaterThan(0);
     for (const [, command] of commands) {
