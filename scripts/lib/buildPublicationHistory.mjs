@@ -223,7 +223,9 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
 export async function assertBuildPublicationHistory(context, api) {
   assertHistoryContext(context);
   if (context.enabled !== true) return;
-  return proveBuildPublicationHistory(context, createAdmissionReader(api));
+  const read = createAdmissionReader(api);
+  await proveBuildPublicationHistory(context, read);
+  read.assertWithinDeadline(); // Include final inventory processing in the original budget.
 }
 
 /** Pure proof seam for bounded synthetic readers; never a planner or transport.

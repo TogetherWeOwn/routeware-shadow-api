@@ -110,6 +110,7 @@ function validateRun(run) {
   if (run.head_branch !== null && (typeof run.head_branch !== "string" || run.head_branch.length === 0)) {
     fail("run record branch missing");
   }
+  if (run.event === "push" && run.head_branch === null) fail("push run branch missing");
   if (run.event === "push" && run.head_branch === "main") {
     if (!isObject(run.head_repository) || run.head_repository.full_name !== REPOSITORY
       || run.head_repository.id !== run.repository.id) fail("main push has a foreign head repository");

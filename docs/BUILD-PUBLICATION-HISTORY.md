@@ -26,6 +26,8 @@ and selects `event == push && head_branch == main` locally, only after proving
 the full workflow inventory. It does not infer skipped deployment from the run
 list's status or conclusion. Pull-request, scheduled and other non-main-push
 runs are accounted for in the inventory, but are not production transactions.
+A push with an unknown (`null`) branch refuses: it cannot prove that the run is
+outside main's deployment obligations. Non-push records may have null branches.
 No date/ID partition, timestamp ordering assumption, age cutoff, persisted
 checkpoint, authority-bearing baseline or deletion of obligations is introduced.
 Equal timestamps on and across page boundaries have no special meaning.

@@ -36,11 +36,20 @@ export function createAdmissionReader(api) {
   let remaining = null;
   let refusal = null;
 
-  return async function read(path) {
+  // Also callable after proof processing, without another read or a new clock.
+  function assertWithinDeadline() {
     if (refusal) throw refusal;
+    const timeLeft = ADMISSION_TIMEOUT_MS - (performance.now() - started);
+    if (timeLeft <= 0) {
+      refusal = new Error("build publication history: admission time budget exceeded; NOT READY");
+      throw refusal;
+    }
+    return timeLeft;
+  }
+
+  async function read(path) {
     try {
-      const timeLeft = ADMISSION_TIMEOUT_MS - (performance.now() - started);
-      if (timeLeft <= 0) fail("admission time budget exceeded; NOT READY");
+      const timeLeft = assertWithinDeadline();
       if (cache.has(path)) return structuredClone(cache.get(path));
       if (reads >= MAX_ADMISSION_READS) fail("history read budget exceeded; NOT READY");
       if (remaining !== null && remaining < MAX_ADMISSION_READS - reads + ADMISSION_RESERVE) {
@@ -89,7 +98,7 @@ export function createAdmissionReader(api) {
       // allowance. Decrement our own observation even if headers repeat/increase.
       remaining = Math.min(remaining === null ? available : remaining - 1, available);
       if (remaining < MAX_ADMISSION_READS - reads + ADMISSION_RESERVE) fail("insufficient provider read budget; NOT READY");
-      if (performance.now() - started >= ADMISSION_TIMEOUT_MS) fail("admission time budget exceeded; NOT READY");
+      assertWithinDeadline();
       const result = { data: response.data, headers };
       if (immutablePath(path)) cache.set(path, structuredClone(result));
       return result;
@@ -97,7 +106,8 @@ export function createAdmissionReader(api) {
       refusal = error; // A failed admission cannot be resumed with cached proof.
       throw error;
     }
-  };
+  }
+  return Object.assign(read, { assertWithinDeadline });
 }
 
 /** No hidden fetch redirects/retries: every invocation is exactly one GET. */

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, test } from "node:test";
 import { rateHeaders } from "./fixtures/buildAdmissionRate.mjs";
+import { ADMISSION_TIMEOUT_MS } from "./lib/buildAdmissionReader.mjs";
 import { assertBuildPublicationHistory, proveBuildPublicationHistory } from "./lib/buildPublicationHistory.mjs";
 import {
   REPOSITORY, WORKFLOW_PATH, discoverBuildRuns, assertStableBuildRunInventory
@@ -98,6 +99,64 @@ describe("uncapped exhaustive build history discovery", () => {
     await assertBuildPublicationHistory(f.ctx, f.api);
     assert.equal(f.calls.length, 5);
   });
+
+  test("a prior push with a stable unknown branch refuses before planning", async () => {
+    const f = fixture({ count: 2 });
+    f.rows[0].head_branch = null; // Same unknown identity in every inventory.
+    let planned = false;
+    await assert.rejects(async () => {
+      await assertBuildPublicationHistory(f.ctx, f.api);
+      planned = true;
+    }, /push run branch missing/);
+    assert.equal(planned, false);
+    assert.equal(f.calls.length, 1, "refuses discovery rather than silently dropping a prior obligation");
+  });
+
+  test("a non-push run with a null branch remains valid inventory, not a deployment obligation", async () => {
+    const f = fixture({ count: 2, nonPush: 1 });
+    f.rows[2].head_branch = null;
+    await assertBuildPublicationHistory(f.ctx, f.api);
+    assert.equal(f.calls.length, 5);
+    assert.ok(!f.calls.some((path) => path.includes("/runs/3/attempts/")));
+  });
+
+  for (const finish of [ADMISSION_TIMEOUT_MS - 1, ADMISSION_TIMEOUT_MS, ADMISSION_TIMEOUT_MS + 1]) {
+    test(`post-read final inventory processing at ${finish} ms enforces the original admission deadline`, async (t) => {
+      let clock = 0;
+      let processedFinalInventory = false;
+      t.mock.method(performance, "now", () => clock);
+      const f = fixture({ count: 2, change(response, url, pass) {
+        if (url.pathname.endsWith("/runs/1/attempts/1/jobs")) {
+          const jobs = response.data.jobs;
+          // Advance between reads, during proof processing, not inside a request.
+          Object.defineProperty(response.data, "jobs", { get() {
+            clock = ADMISSION_TIMEOUT_MS - 2;
+            return jobs;
+          } });
+        }
+        if (url.pathname === runPath && pass === 2) {
+          clock = ADMISSION_TIMEOUT_MS - 1; // Final GET itself finishes in time.
+          const run = response.data.workflow_runs[0];
+          const sha = run.head_sha;
+          Object.defineProperty(run, "head_sha", { get() {
+            processedFinalInventory = true;
+            clock = finish; // Synchronous validation/serialization or runner pause.
+            return sha;
+          } });
+        }
+      } });
+      let planned = false;
+      const admitThenPlan = async () => {
+        await assertBuildPublicationHistory(f.ctx, f.api);
+        planned = true;
+      };
+      if (finish < ADMISSION_TIMEOUT_MS) await admitThenPlan();
+      else await assert.rejects(admitThenPlan, /admission time budget exceeded; NOT READY/);
+      assert.equal(processedFinalInventory, true);
+      assert.equal(planned, finish < ADMISSION_TIMEOUT_MS);
+      assert.equal(f.calls.length, 5, "final deadline check spends no additional GET");
+    });
+  }
 
   test("the same safe 1002-run history is NOT READY in production, without request 201 or downstream work", async () => {
     const f = fixture();
