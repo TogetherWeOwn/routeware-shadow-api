@@ -271,7 +271,11 @@ function sharedSteps() {
 test("CI preserves the existing jobs, free runners and nightly schedule without creating a release workflow", () => {
   const { yaml, entries } = jobs();
   assert.deepEqual(readdirSync(new URL("../.github/workflows/", import.meta.url)).filter((name) => /\.ya?ml$/.test(name)).sort(),
-    ["ci.yml", "post-deploy-probe.yml", "pr-lint.yml", "test-guard.yml"]);
+    ["ci.yml", "offline-rehearsal.yml", "post-deploy-probe.yml", "pr-lint.yml", "test-guard.yml"]);
+  const offline = readFileSync(new URL("../.github/workflows/offline-rehearsal.yml", import.meta.url), "utf8");
+  assert.doesNotMatch(offline, /contents: write|actions: write|secrets\.|vars\.|environment:|calver@|--remote|workflow_dispatch/);
+  assert.match(offline, /run: node --test scripts\/deploy-rehearsal\.test\.mjs scripts\/probe-evidence\.test\.mjs/);
+  assert.match(offline, /sudo unshare --net/);
   assert.deepEqual(Object.keys(entries).sort(), ["build", "changes", "ci-ok", "deploy", "hygiene", "shadow-api-v1"].sort());
   assert.equal((yaml.match(/^\s+runs-on:\s*ubuntu-latest\s*$/gm) || []).length, 6);
   assert.doesNotMatch(yaml, /runs-on:\s*(?:\[|self-hosted|ubuntu-.*-(?:core|large))/);

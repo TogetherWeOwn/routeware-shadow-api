@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { createHash } from "node:crypto";
-import { runRehearsal } from "./lib/deployRehearsal.mjs";
+import { loopbackOnly, runRehearsal } from "./lib/deployRehearsal.mjs";
 
 const sha = "a".repeat(40);
 const time = "2026-11-08T00:00:00.000Z";
@@ -87,6 +87,16 @@ for (const change of [{ actions: "false" }, { candidateSha: "not-a-sha" }]) {
     assert.deepEqual(f.calls, []);
   });
 }
+
+test("network guard accepts only current-namespace loopback addresses, never host or empty interfaces", () => {
+  const lo = [{ address: "127.0.0.1", internal: true }, { address: "::1", internal: true }];
+  assert.equal(loopbackOnly({ lo }), true);
+  assert.equal(loopbackOnly({}), false);
+  assert.equal(loopbackOnly({ lo: [] }), false);
+  assert.equal(loopbackOnly({ lo, eth0: [{ address: "192.0.2.1", internal: false }] }), false);
+  assert.equal(loopbackOnly({ lo: [{ address: "192.0.2.1", internal: true }] }), false);
+  assert.equal(loopbackOnly({ lo: [{ address: "127.0.0.1", internal: false }] }), false);
+});
 
 test("refuses a nonisolated network before allocation/subprocess", (t) => {
   const f = fixture(t);

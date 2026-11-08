@@ -2,12 +2,18 @@ import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
+import { networkInterfaces } from "node:os";
 import {
   compareAppliedState, parseManifest, parseWranglerExecuteJson, verifyFileHashes,
 } from "./d1DriftCheck.mjs";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const inside = (parent, child) => child === parent || child.startsWith(`${parent}${path.sep}`);
+
+export function loopbackOnly(interfaces) {
+  return Object.keys(interfaces).length === 1 && Array.isArray(interfaces.lo) && interfaces.lo.length > 0 &&
+    interfaces.lo.every((entry) => entry.internal === true && ["127.0.0.1", "::1"].includes(entry.address));
+}
 
 // Refuse every symlink component, including a dangling final component. Never read credentials.
 function physicalDirectory(directory) {
@@ -36,7 +42,8 @@ export function validateRehearsal({ root, scratch, candidateSha, actions }) {
 /** Existing checklist, using its drift helpers and a fixed local-only command plan. */
 export function runRehearsal(options, {
   run = spawnSync, now = () => new Date().toISOString(),
-  isolated = () => fs.readdirSync("/sys/class/net").every((name) => name === "lo"),
+  // getifaddrs observes the current network namespace; inherited sysfs mounts do not.
+  isolated = () => loopbackOnly(networkInterfaces()),
 } = {}) {
   const startedAt = now();
   const receipt = {
