@@ -17,7 +17,8 @@
  * narrower proof, not a silent shortcut.
  */
 
-import { createBuildRepairProof, isReviewedBuildWorkflow, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
+import { createBuildRepairProof, isReviewedBuildWorkflow } from "./buildPublicationRepair.mjs";
+import { createAdmissionReader } from "./buildAdmissionReader.mjs";
 
 export const REPOSITORY = "TogetherWeOwn/routeware-shadow-api";
 
@@ -32,12 +33,6 @@ const PAGE_SIZE = 100;
 const MAX_PAGES = 50;
 const MAX_RUN_RECORDS = 1000;
 const MAX_ATTEMPTS = 20;
-/**
- * Cover every supported run AND attempt, including all bounded job pages, one
- * numeric-link identity lookup and one workflow read per attempt. Provider quota
- * failures still refuse; this safety ceiling is not a promise of live API quota.
- */
-const MAX_READS = MAX_RUN_RECORDS * MAX_ATTEMPTS * (MAX_PAGES + 4) + MAX_REPAIR_READS + 100;
 const API_ORIGIN = "https://api.github.com";
 
 function fail(message) {
@@ -61,24 +56,6 @@ export function assertHistoryContext(context) {
   requirePositiveInteger(context.runId, "run ID");
   requirePositiveInteger(context.attempt, "attempt");
   if (context.eventName !== "push" || context.ref !== "refs/heads/main") fail("build release requires a main push");
-}
-
-function createReader(api) {
-  if (!isObject(api) || typeof api.request !== "function") fail("history provider transport required");
-  let reads = 0;
-  return async function read(path) {
-    reads += 1;
-    if (reads > MAX_READS) fail("history read budget exceeded");
-    let response;
-    try {
-      response = await api.request("GET", path);
-    } catch (error) {
-      fail(`provider read failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (!isObject(response)) fail(`malformed provider envelope for ${path}`);
-    if (response.status !== 200) fail(`provider returned status ${String(response.status)} for ${path}`);
-    return { data: response.data, headers: isObject(response.headers) ? response.headers : {} };
-  };
 }
 
 function nextLink(headers) {
@@ -345,7 +322,7 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
 export async function assertBuildPublicationHistory(context, api) {
   assertHistoryContext(context);
   if (context.enabled !== true) return;
-  const read = createReader(api);
+  const read = createAdmissionReader(api);
 
   const runs = await listRuns(read);
   const current = runs.get(context.runId);

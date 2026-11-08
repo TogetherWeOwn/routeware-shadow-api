@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { rateHeaders } from "./fixtures/buildAdmissionRate.mjs";
+// Keep focused admission fixtures registered without growing a shared npm list.
+import "./calver-build-budget.test.mjs";
 
 /**
  * Caller seam, deliberately specified before implementation:
@@ -576,6 +579,7 @@ function historyFixture(attempts = [], options = {}) {
       } };
     } else throw new Error(`Unexpected read in hermetic history fixture: ${url.pathname}`);
     const copy = structuredClone(response);
+    copy.headers = { ...rateHeaders(), ...copy.headers };
     return options.transform?.(copy, url) ?? copy;
   } };
   return { ctx, api, calls };
@@ -801,9 +805,8 @@ test("history guard: CLI admission runs before the first planner in the same exi
  * Regression controls exercise the real exported guard and real publication CLI.
  * Provider doubles return only synthetic REST records; no admission decision is
  * stubbed. Numeric Link URLs require a separate GET /repos/:owner/:repo identity
- * lookup. Large fixtures opt into a larger test tripwire, not a live API quota.
- * At most 1,000 listed runs / 20 attempts per run are the bounded history contract;
- * completing eligible history must not silently stop at 100 or 200 reads.
+ * lookup. Enumeration bounds do not promise a feasible external-read budget.
+ * Unsupported loads refuse explicitly, never admit a safe-looking prefix.
  */
 describe("publication admission regression controls", () => {
   beforeEach((t) => {
@@ -959,7 +962,7 @@ describe("publication admission regression controls", () => {
   });
 
   for (const [runCount, attemptCount, maxRequests] of [[110, 1, 10_000], [110, 20, 10_000], [999, 20, 60_000]]) {
-    test(`bounded history: all ${runCount} prior runs with ${attemptCount} published attempt(s) admit beyond 200 reads`, async () => {
+    test(`unsupported load: ${runCount} prior runs with ${attemptCount} published attempt(s) is NOT READY within 200 reads`, async () => {
       const attempts = [];
       for (let id = 8000; id < 8000 + runCount; id++) {
         for (let attempt = 1; attempt <= attemptCount; attempt++) {
@@ -970,16 +973,12 @@ describe("publication admission regression controls", () => {
       }
       const latest = attempts.filter((a) => a.run.run_attempt === attemptCount).map((a) => a.run);
       const rows = [historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null }), ...latest];
-      const fixture = await historyPermits(historyFixture(attempts, {
+      const fixture = historyFixture(attempts, {
         runPages: Array.from({ length: Math.ceil(rows.length / 100) }, (_, page) => rows.slice(page * 100, (page + 1) * 100)), maxRequests,
-      }));
-      assert.ok(fixture.calls.length > 200, "exercise real history larger than an arbitrary 200-read cap");
-      assert.ok(fixture.calls.length < maxRequests, "legitimate bounded history must not loop or re-read without bound");
-      const reads = new Set(fixture.calls.map((c) => new URL(c.path, "https://api.github.com").pathname));
-      for (const item of attempts) {
-        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}`), "read every exact historical attempt, not only the latest");
-        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}/jobs`), "read every attempt's publication evidence");
-      }
+      });
+      const guard = await historyGuard();
+      await assert.rejects(() => guard(fixture.ctx, fixture.api), /history read budget exceeded; NOT READY/);
+      assert.equal(fixture.calls.length, 200, "no hidden reads, incomplete history never admits");
     });
   }
 
@@ -1168,6 +1167,7 @@ function publicationFixture(records = [publicationRecord()], options = {}) {
         : { status: 404, headers: {}, data: { message: "Not Found" } };
     }
     const copy = structuredClone(response);
+    copy.headers = { ...rateHeaders(), ...copy.headers };
     return options.publicationTransform?.(copy, url) ?? copy;
   } };
   return fixture;
