@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import "./build-publication-discovery.test.mjs";
 
 /**
  * Caller seam, deliberately specified before implementation:
@@ -545,11 +546,11 @@ function historyFixture(attempts = [], options = {}) {
         id: 17, full_name: repository, name: "routeware-shadow-api", owner: { login: "TogetherWeOwn" },
       } };
     } else if (url.pathname === `${historyRoot}/actions/workflows/ci.yml/runs`) {
-      assert.equal(url.searchParams.get("branch"), "main");
-      assert.equal(url.searchParams.get("event"), "push");
+      assert.equal(url.searchParams.get("branch"), null, "unfiltered discovery must avoid the search cap");
+      assert.equal(url.searchParams.get("event"), null, "main pushes are selected only after complete discovery");
       assert.equal(url.searchParams.get("per_page"), "100");
       const n = Number(url.searchParams.get("page"));
-      response = pageResponse(pages, n, "workflow_runs", (p) => `${options.runPageRoot ?? historyRoot}/actions/workflows/ci.yml/runs?branch=main&event=push&per_page=100&page=${p}`, total);
+      response = pageResponse(pages, n, "workflow_runs", (p) => `${options.runPageRoot ?? historyRoot}/actions/workflows/ci.yml/runs?per_page=100&page=${p}`, total);
     } else if (match) {
       const key = `${match[1]}/${match[2]}`;
       if (!match[3]) {
