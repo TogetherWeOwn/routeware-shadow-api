@@ -1,0 +1,72 @@
+name: Offline deploy rehearsal
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-rehearsal-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rehearsal:
+    name: Credential-free offline rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked dependencies with native script refusal
+        # Existing .npmrc retains min-release-age=3 and ignore-scripts=true.
+        # No resolution/update or hook exception is introduced here.
+        run: |
+          npm --version
+          test "$(npm config get ignore-scripts)" = true
+          test "$(npm config get min-release-age)" = 3
+          npm ci --include=dev
+      - name: Hermetic rehearsal and evidence refusal tests
+        run: node --test scripts/deploy-rehearsal.test.mjs scripts/probe-evidence.test.mjs
+      - name: Rehearse without credentials or external network
+        # A fresh network namespace has only loopback. Local workerd/D1 needs lo;
+        # there is no interface/route to Cloudflare, Routeware or production.
+        # Drop back to the runner user before executing repository code.
+        run: |
+          node_path="$(command -v node)"
+          sudo unshare --net -- /bin/sh -eu -c '
+            ip link set lo up
+            exec /usr/sbin/runuser -u "$1" -- env -i \
+              PATH="$2" GITHUB_ACTIONS=true CANDIDATE_SHA="$3" REHEARSAL_SCRATCH="$4" \
+              "$5" scripts/deploy-rehearsal.mjs
+          ' rehearsal "$(id -un)" "$(dirname "$node_path"):/usr/bin:/bin" "$CANDIDATE_SHA" "$RUNNER_TEMP" "$node_path" > "$RUNNER_TEMP/offline-rehearsal.json"
+      - name: Summarize offline evidence only
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const receipt = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/offline-rehearsal.json`, 'utf8'));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `## Offline rehearsal — not live readiness\n\nCandidate: ${receipt.candidateSha}\n\n` +
+            `Offline conclusion: ${receipt.conclusion}; cleanup: ${receipt.cleanup}\n\n` +
+            `Explicit-false gate, remote journal and approved staging probe: NOT VERIFIED.\n`);
+          NODE
+      - name: Retain sanitized receipt, never HOME, database, bundle or raw logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: offline-rehearsal-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/offline-rehearsal.json
+          if-no-files-found: error
+          retention-days: 14

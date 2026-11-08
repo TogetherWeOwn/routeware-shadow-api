@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "scope": "historical-receipts-not-current-readiness",
+  "authorization": "No deployment, migration, credential, variable or probe action authorized",
+  "observations": [
+    {
+      "date": "2026-09-26",
+      "candidateSha": "8f9eaed54c81286b4b60f681287a34ef49f0c09c",
+      "runUrl": "https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777",
+      "jobUrl": "https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/36231264777/job/108374977437",
+      "conclusion": "FAIL",
+      "fact": "Apply D1 migrations (remote) failed because Wrangler required CLOUDFLARE_API_TOKEN in noninteractive execution",
+      "limits": "One failed push and two green PR runs with deploy skipped were listed. No second failed deployment is asserted. Historical missing-token evidence does not prove present credential availability."
+    },
+    {
+      "date": "2026-11-07",
+      "candidateSha": "b7d5158a5a2c5794e966f94a1981560a0ba6c528",
+      "runUrl": "https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/42380653893",
+      "conclusion": "FAIL",
+      "exitCode": 1,
+      "fact": "Scheduled probe rejected the target as not a bare remote HTTPS origin before fetch",
+      "endpointHealth": "NOT VERIFIED",
+      "cronFreshness": "NOT VERIFIED"
+    },
+    {
+      "date": "2026-11-07",
+      "candidateSha": "b7d5158a5a2c5794e966f94a1981560a0ba6c528",
+      "runUrl": "https://github.com/TogetherWeOwn/routeware-shadow-api/actions/runs/42367037623",
+      "conclusion": "PASS",
+      "deployConclusion": "SKIPPED",
+      "limits": "Ordinary CI success with deploy skipped is not live readiness proof"
+    },
+    {
+      "source": "Read-only repository variable metadata observation supplied with engineering dispatch",
+      "variableName": "PRODUCTION_DEPLOY_ENABLED",
+      "httpStatus": 404,
+      "repositoryGateExplicitFalse": "NOT VERIFIED",
+      "limits": "Missing repository metadata does not establish the effective gate, prove a false value, or authorize adding or setting a variable"
+    }
+  ],
+  "liveGaps": {
+    "approvedStagingTargetAndReceipt": "NOT VERIFIED",
+    "remoteMigrationJournal": "NOT VERIFIED",
+    "currentCredentialAvailability": "NOT VERIFIED",
+    "productionReadiness": "NOT VERIFIED"
+  }
+}
