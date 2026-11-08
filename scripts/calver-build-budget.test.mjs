@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createAdmissionReader, githubTransport, MAX_ADMISSION_READS, ADMISSION_RESERVE, ADMISSION_TIMEOUT_MS, READ_TIMEOUT_MS } from "./lib/buildAdmissionReader.mjs";
 import { assertBuildPublicationHistory, REPOSITORY } from "./lib/buildPublicationHistory.mjs";
@@ -7,6 +8,7 @@ import { rateHeaders } from "./fixtures/buildAdmissionRate.mjs";
 const root = `/repos/${REPOSITORY}`;
 const sha = "a".repeat(40);
 const workflow = `${root}/contents/.github/workflows/ci.yml?ref=${sha}`;
+const reviewedWorkflow = readFileSync(new URL("./fixtures/reviewed-build-ci.yml", import.meta.url), "utf8");
 const success = (headers = rateHeaders(), data = {}) => ({ status: 200, headers, data });
 function provider(respond = () => success()) {
   const calls = [];
@@ -42,29 +44,37 @@ function history(count, { legacy = false, distinct = false, ambiguous = false, e
       return success(headers, { total_count: 1, jobs: extraPage && current.id === 1 && match[3] === "1" ? [] : [job] });
     }
     if (path.startsWith(`${root}/contents/`)) return success(rateHeaders(), {
-      type: "file", encoding: "base64", content: Buffer.from("name: Legacy CI\n").toString("base64")
+      type: "file", encoding: "base64", content: Buffer.from(legacy ? "name: Legacy CI\n" : reviewedWorkflow).toString("base64")
     });
     throw new Error(`unexpected synthetic request ${path}`);
   });
   return { api, context };
 }
 
-for (const [count, expected] of [[0, 3], [10, 23], [98, 199]]) {
+for (const [count, expected] of [[0, 3], [10, 24], [97, 198]]) {
   test(`complete published history: ${count} prior attempts requires exactly ${expected} requests`, async (t) => {
     t.mock.method(globalThis, "fetch", () => { throw new Error("unexpected network"); });
     const { api, context } = history(count);
     await assertBuildPublicationHistory(context, api);
     assert.equal(api.calls.length, expected);
+    assert.equal(api.calls.filter((call) => call.path.includes("/contents/")).length, count === 0 ? 0 : 1);
   });
 }
 
-test("exact boundary: 98 prior attempts and an extra job page complete in 200 requests", async () => {
-  const { api, context } = history(98, { extraPage: true });
+test("exact boundary: 98 prior attempts and cached reviewed wiring complete in 200 requests", async () => {
+  const { api, context } = history(98);
   await assertBuildPublicationHistory(context, api);
+  assert.equal(api.calls.length, 200);
+  assert.equal(api.calls.filter((call) => call.path.includes("/contents/")).length, 1);
+});
+
+test("one over: 98 prior attempts and an extra job page need 201 reads and refuse before request 201", async () => {
+  const { api, context } = history(98, { extraPage: true });
+  await assert.rejects(() => assertBuildPublicationHistory(context, api), /history read budget exceeded; NOT READY/);
   assert.equal(api.calls.length, 200);
 });
 
-test("one over: 99 prior attempts need 201 reads and refuse before request 201", async () => {
+test("99 prior published attempts refuse before request 201 even with cached reviewed wiring", async () => {
   const { api, context } = history(99);
   await assert.rejects(() => assertBuildPublicationHistory(context, api), /history read budget exceeded; NOT READY/);
   assert.equal(api.calls.length, 200);

@@ -66,12 +66,12 @@ one jobs page/attempt and no numeric pagination aliases, except where stated:
 | Complete history shape | External GETs | Outcome with valid quota/time metadata |
 | --- | ---: | --- |
 | Current run only | 3 | Permits |
-| 10 prior published attempts | 23 | Permits |
-| One prior attempt, two inventory pages with numeric aliases in both passes | 9 | Permits |
-| One prior attempt, two jobs pages with a numeric alias | 7 | Permits |
+| 10 prior published attempts sharing reviewed workflow SHA | 24 | Permits |
+| One prior attempt, two inventory pages with numeric aliases in both passes | 10 | Permits |
+| One prior attempt, two jobs pages with a numeric alias | 8 | Permits |
 | One failed-publication attempt with complete single-tag inline-log repair proof | 11 | Permits synthetic proof; real log redirect NOT READY |
-| 98 prior published attempts | 199 | Permits |
-| Same history plus one additional jobs page | 200 | Exact supported boundary |
+| 98 prior published attempts sharing reviewed workflow SHA | 200 | Exact supported boundary |
+| Same history plus one additional jobs page | 200 dispatched; 201st refused | NOT READY, never a safe prefix |
 | 99 prior published attempts, 100 total runs on one page | 200 dispatched; 201st refused | NOT READY, never a safe prefix |
 | 98 finished legacy attempts sharing exact workflow SHA | 200 | Permits, one immutable workflow read instead of 98 |
 | 10 finished legacy attempts on distinct SHAs | 33 | Permits, all 10 workflow identities read |
@@ -79,9 +79,11 @@ one jobs page/attempt and no numeric pagination aliases, except where stated:
 | 1,002 safe main pushes with terminal skipped prior jobs | At most 200; complete synthetic proof needs 2,025 | NOT READY in production, not a discovery cutoff |
 
 For ordinary published history, cost is twice the run-list pages + 1 current
-attempt + 2 per prior attempt, plus any additional jobs pages/normalization
-reads. Numeric pagination identity is independently validated in each complete
-inventory. Legacy classification adds one read per distinct exact workflow SHA.
+attempt + 2 per prior attempt + 1 per distinct reviewed workflow SHA, plus any
+additional jobs pages/normalization reads. Numeric pagination identity is
+independently validated in each complete inventory. Legacy classification also
+adds one read per distinct exact workflow SHA; both paths reuse the same immutable
+source cache.
 Repair adds its complete inventory, refs and distinct immutable objects plus
 original logs and Release proof. A count that fits can still refuse for ambiguity,
 invalid provenance, low quota or deadline. The structural 50-page × 100-record /

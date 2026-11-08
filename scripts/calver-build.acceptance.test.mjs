@@ -1045,8 +1045,8 @@ describe("publication admission regression controls", () => {
         options.jobPageRoot = "/repositories/17";
       }
       const fixture = await historyPermits(historyFixture([prior], options));
-      assert.equal(fixture.calls.length, collection === "runs" ? 9 : 7,
-        "count both inventories, all collection pages and independent numeric-link identity reads");
+      assert.equal(fixture.calls.length, collection === "runs" ? 10 : 8,
+        "count both inventories, all collection pages, independent numeric-link identity reads and cached workflow proof");
       assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname === historyRoot), "independently resolve canonical repository identity");
       const continuation = fixture.calls.findIndex((c) => {
         const url = new URL(c.path, "https://api.github.com");
