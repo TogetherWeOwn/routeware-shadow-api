@@ -100,6 +100,7 @@ export async function readCollection(read, key, createPath) {
 function validateRun(run) {
   requirePositiveInteger(run.id, "run record id");
   requirePositiveInteger(run.run_attempt, "run record attempt");
+  requirePositiveInteger(run.run_number, "workflow run number");
   requirePositiveInteger(run.workflow_id, "run workflow id");
   if (run.path !== WORKFLOW_PATH) fail("run record belongs to another workflow");
   if (!isObject(run.repository) || run.repository.full_name !== REPOSITORY) fail("run record belongs to another repository");
@@ -119,7 +120,7 @@ function inventoryIdentity(run) {
   // Execution status may advance during admission. Identity and latest attempt
   // must not: a new rerun creates a new obligation even if its SHA is unchanged.
   return JSON.stringify([
-    run.id, run.run_attempt, run.workflow_id, run.path, run.repository.id,
+    run.id, run.run_number, run.run_attempt, run.workflow_id, run.path, run.repository.id,
     run.repository.full_name, run.head_sha, run.event, run.head_branch,
     run.head_repository?.id ?? null, run.head_repository?.full_name ?? null
   ]);
@@ -131,6 +132,7 @@ export async function discoverBuildRuns(read) {
     `${base}?per_page=${PAGE_SIZE}&page=${page}`
   );
   const inventory = new Map();
+  const runNumbers = new Set();
   const runs = new Map();
   let workflowId = null;
   let repositoryId = null;
@@ -142,6 +144,13 @@ export async function discoverBuildRuns(read) {
     // The provider lists runs, not attempts. A second version of one run is
     // mutation during pagination, not permission to collapse the two records.
     if (inventory.has(run.id)) fail("duplicate run record");
+    if (runNumbers.has(run.run_number)) fail("duplicate workflow run number");
+    // GitHub numbers each workflow from 1, incrementing per new run, not rerun.
+    // Unique numbers in 1..total plus exact cardinality prove a gap-free prefix.
+    // This detects missing retained-prefix records, not deleted suffixes or a
+    // replaced workflow incarnation; those need the documented retention proof.
+    if (run.run_number > declaredTotal) fail("workflow run sequence is incomplete");
+    runNumbers.add(run.run_number);
     inventory.set(run.id, inventoryIdentity(run));
     if (run.event === "push" && run.head_branch === "main") runs.set(run.id, run);
   }

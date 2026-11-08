@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, test } from "node:test";
-import { assertBuildPublicationHistory } from "./lib/buildPublicationHistory.mjs";
+import { assertBuildPublicationHistory, proveBuildPublicationHistory } from "./lib/buildPublicationHistory.mjs";
 import {
   REPOSITORY, WORKFLOW_PATH, discoverBuildRuns, assertStableBuildRunInventory
 } from "./lib/buildPublicationDiscovery.mjs";
@@ -17,7 +17,7 @@ function fixture({ count = 1002, nonPush = 0, attempts = new Map(), change = () 
     sha: "b".repeat(40), eventName: "push", ref: "refs/heads/main"
   };
   const rows = Array.from({ length: count + nonPush }, (_, i) => ({
-    id: i + 1, run_attempt: attempts.get(i + 1) ?? 1, workflow_id: 42, path: WORKFLOW_PATH,
+    id: i + 1, run_number: i + 1, run_attempt: attempts.get(i + 1) ?? 1, workflow_id: 42, path: WORKFLOW_PATH,
     head_sha: i + 1 === count ? ctx.sha : "a".repeat(40), head_branch: "main",
     repository: { id: 17, full_name: REPOSITORY }, head_repository: { id: 17, full_name: REPOSITORY },
     event: i < count ? "push" : "pull_request", status: "completed", conclusion: "success",
@@ -92,9 +92,15 @@ describe("uncapped exhaustive build history discovery", () => {
     t.mock.method(globalThis, "fetch", () => { throw new Error("unexpected network in synthetic history"); });
   });
 
-  test("1002 main pushes with terminal skipped jobs admit; no timestamp boundary loses an obligation", async () => {
-    const f = fixture();
+  test("production entry retains the same proof on small affordable history", async () => {
+    const f = fixture({ count: 2 });
     await assertBuildPublicationHistory(f.ctx, f.api);
+    assert.equal(f.calls.length, 5);
+  });
+
+  test("1002 main pushes with terminal skipped jobs are completely proven with a bounded fixture reader", async () => {
+    const f = fixture();
+    await proveBuildPublicationHistory(f.ctx, f.read);
     assert.equal(f.calls.filter((p) => p.startsWith(`${runPath}?`)).length, 22);
     assert.equal(f.calls.filter((p) => p.includes("/jobs?")).length, 1001);
     assert.equal(f.calls.length, 2025, "22 discovery + current metadata + 2 reads for each prior attempt");
@@ -108,7 +114,7 @@ describe("uncapped exhaustive build history discovery", () => {
           if (kind === "missing jobs") r.data = { total_count: 1, jobs: [] };
           else executedJob(r, ["success", kind === "ambiguous deployment" ? "failure" : "success", "failure"]);
         } });
-        await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api),
+        await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read),
           kind === "missing jobs" ? /job enumeration.*incomplete/ : kind === "ambiguous deployment" ? /ambiguous deployment/ : /build publication repair:/);
         assert.ok(f.calls.some((p) => p.includes(`/runs/${id}/attempts/1/jobs?`)));
       });
@@ -119,12 +125,12 @@ describe("uncapped exhaustive build history discovery", () => {
     const f = fixture({ change(r, u) {
       if (u.pathname.endsWith("/runs/1000/attempts/1/jobs")) r.data.jobs[0].status = "in_progress";
     } });
-    await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api), /build publication history:/);
+    await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /build publication history:/);
   });
 
   test("all rerun attempts, including earlier current-run attempts, remain obligations", async () => {
     const f = fixture({ attempts: new Map([[1000, 3], [1002, 2]]) });
-    await assertBuildPublicationHistory(f.ctx, f.api);
+    await proveBuildPublicationHistory(f.ctx, f.read);
     for (const [id, attempts] of [[1000, [1, 2, 3]], [1002, [1]]]) {
       for (const attempt of attempts) assert.ok(f.calls.includes(`${root}/actions/runs/${id}/attempts/${attempt}/jobs?per_page=100&page=1`));
     }
@@ -135,7 +141,7 @@ describe("uncapped exhaustive build history discovery", () => {
     const f = fixture({ attempts: new Map([[1000, 2]]), change(r, u) {
       if (u.pathname.endsWith("/runs/1000/attempts/1/jobs")) executedJob(r, ["success", "cancelled", "skipped"]);
     } });
-    await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api), /ambiguous deployment/);
+    await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /ambiguous deployment/);
   });
 
   test("non-push runs count toward complete discovery but not deployment obligations", async () => {
@@ -166,6 +172,9 @@ describe("uncapped exhaustive build history discovery", () => {
     ["foreign workflow", (r) => { r.data.workflow_runs[0].path = ".github/workflows/other.yml"; }],
     ["mixed workflow ID", (r) => { r.data.workflow_runs[0].workflow_id = 18; }],
     ["invalid SHA", (r) => { r.data.workflow_runs[0].head_sha = "short"; }],
+    ["missing workflow run number", (r) => { delete r.data.workflow_runs[0].run_number; }],
+    ["duplicate workflow run number", (r) => { r.data.workflow_runs[1].run_number = r.data.workflow_runs[0].run_number; }],
+    ["deleted workflow run before enumeration", (r) => { r.data.workflow_runs[0].run_number = 1003; }],
     ["missing event on an otherwise non-push record", (r) => { delete r.data.workflow_runs[0].event; }],
     ["missing branch", (r) => { delete r.data.workflow_runs[0].head_branch; }],
     ["invalid count", (r) => { r.data.total_count = -1; }],
@@ -204,7 +213,7 @@ describe("uncapped exhaustive build history discovery", () => {
       const f = fixture({ change(r, u, pass) {
         if (u.pathname === runPath && pass === 2 && u.searchParams.get("page") === "1") change(r);
       } });
-      await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api), /changed|incomplete/);
+      await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /changed|incomplete/);
     });
   }
 
@@ -212,14 +221,34 @@ describe("uncapped exhaustive build history discovery", () => {
     const f = fixture({ count: 2, change(r, u) {
       if (u.pathname.endsWith("/runs/2/attempts/1")) r.data.workflow_id = 99;
     } });
-    await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api), /another workflow/);
+    await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /another workflow/);
   });
+
+  for (const id of [1, 2]) {
+    test(`independent attempt repository ID disagreement refuses for run ${id}`, async () => {
+      const f = fixture({ count: 2, change(r, u) {
+        if (u.pathname.endsWith(`/runs/${id}/attempts/1`)) {
+          r.data.repository = { ...r.data.repository, id: 18 };
+          r.data.head_repository = { ...r.data.head_repository, id: 18 };
+        }
+      } });
+      await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /another repository/);
+    });
+  }
+
+  for (const removed of [1, 100, 1000]) {
+    test(`a deleted run ${removed} before both inventories leaves an unprovable sequence`, async () => {
+      const f = fixture();
+      f.rows.splice(removed - 1, 1);
+      await assert.rejects(() => inventoryProof(f), /run number|run sequence/);
+    });
+  }
 
   test("missing current run is not excused by a complete non-push inventory", async () => {
     const f = fixture({ count: 2, change(r, u) {
       if (u.pathname === runPath) r.data.workflow_runs.find((r) => r.id === 2).event = "schedule";
     } });
-    await assert.rejects(() => assertBuildPublicationHistory(f.ctx, f.api), /current build run is missing/);
+    await assert.rejects(() => proveBuildPublicationHistory(f.ctx, f.read), /current build run is missing/);
   });
 
   test("per-page overflow refuses rather than allocating unbounded memory", async () => {

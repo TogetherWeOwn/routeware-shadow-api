@@ -515,6 +515,7 @@ function historyFixture(attempts = [], options = {}) {
   }
   latest.set(current.id, current);
   const pages = options.runPages ?? [[...latest.values()]];
+  const runNumbers = new Map([...latest.keys()].map((id, index) => [id, index + 1]));
   const total = options.total ?? pages.flat().length;
   const calls = [];
   const known = new Map(attempts.map((a) => [`${a.run.id}/${a.run.run_attempt}`, a]));
@@ -523,7 +524,9 @@ function historyFixture(attempts = [], options = {}) {
   function pageResponse(rows, page, key, makePath, declaredTotal = rows.flat().length) {
     if (!rows[page - 1]) throw new Error("Unexpected synthetic page");
     const next = page < rows.length ? `<https://api.github.com${makePath(page + 1)}>; rel="next"` : undefined;
-    return { status: 200, headers: next ? { link: next } : {}, data: { total_count: declaredTotal, [key]: rows[page - 1] } };
+    const records = key === "workflow_runs"
+      ? rows[page - 1].map((run) => ({ ...run, run_number: runNumbers.get(run.id) })) : rows[page - 1];
+    return { status: 200, headers: next ? { link: next } : {}, data: { total_count: declaredTotal, [key]: records } };
   }
   const api = { async request(method, path) {
     calls.push({ method, path });
@@ -887,11 +890,14 @@ describe("publication admission regression controls", () => {
     });
   }
 
-  test("queued production job: empty steps, null conclusion and no start permits the current lock holder", async () => {
+  test("queued production job: empty steps, null conclusion and no start permits only with reviewed lock wiring", async () => {
     const prior = priorAttempt();
     Object.assign(prior.run, { status: "in_progress", conclusion: null });
     Object.assign(prior.job, { status: "queued", conclusion: null, started_at: null, completed_at: null, steps: [] });
+    prior.workflow = read("../.github/workflows/ci.yml");
     await historyPermits(historyFixture([prior]));
+    prior.workflow = prior.workflow.replace("group: deploy-production", "group: unrelated-lock");
+    await historyRefuses(historyFixture([prior]));
   });
 
   for (const status of ["in_progress", "pending", "waiting"]) {

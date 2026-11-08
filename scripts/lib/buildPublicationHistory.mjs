@@ -107,7 +107,8 @@ function assertAttemptIdentity(metadata, expected) {
   if (metadata.path !== WORKFLOW_PATH || metadata.workflow_id !== expected.workflowId) fail("attempt metadata belongs to another workflow");
   if (metadata.event !== "push") fail("attempt metadata is not a push");
   if (metadata.head_branch !== "main") fail("attempt metadata is not a main build");
-  if (!isObject(metadata.repository) || metadata.repository.full_name !== REPOSITORY) {
+  if (!isObject(metadata.repository) || metadata.repository.full_name !== REPOSITORY
+    || metadata.repository.id !== expected.repositoryId) {
     fail("attempt metadata belongs to another repository");
   }
   if (!isObject(metadata.head_repository) || metadata.head_repository.full_name !== REPOSITORY) {
@@ -196,7 +197,9 @@ async function isLegacyWorkflow(read, sha) {
  * whose outcome is unknown, may have consumed an unrecorded build identity.
  */
 async function assertAttemptSafe(read, run, attempt, assertRepaired) {
-  const expected = { runId: run.id, attempt, sha: run.head_sha, workflowId: run.workflow_id };
+  const expected = {
+    runId: run.id, attempt, sha: run.head_sha, workflowId: run.workflow_id, repositoryId: run.repository.id
+  };
   const metadata = await read(`/repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${attempt}`);
   assertAttemptIdentity(metadata.data, expected);
   const job = findProductionJob(await listJobs(read, expected), expected);
@@ -211,7 +214,12 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
     if (await isLegacyWorkflow(read, run.head_sha)) return;
     fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
   }
-  if (isAffirmativelySkipped(job)) return;
+  if (isAffirmativelySkipped(job)) {
+    if (job.status === "queued" && !isReviewedBuildWorkflow(await readWorkflow(read, run.head_sha))) {
+      fail(`attempt ${run.id}/${attempt} has a queued production job without reviewed lock wiring`);
+    }
+    return;
+  }
   // Anything that has started but not finished is ambiguous: it could be
   // deploying while this admission runs.
   assertJobFinished(job, `${run.id}/${attempt}`);
@@ -238,8 +246,16 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
 export async function assertBuildPublicationHistory(context, api) {
   assertHistoryContext(context);
   if (context.enabled !== true) return;
-  const read = createReader(api);
+  return proveBuildPublicationHistory(context, createReader(api));
+}
 
+/** Pure proof seam for bounded synthetic readers; never a planner or transport.
+ * Production callers use assertBuildPublicationHistory and its admission reader.
+ */
+export async function proveBuildPublicationHistory(context, read) {
+  assertHistoryContext(context);
+  if (context.enabled !== true) return;
+  if (typeof read !== "function") fail("history proof reader required");
   const discovery = await discoverBuildRuns(read);
   const { runs } = discovery;
   const current = runs.get(context.runId);
@@ -248,7 +264,8 @@ export async function assertBuildPublicationHistory(context, api) {
   if (current.head_sha !== context.sha) fail("current build run does not belong to this commit");
   const currentMetadata = await read(`/repos/${REPOSITORY}/actions/runs/${context.runId}/attempts/${context.attempt}`);
   assertAttemptIdentity(currentMetadata.data, {
-    runId: context.runId, attempt: context.attempt, sha: context.sha, workflowId: current.workflow_id
+    runId: context.runId, attempt: context.attempt, sha: context.sha,
+    workflowId: current.workflow_id, repositoryId: current.repository.id
   });
 
   const currentKey = `${context.runId}/${context.attempt}`;

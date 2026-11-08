@@ -44,6 +44,28 @@ provider that consistently lies about its own inventory. Two equal inventories
 are not an atomic quota reservation or a claim that unrelated CI activity stops.
 The existing exclusive production lock remains necessary.
 
+### Retained history is an independent prerequisite
+
+GitHub [supports deleting workflow runs](https://docs.github.com/en/rest/actions/workflow-runs#delete-a-workflow-run).
+Deletion/retention before admission is not a lying provider. The guard also
+validates the documented [workflow run-number sequence](https://docs.github.com/en/actions/reference/workflows-and-actions/variables):
+it starts at 1, increments per new workflow run, and is unchanged on a rerun.
+Every row needs a unique run number in `1..total_count`. Together with exact
+cardinality this proves a gap-free retained prefix and rejects missing first or
+interior records, even when both inventories truthfully omit a deleted record.
+No timestamp or unverified ID cutoff substitutes for this check.
+
+That cannot detect a whole deleted suffix (especially when the current run is
+an older rerun), or the destruction/recreation of an entire workflow lineage.
+The REST listing cannot reconstruct such missing transactions. **Uninterrupted
+retention and workflow lineage must be independently qualified before production
+activation**; listing success alone is not that evidence. Any known deletion,
+expired evidence or replacement of history is NOT READY; absent qualification is
+NOT VERIFIED, not permission to allocate from a fresh-looking list. No new
+checkpoint, synthetic baseline or deletion of obligations is introduced here.
+The dormant gate stays off while that prerequisite is unverified. This is a
+retained-history completeness proof, not an all-time deletion-proof ledger.
+
 ## Evidence and refusal
 
 Every selected main-push run retains every attempt from 1 through its listed
@@ -51,9 +73,12 @@ Every selected main-push run retains every attempt from 1 through its listed
 current still-running attempt is excluded from unfinished publication checks,
 after its independently read repository/workflow/SHA identity matches.
 
-Each other attempt still needs its exact metadata and complete job inventory.
+Each other attempt still needs its exact metadata and complete job inventory,
+with the numeric repository ID bound across discovery and independent metadata.
 Terminal skipped jobs, unstarted queued/cancelled jobs, exact historical workflow
-source and explicit repaired publication retain their existing rules. A whole
+source and explicit repaired publication retain their existing rules. A queued
+job can start later, so its no-start exemption additionally requires exact
+reviewed historical workflow bytes proving the same exclusive deployment lock. A whole
 run's success/skipped conclusion, a missing deploy job, or a later successful
 rerun cannot erase an earlier ambiguous or unpublished deployment. All reads
 remain injected GETs. Numeric repository pagination aliases need the independent
@@ -97,6 +122,12 @@ approve from discovery alone, cache mutable jobs, change credentials, or silentl
 skip an obligation. Removing the discovery cap is not a claim that such live
 history fits a workflow token. Production activation needs separate evidence
 and authorization; missing quota/staging/production receipts stay NOT VERIFIED.
+
+The `proveBuildPublicationHistory(context, read)` seam proves metadata with a
+strictly bounded injected synthetic reader; it neither constructs a transport
+nor allocates/publishes a version. Production uses `assertBuildPublicationHistory`
+and the independent practical admission reader without fixture overrides.
+A synthetic proof that uses 2,025 reads is not a 200-GET production admission.
 
 Focused synthetic regression entry: `checks/build-history-discovery.cmd`.
 The fixtures pin complete >1,000-run discovery/proof, enumeration boundaries,
