@@ -185,9 +185,21 @@ headers cannot supply or override this identity. No default is committed in
   workflow fingerprint must prove the same exclusive deploy lock. Arbitrary
   build-aware workflow text or incomplete inventories cannot establish this.
   Missing job data or missing start fields on queued/cancelled jobs is not no-run
-  evidence. A run whose exact historical workflow
-  predates build identity also permits admission once any executed steps have
-  finished. Disabled deploys perform no reads at all.
+  evidence. Outside that reviewed active-lock exemption, missing-production-job
+  legacy admission requires the exact attempt to be completed with a valid terminal
+  conclusion; queued, in-progress or malformed attempt metadata refuses even when
+  the historical source predates build identity. A terminal pre-build attempt still
+  admits, as do completed/cancelled no-job attempts without a source read. Existing
+  production jobs must still have finished executing before legacy classification.
+  All-success named plan/deploy/publish steps also require the exact-SHA workflow
+  bytes to match the existing reviewed fingerprints. Unknown source or source-read
+  failure refuses: successful names alone also fit valid frozen-plan dry-run wiring
+  that publishes nothing. Reviewed successful publication includes legitimate
+  idempotent matching-existing publication; `created=false` is not failure. Source
+  validation costs at most one cached Contents GET per distinct SHA. This recognizes
+  workflow wiring, not all transitive scripts: adapter/action changes still need
+  ordinary source requalification. Disabled deploys perform no reads at all.
+  Hermetic regressions: `npm run check:focused -- build-history-admission`.
 
 Rollback this wiring with a reviewed revert; do not delete tags or publish a new
 forward build release for a rollback. No production deploy, migration, service

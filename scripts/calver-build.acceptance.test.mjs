@@ -503,7 +503,8 @@ function priorAttempt({ id = 8000, attempt = 1, plan = "success", deploy = "succ
       historyStep(historyNames.plan, 1, plan), historyStep(historyNames.deploy, 2, deploy), historyStep(historyNames.publish, 3, publish),
     ],
   };
-  return { run, job, workflow: legacy ? legacyWorkflow : buildAwareWorkflow };
+  return { run, job, workflow: legacy ? legacyWorkflow
+    : publish === "success" ? read("./fixtures/reviewed-build-ci.yml") : buildAwareWorkflow };
 }
 
 function historyFixture(attempts = [], options = {}) {
@@ -602,6 +603,109 @@ async function historyPermits(fixture) {
   assert.ok(fixture.calls.some((c) => c.path.includes("/actions/workflows/ci.yml/runs")), "enumerate history before permitting allocation");
   return fixture;
 }
+
+describe("reviewed success and terminal legacy admission", () => {
+  beforeEach((t) => {
+    t.mock.method(globalThis, "fetch", () => { throw new Error("Unexpected network in admission regression"); });
+  });
+  const sourceReads = (fixture) => fixture.calls.filter((call) => call.path.includes("/contents/"));
+  // Exact source from 4c9255f766d97d91706e22e845e921ff12bd8612, before the
+  // numeric allocator existed. A different lock is not evidence of numeric reuse.
+  const preBuild = read("./fixtures/pre-build-ci.yml");
+  const reviewed = read("./fixtures/reviewed-build-ci.yml");
+  function noJob(workflow, status, conclusion) {
+    const prior = priorAttempt();
+    Object.assign(prior.run, { status, conclusion });
+    prior.workflow = workflow;
+    prior.jobPages = [[]];
+    return prior;
+  }
+
+  test("reviewed success: otherwise-identical valid frozen-plan dry-run wiring refuses", async () => {
+    const prior = priorAttempt({ publish: "success" });
+    const publish = "run: node scripts/calver-build.mjs publish";
+    assert.ok(reviewed.includes(publish));
+    // The pinned publisher accepts this nonempty valid-plan request with success
+    // before writing. The reviewed adapter does NOT send dryRun. An empty request
+    // is not this countermodel: the pinned CLI throws and exits 1 for that input.
+    prior.workflow = reviewed.replace(publish, `run: |
+          node --input-type=module -e 'import { appendFileSync } from "node:fs"; appendFileSync(process.env.GITHUB_OUTPUT, "request=" + JSON.stringify({phase:"publish",plan:JSON.parse(process.env.CALVER_PLAN),dryRun:true}) + "\\n");'`);
+    assert.notEqual(prior.workflow, reviewed);
+    const fixture = historyFixture([prior]);
+    await historyRefuses(fixture);
+    assert.equal(sourceReads(fixture).length, 1);
+  });
+
+  test("reviewed success: reviewed and idempotent matching-existing publication share valid success evidence", async () => {
+    // Actions exposes successful step conclusions in both cases. created=false
+    // is a legitimate publisher result, not failure; no extra tag/Release lookup
+    // or created=true requirement belongs on this reviewed-success branch.
+    const fixture = await historyPermits(historyFixture([priorAttempt({ publish: "success" })]));
+    assert.equal(sourceReads(fixture).length, 1);
+    assert.ok(!fixture.calls.some((c) => /\/tags|\/releases|\/logs/.test(c.path)));
+  });
+
+  test("reviewed success: source reads are cached per distinct exact SHA across attempts and runs", async () => {
+    const priors = [priorAttempt({ publish: "success" }), priorAttempt({ attempt: 2, publish: "success" }),
+      priorAttempt({ id: 8001, publish: "success" }), priorAttempt({ id: 8002, publish: "success" })];
+    priors[3].run.head_sha = "d".repeat(40);
+    priors[3].job.head_sha = priors[3].run.head_sha;
+    const fixture = await historyPermits(historyFixture(priors));
+    assert.equal(sourceReads(fixture).length, 2);
+    for (const sha of ["a".repeat(40), "d".repeat(40)]) {
+      assert.equal(sourceReads(fixture).filter((c) => c.path.endsWith(`?ref=${sha}`)).length, 1);
+    }
+  });
+
+  for (const [name, options] of [
+    ["read failure", { fail: /\/contents\// }],
+    ["missing file", { transform: (r, u) => u.pathname.includes("/contents/") ? { ...r, status: 404 } : r }],
+    ["unknown bytes", { transform: (r, u) => u.pathname.includes("/contents/")
+      ? { ...r, data: { ...r.data, content: Buffer.from("name: Unknown\n").toString("base64") } } : r }],
+  ]) {
+    test(`reviewed success: ${name} refuses`, async () => {
+      await historyRefuses(historyFixture([priorAttempt({ publish: "success" })], options));
+    });
+  }
+
+  for (const status of ["queued", "in_progress"]) {
+    test(`terminal legacy: actual pre-build bytes with another lock refuse ${status} no-job`, async () => {
+      const workflow = preBuild.replace("group: deploy-production", "group: pre-build-other-lock");
+      assert.notEqual(workflow, preBuild);
+      assert.doesNotMatch(workflow, /calver-build|BUILD_VERSION/);
+      await historyRefuses(historyFixture([noJob(workflow, status, null)]));
+    });
+    test(`terminal legacy: reviewed active-lock ${status} no-job exemption still admits`, async () => {
+      const fixture = await historyPermits(historyFixture([noJob(reviewed, status, null)]));
+      assert.equal(sourceReads(fixture).length, 1);
+    });
+    test(`terminal legacy: unreviewed build-aware ${status} no-job still refuses`, async () => {
+      await historyRefuses(historyFixture([noJob(buildAwareWorkflow, status, null)]));
+    });
+  }
+  for (const conclusion of ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale"]) {
+    test(`terminal legacy: actual pre-build different-lock completed/${conclusion} no-job admits`, async () => {
+      await historyPermits(historyFixture([
+        noJob(preBuild.replace("group: deploy-production", "group: pre-build-other-lock"), "completed", conclusion),
+      ]));
+    });
+  }
+  for (const [status, conclusion] of [["completed", null], ["completed", "unknown"], ["completed", ""],
+    [undefined, "success"], ["pending", null], ["in_progress", "success"], ["queued", "failure"]]) {
+    test(`terminal legacy: malformed ${String(status)}/${String(conclusion)} refuses before source read`, async () => {
+      const fixture = historyFixture([noJob(preBuild, status, conclusion)]);
+      await historyRefuses(fixture);
+      assert.equal(sourceReads(fixture).length, 0);
+    });
+  }
+  test("terminal legacy: terminal unreviewed build-aware no-job is not legacy", async () => {
+    await historyRefuses(historyFixture([noJob(buildAwareWorkflow, "completed", "failure")]));
+  });
+  test("terminal legacy: terminal cancelled no-job needs no source", async () => {
+    const fixture = await historyPermits(historyFixture([noJob("", "completed", "cancelled")]));
+    assert.equal(sourceReads(fixture).length, 0);
+  });
+});
 
 describe("unpublished deployment admission", () => {
 beforeEach((t) => {
@@ -768,6 +872,7 @@ for (const [name, mutate] of [
   ["duplicate publication step", (p) => p.job.steps.push({ ...p.job.steps[2], number: 4 })],
   ["duplicate production job", (p) => { p.jobPages = [[p.job, { ...p.job, id: 800099 }]]; }],
   ["missing production job without terminal cancellation evidence", (p) => {
+    p.workflow = buildAwareWorkflow;
     Object.assign(p.run, { status: "in_progress", conclusion: null });
     p.jobPages = [[{ ...p.job, name: "Unrelated successful job" }]];
   }],

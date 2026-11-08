@@ -66,7 +66,11 @@ export function assertHistoryContext(context) {
 function createReader(api) {
   if (!isObject(api) || typeof api.request !== "function") fail("history provider transport required");
   let reads = 0;
+  const workflows = new Map();
   return async function read(path) {
+    // Only immutable workflow source is reusable, never attempt/job snapshots.
+    const immutable = /^\/repos\/TogetherWeOwn\/routeware-shadow-api\/contents\/\.github\/workflows\/ci\.yml\?ref=[0-9a-f]{40}$/.test(path);
+    if (immutable && workflows.has(path)) return structuredClone(workflows.get(path));
     reads += 1;
     if (reads > MAX_READS) fail("history read budget exceeded");
     let response;
@@ -77,7 +81,9 @@ function createReader(api) {
     }
     if (!isObject(response)) fail(`malformed provider envelope for ${path}`);
     if (response.status !== 200) fail(`provider returned status ${String(response.status)} for ${path}`);
-    return { data: response.data, headers: isObject(response.headers) ? response.headers : {} };
+    const result = { data: response.data, headers: isObject(response.headers) ? response.headers : {} };
+    if (immutable) workflows.set(path, structuredClone(result));
+    return result;
   };
 }
 
@@ -315,6 +321,12 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
     if ((metadata.data.status === "queued" || metadata.data.status === "in_progress")
       && metadata.data.conclusion === null
       && isReviewedBuildWorkflow(await readWorkflow(read, run.head_sha))) return;
+    // Outside the reviewed active-lock exemption, an empty job snapshot cannot
+    // prove absence while this exact attempt can still start work.
+    const terminal = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale"];
+    if (metadata.data.status !== "completed" || !terminal.includes(metadata.data.conclusion)) {
+      fail(`attempt ${run.id}/${attempt} has no production job without terminal attempt metadata`);
+    }
     if (await isLegacyWorkflow(read, run.head_sha)) return;
     fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
   }
@@ -333,8 +345,14 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   if (deploy !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous deployment`);
   if (steps.plan.conclusion === "skipped") return;
   if (steps.plan.conclusion !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous build plan`);
-  if (steps.publish.conclusion !== "success") {
-    await assertRepaired({ ...expected, jobId: job.id }, await readWorkflow(read, run.head_sha));
+  const workflow = await readWorkflow(read, run.head_sha);
+  if (steps.publish.conclusion === "success") {
+    // Names and successful conclusions alone also fit dry-run publication.
+    // Reviewed wiring binds the deployed version to a real frozen-plan publish;
+    // matching-existing-publication success is legitimate, not a failed write.
+    if (!isReviewedBuildWorkflow(workflow)) fail("unsupported historical successful publication wiring");
+  } else {
+    await assertRepaired({ ...expected, jobId: job.id }, workflow);
   }
 }
 
