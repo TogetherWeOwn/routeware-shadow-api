@@ -169,14 +169,19 @@ headers cannot supply or override this identity. No default is committed in
   steps, a deployment that started but has not finished, unknown outcomes) as
   refusal rather than absence. [Complete unfiltered workflow discovery](BUILD-PUBLICATION-HISTORY.md)
   avoids GitHub's 1,000-result filtered-search cap; main pushes are selected only
-  after complete enumeration. Both pre- and post-proof inventories must agree.
-  The existing physical bound is 50 pages × 100 all-workflow records and 20 attempts
-  per selected run, with every attempt examined; repaired tag inventory is bounded
-  at 10,000 tags. Overflow or practical budget exhaustion refuses, never truncates.
-  These are structural limits, not a promise of provider quota.
-  Even eligible synthetic history may exceed a live job token's request budget;
-  quota errors refuse without truncation or changing credentials. Live quota
-  feasibility must be established before any separate production enablement.
+  after complete enumeration. Both pre- and post-proof inventories must agree,
+  including gap-free retained run-number prefixes. Deleted suffixes or a replaced
+  workflow lineage still require independent retention qualification; listing
+  success cannot prove all-time history. The physical bound is 50 pages × 100
+  all-workflow records and 20 attempts per selected run; repaired tag inventory
+  is bounded at 10,000 tags. These are NOT a supported-load promise: admission
+  also enforces the practical [external-read budget](BUILD-ADMISSION-BUDGET.md).
+  Complete production proof must fit **200 GETs, 120 seconds and the provider's
+  observed remaining allowance**, with a 100-request reserve. Missing/malformed
+  metadata or quota/transport errors refuse before allocation, never truncate
+  history or switch credentials. Unsupported loads are **NOT READY**. Live
+  production feasibility remains **NOT VERIFIED**, and enablement still requires
+  its separate gates.
   Affirmative evidence that no version was consumed permits admission: a
   completed/cancelled attempt with fully enumerated jobs and no production job;
   a completed/skipped production job with no steps (GitHub may populate its

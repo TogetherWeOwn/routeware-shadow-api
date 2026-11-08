@@ -16,9 +16,10 @@
  * collection bounds and provider/read-budget failures still refuse admission.
  */
 
-import { createBuildRepairProof, isReviewedBuildWorkflow, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
+import { createBuildRepairProof, isReviewedBuildWorkflow } from "./buildPublicationRepair.mjs";
+import { createAdmissionReader } from "./buildAdmissionReader.mjs";
 import {
-  REPOSITORY, WORKFLOW_PATH, PAGE_SIZE, MAX_PAGES, createLinkNormalizer,
+  REPOSITORY, WORKFLOW_PATH, PAGE_SIZE, createLinkNormalizer,
   readCollection, discoverBuildRuns, assertStableBuildRunInventory
 } from "./buildPublicationDiscovery.mjs";
 
@@ -30,12 +31,6 @@ const STEP_NAMES = Object.freeze({
 });
 const JOB_NAME = "Deploy to Cloudflare Workers";
 const MAX_ATTEMPTS = 20;
-/**
- * Cover every supported run AND attempt, including all bounded job pages, one
- * numeric-link identity lookup and one workflow read per attempt. Provider quota
- * failures still refuse; this safety ceiling is not a promise of live API quota.
- */
-const MAX_READS = MAX_PAGES * PAGE_SIZE * MAX_ATTEMPTS * (MAX_PAGES + 4) + MAX_REPAIR_READS + 2 * MAX_PAGES + 100;
 
 function fail(message) {
   throw new Error(`build publication history: ${message}`);
@@ -58,24 +53,6 @@ export function assertHistoryContext(context) {
   requirePositiveInteger(context.runId, "run ID");
   requirePositiveInteger(context.attempt, "attempt");
   if (context.eventName !== "push" || context.ref !== "refs/heads/main") fail("build release requires a main push");
-}
-
-function createReader(api) {
-  if (!isObject(api) || typeof api.request !== "function") fail("history provider transport required");
-  let reads = 0;
-  return async function read(path) {
-    reads += 1;
-    if (reads > MAX_READS) fail("history read budget exceeded");
-    let response;
-    try {
-      response = await api.request("GET", path);
-    } catch (error) {
-      fail(`provider read failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (!isObject(response)) fail(`malformed provider envelope for ${path}`);
-    if (response.status !== 200) fail(`provider returned status ${String(response.status)} for ${path}`);
-    return { data: response.data, headers: isObject(response.headers) ? response.headers : {} };
-  };
 }
 
 async function listJobs(read, expected) {
@@ -246,7 +223,7 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
 export async function assertBuildPublicationHistory(context, api) {
   assertHistoryContext(context);
   if (context.enabled !== true) return;
-  return proveBuildPublicationHistory(context, createReader(api));
+  return proveBuildPublicationHistory(context, createAdmissionReader(api));
 }
 
 /** Pure proof seam for bounded synthetic readers; never a planner or transport.

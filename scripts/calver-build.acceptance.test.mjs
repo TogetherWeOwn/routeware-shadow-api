@@ -5,6 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { rateHeaders } from "./fixtures/buildAdmissionRate.mjs";
+// Keep focused admission fixtures registered without growing a shared npm list.
+import "./calver-build-budget.test.mjs";
 import "./build-publication-discovery.test.mjs";
 
 /**
@@ -580,6 +583,7 @@ function historyFixture(attempts = [], options = {}) {
       } };
     } else throw new Error(`Unexpected read in hermetic history fixture: ${url.pathname}`);
     const copy = structuredClone(response);
+    copy.headers = { ...rateHeaders(), ...copy.headers };
     return options.transform?.(copy, url) ?? copy;
   } };
   return { ctx, api, calls };
@@ -589,9 +593,9 @@ async function historyGuard() {
   assert.equal(typeof assertBuildPublicationHistory, "function", "missing read-only publication-history admission guard export");
   return assertBuildPublicationHistory;
 }
-async function historyRefuses(fixture) {
+async function historyRefuses(fixture, expected = Error) {
   const guard = await historyGuard(); // A missing export must fail this test, not satisfy assert.rejects below.
-  await assert.rejects(async () => guard(fixture.ctx, fixture.api), Error);
+  await assert.rejects(async () => guard(fixture.ctx, fixture.api), expected);
   assert.ok(fixture.calls.every((c) => c.method === "GET"));
 }
 async function historyPermits(fixture) {
@@ -717,13 +721,13 @@ for (const [name, options] of [
   ["missing prior attempt (provider 404)", { transform: (r, u) => u.pathname.endsWith("/runs/8000/attempts/1") ? { status: 404, headers: {}, data: { message: "Not Found" } } : r }],
   ["missing jobs", { transform: (r, u) => u.pathname.endsWith("/jobs") ? { ...r, data: { total_count: 0 } } : r }],
   ["truncated job collection", { transform: (r, u) => u.pathname.endsWith("/jobs") ? { ...r, data: { ...r.data, total_count: 2 } } : r }],
-  ["foreign next-page origin", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: '<https://foreign.example.test/history?page=2>; rel="next"' } } : r }],
-  ["foreign next-page repository", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: '<https://api.github.com/repos/another/project/actions/runs?page=2>; rel="next"' } } : r }],
-  ["cyclic next-page link", { transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
+  ["foreign next-page origin", { expectedRefusal: /pagination must stay on the GitHub API origin/, transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { ...r.headers, link: '<https://foreign.example.test/history?page=2>; rel="next"' } } : r }],
+  ["foreign next-page repository", { expectedRefusal: /pagination must stay in this repository/, transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { ...r.headers, link: '<https://api.github.com/repos/another/project/actions/runs?page=2>; rel="next"' } } : r }],
+  ["cyclic next-page link", { expectedRefusal: /cyclic pagination link/, transform: (r, u) => u.pathname.endsWith("/runs") ? { ...r, headers: { ...r.headers, link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
 ]) {
   test(`history guard: ${name} fails closed rather than treating uncertainty as absence`, async () => {
     const fixture = historyFixture([priorAttempt({ legacy: true })], options);
-    await historyRefuses(fixture);
+    await historyRefuses(fixture, options.expectedRefusal ?? Error);
     assert.ok(fixture.calls.length <= 12, "recognize incomplete/cyclic evidence without spinning to the fixture hard stop");
     assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").origin === "https://api.github.com"));
     assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").pathname.startsWith(`${historyRoot}/`)));
@@ -805,9 +809,8 @@ test("history guard: CLI admission runs before the first planner in the same exi
  * Regression controls exercise the real exported guard and real publication CLI.
  * Provider doubles return only synthetic REST records; no admission decision is
  * stubbed. Numeric Link URLs require a separate GET /repos/:owner/:repo identity
- * lookup. Large fixtures opt into a larger test tripwire, not a live API quota.
- * At most 1,000 listed runs / 20 attempts per run are the bounded history contract;
- * completing eligible history must not silently stop at 100 or 200 reads.
+ * lookup. Enumeration bounds do not promise a feasible external-read budget.
+ * Unsupported loads refuse explicitly, never admit a safe-looking prefix.
  */
 describe("publication admission regression controls", () => {
   beforeEach((t) => {
@@ -933,6 +936,7 @@ describe("publication admission regression controls", () => {
         options.jobPageRoot = "/repositories/17";
       }
       const fixture = await historyPermits(historyFixture([prior], options));
+      assert.equal(fixture.calls.length, 6, "count both list pages and numeric-link normalization lookup");
       assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname === historyRoot), "independently resolve canonical repository identity");
       const continuation = fixture.calls.findIndex((c) => {
         const url = new URL(c.path, "https://api.github.com");
@@ -966,7 +970,7 @@ describe("publication admission regression controls", () => {
   });
 
   for (const [runCount, attemptCount, maxRequests] of [[110, 1, 10_000], [110, 20, 10_000], [999, 20, 60_000]]) {
-    test(`bounded history: all ${runCount} prior runs with ${attemptCount} published attempt(s) admit beyond 200 reads`, async () => {
+    test(`unsupported load: ${runCount} prior runs with ${attemptCount} published attempt(s) is NOT READY within 200 reads`, async () => {
       const attempts = [];
       for (let id = 8000; id < 8000 + runCount; id++) {
         for (let attempt = 1; attempt <= attemptCount; attempt++) {
@@ -977,16 +981,12 @@ describe("publication admission regression controls", () => {
       }
       const latest = attempts.filter((a) => a.run.run_attempt === attemptCount).map((a) => a.run);
       const rows = [historyRun(9000, 1, { head_sha: historyContext.sha, status: "in_progress", conclusion: null }), ...latest];
-      const fixture = await historyPermits(historyFixture(attempts, {
+      const fixture = historyFixture(attempts, {
         runPages: Array.from({ length: Math.ceil(rows.length / 100) }, (_, page) => rows.slice(page * 100, (page + 1) * 100)), maxRequests,
-      }));
-      assert.ok(fixture.calls.length > 200, "exercise real history larger than an arbitrary 200-read cap");
-      assert.ok(fixture.calls.length < maxRequests, "legitimate bounded history must not loop or re-read without bound");
-      const reads = new Set(fixture.calls.map((c) => new URL(c.path, "https://api.github.com").pathname));
-      for (const item of attempts) {
-        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}`), "read every exact historical attempt, not only the latest");
-        assert.ok(reads.has(`${historyRoot}/actions/runs/${item.run.id}/attempts/${item.run.run_attempt}/jobs`), "read every attempt's publication evidence");
-      }
+      });
+      const guard = await historyGuard();
+      await assert.rejects(() => guard(fixture.ctx, fixture.api), /history read budget exceeded; NOT READY/);
+      assert.equal(fixture.calls.length, 200, "no hidden reads, incomplete history never admits");
     });
   }
 
@@ -1175,6 +1175,7 @@ function publicationFixture(records = [publicationRecord()], options = {}) {
         : { status: 404, headers: {}, data: { message: "Not Found" } };
     }
     const copy = structuredClone(response);
+    copy.headers = { ...rateHeaders(), ...copy.headers };
     return options.publicationTransform?.(copy, url) ?? copy;
   } };
   return fixture;
@@ -1194,6 +1195,7 @@ describe("explicit publication repair admission", () => {
   test("repaired publication: exact immutable annotated tag and matching Release admit after historical publication failure", async () => {
     const fixture = await historyPermits(publicationFixture());
     assertRepairRecordsRead(fixture);
+    assert.equal(fixture.calls.length, 10, "history and full single-tag repair proof share the same budget");
   });
 
   for (const outcome of ["cancelled", "skipped"]) {
@@ -1299,14 +1301,15 @@ describe("explicit publication repair admission", () => {
     ["Release provider exception", { publicationFail: /\/releases\/tags\// }],
     ["unavailable tag list", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, status: 503 } : r }],
     ["malformed tag list", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, data: {} } : r }],
-    ["foreign tag-page Link", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: '<https://foreign.example.test/tags?page=2>; rel="next"' } } : r }],
-    ["cyclic tag-page Link", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
-    ["truncated tag pagination", { publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { link: `<https://api.github.com${historyRoot}/tags?per_page=100&page=2>; rel="next"` } } : r }],
+    ["foreign tag-page Link", { expectedRefusal: /pagination must stay on the GitHub API origin/, publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { ...r.headers, link: '<https://foreign.example.test/tags?page=2>; rel="next"' } } : r }],
+    ["cyclic tag-page Link", { expectedRefusal: /tag pagination does not continue this collection/, publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { ...r.headers, link: `<https://api.github.com${u.pathname}${u.search}>; rel="next"` } } : r }],
+    ["truncated tag pagination", { expectedRefusal: /provider read failed/, publicationTransform: (r, u) => u.pathname === `${historyRoot}/tags` ? { ...r, headers: { ...r.headers, link: `<https://api.github.com${historyRoot}/tags?per_page=100&page=2>; rel="next"` } } : r }],
     ["malformed Release", { publicationTransform: (r, u) => u.pathname.includes("/releases/tags/") ? { ...r, data: null } : r }],
   ]) {
     test(`repaired publication: ${name} still refuses rather than waiving the historical failure`, async () => {
       const fixture = publicationFixture([publicationRecord()], options);
-      await historyRefuses(fixture);
+      await historyRefuses(fixture, options.expectedRefusal ?? Error);
+      if (name === "truncated tag pagination") assert.ok(fixture.calls.some((call) => call.path.endsWith("/tags?per_page=100&page=2")));
       assert.ok(fixture.calls.length <= 20, "reject bad continuation evidence before the test transport's hard stop");
       assert.ok(fixture.calls.every((c) => new URL(c.path, "https://api.github.com").origin === "https://api.github.com"), "never send a read to a foreign Link origin");
     });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, test } from "node:test";
+import { rateHeaders } from "./fixtures/buildAdmissionRate.mjs";
 import { assertBuildPublicationHistory, proveBuildPublicationHistory } from "./lib/buildPublicationHistory.mjs";
 import {
   REPOSITORY, WORKFLOW_PATH, discoverBuildRuns, assertStableBuildRunInventory
@@ -66,7 +67,7 @@ function fixture({ count = 1002, nonPush = 0, attempts = new Map(), change = () 
         }] };
       }
     }
-    const response = { status: 200, headers, data };
+    const response = { status: 200, headers: { ...rateHeaders(), ...headers }, data };
     change(response, url, pass);
     return response;
   } };
@@ -96,6 +97,17 @@ describe("uncapped exhaustive build history discovery", () => {
     const f = fixture({ count: 2 });
     await assertBuildPublicationHistory(f.ctx, f.api);
     assert.equal(f.calls.length, 5);
+  });
+
+  test("the same safe 1002-run history is NOT READY in production, without request 201 or downstream work", async () => {
+    const f = fixture();
+    let downstream = false;
+    await assert.rejects(async () => {
+      await assertBuildPublicationHistory(f.ctx, f.api);
+      downstream = true;
+    }, /history read budget exceeded; NOT READY/);
+    assert.equal(f.calls.length, 200);
+    assert.equal(downstream, false);
   });
 
   test("1002 main pushes with terminal skipped jobs are completely proven with a bounded fixture reader", async () => {
