@@ -1,6 +1,11 @@
 import { PROBES, resolveBase } from "./postDeployProbe.mjs";
 
-const utc = (value) => typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
+function utc(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value)) return false;
+  const parsed = new Date(value);
+  const canonical = value.length === 20 ? value.replace("Z", ".000Z") : value;
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === canonical;
+}
 
 /** Classify data only. Never fetch a target, resolve a token or execute a probe. */
 export function classifyProbeEvidence(evidence) {
@@ -8,7 +13,8 @@ export function classifyProbeEvidence(evidence) {
     classification: "NOT VERIFIED", liveReadiness: "NOT VERIFIED", reason: "missing_receipt" };
   const finish = (classification, reason) => ({ ...result, classification,
     liveReadiness: classification === "PASS" && evidence?.kind === "staging-probe" ? "PASS" : "NOT VERIFIED", reason });
-  if (!evidence || !/^[0-9a-f]{40}$/.test(evidence.candidateSha ?? "") || !utc(evidence.observedAt)) return result;
+  if (!evidence || typeof evidence.candidateSha !== "string" ||
+      !/^[0-9a-f]{40}$/.test(evidence.candidateSha) || !utc(evidence.observedAt)) return result;
   result.candidateSha = evidence.candidateSha;
   result.observedAt = evidence.observedAt;
   const probe = evidence.probe;

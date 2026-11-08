@@ -50,6 +50,11 @@ const cases = [
   ["public failure plus missing token", "FAIL", (e) => { e.probe.checks[0] = evaluateProbe(PROBES[0], { httpStatus: 500 }); e.probe.checks[1] = probeResult(PROBES[1], { outcome: "skip", errorCode: "missing_token" }); }],
   ["missing candidate", "NOT VERIFIED", (e) => { delete e.candidateSha; }],
   ["missing UTC", "NOT VERIFIED", (e) => { e.observedAt = "yesterday"; }],
+  ["array candidate", "NOT VERIFIED", (e) => { e.candidateSha = [e.candidateSha]; }],
+  ["non-coercible candidate", "NOT VERIFIED", (e) => { e.candidateSha = { toString: null }; }],
+  ["impossible calendar day", "NOT VERIFIED", (e) => { e.observedAt = "2026-02-30T00:00:00Z"; }],
+  ["non-leap February", "NOT VERIFIED", (e) => { e.observedAt = "2026-02-29T00:00:00.000Z"; }],
+  ["normalized midnight", "NOT VERIFIED", (e) => { e.observedAt = "2026-11-08T24:00:00Z"; }],
 ];
 for (const [name, expected, mutate] of cases) {
   test(`strict evidence classification: ${name}`, () => {
@@ -61,6 +66,14 @@ for (const [name, expected, mutate] of cases) {
     finally { globalThis.fetch = originalFetch; }
   });
 }
+
+test("valid leap dates and millisecond UTC timestamps retain exact identity", () => {
+  for (const observedAt of ["2028-02-29T23:59:59Z", "2026-11-08T00:00:00.123Z"]) {
+    const record = { ...evidence(), observedAt };
+    assert.equal(classifyProbeEvidence(record).classification, "PASS");
+    assert.equal(classifyProbeEvidence(record).observedAt, observedAt);
+  }
+});
 
 test("data recorder drops arbitrary response/token fields and refuses malformed, oversized or symlink inputs", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "probe-evidence-test-"));
@@ -77,9 +90,19 @@ test("data recorder drops arbitrary response/token fields and refuses malformed,
   assert.equal(result.stderr, "");
   assert.ok(!result.stdout.includes(marker));
   fs.symlinkSync(file, path.join(dir, "link"));
-  for (const bad of [path.join(dir, "link"), path.join(dir, "missing"), dir]) {
+  const fifo = path.join(dir, "fifo");
+  const created = spawnSync("/usr/bin/mkfifo", [fifo], { encoding: "utf8", timeout: 5_000 });
+  assert.equal(created.status, 0, created.stderr);
+  for (const bad of [fifo, path.join(dir, "link"), path.join(dir, "missing"), dir]) {
     result = invoke(bad);
     assert.equal(result.status, 2);
+    assert.equal(JSON.parse(result.stdout).classification, "NOT VERIFIED");
+  }
+  for (const candidateSha of [[record.candidateSha], { toString: null }]) {
+    fs.writeFileSync(file, JSON.stringify({ ...record, candidateSha }));
+    result = invoke(file);
+    assert.equal(result.status, 2);
+    assert.equal(result.stderr, "");
     assert.equal(JSON.parse(result.stdout).classification, "NOT VERIFIED");
   }
   for (const text of ["not json", " ".repeat(65_537)]) {

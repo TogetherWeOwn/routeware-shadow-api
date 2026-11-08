@@ -6,7 +6,7 @@ let evidence;
 let fd;
 try {
   if (process.argv.length !== 3 || process.argv[2].startsWith("-")) throw new Error();
-  fd = fs.openSync(process.argv[2], fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+  fd = fs.openSync(process.argv[2], fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
   const stat = fs.fstatSync(fd);
   if (!stat.isFile() || stat.size > 65_536) throw new Error();
   const bytes = Buffer.alloc(65_537);

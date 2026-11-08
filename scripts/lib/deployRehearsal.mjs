@@ -28,7 +28,7 @@ function physicalDirectory(directory) {
 }
 
 export function validateRehearsal({ root, scratch, candidateSha, actions }) {
-  if (actions !== "true" || !/^[0-9a-f]{40}$/.test(candidateSha ?? "")) throw new Error("invalid_identity");
+  if (actions !== "true" || typeof candidateSha !== "string" || !/^[0-9a-f]{40}$/.test(candidateSha)) throw new Error("invalid_identity");
   const checkout = physicalDirectory(root);
   const output = physicalDirectory(scratch);
   if (output === path.parse(output).root || inside(checkout, output) || inside(output, checkout)) throw new Error("invalid_scratch");

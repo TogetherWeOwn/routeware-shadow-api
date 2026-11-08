@@ -80,7 +80,7 @@ for (const kind of ["unset", "relative", "missing", "file", "root", "checkout", 
   });
 }
 
-for (const change of [{ actions: "false" }, { candidateSha: "not-a-sha" }]) {
+for (const change of [{ actions: "false" }, { candidateSha: "not-a-sha" }, { candidateSha: [sha] }, { candidateSha: { toString: null } }]) {
   test(`refuses invalid identity ${JSON.stringify(change)}`, (t) => {
     const f = fixture(t);
     assert.equal(runRehearsal({ ...f.options, ...change }, f.deps).errorCode, "invalid_identity");
