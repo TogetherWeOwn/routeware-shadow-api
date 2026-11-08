@@ -936,7 +936,8 @@ describe("publication admission regression controls", () => {
         options.jobPageRoot = "/repositories/17";
       }
       const fixture = await historyPermits(historyFixture([prior], options));
-      assert.equal(fixture.calls.length, 6, "count both list pages and numeric-link normalization lookup");
+      assert.equal(fixture.calls.length, collection === "runs" ? 9 : 7,
+        "count both inventories, all collection pages and independent numeric-link identity reads");
       assert.ok(fixture.calls.some((c) => new URL(c.path, "https://api.github.com").pathname === historyRoot), "independently resolve canonical repository identity");
       const continuation = fixture.calls.findIndex((c) => {
         const url = new URL(c.path, "https://api.github.com");
@@ -1195,7 +1196,7 @@ describe("explicit publication repair admission", () => {
   test("repaired publication: exact immutable annotated tag and matching Release admit after historical publication failure", async () => {
     const fixture = await historyPermits(publicationFixture());
     assertRepairRecordsRead(fixture);
-    assert.equal(fixture.calls.length, 10, "history and full single-tag repair proof share the same budget");
+    assert.equal(fixture.calls.length, 11, "both inventories and full single-tag repair proof share the same budget");
   });
 
   for (const outcome of ["cancelled", "skipped"]) {

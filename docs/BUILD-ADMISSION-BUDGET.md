@@ -65,6 +65,9 @@ one jobs page/attempt and no numeric pagination aliases, except where stated:
 | --- | ---: | --- |
 | Current run only | 3 | Permits |
 | 10 prior published attempts | 23 | Permits |
+| One prior attempt, two inventory pages with numeric aliases in both passes | 9 | Permits |
+| One prior attempt, two jobs pages with a numeric alias | 7 | Permits |
+| One failed-publication attempt with complete single-tag inline-log repair proof | 11 | Permits synthetic proof; real log redirect NOT READY |
 | 98 prior published attempts | 199 | Permits |
 | Same history plus one additional jobs page | 200 | Exact supported boundary |
 | 99 prior published attempts, 100 total runs on one page | 200 dispatched; 201st refused | NOT READY, never a safe prefix |
