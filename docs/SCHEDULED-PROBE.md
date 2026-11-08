@@ -86,10 +86,32 @@ npx --no-install vitest run test/postDeployProbe.test.ts
 npm run test:probe
 ```
 
+## Offline evidence classification
+
+Use the [existing dry-run checklist](PRODUCTION-DEPLOY-DRY-RUN.md#actions-receipt-and-evidence-classification)
+for the data-only receipt recorder and owned acceptance matrix. An executed probe
+needs all three GETs, exit 0, readiness HTTP200/status ok and **fresh** cron to
+classify PASS. Missing token is SKIPPED, degraded/stale is FAIL, unknown cron or
+missing approved staging target is NOT VERIFIED. Plans, public-only success,
+ordinary CI, synthetic fixtures and localhost are not live readiness proof.
+Classification does not fetch a target or grant probe permission. The existing
+schedule and strict target guard are unchanged; missing target must remain red.
+
+Before any future staging/preview qualification, apply the checklist's
+[zero-idle-cost requirements](PRODUCTION-DEPLOY-DRY-RUN.md#zero-idle-cost-staging-and-preview-future-acceptance-not-provisioning):
+isolated nonproduction bindings, inventory all runtime/alarms/cron/keep-alive and
+database compute, trusted SHA-bound on-demand startup/readiness, bounded active
+window and native cleanup/expiry after success/failure/cancellation. No resources
+or always-on exception are created by this source change. A daily probe must not
+wake a zero-idle runtime outside its authorized use window; reconciling that future
+pipeline is an owned prerequisite, not permission to disable today's red schedule.
+
 ## Verification and rollback
 
-Run `npm run test:probe` for hermetic CLI tests (all fetches are fixtures), then
-run the scheduled command only against the operator-approved staging origin.
+Full suites and rehearsal/build execution run **only in GitHub Actions**; the
+hermetic test examples above describe Actions commands, not local full-suite
+permission. Run the scheduled command only with separate execution authority
+against the approved staging origin.
 Record the exact head SHA, run URL, and probe result. Until staging is approved,
 record the explicit configuration failure and the first-class dependency, not
 a staging PASS. Ordinary CI success is not a successful scheduled monitor.
