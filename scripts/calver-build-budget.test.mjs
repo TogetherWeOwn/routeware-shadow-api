@@ -135,6 +135,7 @@ for (const name of ["x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-u
 }
 for (const change of [
   { "x-ratelimit-limit": "0" }, { "x-ratelimit-remaining": "1001" }, { "x-ratelimit-used": "1001" },
+  { "x-ratelimit-used": "1000", "x-ratelimit-remaining": "999" }, { "x-ratelimit-used": "0" },
   { "x-ratelimit-reset": "1" }, { "x-ratelimit-reset": "9999999999" }, { "x-ratelimit-resource": "search" },
   { "retry-after": "60" }, { "retry-after": "invalid" }
 ]) {
@@ -169,6 +170,19 @@ test("per-read timeout aborts a stalled transport, with no retry", async (t) => 
   await result;
   assert.equal(api.calls[0].options.signal.aborted, true);
   assert.equal(api.calls.length, 1);
+});
+
+test("a resolved read past its deadline cannot bypass a delayed timer callback", async (t) => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const api = provider(() => {
+    clock = READ_TIMEOUT_MS + 1; // Simulate blocking body decode; no real wait.
+    return success();
+  });
+  const read = createAdmissionReader(api);
+  await assert.rejects(() => read(workflow), /provider read time budget exceeded/);
+  await assert.rejects(() => read(workflow), /provider read time budget exceeded/);
+  assert.equal(api.calls.length, 1, "late proof is neither accepted nor cached");
 });
 
 test("aggregate time is bounded even when each individual read succeeds", async (t) => {

@@ -47,6 +47,7 @@ export function createAdmissionReader(api) {
         fail("insufficient provider read budget; NOT READY");
       }
       reads += 1; // Count dispatches, including errors/timeouts. No retries.
+      const dispatched = performance.now();
       const controller = new AbortController();
       let timer;
       let response;
@@ -66,6 +67,9 @@ export function createAdmissionReader(api) {
       } finally {
         clearTimeout(timer);
       }
+      // Decoding can block the event loop past a timer's deadline. A resolved
+      // request must not win the race merely because its overdue timer ran late.
+      if (performance.now() - dispatched >= READ_TIMEOUT_MS) fail("provider read time budget exceeded; NOT READY");
       if (!response || typeof response !== "object") fail("malformed provider envelope");
       const headers = response.headers;
       if (response.status === 403 || response.status === 429) fail(`provider rate limit or access refusal (${response.status}); NOT READY`);
@@ -80,7 +84,7 @@ export function createAdmissionReader(api) {
       const reset = integerHeader(headers, "x-ratelimit-reset");
       const now = Math.floor(Date.now() / 1000);
       if (headers["x-ratelimit-resource"] !== "core" || limit === 0 || available > limit
-        || used > limit || reset <= now || reset > now + 3660) fail("invalid provider rate metadata; NOT READY");
+        || used > limit || used !== limit - available || reset <= now || reset > now + 3660) fail("invalid provider rate metadata; NOT READY");
       // A window rollover or concurrent users cannot grow this admission's
       // allowance. Decrement our own observation even if headers repeat/increase.
       remaining = Math.min(remaining === null ? available : remaining - 1, available);

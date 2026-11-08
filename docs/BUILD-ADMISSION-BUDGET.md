@@ -4,7 +4,7 @@
 is not production qualification, a quota reservation, authorization to deploy,
 or a new supported run-discovery strategy. Keep all existing
 [production rehearsal gates](PRODUCTION-DEPLOY-DRY-RUN.md) and
-[build-publication provenance requirements](VERSIONING.md#deployment-build-identity).
+[build-publication provenance requirements](VERSIONING.md#separate-deployment-build-identity-dormant).
 
 ## Provider basis and enforced envelope
 
@@ -32,7 +32,8 @@ One enabled admission enforces all of these:
 - Each HTTP-200 response requires canonical, safe-integer `x-ratelimit-limit`,
   `x-ratelimit-remaining`, `x-ratelimit-used`, future hourly `x-ratelimit-reset`
   (at most 3,660 seconds ahead, allowing one minute clock skew), and
-  `x-ratelimit-resource: core`. Missing/malformed/inconsistent metadata refuses.
+  `x-ratelimit-resource: core`. Used plus remaining must equal the limit.
+  Missing/malformed/inconsistent metadata refuses.
   Our allowance can shrink but never grows when a reset or repeated/higher
   remaining header is observed. No hourly-reset sleep.
 - **120 seconds total, 10 seconds per request**, including body consumption;
@@ -63,6 +64,8 @@ These cases use one jobs page/attempt and no numeric pagination aliases:
 | --- | ---: | --- |
 | Current run only | 2 | Permits |
 | 10 prior published attempts | 22 | Permits |
+| One published prior attempt, two run/jobs pages and numeric-link lookup | 6 | Permits |
+| One failed-publication attempt with complete single-tag inline-log repair proof | 10 | Permits synthetic proof; real log redirect NOT READY |
 | 99 prior published attempts, 100 total runs on one page | 200 | Exact supported boundary |
 | Same history plus one additional jobs page | 200 dispatched; 201st refused | NOT READY, never a safe prefix |
 | 98 finished legacy attempts sharing exact workflow SHA | 199 | Permits, one immutable workflow read instead of 98 |
