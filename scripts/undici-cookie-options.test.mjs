@@ -4,6 +4,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { U, within } from "./fixtures/undici-installed.mjs";
+import { ScriptedDispatcher, H, D, END } from "./fixtures/undici-scripted-dispatcher.mjs";
 
 test("K1: percent-encoded cookie bytes remain encoded", () => {
   for (const [name, value] of [
@@ -76,9 +77,7 @@ test("O1 PARTIAL: BalancedPool child factory receives copied TLS options", async
 });
 
 test("O2 PARTIAL: Agent child factory receives copied TLS options", { timeout: 5000 }, async (t) => {
-  const mock = new U.MockAgent();
-  mock.disableNetConnect();
-  mock.get("https://origin.invalid").intercept({ path: "/", method: "GET" }).reply(200, "ok");
+  const child = new ScriptedDispatcher([[H(200, {}), D("ok"), END]]);
   const connect = { timeout: 100, rejectUnauthorized: true };
   const checkServerIdentity = () => new Error("fixture certificate rejected");
   const tls = { servername: "before.invalid", checkServerIdentity };
@@ -89,17 +88,17 @@ test("O2 PARTIAL: Agent child factory receives copied TLS options", { timeout: 5
     factory(origin, options) {
       factories++;
       captured = options;
-      return mock.get(origin);
+      assert.equal(String(origin), "https://origin.invalid");
+      return child; // Agent exclusively owns this child's terminal lifecycle.
     },
   });
-  t.after(async () => {
-    try { await within(agent.destroy()); } finally { await within(mock.close()); }
-  });
+  t.after(() => within(agent.destroy()));
   connect.timeout = 200;
   tls.servername = "after.invalid";
   const response = await within(agent.request({ origin: "https://origin.invalid", path: "/", method: "GET" }));
   assert.equal(await within(response.body.text()), "ok");
   assert.equal(factories, 1);
   assertOptions(captured, connect, tls, checkServerIdentity);
-  mock.assertNoPendingInterceptors();
+  assert.equal(child.calls.length, 1);
+  assert.equal(child.active.size, 0);
 });
