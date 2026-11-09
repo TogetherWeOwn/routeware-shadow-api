@@ -15,7 +15,12 @@ class EncodingDispatcher extends U.Dispatcher {
   }
   dispatch(_options, handler) {
     let aborted = false;
-    handler.onConnect((reason) => { aborted = true; this.aborts++; handler.onError(reason); }, null);
+    handler.onConnect((reason) => {
+      if (aborted) return; // match HTTP/1's re-entrant terminal abort contract
+      aborted = true;
+      this.aborts++;
+      handler.onError(reason);
+    }, null);
     handler.onHeaders(200, [
       Buffer.from("content-encoding"), Buffer.from(Array(this.count).fill("gzip").join(", ")),
     ], () => {}, "OK");

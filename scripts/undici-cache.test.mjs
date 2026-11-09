@@ -13,7 +13,7 @@ function fixture(t, beforeCache = [], afterCache = []) {
     maxCount: 16, maxSize: 16384, maxEntrySize: 1024,
   });
   const client = mock.compose(...beforeCache, U.interceptors.cache({ store, type: "shared" }), ...afterCache);
-  t.after(() => mock.destroy());
+  t.after(() => within(mock.close()));
   let hits = 0;
   function reply(url, path, method, headers, statusCode = 200) {
     mock.get(url).intercept({ path, method }).reply(() => {
@@ -117,7 +117,7 @@ test("C5: shared cache refuses new and pre-existing Set-Cookie entries", { timeo
   const second = await read(f.client, { headers: { cookie: "user-b" } });
   assert.equal(first.text, "hit-1");
   assert.equal(second.text, "hit-2");
-  assert.deepEqual(second.headers["set-cookie"], ["session=fixture-only"]);
+  assert.equal(second.headers["set-cookie"], "session=fixture-only");
   const privateClient = f.mock.compose(U.interceptors.cache({ store: f.store, type: "private" }));
   const privateFirst = await read(privateClient, { headers: { cookie: "user-a" } });
   const afterPrivate = f.hits();

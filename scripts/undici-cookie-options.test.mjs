@@ -92,7 +92,9 @@ test("O2 PARTIAL: Agent child factory receives copied TLS options", { timeout: 5
       return mock.get(origin);
     },
   });
-  t.after(async () => { await agent.destroy(); await mock.destroy(); });
+  t.after(async () => {
+    try { await within(agent.destroy()); } finally { await within(mock.close()); }
+  });
   connect.timeout = 200;
   tls.servername = "after.invalid";
   const response = await within(agent.request({ origin: "https://origin.invalid", path: "/", method: "GET" }));
