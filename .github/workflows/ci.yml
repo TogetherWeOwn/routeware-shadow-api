@@ -160,31 +160,6 @@ jobs:
         # not call the Cloudflare API, so no account or token is needed.
         run: npx wrangler deploy --dry-run
 
-  dependency-repair:
-    name: Dependency qualification (${{ matrix.os }})
-    needs: [changes]
-    if: needs.changes.outputs.code == 'true' || needs.changes.outputs.infra == 'true' || needs.changes.outputs.full == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: "24"
-          cache: npm
-      - name: Verify effective native npm policy before installation
-        run: npm run check:dependency-install-policy
-      - name: Clean no-hook root and discovery installs
-        run: |
-          npm ci --include=dev
-          npm --prefix tools/api-discovery ci --include=dev
-      - name: Assert held graph, nested resolution and no-network runtime behavior
-        run: npm run test:dependency-repair
-
   shadow-api-v1:
     name: shadow-api-v1
     needs: [changes]
@@ -353,7 +328,7 @@ jobs:
     # only this (+ pr-lint, secret scan via hygiene). Deploy is EXEMPT
     # (own push-only trigger) and is intentionally not in `needs:`.
     if: always()
-    needs: [changes, build, dependency-repair, shadow-api-v1, hygiene]
+    needs: [changes, build, shadow-api-v1, hygiene]
     runs-on: ubuntu-latest
     # Bound like every other job (trivial aggregation, small cap).
     timeout-minutes: 5
@@ -361,7 +336,7 @@ jobs:
       - name: Verify required jobs passed or were skipped
         run: |
           results="${{ join(needs.*.result, ',') }}"
-          echo "Job results (changes,build,dependency-repair,shadow-api-v1,hygiene): $results"
+          echo "Job results (changes,build,shadow-api-v1,hygiene): $results"
           if echo "$results" | grep -qE 'failure|cancelled'; then
             echo "::error::Required jobs failed or were cancelled: $results"
             exit 1

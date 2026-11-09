@@ -78,7 +78,7 @@ test('installed resolution is verified FROM each retained consumer, including sy
     '@cloudflare/vitest-pool-workers': { esbuild: '0.28.2' },
   };
   for (const [parent, children] of Object.entries(consumers)) {
-    const parentRequire = createRequire(require.resolve(`${parent}/package.json`));
+    const parentRequire = createRequire(import.meta.resolve(parent));
     for (const [name, version] of Object.entries(children)) {
       assert.equal(parentRequire(`${name}/package.json`).version, version, `${parent} -> ${name}`);
     }

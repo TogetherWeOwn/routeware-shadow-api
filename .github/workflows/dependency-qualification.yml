@@ -1,0 +1,90 @@
+name: Dependency qualification
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-qualification-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      qualify: ${{ steps.filter.outputs.qualify }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "qualify=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base="$(git merge-base origin/main HEAD 2>/dev/null || true)"
+          if [ -z "$base" ]; then
+            echo "qualify=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files="$(git diff --name-only --no-renames "$base"...HEAD)"
+          if printf '%s\n' "$files" | grep -qE '^(package(-lock)?\.json$|\.npmrc$|\.nvmrc$|\.github/workflows/|scripts/(dependency-|undici-|fixtures/undici-|fixtures/UNDICI-LICENSE)|tools/api-discovery/(package(-lock)?\.json|\.npmrc)$)'; then
+            echo "qualify=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "qualify=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  runtime:
+    name: Dependency qualification (${{ matrix.os }})
+    needs: [changes]
+    if: needs.changes.outputs.qualify == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        # Preserve evidence bytes on Windows without changing global Git config.
+        env:
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: core.autocrlf
+          GIT_CONFIG_VALUE_0: "false"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Verify effective native npm policy before installation
+        run: npm run check:dependency-install-policy
+      - name: Clean no-hook root and discovery installs
+        run: |
+          npm ci --include=dev
+          npm --prefix tools/api-discovery ci --include=dev
+      - name: Assert held graph, nested resolution and no-network runtime behavior
+        run: npm run test:dependency-repair
+
+  dependency-qualification-ok:
+    if: always()
+    needs: [changes, runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify qualification results
+        shell: bash
+        env:
+          RESULTS: ${{ join(needs.*.result, ',') }}
+        run: |
+          if printf '%s' "$RESULTS" | grep -qE 'failure|cancelled'; then
+            exit 1
+          fi

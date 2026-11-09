@@ -89,11 +89,30 @@ proof of real Worker IPC or TLS certificate behavior. Linux/Windows matrix
 configuration is not proof that those jobs passed, nor execution on the other
 24 optional esbuild platforms.
 
-**Draft qualification gaps:** Undici advisory-specific mocked regressions and
-Windows esbuild serve containment are not established by these compatibility
-checks. A Windows build API pass cannot substitute for the serve containment
-case; actual TLS and idle-socket behavior cannot be inferred from MockAgent.
-Those remain Security/QA gates, not skipped tests treated as success.
+The separate `dependency-qualification.yml` workflow leaves the existing
+production CI workflow and its exact historical-publication fingerprints
+unchanged. Its own aggregate reports the matrix result. Matrix success remains
+an explicit specialist-review condition; adding a workflow does not modify
+repository rulesets or claim that a new branch-protection requirement is installed.
+
+Four additional Undici regression modules adapt exact-tag upstream assertions
+at commit `7507102a675b082a71437f0a00681e537875556c`, retaining the MIT notice in
+`scripts/fixtures/UNDICI-LICENSE`. They use the actual Miniflare-resolved package,
+MockAgent, finite dispatcher events and a tiny EventEmitter backpressure stub.
+Their helper blocks socket/listener/DNS/global-fetch entry points and fails even
+when an attempted I/O exception was caught. The assertions cover representative
+cookie/cache/retry/dump/encoding/PONG behavior for 15 advisory records, plus
+**option propagation only** for BalancedPool and Agent. Source integration is
+not a passing run or exhaustive advisory coverage.
+
+**Draft qualification gaps:** five Undici outcomes remain uncovered: SOCKS
+requestTls enforcement and cross-origin pool isolation, idle-socket reuse,
+blob-like body type serialization, and TLS 1.2 renegotiation. The two options-only
+cases do not establish default connector certificate enforcement. Windows esbuild
+serve containment is also unqualified: a Windows build API pass cannot substitute
+for the serve containment case. Real TLS and idle-socket behavior cannot be
+inferred from MockAgent. These remain Security/QA gates, not skipped tests treated
+as success; no no-network-policy relaxation is authorized.
 
 This is a subset repair. Sharp, the browser-manager chain (including basic-ftp
 and extract-zip), Zod and embedded parser copies remain held and unresolved.

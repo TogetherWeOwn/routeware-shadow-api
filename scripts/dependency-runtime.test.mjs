@@ -161,7 +161,7 @@ test('the Miniflare-resolved ws server defaults are bounded without opening a li
 test('both consumers execute the reviewed esbuild binary with plugins/context/metafiles', { timeout: 15000 }, async () => {
   assert.equal(process.env.ESBUILD_BINARY_PATH, undefined, 'no alternate binary');
   for (const parent of ['wrangler', '@cloudflare/vitest-pool-workers']) {
-    const fromParent = createRequire(require.resolve(`${parent}/package.json`));
+    const fromParent = createRequire(import.meta.resolve(parent));
     const esbuild = fromParent('esbuild');
     assert.equal(esbuild.version, '0.28.2');
     let resolved = false;

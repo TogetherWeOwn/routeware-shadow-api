@@ -271,7 +271,12 @@ function sharedSteps() {
 test("CI preserves the existing jobs, free runners and nightly schedule without creating a release workflow", () => {
   const { yaml, entries } = jobs();
   assert.deepEqual(readdirSync(new URL("../.github/workflows/", import.meta.url)).filter((name) => /\.ya?ml$/.test(name)).sort(),
-    ["ci.yml", "offline-rehearsal.yml", "post-deploy-probe.yml", "pr-lint.yml", "test-guard.yml"]);
+    ["ci.yml", "dependency-qualification.yml", "offline-rehearsal.yml", "post-deploy-probe.yml", "pr-lint.yml", "test-guard.yml"]);
+  const qualification = readFileSync(new URL("../.github/workflows/dependency-qualification.yml", import.meta.url), "utf8");
+  assert.doesNotMatch(qualification, /contents: write|actions: write|secrets\.|vars\.|environment:|calver@|--remote|workflow_dispatch/);
+  assert.match(qualification, /os: \[ubuntu-latest, windows-latest\]/);
+  assert.match(qualification, /npm run check:dependency-install-policy[\s\S]*npm ci --include=dev[\s\S]*npm --prefix tools\/api-discovery ci --include=dev[\s\S]*npm run test:dependency-repair/);
+  assert.match(qualification, /dependency-qualification-ok:[\s\S]*if: always\(\)[\s\S]*needs: \[changes, runtime\]/);
   const offline = readFileSync(new URL("../.github/workflows/offline-rehearsal.yml", import.meta.url), "utf8");
   assert.doesNotMatch(offline, /contents: write|actions: write|secrets\.|vars\.|environment:|calver@|--remote|workflow_dispatch/);
   assert.match(offline, /run: node --test scripts\/deploy-rehearsal\.test\.mjs scripts\/probe-evidence\.test\.mjs/);

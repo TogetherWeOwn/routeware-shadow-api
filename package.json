@@ -24,7 +24,7 @@
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
     "check:dependency-install-policy": "node scripts/dependency-install-policy.mjs",
-    "test:dependency-repair": "node --test scripts/dependency-lock.test.mjs scripts/dependency-runtime.test.mjs",
+    "test:dependency-repair": "node --test --test-concurrency=1 scripts/dependency-lock.test.mjs scripts/dependency-runtime.test.mjs scripts/undici-cookie-options.test.mjs scripts/undici-cache.test.mjs scripts/undici-retry-dump.test.mjs scripts/undici-fetch-backpressure.test.mjs",
     "check:docs-links": "node scripts/check-docs-links.mjs",
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
     "verify:config": "node scripts/verify-config.mjs",

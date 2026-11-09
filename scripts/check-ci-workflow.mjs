@@ -241,10 +241,7 @@ assert.doesNotMatch(
 
 const ciOkJob = jobBlock("ci-ok");
 assert.match(ciOkJob, /^    if: always\(\)$/m, "ci-ok must use if: always() so gating can never leave the PR hanging");
-assert.match(ciOkJob, /needs: \[changes, build, dependency-repair, shadow-api-v1, hygiene\]/, "ci-ok must aggregate every gated job");
-const dependencyRepair = jobBlock("dependency-repair");
-assert.match(dependencyRepair, /os: \[ubuntu-latest, windows-latest\]/, "dependency qualification must cover Linux and Windows binaries");
-assert.match(dependencyRepair, /npm run check:dependency-install-policy[\s\S]*npm ci --include=dev[\s\S]*npm --prefix tools\/api-discovery ci --include=dev[\s\S]*npm run test:dependency-repair/, "dependency qualification must verify policy before clean no-hook installs and runtime tests");
+assert.match(ciOkJob, /needs: \[changes, build, shadow-api-v1, hygiene\]/, "ci-ok must aggregate every gated job");
 
 // pr-lint is the always-run title/body gate (CI standard rule 6). Pin it
 // present so a workflow edit can never silently drop title lint.
