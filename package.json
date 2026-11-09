@@ -23,6 +23,8 @@
     "check:r2-lifecycle-proposal": "node scripts/check-r2-lifecycle-proposal.mjs",
     "check:changelog": "node scripts/check-changelog.mjs",
     "check:deps-audit": "node scripts/check-deps-audit.mjs",
+    "check:dependency-install-policy": "node scripts/dependency-install-policy.mjs",
+    "test:dependency-repair": "node --test scripts/dependency-lock.test.mjs scripts/dependency-runtime.test.mjs",
     "check:docs-links": "node scripts/check-docs-links.mjs",
     "check:vars-parity": "node scripts/check-vars-parity.mjs",
     "verify:config": "node scripts/verify-config.mjs",
@@ -66,13 +68,25 @@
     "hono": "^4.13.7",
     "zod": "^4.6.7"
   },
+  "overrides": {
+    "miniflare@4.20260421.0": {
+      "ws": "8.22.0",
+      "undici": "7.30.1"
+    },
+    "wrangler@4.84.1": {
+      "esbuild": "0.28.2"
+    },
+    "@cloudflare/vitest-pool-workers@0.14.9": {
+      "esbuild": "0.28.2"
+    }
+  },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.14.9",
+    "@cloudflare/vitest-pool-workers": "0.14.9",
     "@vitest/coverage-istanbul": "^4.1.12",
     "entities": "^8.1.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.12",
-    "wrangler": "^4.54.0",
+    "wrangler": "4.84.1",
     "marked": "18.1.0"
   }
 }
