@@ -83,6 +83,7 @@ jobs:
       - name: Preserve native audit accounting without changing exception policy
         shell: bash
         run: |
+          node --test scripts/dependency-audit-evidence.test.mjs
           mkdir -p dependency-evidence
           npm audit --package-lock-only --include=dev --json > dependency-evidence/root-full.json || test "$?" = 1
           npm audit --package-lock-only --omit=dev --json > dependency-evidence/root-production.json || test "$?" = 1
@@ -101,7 +102,7 @@ jobs:
             const lock = read(lockPath);
             function resolve(parent, name) {
               for (let dir = parent; ; dir = posix.dirname(dir)) {
-                const candidate = `${dir ? `${dir}/` : ''}node_modules/${name}`;
+                const candidate = `${dir && dir !== '.' ? `${dir}/` : ''}node_modules/${name}`;
                 if (lock.packages[candidate]) return candidate;
                 if (!dir || dir === '.') return undefined;
               }
