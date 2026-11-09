@@ -69,11 +69,17 @@ function requestCount(wire) {
 // These real H1 stream transitions do NOT prove kernel poll ordering or
 // referenced-Immediate process liveness: MemoryWire ref/unref are no-ops, and
 // the case deadline itself keeps the process alive. That qualification stays open.
-for (const disturbance of ["buffered", "validating", "fin", "reset", "clean"]) {
+for (const disturbance of ["buffered", "validating", "fin", "socket-error", "reset", "fatal-error", "clean"]) {
   test(`I1 PARTIAL: pending H1 reuse with ${disturbance} transport`, { timeout: 5000 }, async (t) => {
     const replied = new Map();
     const disconnects = [];
-    const reset = new Error("fixture peer reset");
+    // Client preserves idle pending requests only for its recoverable SocketError.
+    // Generic/ECONNRESET errors reject them; none of these JS events is a kernel RST.
+    const fatal = disturbance === "reset" || disturbance === "fatal-error";
+    const transportError = disturbance === "socket-error"
+      ? new U.errors.SocketError("fixture recoverable socket close")
+      : new Error("fixture peer failure");
+    if (disturbance === "reset") transportError.code = "ECONNRESET";
     const { client, wires } = fixture(t, (wire, index) => {
       const requests = requestCount(wire);
       const previous = replied.get(wire) ?? 0;
@@ -92,14 +98,25 @@ for (const disturbance of ["buffered", "validating", "fin", "reset", "clean"]) {
     if (disturbance === "buffered") old.feed(poison);
     const pending = client.request({ method: "GET", path: "/" });
     // Attach settlement immediately, before disturbing the connection.
-    const settled = within(pending);
+    const settled = fatal
+      ? within(assert.rejects(pending, (error) => error === transportError))
+      : within(pending);
     assert.equal(requestCount(old), 1, "reuse must defer before writing GET 2");
     queueMicrotask(() => {
       if (disturbance === "validating") old.feed(poison);
       else if (disturbance === "fin") old.feed(null);
-      else if (disturbance === "reset") old.destroy(reset);
+      else if (["socket-error", "reset", "fatal-error"].includes(disturbance)) old.destroy(transportError);
     });
-    const second = await settled;
+    const pendingResult = await settled;
+    if (fatal) {
+      assert.equal(wires.length, 1, "a rejected request must not reconnect or write");
+      assert.equal(requestCount(old), 1);
+      assert.equal(old.destroyed, true);
+    }
+    // After a fatal pending-request rejection, an explicit new request may recover.
+    const second = fatal
+      ? await within(client.request({ method: "GET", path: "/" }))
+      : pendingResult;
     assert.equal(await within(second.body.text()), "B");
     assert.equal(second.headers["x-fixture-poison"], undefined);
     if (disturbance === "clean") {
@@ -111,7 +128,7 @@ for (const disturbance of ["buffered", "validating", "fin", "reset", "clean"]) {
       assert.equal(requestCount(wires[1]), 1);
       assert.equal(old.destroyed, true);
       assert.ok(disconnects.length >= 1);
-      if (disturbance === "reset") assert.ok(disconnects.includes(reset));
+      if (fatal || disturbance === "socket-error") assert.ok(disconnects.includes(transportError));
     }
   });
 }

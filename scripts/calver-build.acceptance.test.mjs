@@ -274,7 +274,8 @@ test("CI preserves the existing jobs, free runners and nightly schedule without 
     ["ci.yml", "dependency-qualification.yml", "offline-rehearsal.yml", "post-deploy-probe.yml", "pr-lint.yml", "test-guard.yml"]);
   const qualification = readFileSync(new URL("../.github/workflows/dependency-qualification.yml", import.meta.url), "utf8");
   assert.doesNotMatch(qualification, /contents: write|actions: write|secrets\.|vars\.|environment:|calver@|--remote|workflow_dispatch/);
-  assert.match(qualification, /os: \[ubuntu-latest, windows-latest\]/);
+  assert.match(qualification, /os: \[ubuntu-24\.04, windows-2025\]/);
+  assert.match(qualification, /Record actual qualification runtime[\s\S]*process\.version[\s\S]*process\.versions\.openssl[\s\S]*process\.platform[\s\S]*process\.arch/);
   assert.match(qualification, /npm run check:dependency-install-policy[\s\S]*npm ci --include=dev[\s\S]*npm --prefix tools\/api-discovery ci --include=dev[\s\S]*npm run test:dependency-repair/);
   assert.match(qualification, /dependency-qualification-ok:[\s\S]*if: always\(\)[\s\S]*needs: \[changes, runtime\]/);
   const offline = readFileSync(new URL("../.github/workflows/offline-rehearsal.yml", import.meta.url), "utf8");
