@@ -72,7 +72,8 @@ jobs:
           npm ci --include=dev
           npm --prefix tools/api-discovery ci --include=dev
       - name: Record actual qualification runtime
-        run: node -e 'console.log(JSON.stringify({ node: process.version, openssl: process.versions.openssl, platform: process.platform, arch: process.arch, os: require("node:os").release(), flags: process.execArgv }))'
+        run: |
+          node -e 'console.log(JSON.stringify({ node: process.version, openssl: process.versions.openssl, platform: process.platform, arch: process.arch, os: require("node:os").release(), flags: process.execArgv }))'
       - name: Assert held graph, nested resolution and no-network runtime behavior
         run: npm run test:dependency-repair
 
