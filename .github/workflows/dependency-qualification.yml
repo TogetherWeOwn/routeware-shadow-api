@@ -56,6 +56,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
         # Preserve evidence bytes on Windows without changing global Git config.
         env:
           GIT_CONFIG_COUNT: "1"
@@ -75,7 +77,66 @@ jobs:
         run: |
           node -e 'console.log(JSON.stringify({ node: process.version, openssl: process.versions.openssl, platform: process.platform, arch: process.arch, os: require("node:os").release(), flags: process.execArgv }))'
       - name: Assert held graph, nested resolution and no-network runtime behavior
+        # ws-only admission: excluded candidate Undici suites remain unchanged
+        # in history/source; baseline compatibility is NOT advisory remediation.
         run: npm run test:dependency-repair
+      - name: Preserve native audit accounting without changing exception policy
+        shell: bash
+        run: |
+          mkdir -p dependency-evidence
+          npm audit --package-lock-only --include=dev --json > dependency-evidence/root-full.json || test "$?" = 1
+          npm audit --package-lock-only --omit=dev --json > dependency-evidence/root-production.json || test "$?" = 1
+          npm --prefix tools/api-discovery audit --package-lock-only --include=dev --json > dependency-evidence/discovery.json || test "$?" = 1
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { readFileSync, writeFileSync, copyFileSync } from 'node:fs';
+          import { posix } from 'node:path';
+          import { auditReportProblem, combineAuditJson, evaluateAudit, extractAdvisories, AUDIT_ALLOWLIST } from './scripts/lib/depsAuditCheck.mjs';
+          const read = (path) => JSON.parse(readFileSync(path, 'utf8'));
+          const scopes = ['root-full', 'root-production', 'discovery'];
+          const reports = Object.fromEntries(scopes.map((scope) => [scope, read(`dependency-evidence/${scope}.json`)]));
+          for (const [scope, report] of Object.entries(reports)) {
+            assert.equal(auditReportProblem(report), null, scope);
+            const lockPath = scope === 'discovery' ? 'tools/api-discovery/package-lock.json' : 'package-lock.json';
+            const lock = read(lockPath);
+            function resolve(parent, name) {
+              for (let dir = parent; ; dir = posix.dirname(dir)) {
+                const candidate = `${dir ? `${dir}/` : ''}node_modules/${name}`;
+                if (lock.packages[candidate]) return candidate;
+                if (!dir || dir === '.') return undefined;
+              }
+            }
+            const packages = Object.entries(report.vulnerabilities).map(([name, entry]) => ({
+              name, severity: entry.severity, range: entry.range, nodes: entry.nodes, via: entry.via,
+              parents: Object.entries(lock.packages).flatMap(([path, parent]) =>
+                Object.entries(parent.dependencies ?? {}).filter(([child]) => child === name)
+                  .map(([child, range]) => ({ path, version: parent.version, range, resolved: resolve(path, child) }))
+                  .filter((edge) => entry.nodes.includes(edge.resolved))),
+            }));
+            const advisories = [...extractAdvisories(report).values()].map((entry) => ({
+              ...entry,
+              disposition: AUDIT_ALLOWLIST.some((exception) => exception.id === entry.id)
+                ? 'existing exception unchanged' : 'unresolved; not accepted by ws-only repair',
+            }));
+            writeFileSync(`dependency-evidence/${scope}-normalized.json`, JSON.stringify({ scope, packages, advisories, metadata: report.metadata }, null, 2));
+            console.log(JSON.stringify({ scope, vulnerabilities: report.metadata.vulnerabilities }));
+          }
+          const exceptionDisposition = evaluateAudit(combineAuditJson([reports['root-production'], reports.discovery]));
+          writeFileSync('dependency-evidence/exception-disposition.json', JSON.stringify(exceptionDisposition, null, 2));
+          copyFileSync('package-lock.json', 'dependency-evidence/package-lock.json');
+          copyFileSync('tools/api-discovery/package-lock.json', 'dependency-evidence/discovery-lock.json');
+          assert.ok(!extractAdvisories(reports['root-full']).has('GHSA-96hv-2xvq-fx4p'), 'ws advisory absent from actual full-root lock audit');
+          assert.ok(exceptionDisposition.ok, 'unchanged production/discovery audit exception gate');
+          NODE
+          npm run check:deps-audit -- --audit-json=dependency-evidence/root-production.json --discovery-audit-json=dependency-evidence/discovery.json
+      - name: Retain raw and normalized audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dependency-audit-${{ matrix.os }}
+          path: dependency-evidence/
+          if-no-files-found: error
+          retention-days: 30
 
   dependency-qualification-ok:
     if: always()

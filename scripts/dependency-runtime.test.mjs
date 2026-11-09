@@ -64,7 +64,7 @@ test('Miniflare fetch and dispatcher preserve local/outbound routing without net
   outbound.assertNoPendingInterceptors(); local.assertNoPendingInterceptors();
 });
 
-test('the embedded sync-fetch worker uses the same patched Undici and settles errors', { timeout: 5000 }, async (t) => {
+test('the embedded sync-fetch worker retains baseline Undici compatibility and settles errors', { timeout: 5000 }, async (t) => {
   // Execute the SHIPPED worker body, not a rewritten facsimile. Replace only the
   // worker port and Pool socket boundary; there is no server, socket or Worker
   // thread. Real workerd/Worker IPC remains covered by the existing pool suite.
@@ -95,7 +95,7 @@ test('the embedded sync-fetch worker uses the same patched Undici and settles er
     return { createRequire(base) {
       assert.equal(base, filename);
       const actualRequire = createRequire(base);
-      assert.equal(actualRequire('undici/package.json').version, '7.30.1');
+      assert.equal(actualRequire('undici/package.json').version, '7.24.8');
       return (dependency) => {
         assert.equal(dependency, 'undici');
         return { ...actualRequire(dependency), Pool: class {
@@ -158,12 +158,12 @@ test('the Miniflare-resolved ws server defaults are bounded without opening a li
   assert.equal(server.options.maxPayload, 100 * 1024 * 1024);
 });
 
-test('both consumers execute the reviewed esbuild binary with plugins/context/metafiles', { timeout: 15000 }, async () => {
+test('both consumers retain baseline esbuild build/context/metafile compatibility, not serve containment', { timeout: 15000 }, async () => {
   assert.equal(process.env.ESBUILD_BINARY_PATH, undefined, 'no alternate binary');
   for (const parent of ['wrangler', '@cloudflare/vitest-pool-workers']) {
     const fromParent = createRequire(import.meta.resolve(parent));
     const esbuild = fromParent('esbuild');
-    assert.equal(esbuild.version, '0.28.2');
+    assert.equal(esbuild.version, '0.27.3');
     let resolved = false;
     let ended = false;
     const result = await esbuild.build({

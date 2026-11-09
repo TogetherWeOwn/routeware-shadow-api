@@ -41,7 +41,7 @@ and the candidate install sources:
 
 | Scope | Package/version | Candidate hook | Disposition |
 | --- | --- | --- | --- |
-| Root | esbuild 0.28.2 (updated 2026-11-09) | `postinstall: node install.js` | Disabled; exact reviewed platform optional package supplies the binary. |
+| Root | esbuild 0.27.3 (baseline retained) | `postinstall: node install.js` | Disabled; exact reviewed platform optional package supplies the binary. |
 | Root | workerd 1.20260421.1 | `postinstall: node install.js` | Disabled; platform optional package supplies the binary. |
 | Root | sharp 0.34.5 | `install: node install/check.js \|\| npm run build` | Disabled; no source-build exception. |
 | Both | fsevents 2.3.3 | lock flags install script; manifest has no install hook | Disabled; macOS-only optional native package. |
@@ -54,73 +54,77 @@ registry URLs and full integrity values are retained in the two lockfiles.
 No script exceptions are approved; therefore no exception reviewer or expiry is
 applicable. Re-review any new candidate hook before changing this disposition.
 
-## Bounded transport and bundler repair (2026-11-09)
+## Bounded ws-only repair (2026-11-09)
 
-The root manifest overrides only Miniflare 4.20260421.0's ws/Undici and
-Wrangler 4.84.1 / pool-workers 0.14.9's esbuild: ws 8.22.0, Undici 7.30.1 and
-esbuild 0.28.2. All 26 exact esbuild platform artifacts were reviewed with their
-registry SHA-512, publication times, hooks and executable/WASM member hashes.
-These releases exceed the three-day age floor. This is source/artifact evidence,
-not executed platform compatibility or a general override authorization.
+The sole override is Miniflare 4.20260421.0 → ws 8.22.0. Only the complete
+`node_modules/miniflare/node_modules/ws` lock record changes from base
+`b888239bdddeb615c2d317e5031133781f95b87d`; root ws remains its distinct 8.22.0
+record. The reviewed September 26 artifact exceeds the three-day age floor,
+has no added dependency closure or hook, and adds no installed optional native
+peer. Artifact provenance/API inspection is not an executed compatibility pass.
+No global override, parent upgrade, source build or alternate binary is admitted.
 
-npm requires direct override selectors to match direct dependency specifiers.
-The two direct Wrangler/pool ranges are therefore narrowed to their **already
-locked versions**, not upgraded. No global override is used. The existing patched
-root ws remains 8.22.0; the previously vulnerable nested Miniflare copy is
-separately updated. ws and Undici have no additional dependency closure. Undici's
-published development `prepare` script remains disabled along with every other
-hook. No optional native ws peer, source build or alternate binary is authorized.
+The earlier unmerged combined candidate is preserved at
+`d5963d9c79e2d09209630c2fbfebfa20417cf345`, including all source fixtures, the
+MIT notice in `scripts/fixtures/UNDICI-LICENSE`, original authorship and negative
+Actions evidence. Its Undici 7.30.1 and esbuild 0.28.2 changes are excluded from
+this repair: complete Undici 7.24.8, esbuild 0.27.3 and all 26 platform records
+return to the immutable baseline. Direct Wrangler/pool specs also return to
+`^4.54.0` / `^0.14.9`, without changing locked parents 4.84.1 / 0.14.9.
+Discovery's separate esbuild 0.28.2 graph stays byte-identical. Restoration is
+not remediation, acceptance or a claim that these vulnerable baseline copies
+are safe or unreachable.
 
-`test:dependency-repair` asserts every retained package's complete lock metadata
-against `scripts/dependency-repair-baseline.json`, including every nested copy.
-The 270 unselected entries, discovery manifest/lock and all other manifest ranges
-are unchanged. Updating that baseline requires a new bounded dependency review,
-not merely replacing a digest to silence a failure. The selected artifacts and
-installed resolutions are checked separately from each actual parent, including
-the base filename used by Miniflare's embedded sync-fetch worker.
+`test:dependency-repair` selects only the graph and consumer/runtime suites.
+The exact ws-only applicability decision excludes the candidate-Undici advisory
+suites from acceptance of this delta, not from future Undici remediation. All
+five Undici test files and fixture helpers remain byte-identical to the preserved
+head. No binding check is removed, inverted or made continue-on-error. Newly
+observed causal dependence on excluded defects stops the reduced admission.
 
-The Actions matrix adds clean no-hook installs and no-network checks for
-Miniflare Request/Response/dispatcher and the shipped sync-fetch worker body,
-small ws fragment/chunk boundaries, and both consumers' actual esbuild binary,
-plugins, context and metafile APIs. The existing full pool suite, Wrangler types
-and Worker dry-run still run. No new test contacts a live service or opens a
-socket. The sync worker fixture replaces its port and socket boundary; it is not
-proof of real Worker IPC or TLS certificate behavior. Linux/Windows matrix
-configuration is not proof that those jobs passed, nor execution on the other
-24 optional esbuild platforms.
+The graph suite compares complete lock records, sorted path keys, root metadata
+and top-level metadata against the immutable base. The base-derived held digest
+covers all 298 unselected package entries; it is not regenerated from the new
+head. The sole selected record is asserted separately, alongside actual
+Miniflare-owned ws path/version and installed-lock integrity metadata. The same
+structural assertion must reject the OLD nested ws 8.18.0 lock despite its
+already-patched root ws. Discovery bytes and original manifest ranges remain
+protected. Do not rebaseline a digest to conceal unexpected resolver output.
 
-The separate `dependency-qualification.yml` workflow leaves the existing
-production CI workflow and its exact historical-publication fingerprints
-unchanged. Its own aggregate reports the matrix result. Matrix success remains
-an explicit specialist-review condition; adding a workflow does not modify
-repository rulesets or claim that a new branch-protection requirement is installed.
+The Linux/Windows Actions matrix retains clean no-hook installs, effective
+native installer-policy validation before installation, tiny configured ws
+fragment/chunk refusal and success boundaries, noServer defaults, and actual
+Miniflare Request/Response clone/header/stream/101/WebSocketPair and dispatcher
+routing. The shipped sync-fetch worker and both actual esbuild build/context/
+metafile consumers are **baseline compatibility** checks, not Undici advisory
+closure or Windows serve containment. Existing full pool/export, Wrangler types,
+API/no-network suites and Worker dry-run gates remain. No new test contacts a
+live service or opens a socket. The worker fixture replaces port/socket
+boundaries; real Worker IPC, kernel poll/liveness and TLS enforcement are not
+proved by this smoke test.
 
-Four additional Undici regression modules adapt exact-tag upstream assertions
-at commit `7507102a675b082a71437f0a00681e537875556c`, retaining the MIT notice in
-`scripts/fixtures/UNDICI-LICENSE`. They use the actual Miniflare-resolved package,
-MockAgent, finite dispatcher events and a tiny EventEmitter backpressure stub.
-Their helper blocks socket/listener/DNS/global-fetch entry points and fails even
-when an attempted I/O exception was caught. The assertions cover representative
-cookie/cache/retry/dump/encoding/PONG behavior for 15 advisory records, plus
-**option propagation only** for BalancedPool and Agent. Source integration is
-not a passing run or exhaustive advisory coverage.
+The separate `dependency-qualification.yml` leaves existing production CI and
+historical-publication fingerprints unchanged. Its failure aggregate retains
+both hosted runners. Native full-root, production-only and discovery audit raw
+JSON, normalized package/advisory/range/path/parent records and existing exception
+dispositions are retained as Actions artifacts. Full-root audits remain nonzero:
+restoring excluded vulnerabilities is expected, not a successful repair of them.
+Exact reduced-head audit counts and job results must come from Actions; older
+combined-head counts/results are not evidence for the reduced head. The existing
+production/discovery exception gate and stale-entry guard remain binding and
+unchanged; no exception is renewed, retired or expanded here.
 
-**Draft qualification gaps:** five Undici outcomes remain uncovered: SOCKS
-requestTls enforcement and cross-origin pool isolation, idle-socket reuse,
-blob-like body type serialization, and TLS 1.2 renegotiation. The two options-only
-cases do not establish default connector certificate enforcement. Windows esbuild
-serve containment is also unqualified: a Windows build API pass cannot substitute
-for the serve containment case. Real TLS and idle-socket behavior cannot be
-inferred from MockAgent. These remain Security/QA gates, not skipped tests treated
-as success; no no-network-policy relaxation is authorized.
-
-This is a subset repair. Sharp, the browser-manager chain (including basic-ftp
-and extract-zip), Zod and embedded parser copies remain held and unresolved.
-Existing audit exceptions and their stale-entry guard are unchanged. A lock-only
-full root audit still exits 1 with 12 affected-package records (all high); the
-production-only root audit exits 1 with seven; discovery exits 0 with zero.
-These are package records, not alert counts or proof of runtime exploitation.
-No complete-debt closure, vulnerability acceptance or deployment is implied.
+**Continuing excluded debt:** all 22 Undici advisory conditions remain owned and
+unresolved, including all four original Cookie-bearing C6 quadrants and privacy
+hop controls. C6 remains held; H1 memory-stream cases remain PARTIAL and U6
+kernel/liveness proof UNSATISFIED; O2 is options-only. TLS/SOCKS/default-connector/
+renegotiation designs are unintegrated/unexecuted. Published Windows esbuild
+serve containment remains UNSATISFIED. Source hashes, Linux/version/build smoke,
+a copied predicate or a custom binary cannot satisfy it. Those obligations are
+mandatory for later excluded-lane remediation, not claimed passes in this ws
+change. Sharp, browser-manager/basic-ftp/extract-zip, external Zod and embedded
+parser debt also remains held. No full-debt closure, vulnerability acceptance,
+security waiver, no-network relaxation or deployment is implied.
 
 ## Discovery host compatibility
 
