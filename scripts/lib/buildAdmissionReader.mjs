@@ -13,6 +13,15 @@ function fail(message) {
   throw new Error(`build publication history: ${message}`);
 }
 
+// Pre-fetch validation refusals are static operator-visible reasons (missing
+// token, bad path, non-GET). They carry no credential or signed URL, so they
+// are marked and rethrown unchanged; fetch errors stay redacted below.
+function failRefusal(message) {
+  const error = new Error(`build publication history: ${message}`);
+  error.admissionTransportRefusal = true;
+  throw error;
+}
+
 function integerHeader(headers, name) {
   const raw = headers[name];
   if (typeof raw !== "string" || !/^(0|[1-9][0-9]*)$/.test(raw)) fail(`missing or malformed ${name}; NOT READY`);
@@ -65,7 +74,8 @@ export function createAdmissionReader(api) {
             }, Math.min(READ_TIMEOUT_MS, timeLeft));
           })
         ]);
-      } catch {
+      } catch (error) {
+        if (error && error.admissionTransportRefusal) throw error;
         // Never echo a transport error: it can contain a token or signed URL.
         fail("provider read failed or timed out; NOT READY");
       } finally {
@@ -113,9 +123,9 @@ export function createAdmissionReader(api) {
 export function githubTransport(token) {
   return {
     async request(method, path, { signal } = {}) {
-      if (method !== "GET") fail("history admission is read-only");
-      if (typeof token !== "string" || token.length === 0) fail("GitHub token required for history admission");
-      if (typeof path !== "string" || !path.startsWith("/repos/") || path.includes("#")) fail("invalid provider path");
+      if (method !== "GET") failRefusal("history admission is read-only");
+      if (typeof token !== "string" || token.length === 0) failRefusal("GitHub token required for history admission");
+      if (typeof path !== "string" || !path.startsWith("/repos/") || path.includes("#")) failRefusal("invalid provider path");
       const response = await fetch(`https://api.github.com${path}`, {
         method, signal, redirect: "manual",
         headers: {

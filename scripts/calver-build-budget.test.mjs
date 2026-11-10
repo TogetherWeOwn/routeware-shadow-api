@@ -161,6 +161,14 @@ test("transport failures are terminal and redact possibly credential-bearing err
   assert.equal(api.calls.length, 1);
 });
 
+test("transport validation refusals name their reason instead of the generic transport failure", async () => {
+  const read = createAdmissionReader(githubTransport(""));
+  await assert.rejects(() => read(root), (error) => error.message === "build publication history: GitHub token required for history admission");
+  await assert.rejects(() => read(root), /GitHub token required/); // Terminal: no resume, no fetch.
+  const badPath = createAdmissionReader(githubTransport("synthetic-token"));
+  await assert.rejects(() => badPath("/object"), (error) => error.message === "build publication history: invalid provider path");
+});
+
 test("per-read timeout aborts a stalled transport, with no retry", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const api = provider(() => new Promise(() => {}));
