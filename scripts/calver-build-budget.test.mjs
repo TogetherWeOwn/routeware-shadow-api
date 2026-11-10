@@ -196,6 +196,87 @@ test("aggregate time is bounded even when each individual read succeeds", async 
   assert.equal(api.calls.length, 1);
 });
 
+test("final proof validation crossing the aggregate deadline refuses after the last GET, with no extra GET", async (t) => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  // Final GET has already returned inside the deadline. Synchronous proof
+  // validation reads the steps and moves the admission-local clock.
+  const context = { repository: REPOSITORY, sha, runId: 9999, attempt: 1, enabled: true, eventName: "push", ref: "refs/heads/main" };
+  const run = (id) => ({ id, run_attempt: 1, head_sha: sha, path: ".github/workflows/ci.yml", event: "push", head_branch: "main",
+    repository: { id: 17, full_name: REPOSITORY }, head_repository: { id: 17, full_name: REPOSITORY } });
+  const runs = [run(1), run(context.runId)];
+  const steps = ["Plan deployment build identity", "Deploy Worker", "Publish non-Latest deployment build"].map((name) => ({
+    name, status: "completed", conclusion: "success"
+  }));
+  const job = {
+    id: 1, run_id: 1, run_attempt: 1, head_sha: sha,
+    name: "Deploy to Cloudflare Workers",
+    get steps() {
+      clock = ADMISSION_TIMEOUT_MS;
+      return steps;
+    }
+  };
+  const api = provider((path) => {
+    if (path.includes("/workflows/ci.yml/runs")) return success(rateHeaders(), { total_count: runs.length, workflow_runs: runs });
+    const match = path.match(/\/runs\/(\d+)\/attempts\/1(\/jobs)?(?:\?per_page=100&page=(\d+))?$/);
+    if (match) {
+      const current = runs.find((item) => item.id === Number(match[1]));
+      if (!match[2]) return success(rateHeaders(), current);
+      return success(rateHeaders(), { total_count: 1, jobs: [job] });
+    }
+    throw new Error(`unexpected synthetic request ${path}`);
+  });
+  await assert.rejects(() => assertBuildPublicationHistory(context, api), /admission time budget exceeded; NOT READY/);
+  assert.equal(api.calls.length, 4, "refusal performs the last GET and no extra GET");
+  assert.equal(clock, ADMISSION_TIMEOUT_MS);
+});
+
+test("final proof validation just below the aggregate deadline still admits", async (t) => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const context = { repository: REPOSITORY, sha, runId: 9999, attempt: 1, enabled: true, eventName: "push", ref: "refs/heads/main" };
+  const run = (id) => ({ id, run_attempt: 1, head_sha: sha, path: ".github/workflows/ci.yml", event: "push", head_branch: "main",
+    repository: { id: 17, full_name: REPOSITORY }, head_repository: { id: 17, full_name: REPOSITORY } });
+  const runs = [run(1), run(context.runId)];
+  const steps = ["Plan deployment build identity", "Deploy Worker", "Publish non-Latest deployment build"].map((name) => ({
+    name, status: "completed", conclusion: "success"
+  }));
+  const job = {
+    id: 1, run_id: 1, run_attempt: 1, head_sha: sha,
+    name: "Deploy to Cloudflare Workers",
+    get steps() {
+      clock = ADMISSION_TIMEOUT_MS - 1;
+      return steps;
+    }
+  };
+  const api = provider((path) => {
+    if (path.includes("/workflows/ci.yml/runs")) return success(rateHeaders(), { total_count: runs.length, workflow_runs: runs });
+    const match = path.match(/\/runs\/(\d+)\/attempts\/1(\/jobs)?(?:\?per_page=100&page=(\d+))?$/);
+    if (match) {
+      const current = runs.find((item) => item.id === Number(match[1]));
+      if (!match[2]) return success(rateHeaders(), current);
+      return success(rateHeaders(), { total_count: 1, jobs: [job] });
+    }
+    throw new Error(`unexpected synthetic request ${path}`);
+  });
+  await assertBuildPublicationHistory(context, api);
+  assert.equal(api.calls.length, 4);
+  assert.equal(clock, ADMISSION_TIMEOUT_MS - 1);
+});
+
+test("admission deadline check is admission-local and performs no GET", async (t) => {
+  let clock = 0;
+  t.mock.method(performance, "now", () => clock);
+  const api = provider();
+  const read = createAdmissionReader(api);
+  await read(root);
+  clock = ADMISSION_TIMEOUT_MS - 1;
+  read.assertWithinAdmissionDeadline();
+  clock = ADMISSION_TIMEOUT_MS;
+  assert.throws(() => read.assertWithinAdmissionDeadline(), /admission time budget exceeded; NOT READY/);
+  assert.equal(api.calls.length, 1, "the completion check never dispatches a GET");
+});
+
 test("cache keys bind repo, SHA and object kind, with no mutation or cross-admission leakage", async () => {
   const api = provider(() => success(rateHeaders(), { proof: "original" }));
   const read = createAdmissionReader(api);

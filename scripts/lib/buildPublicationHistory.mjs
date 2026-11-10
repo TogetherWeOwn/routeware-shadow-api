@@ -348,4 +348,8 @@ export async function assertBuildPublicationHistory(context, api) {
   for (const { run, attempt } of pending) {
     await assertAttemptSafe(read, run, attempt, assertRepaired);
   }
+  // The 120-second admission bound covers the final synchronous validation
+  // after the last GET. A late final response inside the deadline must still
+  // refuse when validation crosses it; this check adds no GET.
+  read.assertWithinAdmissionDeadline();
 }

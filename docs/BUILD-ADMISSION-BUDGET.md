@@ -36,8 +36,10 @@ One enabled admission enforces all of these:
   Missing/malformed/inconsistent metadata refuses.
   Our allowance can shrink but never grows when a reset or repeated/higher
   remaining header is observed. No hourly-reset sleep.
-- **120 seconds total, 10 seconds per request**, including body consumption;
-  timeout aborts fetch and fails the admission. Requests are serial. There are
+- **120 seconds total, 10 seconds per request**, including body consumption
+  and final synchronous proof validation; timeout aborts fetch and fails the
+  admission. The admission succeeds only after a post-validation deadline
+  check on the same admission-local clock, which dispatches no GET. Requests are serial. There are
   **zero retries**. HTTP 403/429, any `retry-after` signal (including malformed),
   other non-200 status, invalid proof and transport errors fail closed. Error
   messages do not echo credential-bearing transport errors or response bodies.

@@ -36,7 +36,11 @@ export function createAdmissionReader(api) {
   let remaining = null;
   let refusal = null;
 
-  return async function read(path) {
+  function assertAdmissionDeadline() {
+    if (performance.now() - started >= ADMISSION_TIMEOUT_MS) fail("admission time budget exceeded; NOT READY");
+  }
+
+  async function read(path) {
     if (refusal) throw refusal;
     try {
       const timeLeft = ADMISSION_TIMEOUT_MS - (performance.now() - started);
@@ -89,7 +93,7 @@ export function createAdmissionReader(api) {
       // allowance. Decrement our own observation even if headers repeat/increase.
       remaining = Math.min(remaining === null ? available : remaining - 1, available);
       if (remaining < MAX_ADMISSION_READS - reads + ADMISSION_RESERVE) fail("insufficient provider read budget; NOT READY");
-      if (performance.now() - started >= ADMISSION_TIMEOUT_MS) fail("admission time budget exceeded; NOT READY");
+      assertAdmissionDeadline();
       const result = { data: response.data, headers };
       if (immutablePath(path)) cache.set(path, structuredClone(result));
       return result;
@@ -97,7 +101,12 @@ export function createAdmissionReader(api) {
       refusal = error; // A failed admission cannot be resumed with cached proof.
       throw error;
     }
-  };
+  }
+  // The aggregate deadline also bounds synchronous proof validation after the
+  // last GET. Callers assert this same admission-local deadline after final
+  // validation, immediately before success, with no extra GET (no reset).
+  read.assertWithinAdmissionDeadline = assertAdmissionDeadline;
+  return read;
 }
 
 /** No hidden fetch redirects/retries: every invocation is exactly one GET. */
