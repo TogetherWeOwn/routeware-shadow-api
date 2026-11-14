@@ -1,0 +1,43 @@
+# Review policy only; this file does not install or activate an automated guard.
+# Highest matching tier wins: sensitive > ordinary > low. Unmatched paths are
+# sensitive. QA reviews every change; Security reviews sensitive changes before QA.
+# Content overrides paths: endpoint or input parsing, authentication, authorization,
+# sessions, crypto, keys, credentials, permissions, tenant isolation, personal data,
+# SQL, schema, migrations, dependencies (including dev dependencies), lockfiles and
+# CI/workflow changes are sensitive. Weakened assertions, deleted tests or snapshots,
+# and lowered gates are sensitive. Tests can be low only when strictly additive.
+# A sensitive-floor downgrade requires explicit Security approval on the PR.
+version: 1
+default_tier: sensitive
+tiers:
+  # Prose changelog fragments only; sensitive content still overrides this match.
+  low:
+    - 'changelog/unreleased/*.md'
+  # No runtime module has been audited for ordinary classification.
+  ordinary: []
+  sensitive:
+    - '.github/**'
+    - '**/CODEOWNERS'
+    - '**/AGENTS.md'
+    - '**/CLAUDE.md'
+    - '.claude/**'
+    - '**/skills/**'
+    - '**/SKILL.md'
+    - '**/package.json'
+    - '**/package-lock.json'
+    - '**/npm-shrinkwrap.json'
+    - '**/pnpm-lock.yaml'
+    - '**/yarn.lock'
+    - '**/.npmrc'
+    - '**/Dockerfile*'
+    - '**/Makefile'
+    - 'src/**'
+    - 'scripts/**'
+    - 'checks/**'
+    - 'tools/**'
+    - 'migrations/**'
+    - 'wrangler.toml'
+    - 'tsconfig*.json'
+    - 'vitest*.ts'
+    - 'SECURITY.md'
+    - 'docs/**'
