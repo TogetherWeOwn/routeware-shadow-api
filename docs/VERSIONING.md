@@ -168,12 +168,15 @@ headers cannot supply or override this identity. No default is committed in
   ambiguous evidence (pagination gaps, provider errors, missing or duplicate
   steps, a deployment that started but has not finished, unknown outcomes) as
   refusal rather than absence. Provider enumeration is bounded, so exceeding
-  that bound also refuses. The supported bounds are 1,000 runs and 20 attempts
-  per run, with every attempt examined; repaired tag inventory is bounded at
-  10,000 tags. These are enumeration limits, not a promise of provider quota.
-  Even eligible synthetic history may exceed a live job token's request budget;
-  quota errors refuse without truncation or changing credentials. Live quota
-  feasibility must be established before any separate production enablement.
+  that bound also refuses. Structural bounds remain 1,000 runs and 20 attempts
+  per run; repaired tag inventory is bounded at 10,000 tags. These are NOT a
+  supported-load promise: admission now also enforces a practical
+  [external-read budget](BUILD-ADMISSION-BUDGET.md). Complete proof must fit
+  **200 GETs, 120 seconds and the provider's observed remaining allowance**, with
+  a 100-request reserve. Missing/malformed metadata or quota/transport errors
+  refuse before allocation, never truncate history or switch credentials.
+  Unsupported loads are **NOT READY**. Live production feasibility remains
+  **NOT VERIFIED**, and enablement still requires its separate gates.
   Affirmative evidence that no version was consumed permits admission: a
   completed/cancelled attempt with fully enumerated jobs and no production job;
   a completed/skipped production job with no steps (GitHub may populate its
