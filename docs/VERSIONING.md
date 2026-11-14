@@ -167,13 +167,21 @@ headers cannot supply or override this identity. No default is committed in
   It only reads, never reconciles by writing, and treats incomplete or
   ambiguous evidence (pagination gaps, provider errors, missing or duplicate
   steps, a deployment that started but has not finished, unknown outcomes) as
-  refusal rather than absence. Provider enumeration is bounded, so exceeding
-  that bound also refuses. The supported bounds are 1,000 runs and 20 attempts
-  per run, with every attempt examined; repaired tag inventory is bounded at
-  10,000 tags. These are enumeration limits, not a promise of provider quota.
-  Even eligible synthetic history may exceed a live job token's request budget;
-  quota errors refuse without truncation or changing credentials. Live quota
-  feasibility must be established before any separate production enablement.
+  refusal rather than absence. [Complete unfiltered workflow discovery](BUILD-PUBLICATION-HISTORY.md)
+  avoids GitHub's 1,000-result filtered-search cap; main pushes are selected only
+  after complete enumeration. Both pre- and post-proof inventories must agree,
+  including gap-free retained run-number prefixes. Deleted suffixes or a replaced
+  workflow lineage still require independent retention qualification; listing
+  success cannot prove all-time history. The physical bound is 50 pages × 100
+  all-workflow records and 20 attempts per selected run; repaired tag inventory
+  is bounded at 10,000 tags. These are NOT a supported-load promise: admission
+  also enforces the practical [external-read budget](BUILD-ADMISSION-BUDGET.md).
+  Complete production proof must fit **200 GETs, 120 seconds and the provider's
+  observed remaining allowance**, with a 100-request reserve. Missing/malformed
+  metadata or quota/transport errors refuse before allocation, never truncate
+  history or switch credentials. Unsupported loads are **NOT READY**. Live
+  production feasibility remains **NOT VERIFIED**, and enablement still requires
+  its separate gates.
   Affirmative evidence that no version was consumed permits admission: a
   completed/cancelled attempt with fully enumerated jobs and no production job;
   a completed/skipped production job with no steps (GitHub may populate its
@@ -185,9 +193,21 @@ headers cannot supply or override this identity. No default is committed in
   workflow fingerprint must prove the same exclusive deploy lock. Arbitrary
   build-aware workflow text or incomplete inventories cannot establish this.
   Missing job data or missing start fields on queued/cancelled jobs is not no-run
-  evidence. A run whose exact historical workflow
-  predates build identity also permits admission once any executed steps have
-  finished. Disabled deploys perform no reads at all.
+  evidence. Outside that reviewed active-lock exemption, missing-production-job
+  legacy admission requires the exact attempt to be completed with a valid terminal
+  conclusion; queued, in-progress or malformed attempt metadata refuses even when
+  the historical source predates build identity. A terminal pre-build attempt still
+  admits, as do completed/cancelled no-job attempts without a source read. Existing
+  production jobs must still have finished executing before legacy classification.
+  All-success named plan/deploy/publish steps also require the exact-SHA workflow
+  bytes to match the existing reviewed fingerprints. Unknown source or source-read
+  failure refuses: successful names alone also fit valid frozen-plan dry-run wiring
+  that publishes nothing. Reviewed successful publication includes legitimate
+  idempotent matching-existing publication; `created=false` is not failure. Source
+  validation costs at most one cached Contents GET per distinct SHA. This recognizes
+  workflow wiring, not all transitive scripts: adapter/action changes still need
+  ordinary source requalification. Disabled deploys perform no reads at all.
+  Hermetic regressions: `npm run check:focused -- build-history-admission`.
 
 Rollback this wiring with a reviewed revert; do not delete tags or publish a new
 forward build release for a rollback. No production deploy, migration, service

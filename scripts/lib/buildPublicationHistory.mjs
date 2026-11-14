@@ -11,34 +11,26 @@
  * reconciles by writing a tag, Release or deployment; anything it cannot prove
  * is refused, so uncertainty can never be mistaken for absence.
  *
- * Operational ceiling: the provider enumerates at most 1000 workflow runs, so
- * exceeding that makes complete enumeration impossible and the guard fails
- * closed. Production deploys are disabled today; raising this ceiling needs a
- * narrower proof, not a silent shortcut.
+ * Discovery uses exhaustive, unfiltered workflow enumeration rather than the
+ * capped branch/event search. All per-attempt obligations remain; physical
+ * collection bounds and provider/read-budget failures still refuse admission.
  */
 
-import { createBuildRepairProof, isReviewedBuildWorkflow, MAX_REPAIR_READS } from "./buildPublicationRepair.mjs";
+import { createBuildRepairProof, isReviewedBuildWorkflow } from "./buildPublicationRepair.mjs";
+import { createAdmissionReader } from "./buildAdmissionReader.mjs";
+import {
+  REPOSITORY, WORKFLOW_PATH, PAGE_SIZE, createLinkNormalizer,
+  readCollection, discoverBuildRuns, assertStableBuildRunInventory
+} from "./buildPublicationDiscovery.mjs";
 
-export const REPOSITORY = "TogetherWeOwn/routeware-shadow-api";
-
-const WORKFLOW_PATH = ".github/workflows/ci.yml";
+export { REPOSITORY } from "./buildPublicationDiscovery.mjs";
 const STEP_NAMES = Object.freeze({
   plan: "Plan deployment build identity",
   deploy: "Deploy Worker",
   publish: "Publish non-Latest deployment build"
 });
 const JOB_NAME = "Deploy to Cloudflare Workers";
-const PAGE_SIZE = 100;
-const MAX_PAGES = 50;
-const MAX_RUN_RECORDS = 1000;
 const MAX_ATTEMPTS = 20;
-/**
- * Cover every supported run AND attempt, including all bounded job pages, one
- * numeric-link identity lookup and one workflow read per attempt. Provider quota
- * failures still refuse; this safety ceiling is not a promise of live API quota.
- */
-const MAX_READS = MAX_RUN_RECORDS * MAX_ATTEMPTS * (MAX_PAGES + 4) + MAX_REPAIR_READS + 100;
-const API_ORIGIN = "https://api.github.com";
 
 function fail(message) {
   throw new Error(`build publication history: ${message}`);
@@ -61,128 +53,6 @@ export function assertHistoryContext(context) {
   requirePositiveInteger(context.runId, "run ID");
   requirePositiveInteger(context.attempt, "attempt");
   if (context.eventName !== "push" || context.ref !== "refs/heads/main") fail("build release requires a main push");
-}
-
-function createReader(api) {
-  if (!isObject(api) || typeof api.request !== "function") fail("history provider transport required");
-  let reads = 0;
-  return async function read(path) {
-    reads += 1;
-    if (reads > MAX_READS) fail("history read budget exceeded");
-    let response;
-    try {
-      response = await api.request("GET", path);
-    } catch (error) {
-      fail(`provider read failed for ${path}: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    if (!isObject(response)) fail(`malformed provider envelope for ${path}`);
-    if (response.status !== 200) fail(`provider returned status ${String(response.status)} for ${path}`);
-    return { data: response.data, headers: isObject(response.headers) ? response.headers : {} };
-  };
-}
-
-function nextLink(headers) {
-  const raw = typeof headers.link === "string" ? headers.link : null;
-  if (raw === null || raw.length === 0) return null;
-  for (const part of raw.split(",")) {
-    const match = part.match(/<([^>]+)>\s*;\s*rel="?next"?/);
-    if (match) return match[1];
-  }
-  return null;
-}
-
-/**
- * GitHub returns `rel="next"` links under `/repositories/<numeric id>/...`,
- * not the `/repos/owner/name/...` form used for requests. Accept that alias
- * only when the numeric id is the one this repository actually resolves to,
- * read once and cached; every other shape is refused. A normalized alias is
- * rewritten to the canonical `/repos/<repository>/...` path so the caller's
- * exact-continuation check keeps comparing one shape.
- */
-function createLinkNormalizer(read) {
-  let repositoryId = null;
-  return async function normalize(link) {
-    let url;
-    try {
-      url = new URL(link);
-    } catch {
-      fail("unparseable pagination link");
-    }
-    if (url.origin !== API_ORIGIN) fail("pagination must stay on the GitHub API origin");
-    const canonical = `/repos/${REPOSITORY}/`;
-    if (url.pathname.startsWith(canonical)) return `${url.pathname}${url.search}`;
-    const alias = url.pathname.match(/^\/repositories\/(\d+)(\/.*)$/);
-    if (!alias) fail("pagination must stay in this repository");
-    if (repositoryId === null) {
-      const { data } = await read(`/repos/${REPOSITORY}`);
-      if (!isObject(data) || !Number.isSafeInteger(data.id) || data.id <= 0) fail("repository identity unavailable");
-      if (data.full_name !== REPOSITORY) fail("repository identity mismatch");
-      repositoryId = data.id;
-    }
-    if (Number(alias[1]) !== repositoryId) fail("pagination must stay in this repository");
-    return `${canonical.slice(0, -1)}${alias[2]}${url.search}`;
-  };
-}
-
-/**
- * Enumerate every page of a collection, refusing cycles, foreign links, a
- * changing or invalid total, duplicate records and short collection.
- */
-async function readCollection(read, key, createPath) {
-  const normalize = createLinkNormalizer(read);
-  const visited = new Set();
-  const records = [];
-  let declaredTotal = null;
-  for (;;) {
-    const path = createPath(visited.size + 1);
-    if (visited.has(path)) fail("cyclic pagination link");
-    visited.add(path);
-    if (visited.size > MAX_PAGES) fail("pagination exceeded the page bound");
-    const { data, headers } = await read(path);
-    if (!isObject(data)) fail(`malformed ${key} collection`);
-    if (!Array.isArray(data[key])) fail(`${key} collection missing`);
-    if (declaredTotal === null) {
-      if (!Number.isSafeInteger(data.total_count) || data.total_count < 0) fail(`${key} count invalid`);
-      declaredTotal = data.total_count;
-    } else if (data.total_count !== declaredTotal) {
-      fail(`${key} count changed during enumeration`);
-    }
-    for (const record of data[key]) {
-      if (!isObject(record)) fail(`malformed ${key} record`);
-      records.push(record);
-    }
-    const link = nextLink(headers);
-    if (link === null) break;
-    const next = await normalize(link);
-    if (visited.has(next)) fail("cyclic pagination link");
-    // Re-enter the loop through the same validated path shape.
-    const expected = createPath(visited.size + 1);
-    if (next !== expected) fail("pagination link does not continue this collection");
-  }
-  return { records, declaredTotal };
-}
-
-async function listRuns(read) {
-  const base = `/repos/${REPOSITORY}/actions/workflows/ci.yml/runs`;
-  const { records, declaredTotal } = await readCollection(read, "workflow_runs", (page) =>
-    `${base}?branch=main&event=push&per_page=${PAGE_SIZE}&page=${page}`
-  );
-  if (declaredTotal > MAX_RUN_RECORDS) fail("run history exceeds the provider enumeration cap");
-  const byId = new Map();
-  for (const run of records) {
-    requirePositiveInteger(run.id, "run record id");
-    const existing = byId.get(run.id);
-    if (!existing) {
-      byId.set(run.id, run);
-      continue;
-    }
-    requirePositiveInteger(existing.run_attempt, "run record attempt");
-    requirePositiveInteger(run.run_attempt, "run record attempt");
-    if (existing.run_attempt === run.run_attempt) fail("duplicate run record");
-    if (existing.run_attempt < run.run_attempt) byId.set(run.id, run);
-  }
-  if (byId.size !== declaredTotal) fail("run enumeration is incomplete");
-  return byId;
 }
 
 async function listJobs(read, expected) {
@@ -211,10 +81,11 @@ function assertAttemptIdentity(metadata, expected) {
   if (metadata.id !== expected.runId) fail("attempt metadata belongs to another run");
   if (metadata.run_attempt !== expected.attempt) fail("attempt metadata belongs to another attempt");
   if (metadata.head_sha !== expected.sha) fail("attempt metadata belongs to another commit");
-  if (metadata.path !== WORKFLOW_PATH) fail("attempt metadata belongs to another workflow");
+  if (metadata.path !== WORKFLOW_PATH || metadata.workflow_id !== expected.workflowId) fail("attempt metadata belongs to another workflow");
   if (metadata.event !== "push") fail("attempt metadata is not a push");
   if (metadata.head_branch !== "main") fail("attempt metadata is not a main build");
-  if (!isObject(metadata.repository) || metadata.repository.full_name !== REPOSITORY) {
+  if (!isObject(metadata.repository) || metadata.repository.full_name !== REPOSITORY
+    || metadata.repository.id !== expected.repositoryId) {
     fail("attempt metadata belongs to another repository");
   }
   if (!isObject(metadata.head_repository) || metadata.head_repository.full_name !== REPOSITORY) {
@@ -303,7 +174,9 @@ async function isLegacyWorkflow(read, sha) {
  * whose outcome is unknown, may have consumed an unrecorded build identity.
  */
 async function assertAttemptSafe(read, run, attempt, assertRepaired) {
-  const expected = { runId: run.id, attempt, sha: run.head_sha };
+  const expected = {
+    runId: run.id, attempt, sha: run.head_sha, workflowId: run.workflow_id, repositoryId: run.repository.id
+  };
   const metadata = await read(`/repos/${REPOSITORY}/actions/runs/${run.id}/attempts/${attempt}`);
   assertAttemptIdentity(metadata.data, expected);
   const job = findProductionJob(await listJobs(read, expected), expected);
@@ -315,10 +188,21 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
     if ((metadata.data.status === "queued" || metadata.data.status === "in_progress")
       && metadata.data.conclusion === null
       && isReviewedBuildWorkflow(await readWorkflow(read, run.head_sha))) return;
+    // Outside the reviewed active-lock exemption, an empty job snapshot cannot
+    // prove absence while this exact attempt can still start work.
+    const terminal = ["success", "failure", "neutral", "cancelled", "skipped", "timed_out", "action_required", "stale"];
+    if (metadata.data.status !== "completed" || !terminal.includes(metadata.data.conclusion)) {
+      fail(`attempt ${run.id}/${attempt} has no production job without terminal attempt metadata`);
+    }
     if (await isLegacyWorkflow(read, run.head_sha)) return;
     fail(`attempt ${run.id}/${attempt} has no production job under a build-aware workflow`);
   }
-  if (isAffirmativelySkipped(job)) return;
+  if (isAffirmativelySkipped(job)) {
+    if (job.status === "queued" && !isReviewedBuildWorkflow(await readWorkflow(read, run.head_sha))) {
+      fail(`attempt ${run.id}/${attempt} has a queued production job without reviewed lock wiring`);
+    }
+    return;
+  }
   // Anything that has started but not finished is ambiguous: it could be
   // deploying while this admission runs.
   assertJobFinished(job, `${run.id}/${attempt}`);
@@ -333,8 +217,14 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
   if (deploy !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous deployment`);
   if (steps.plan.conclusion === "skipped") return;
   if (steps.plan.conclusion !== "success") fail(`attempt ${run.id}/${attempt} has an ambiguous build plan`);
-  if (steps.publish.conclusion !== "success") {
-    await assertRepaired({ ...expected, jobId: job.id }, await readWorkflow(read, run.head_sha));
+  const workflow = await readWorkflow(read, run.head_sha);
+  if (steps.publish.conclusion === "success") {
+    // Names and successful conclusions alone also fit dry-run publication.
+    // Reviewed wiring binds the deployed version to a real frozen-plan publish;
+    // matching-existing-publication success is legitimate, not a failed write.
+    if (!isReviewedBuildWorkflow(workflow)) fail("unsupported historical successful publication wiring");
+  } else {
+    await assertRepaired({ ...expected, jobId: job.id }, workflow);
   }
 }
 
@@ -345,15 +235,29 @@ async function assertAttemptSafe(read, run, attempt, assertRepaired) {
 export async function assertBuildPublicationHistory(context, api) {
   assertHistoryContext(context);
   if (context.enabled !== true) return;
-  const read = createReader(api);
+  const read = createAdmissionReader(api);
+  await proveBuildPublicationHistory(context, read);
+  read.assertWithinDeadline(); // Include final inventory processing in the original budget.
+}
 
-  const runs = await listRuns(read);
+/** Pure proof seam for bounded synthetic readers; never a planner or transport.
+ * Production callers use assertBuildPublicationHistory and its admission reader.
+ */
+export async function proveBuildPublicationHistory(context, read) {
+  assertHistoryContext(context);
+  if (context.enabled !== true) return;
+  if (typeof read !== "function") fail("history proof reader required");
+  const discovery = await discoverBuildRuns(read);
+  const { runs } = discovery;
   const current = runs.get(context.runId);
   if (!current) fail("current build run is missing from the enumerated history");
   if (current.run_attempt !== context.attempt) fail("current build attempt is not the enumerated latest attempt");
   if (current.head_sha !== context.sha) fail("current build run does not belong to this commit");
   const currentMetadata = await read(`/repos/${REPOSITORY}/actions/runs/${context.runId}/attempts/${context.attempt}`);
-  assertAttemptIdentity(currentMetadata.data, { runId: context.runId, attempt: context.attempt, sha: context.sha });
+  assertAttemptIdentity(currentMetadata.data, {
+    runId: context.runId, attempt: context.attempt, sha: context.sha,
+    workflowId: current.workflow_id, repositoryId: current.repository.id
+  });
 
   const currentKey = `${context.runId}/${context.attempt}`;
   const pending = [];
@@ -371,4 +275,5 @@ export async function assertBuildPublicationHistory(context, api) {
   for (const { run, attempt } of pending) {
     await assertAttemptSafe(read, run, attempt, assertRepaired);
   }
+  assertStableBuildRunInventory(discovery, await discoverBuildRuns(read));
 }
