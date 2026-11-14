@@ -4,7 +4,8 @@ import { parseBuildVersion } from "../../src/lib/buildVersion.ts";
 const MAX_TAGS = 10000;
 const MAX_TAG_PAGES = MAX_TAGS / 100;
 // One complete tag inventory per admission, never once per historical failure.
-export const MAX_REPAIR_READS = MAX_TAG_PAGES + MAX_TAGS * 3 + 1;
+// Every repair read uses the same practical admission budget as run history;
+// these structural enumeration bounds do not grant additional provider capacity.
 
 // SHA-256 of the reviewed .github/workflows/ci.yml bytes. A partial YAML match
 // cannot establish executable wiring (aliases, env overrides, steps in other
